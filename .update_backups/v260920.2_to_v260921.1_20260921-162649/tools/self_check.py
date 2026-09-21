@@ -152,10 +152,6 @@ def main() -> int:
         assert "overview-new-project" in app_js and "openEditorProjectPicker" in app_js and "api_key_env" in app_js
         assert "agent-thinking" in app_js and "模型思考过程" in app_js and "点击空白处恢复全图" in app_js
         assert "global-search-btn" in index and "agent-layout" in styles and "graph-filter-grid" in styles
-        assert "graph-preview" in app_js and "graph-fit" in app_js and "_graphResetView" in app_js
-        assert "milestone-preview" in app_js and "showMilestonePreview" in app_js
-        assert "data-set-tab=\"service\"" in app_js and "svc-host" in app_js and "svc-workspace" in app_js
-        assert "graph-wrap.preview-open" in styles and "overflow-wrap:anywhere" in styles
         assert "mermaid.render" in app_js and "data-focus-preset" in app_js
         ok("Graph filters/highlight + Ctrl+S + dynamic Agent mode UI")
 

@@ -1,12 +1,4 @@
-# Changelog
-
-## v260921.1
-
-- 修复知识图谱右侧长文本不换行。
-- 新增知识图谱节点 Markdown 预览抽屉；支持真实文档和项目/标签虚拟节点。
-- 里程碑 3D 时间线新增 Markdown 预览抽屉与“打开编辑”。
-- 知识图谱新增空白画布拖动、Ctrl/Cmd+滚轮缩放、3D Alt/右键旋转与一键全览。
-- 设置中心新增“服务与存储”页，暴露 Host、Port、自动打开浏览器、Workspace、迁移策略；天气启用开关和 LLM provider_label 也可视化。
+# CHANGELOG
 
 ## workbench-v260920.2 · 2026-09-20
 

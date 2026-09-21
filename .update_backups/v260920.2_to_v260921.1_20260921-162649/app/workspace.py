@@ -179,33 +179,31 @@ def migrate_legacy(root: Path | None = None, force_scan: bool = False) -> dict[s
 
     copied: list[dict[str, str]] = []
     sources = detect_legacy_sources()
-    copy_enabled = bool(get_app().get("workspace_migration", {}).get("copy_legacy_data", True))
-    if copy_enabled:
-        for item in sources:
-            src = Path(item["source"])
-            dest = root / item["destination"]
-            dest.mkdir(parents=True, exist_ok=True)
-            files = [src] if src.is_file() else [x for x in src.rglob("*") if x.is_file() and not x.is_symlink()]
-            for source_file in files:
-                try:
-                    rel = source_file.name if src.is_file() else str(source_file.relative_to(src))
-                    target = dest / rel
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    if target.exists():
-                        if _same_file(source_file, target):
-                            continue
-                        # Never overwrite user data. Keep a collision copy next to the target.
-                        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                        target = target.with_name(f"{target.stem}-migrated-{stamp}{target.suffix}")
-                    shutil.copy2(source_file, target)
-                    copied.append({"from": str(source_file), "to": str(target)})
-                except Exception:
-                    continue
+    for item in sources:
+        src = Path(item["source"])
+        dest = root / item["destination"]
+        dest.mkdir(parents=True, exist_ok=True)
+        files = [src] if src.is_file() else [x for x in src.rglob("*") if x.is_file() and not x.is_symlink()]
+        for source_file in files:
+            try:
+                rel = source_file.name if src.is_file() else str(source_file.relative_to(src))
+                target = dest / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    if _same_file(source_file, target):
+                        continue
+                    # Never overwrite user data. Keep a collision copy next to the target.
+                    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                    target = target.with_name(f"{target.stem}-migrated-{stamp}{target.suffix}")
+                shutil.copy2(source_file, target)
+                copied.append({"from": str(source_file), "to": str(target)})
+            except Exception:
+                continue
 
     history = previous.get("history", []) if isinstance(previous.get("history"), list) else []
     record = {
         "performed_at": datetime.now().isoformat(timespec="seconds"),
-        "mode": "incremental-copy" if copy_enabled else "scan-only",
+        "mode": "incremental-copy",
         "sources_found": len(sources),
         "copied_count": len(copied),
         "copied": copied[:500],

@@ -78,8 +78,3 @@ arXiv 来源支持 RSS → 官方 Atom API 自动回退。若全源失败：
 ## Agent 密钥边界（v260920.2）
 
 工作台只保存 `llm.api_key_env`（环境变量名称）。真实 API Key 由 `app/agent.py` 在请求发生时从 `os.environ` 读取，不进入 Workspace、`config/app.json` 或 Agent 会话文件。
-
-
-## v260921.1 UI interaction notes
-
-Knowledge Graph keeps Markdown as the source of truth. The canvas now maintains per-view camera state (pan/zoom/rotation), and selecting a node opens a read-only Markdown preview without creating duplicate storage. Milestone 3D preview follows the same pattern. Runtime/server parameters remain in `config/app.json` but are now editable through the Settings UI.
