@@ -86,24 +86,28 @@ DEFAULT_RSS_CONFIG = {
 
 _lock = threading.RLock()
 _cache: dict[str, Any] = {}
-_secrets_loaded = False
+_secrets_mtime: int | None = None
 
 
 def load_secrets() -> None:
     """加载本地私密配置 config/secrets.json（已被 .gitignore 排除，不上传 git）。
 
     将其中 env 对象的键值注入进程环境变量，供 agent 按 api_key_env 读取。
-    仅在进程启动时执行一次；文件不存在或格式异常时静默跳过，不阻断启动。
+    通过文件修改时间检测变更：保存后自动重新注入，无需重启服务。
+    文件不存在或格式异常时静默跳过，不阻断启动。
     """
-    global _secrets_loaded
-    if _secrets_loaded:
-        return
-    _secrets_loaded = True
+    global _secrets_mtime
     path = CONFIG_DIR / "secrets.json"
-    if not path.exists():
-        return
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        _secrets_mtime = None
+        return
+    if mtime == _secrets_mtime:
+        return
+    _secrets_mtime = mtime
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         env = data.get("env") if isinstance(data, dict) else None
         if not isinstance(env, dict):
             return
@@ -156,6 +160,7 @@ def reload_all() -> dict:
         return deepcopy(_cache)
 
 def get_all() -> dict:
+    load_secrets()
     with _lock:
         if not _cache:
             return reload_all()
