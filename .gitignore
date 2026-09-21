@@ -1,11 +1,23 @@
+# Python
 __pycache__/
 *.py[cod]
+
+# OS
 .DS_Store
 Thumbs.db
-Workspace/System/Cache/
-Workspace/System/Trash/
-Workspace/System/*.tmp
 
-# Local secrets
+# ============================================================
+# User configuration
+# ============================================================
+config/app.json
+config/rss.json
 config/secrets.json
-Workspace/System/AgentChats/Trash/
+
+# ============================================================
+# User workspace
+# ============================================================
+Workspace/*
+
+# 仅保留 Workspace 目录结构说明
+!Workspace/.gitkeep
+!Workspace/README.md
