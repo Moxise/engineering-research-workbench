@@ -776,7 +776,7 @@
   function bindGlobal(){
     $('#modal-close').onclick=closeModal;$('#modal-backdrop').addEventListener('click',e=>{if(e.target===$('#modal-backdrop'))closeModal()});
     $('#theme-btn').onclick=()=>applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
-    $('#global-search-btn').onclick=openGlobalSearch;
+    $('#global-search-btn').onclick=()=>openGlobalSearch();
     document.addEventListener('keydown',e=>{const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='s'&&$('#md-input')&&state.selectedDoc){e.preventDefault();$('#doc-save')?.click();return}if(mod&&key==='k'){e.preventDefault();openGlobalSearch();}});
     $('#reload-btn').onclick=()=>systemAction('reload');$('#reload-menu-btn').onclick=()=>$('#reload-menu').classList.toggle('hidden');$$('[data-system-action]').forEach(b=>b.onclick=()=>{ $('#reload-menu').classList.add('hidden');systemAction(b.dataset.systemAction)});
     document.addEventListener('click',e=>{if(!e.target.closest('.reload-wrap'))$('#reload-menu').classList.add('hidden')});
