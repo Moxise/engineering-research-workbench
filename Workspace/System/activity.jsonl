@@ -1,5 +1,0 @@
-{"timestamp": "2026-09-21T09:53:51", "type": "doc_create", "ref": "journal-20260921095351-c7432d", "kind": "journal", "title": "未命名研究日志", "project": "", "weight": 1}
-{"timestamp": "2026-09-21T09:56:20", "type": "doc_delete", "ref": "idea-20260920144712-9cdcd3", "kind": "idea", "title": "你好", "project": "", "weight": 1}
-{"timestamp": "2026-09-21T09:56:28", "type": "doc_delete", "ref": "journal-20260921095351-c7432d", "kind": "journal", "title": "未命名研究日志", "project": "", "weight": 1}
-{"timestamp": "2026-09-21T09:56:36", "type": "doc_delete", "ref": "mile-20260920154444-3fc6c9", "kind": "milestone", "title": "1111111", "project": "", "weight": 1}
-{"timestamp": "2026-09-21T09:56:46", "type": "doc_delete", "ref": "sum-20260920162833-45ec09", "kind": "summary", "title": "总结测试", "project": "", "weight": 1}

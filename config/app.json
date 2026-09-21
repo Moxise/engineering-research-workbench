@@ -7,7 +7,7 @@
   "workspace": "Workspace",
   "weather": {
     "enabled": true,
-    "location": "天津市南开区",
+    "location": "上海市浦东新区",
     "latitude": 39.105,
     "longitude": 117.15,
     "timezone": "Asia/Shanghai"
@@ -22,25 +22,40 @@
     "animations": true,
     "heatmap_months": 12
   },
+  "academic_profile": {
+    "degree_name": "科研进度",
+    "start_date": "2026-07-15",
+    "expected_end_date": "2026-12-31",
+    "weekly_goal_days": 5,
+    "graduation_conditions": [
+      {
+        "label": "目录期刊",
+        "current": 0,
+        "target": 1,
+        "unit": ""
+      },
+      {
+        "label": "专利",
+        "current": 0,
+        "target": 1,
+        "unit": ""
+      }
+    ]
+  },
   "workspace_migration": {
     "enabled": true,
     "copy_legacy_data": true
   },
-  "academic_profile": {
-    "degree_name": "博士进度",
-    "start_date": "",
-    "expected_end_date": "",
-    "weekly_goal_days": 5,
-    "graduation_conditions": []
-  },
   "llm": {
-    "enabled": false,
+    "enabled": true,
     "provider_label": "OpenAI-compatible",
-    "base_url": "https://api.openai.com/v1",
-    "model": "",
+    "base_url": "https://maas.qianwenaiapi.com/compatible-mode/v1",
+    "api_key_env": "OPENAI_API_KEY",
+    "show_reasoning": true,
+    "model": "qwen3.8-flash",
     "protocol": "chat_completions",
     "timeout": 120,
-    "max_output_tokens": 0,
+    "max_output_tokens": 100,
     "temperature": null,
     "system_prompt": "你是一个严谨的科研助手。优先基于用户显式引用的研究资料回答，不确定时明确说明。",
     "request_presets": [
@@ -65,8 +80,6 @@
         }
       }
     ],
-    "default_request_preset": "default",
-    "api_key_env": "OPENAI_API_KEY",
-    "show_reasoning": true
+    "default_request_preset": "default"
   }
 }

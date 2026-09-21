@@ -1,11 +1,35 @@
-__pycache__/
-*.py[cod]
-.DS_Store
-Thumbs.db
-Workspace/System/Cache/
-Workspace/System/Trash/
-Workspace/System/*.tmp
+# ==========================================================
+# 白名单模式：默认忽略所有文件，仅上传源代码及项目必要文件
+# 修改放行规则时，请同步更新下方的放行清单
+# ==========================================================
+*
+# 允许 git 进入目录（目录内文件仍需下方规则逐一放行）
+!*/
 
-# Local secrets
+# ---------- 项目根文件（以 / 开头，仅匹配根目录） ----------
+!/.gitignore
+!/README.md
+!/CHANGELOG.md
+!/LICENSE.txt
+!/VERSION
+!/requirements.txt
+!/server.py
+!/run.bat
+!/run.sh
+
+# ---------- 后端源代码 ----------
+!app/**/*.py
+!tools/**/*.py
+
+# ---------- 前端源代码 ----------
+!web/*.js
+!web/*.html
+!web/*.css
+
+# ---------- 运行配置（本地密钥始终排除） ----------
+!config/app.json
+!config/rss.json
 config/secrets.json
-Workspace/System/AgentChats/Trash/
+
+# ---------- 架构文档 ----------
+!docs/*.md
