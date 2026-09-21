@@ -21,23 +21,36 @@ Windows 也可以直接运行 `run.bat`。默认地址：`http://127.0.0.1:8765`
 - 设置中心新增 **服务与存储**：Host、Port、启动时是否自动打开浏览器、Workspace 路径、旧数据识别/复制策略都可视化配置。天气启用开关与 Agent 接口名称也已加入页面设置。
 - 完整继承 v260920.2 的项目选择器、环境变量 API Key、Agent 动态思考模式、资讯回退、Ctrl/Cmd+S、标签/项目/WikiLink 图谱关系等能力。
 
-### Agent 环境变量示例
+### Agent API Key 配置
 
-PowerShell 当前会话：
+方式一（推荐）：填入本地私密文件 `config/secrets.json`。该文件已被 `.gitignore` 排除，不会上传 git：
+
+```json
+{
+  "env": {
+    "OPENAI_API_KEY": "你的密钥"
+  }
+}
+```
+
+保存后重启服务（`run.bat` 或 `python server.py`）即自动注入环境变量，之后无需每次启动手动设置。若你在设置中填写的是其它变量名，例如 `DASHSCOPE_API_KEY`，在 `env` 中添加对应条目即可：
+
+```json
+{
+  "env": {
+    "DASHSCOPE_API_KEY": "你的密钥"
+  }
+}
+```
+
+方式二：临时环境变量（仅当前会话有效）：
 
 ```powershell
 $env:OPENAI_API_KEY="你的密钥"
 python server.py
 ```
 
-若你在设置中填写的是其它变量名，例如 `DASHSCOPE_API_KEY`，工作台就只会读取该变量：
-
-```powershell
-$env:DASHSCOPE_API_KEY="你的密钥"
-python server.py
-```
-
-> 工作台不会把环境变量中的 Key 回写到本地配置文件。若从旧版本升级并曾使用 `config/secrets.json`，建议确认新版本工作正常后手动删除旧文件。
+> 工作台不会把 Key 回写到 `config/app.json` 或任何接口返回中。`config/secrets.json` 只存在于本机，请勿提交到 git。
 
 ## 本版重点
 

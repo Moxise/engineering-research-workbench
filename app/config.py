@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from copy import deepcopy
 from pathlib import Path
@@ -85,6 +86,33 @@ DEFAULT_RSS_CONFIG = {
 
 _lock = threading.RLock()
 _cache: dict[str, Any] = {}
+_secrets_loaded = False
+
+
+def load_secrets() -> None:
+    """加载本地私密配置 config/secrets.json（已被 .gitignore 排除，不上传 git）。
+
+    将其中 env 对象的键值注入进程环境变量，供 agent 按 api_key_env 读取。
+    仅在进程启动时执行一次；文件不存在或格式异常时静默跳过，不阻断启动。
+    """
+    global _secrets_loaded
+    if _secrets_loaded:
+        return
+    _secrets_loaded = True
+    path = CONFIG_DIR / "secrets.json"
+    if not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        env = data.get("env") if isinstance(data, dict) else None
+        if not isinstance(env, dict):
+            return
+        for key, value in env.items():
+            name = str(key).strip()
+            if name and isinstance(value, str) and value.strip():
+                os.environ[name] = value.strip()
+    except Exception:
+        pass
 
 def _deep_merge(base: dict, override: dict) -> dict:
     out = deepcopy(base)
@@ -184,4 +212,5 @@ def workspace_root() -> Path:
     return p if p.is_absolute() else ROOT / p
 
 
+load_secrets()
 reload_all()
