@@ -1259,12 +1259,6 @@ python tools/self_check.py
 
 ---
 
-# 📄 License
-
-当前仓库如计划公开发布，建议在根目录补充明确的 `LICENSE` 文件，并在此处标注所采用的开源许可证。
-
----
-
 ## Acknowledgements
 
 本项目受到本地优先知识管理、Markdown 笔记系统、知识图谱、科研工作流与现代 LLM Agent UI 的启发。
