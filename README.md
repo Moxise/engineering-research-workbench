@@ -120,15 +120,15 @@ Workspace/Projects/<ProjectName>/
 ---
 id: note-20260921-demo
 kind: note
-title: 多模态 ToT 共享反馈
+title: 论文标题
 projects: ["论文A", "原型系统"]
-tags: ["ToT", "LinDistFlow", "Agent"]
+tags: ["LLM", "Agent"]
 status: 持续维护
 ---
 
-# 多模态 ToT 共享反馈
+# 物理反馈反馈
 
-相关潮流方法见 [[LinDistFlow 快速校验]]。
+相关潮流方法见 [[DistFlow 快速校验]]。
 
 $$
 V_j^2 \approx V_i^2 - 2(r_{ij}P_{ij} + x_{ij}Q_{ij})
@@ -139,13 +139,7 @@ Mermaid 示例：
 
 ```mermaid
 flowchart LR
-    A[研究问题] --> B[方向筛选]
-    B --> C[候选生成]
-    C --> D[快速校验]
-    D --> E{是否可行}
-    E -->|是| F[精确校验]
-    E -->|否| G[反馈修正]
-    G --> C
+    A[研究问题] --> B[验证]--> C
 ```
 
 ---
@@ -215,10 +209,10 @@ Markdown ↔ 项目  → project   / 项目归属
 
 ```mermaid
 graph LR
-    A[ToT 共享反馈] -->|wikilink| B[LinDistFlow 快速校验]
-    A -->|tag| T[ToT]
+    A[物理反馈] -->|wikilink| B[DistFlow 快速校验]
+    A -->|tag| T[CoT]
     A -->|project| P[论文A]
-    C[多步转供策略] -->|tag| T
+    C[转供策略] -->|tag| T
     C -->|project| P
 ```
 
@@ -843,7 +837,7 @@ Workspace/
 ---
 id: note-20260921-abcd
 kind: note
-title: ToT 共享反馈
+title: CoT
 created: "2026-09-21T09:00:00"
 updated: "2026-09-21T10:30:00"
 status: 持续维护
@@ -854,8 +848,7 @@ projects:
   - 原型系统
 
 tags:
-  - ToT
-  - LinDistFlow
+  - LLM
   - Agent
 
 pinned: false
@@ -865,11 +858,11 @@ pinned: false
 正文：
 
 ```markdown
-# ToT 共享反馈
+# 快速反馈
 
-快速反馈模块使用 [[LinDistFlow 快速校验]]。
+快速反馈模块使用 [[DistFlow 快速校验]]。
 
-下一步需要验证 [[共享反馈状态]] 的稳定性。
+下一步需要验证 [[物理反馈状态]] 的稳定性。
 ```
 
 其中：
