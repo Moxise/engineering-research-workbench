@@ -25,6 +25,7 @@
 !web/*.js
 !web/*.html
 !web/*.css
+!web/favicon.png
 
 # ---------- 运行配置（本地密钥始终排除） ----------
 !config/app.json
