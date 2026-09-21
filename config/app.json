@@ -1,0 +1,72 @@
+{
+  "app_name": "科研工作台",
+  "subtitle": "Engineering Research Workspace",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "auto_open_browser": true,
+  "workspace": "Workspace",
+  "weather": {
+    "enabled": true,
+    "location": "天津市南开区",
+    "latitude": 39.105,
+    "longitude": 117.15,
+    "timezone": "Asia/Shanghai"
+  },
+  "ui": {
+    "theme": "light",
+    "sidebar_pinned_groups": [
+      "core"
+    ],
+    "milestone_default_view": "timeline",
+    "graph_default_view": "2d",
+    "animations": true,
+    "heatmap_months": 12
+  },
+  "workspace_migration": {
+    "enabled": true,
+    "copy_legacy_data": true
+  },
+  "academic_profile": {
+    "degree_name": "博士进度",
+    "start_date": "",
+    "expected_end_date": "",
+    "weekly_goal_days": 5,
+    "graduation_conditions": []
+  },
+  "llm": {
+    "enabled": false,
+    "provider_label": "OpenAI-compatible",
+    "base_url": "https://api.openai.com/v1",
+    "model": "",
+    "protocol": "chat_completions",
+    "timeout": 120,
+    "max_output_tokens": 0,
+    "temperature": null,
+    "system_prompt": "你是一个严谨的科研助手。优先基于用户显式引用的研究资料回答，不确定时明确说明。",
+    "request_presets": [
+      {
+        "id": "default",
+        "label": "默认（不附加参数）",
+        "params": {}
+      },
+      {
+        "id": "qwen-low",
+        "label": "Qwen · 低思考",
+        "params": {
+          "enable_thinking": true,
+          "thinking_budget": 1024
+        }
+      },
+      {
+        "id": "qwen-off",
+        "label": "Qwen · 无思考",
+        "params": {
+          "enable_thinking": false
+        }
+      }
+    ],
+    "default_request_preset": "default",
+    "api_key_env": "OPENAI_API_KEY",
+    "show_reasoning": true
+  }
+}

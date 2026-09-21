@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+Workspace/System/Cache/
+Workspace/System/Trash/
+Workspace/System/*.tmp
+
+# Local secrets
+config/secrets.json
+Workspace/System/AgentChats/Trash/

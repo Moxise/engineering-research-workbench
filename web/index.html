@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#087f83">
+  <title>科研工作台</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$','$$'], ['\\[','\\]']],
+        processEscapes: true,
+        packages: {'[+]': ['ams']}
+      },
+      options: {skipHtmlTags: ['script','noscript','style','textarea','pre','code']}
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js'"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/marked@15.0.12/marked.min.js'"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.6/purify.min.js'"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/lib/common.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js'"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/mermaid@11.4.1/dist/mermaid.min.js'"></script>
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><span></span></div>
+        <div class="brand-copy">
+          <h1 id="brand-title">科研工作台</h1>
+          <p id="brand-subtitle">Engineering Research Workspace</p>
+        </div>
+      </div>
+      <nav id="sidebar-nav" class="sidebar-nav"></nav>
+      <div class="sidebar-footer">
+        <div class="workspace-mini" id="workspace-mini">Workspace · 初始化中</div>
+        <div class="version">Standalone · <span id="version-label">v1.0</span></div>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div class="page-heading">
+          <div class="eyebrow" id="page-eyebrow">CORE WORK</div>
+          <h2 id="page-title">概览</h2>
+          <div class="page-date" id="page-date"></div>
+        </div>
+        <div class="top-actions">
+          <button class="top-search-btn" id="global-search-btn" type="button" title="全局搜索 · Ctrl/⌘ K"><span>⌕</span><span>搜索</span><kbd>⌘K</kbd></button>
+          <button class="weather-pill" id="weather-pill" type="button" title="天气详情">
+            <span class="status-dot"></span><span id="weather-text">天气加载中</span>
+          </button>
+          <button class="icon-btn" id="theme-btn" type="button" title="切换主题">◐</button>
+          <div class="reload-wrap">
+            <button class="primary-btn reload-btn" id="reload-btn" type="button" title="重新读取所有配置并刷新本地缓存">↻ Reload</button>
+            <button class="primary-btn reload-menu-btn" id="reload-menu-btn" type="button" aria-label="Reload 菜单">⌄</button>
+            <div class="dropdown hidden" id="reload-menu">
+              <button type="button" data-system-action="reload">Reload 全部配置</button>
+              <button type="button" data-system-action="restart">快速重启服务</button>
+            </div>
+          </div>
+        </div>
+      </header>
+      <main id="main" class="main-content"></main>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toast-stack"></div>
+  <div class="modal-backdrop hidden" id="modal-backdrop">
+    <section class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <header><h3 id="modal-title">操作</h3><button type="button" class="icon-btn" id="modal-close">×</button></header>
+      <div class="modal-body" id="modal-body"></div>
+      <footer id="modal-footer"></footer>
+    </section>
+  </div>
+
+  <script defer src="/app.js"></script>
+</body>
+</html>

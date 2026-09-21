@@ -1,0 +1,2 @@
+# Python backend uses the standard library only.
+# Recommended: Python 3.11+
