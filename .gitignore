@@ -33,3 +33,9 @@ config/secrets.json
 
 # ---------- 架构文档 ----------
 !docs/*.md
+
+# ---------- 明确排除（白名单外再显式禁止，防止误上传） ----------
+Workspace/
+.update_backups/
+_verify_*.py
+_verify_out.txt
