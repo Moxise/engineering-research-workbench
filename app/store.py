@@ -16,7 +16,7 @@ from typing import Any
 from .workspace import ensure_workspace, ensure_project
 from . import activity, config
 
-KIND_DIR = {
+BUILTIN_KIND_DIR = {
     "idea": "Knowledge/Ideas",
     "journal": "Knowledge/Journals",
     "note": "Knowledge/Notes",
@@ -25,7 +25,7 @@ KIND_DIR = {
     "literature": "Knowledge/Literature",
 }
 
-KIND_LABEL = {
+BUILTIN_KIND_LABEL = {
     "idea": "灵感",
     "journal": "研究日志",
     "note": "笔记",
@@ -34,7 +34,7 @@ KIND_LABEL = {
     "literature": "文献",
 }
 
-STATUSES = {
+BUILTIN_STATUSES = {
     "idea": ["待整理", "探索中", "已采纳", "已归档"],
     "journal": ["记录", "复盘", "已归档"],
     "note": ["草稿", "整理中", "稳定", "已归档"],
@@ -42,6 +42,21 @@ STATUSES = {
     "summary": ["草稿", "已定稿", "已归档"],
     "literature": ["待阅读", "阅读中", "已精读", "已归档"],
 }
+
+def kind_dir_map() -> dict[str, str]:
+    return dict(BUILTIN_KIND_DIR)
+
+
+def kind_label_map() -> dict[str, str]:
+    return dict(BUILTIN_KIND_LABEL)
+
+
+def kind_statuses(kind: str) -> list[str]:
+    return list(BUILTIN_STATUSES.get(kind, []))
+
+
+def all_statuses() -> dict[str, list[str]]:
+    return dict(BUILTIN_STATUSES)
 
 DATE_FIELDS = {
     "journal": "record_date",
@@ -77,7 +92,7 @@ def _frontmatter_dump(meta: dict[str, Any]) -> str:
     lines = ["---"]
     ordered = [
         "id", "kind", "title", "created", "updated", "status", "project", "projects", "tags",
-        "record_date", "due", "added_date", "summary_type", "pinned", "authors", "year",
+        "kind_marks", "record_date", "due", "added_date", "summary_type", "pinned", "authors", "year",
         "venue", "doi", "url", "cite_key"
     ]
     seen = set()
@@ -157,13 +172,14 @@ def _normalize_projects(meta: dict[str, Any]) -> dict[str, Any]:
 
 
 def _kind_path(kind: str) -> Path:
-    if kind not in KIND_DIR:
+    dirs = kind_dir_map()
+    if kind not in dirs:
         raise ValueError(f"Unknown kind: {kind}")
-    return ensure_workspace() / KIND_DIR[kind]
+    return ensure_workspace() / dirs[kind]
 
 
 def _iter_docs(kinds: list[str] | None = None):
-    target_kinds = kinds or list(KIND_DIR)
+    target_kinds = kinds or list(kind_dir_map())
     for kind in target_kinds:
         root = _kind_path(kind)
         root.mkdir(parents=True, exist_ok=True)
@@ -177,10 +193,15 @@ def _doc_from_path(kind: str, path: Path, include_body: bool = True) -> dict[str
     meta.setdefault("id", path.stem)
     meta.setdefault("kind", kind)
     meta.setdefault("title", path.stem)
-    meta.setdefault("status", STATUSES[kind][0])
+    meta.setdefault("status", (kind_statuses(kind) or ["草稿"])[0])
     meta.setdefault("project", "")
     meta.setdefault("projects", [])
     meta.setdefault("tags", [])
+    if isinstance(meta.get("kind_marks"), str):
+        meta["kind_marks"] = [x.strip() for x in re.split(r"[,，]", meta["kind_marks"]) if x.strip()]
+    if not isinstance(meta.get("kind_marks"), list):
+        meta["kind_marks"] = []
+    meta["kind_marks"] = [str(x).strip() for x in meta["kind_marks"] if str(x).strip()]
     _normalize_projects(meta)
     if isinstance(meta.get("tags"), str):
         meta["tags"] = [t.strip() for t in meta["tags"].split(",") if t.strip()]
@@ -204,15 +225,19 @@ def _excerpt(body: str, limit: int = 180) -> str:
     return cleaned[:limit]
 
 
-def list_docs(kind: str | None = None, query: str = "", status: str = "", project: str = "") -> list[dict[str, Any]]:
+def list_docs(kind: str | None = None, query: str = "", status: str = "", project: str = "", mark: str = "") -> list[dict[str, Any]]:
     kinds = [kind] if kind else None
     q = query.strip().lower()
+    labels = kind_label_map()
     out = []
     for k, path in _iter_docs(kinds):
         doc = _doc_from_path(k, path, include_body=False)
         if status and doc.get("status") != status:
             continue
         if project and project not in (doc.get("projects") or ([doc.get("project")] if doc.get("project") else [])):
+            continue
+        marks = doc.get("kind_marks") or []
+        if mark and mark not in marks:
             continue
         if q:
             try:
@@ -221,7 +246,8 @@ def list_docs(kind: str | None = None, query: str = "", status: str = "", projec
                 full_body = ""
             hay = " ".join([
                 str(doc.get("title", "")), str(doc.get("excerpt", "")), " ".join(doc.get("projects", [])),
-                " ".join(doc.get("tags", [])), str(doc.get("authors", "")), str(doc.get("venue", "")),
+                " ".join(doc.get("tags", [])), " ".join(str(labels.get(m, m)) for m in marks),
+                str(doc.get("authors", "")), str(doc.get("venue", "")),
                 str(doc.get("doi", "")), str(doc.get("cite_key", "")), full_body,
             ]).lower()
             if q not in hay:
@@ -264,13 +290,13 @@ def _make_default_body(kind: str, title: str, payload: dict[str, Any]) -> str:
             "## 与当前研究的关系\n\n\n"
             "## 摘录与批注\n\n"
         )
-    return f"# {title}\n\n"
+    return f"# {title}\n\n## 要点\n\n\n## 正文\n\n\n## 关联\n\n"
 
 
 def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if kind not in KIND_DIR:
+    if kind not in kind_dir_map():
         raise ValueError("Invalid kind")
-    title = str(payload.get("title") or f"未命名{KIND_LABEL[kind]}").strip()
+    title = str(payload.get("title") or f"未命名{kind_label_map().get(kind, kind)}").strip()
     doc_id = f"{kind}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
     now = _now()
     meta: dict[str, Any] = {
@@ -279,10 +305,11 @@ def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         "title": title,
         "created": now,
         "updated": now,
-        "status": payload.get("status") or STATUSES[kind][0],
+        "status": payload.get("status") or (kind_statuses(kind) or ["草稿"])[0],
         "project": payload.get("project") or "",
         "projects": payload.get("projects") or [],
         "tags": payload.get("tags") or [],
+        "kind_marks": payload.get("kind_marks") or [],
         "pinned": bool(payload.get("pinned", False)),
     }
     date_field = DATE_FIELDS.get(kind)
@@ -313,7 +340,7 @@ def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     meta, body = _frontmatter_parse(text)
     allowed = {
-        "title", "status", "project", "projects", "tags", "pinned", "record_date", "due", "added_date",
+        "title", "status", "project", "projects", "tags", "kind_marks", "pinned", "record_date", "due", "added_date",
         "summary_type", "authors", "year", "venue", "doi", "url", "cite_key"
     }
     for key in allowed:
@@ -540,7 +567,7 @@ def build_bundle(root_id: str, selected_ids: list[str], title: str = "", active_
     root_label = root_node.get("label") or root_id
     root_kind = root_node.get("kind") or ""
     bundle_title = title.strip() or f"{root_label} · 关联资料汇总"
-    root_desc = f"{KIND_LABEL.get(root_kind, root_kind)}：{root_label}" if root_node.get("virtual") else f"[[{root_label}]]"
+    root_desc = f"{kind_label_map().get(root_kind, root_kind)}：{root_label}" if root_node.get("virtual") else f"[[{root_label}]]"
     lines = [
         f"# {bundle_title}", "",
         f"> 生成时间：{_now()}",
@@ -563,7 +590,7 @@ def build_bundle(root_id: str, selected_ids: list[str], title: str = "", active_
         projects_list = doc.get("projects") or ([doc.get("project")] if doc.get("project") else [])
         lines.extend([
             f"## {idx}. {doc.get('title')}", "",
-            f"- 类型：{KIND_LABEL.get(doc.get('kind'), doc.get('kind'))}",
+            f"- 类型：{kind_label_map().get(doc.get('kind'), doc.get('kind'))}",
             f"- 项目：{', '.join(projects_list) or '—'}",
             f"- 状态：{doc.get('status') or '—'}",
             f"- 标签：{', '.join(doc.get('tags') or []) or '—'}", "",
@@ -769,13 +796,13 @@ def dashboard() -> dict[str, Any]:
     from . import todos as todo_store
 
     docs = list_docs()
-    kinds = {k: [] for k in KIND_DIR}
+    kinds: dict[str, list[dict[str, Any]]] = {}
     for d in docs:
-        kinds[d["kind"]].append(d)
+        kinds.setdefault(d["kind"], []).append(d)
     today_obj = date.today()
     today = today_obj.isoformat()
     upcoming = sorted(
-        [d for d in kinds["milestone"] if d.get("due") and d.get("status") != "完成"],
+        [d for d in kinds.get("milestone", []) if d.get("due") and d.get("status") != "完成"],
         key=lambda d: d.get("due", "9999-99-99"),
     )[:8]
     todo_items = todo_store.list_todos()
@@ -802,11 +829,11 @@ def dashboard() -> dict[str, Any]:
     return {
         "counts": {k: len(v) for k, v in kinds.items()},
         "recent": {
-            "ideas": kinds["idea"][:3],
-            "journals": kinds["journal"][:3],
-            "notes": kinds["note"][:3],
-            "summaries": kinds["summary"][:3],
-            "literature": kinds["literature"][:3],
+            "ideas": kinds.get("idea", [])[:3],
+            "journals": kinds.get("journal", [])[:3],
+            "notes": kinds.get("note", [])[:3],
+            "summaries": kinds.get("summary", [])[:3],
+            "literature": kinds.get("literature", [])[:3],
         },
         "upcoming_milestones": upcoming,
         "today": today,

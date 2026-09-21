@@ -124,12 +124,13 @@ class Handler(BaseHTTPRequestHandler):
             query = (q.get("q") or [""])[0]
             status = (q.get("status") or [""])[0]
             project = (q.get("project") or [""])[0]
-            return self.send_json(store.list_docs(kind, query, status, project))
+            mark = (q.get("mark") or [""])[0]
+            return self.send_json(store.list_docs(kind, query, status, project, mark))
         if path.startswith("/api/docs/"):
             doc_id = unquote(path.split("/api/docs/", 1)[1])
             return self.send_json(store.get_doc(doc_id))
         if path == "/api/statuses":
-            return self.send_json(store.STATUSES)
+            return self.send_json(store.all_statuses())
         if path == "/api/projects":
             return self.send_json(store.projects())
         if path == "/api/dashboard":
