@@ -17,7 +17,7 @@
   const debounce = (fn, ms=250) => { let t; return (...args) => { clearTimeout(t); t=setTimeout(()=>fn(...args),ms); }; };
   const readAsDataUrl = (file) => new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file)});
   const storedArray = (key, fallback) => { try { const x=JSON.parse(localStorage.getItem(key)||'null'); return Array.isArray(x)?x:fallback; } catch { return fallback; } };
-  const storedInt = (key, fallback, min, max) => { const n=Number(localStorage.getItem(key)); return Number.isFinite(n)?Math.max(min,Math.min(max,Math.round(n))):fallback; };
+  const storedInt = (key, fallback, min, max) => { const raw=localStorage.getItem(key); const n=Number(raw); return raw!=null&&Number.isFinite(n)?Math.max(min,Math.min(max,Math.round(n))):fallback; };
 
   const savedFocusMinutes = storedInt('focusMinutes', 25, 1, 240);
   const savedBreakMinutes = storedInt('breakMinutes', 5, 1, 120);
@@ -28,7 +28,7 @@
     graphKinds: new Set(storedArray('graphKinds', ['idea','journal','note','milestone','summary','literature','project','tag'])),
     graphRelations: new Set(storedArray('graphRelations', ['wikilink','tag','project'])),
     agentSession: null, agentRefs: [], agentImages: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false,
-    heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapObserver: null,
+    heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact',
     focus: {mode:'专注', focusMinutes:savedFocusMinutes, breakMinutes:savedBreakMinutes, seconds:savedFocusMinutes*60, total:savedFocusMinutes*60, timer:null, running:false},
     sidebarPinned: new Set(storedArray('sidebarPinned', ['core'])),
     sidebarOpen: new Set(storedArray('sidebarOpen', ['core','resources','system'])),
@@ -175,6 +175,15 @@
     const dateTitle=d.toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'});
     const recentToday=(activity.days||[]).find(x=>x.date===dash.today)?.count||0;
     $('#main').innerHTML = `<div class="overview-dashboard">
+      <div class="overview-top-row">
+        ${researchHeatmapCard(activity)}
+        <div class="overview-academic-grid">
+          ${academicProgressCard(academic)}
+          ${graduationConditionsCard(academic)}
+        </div>
+      </div>
+
+      <div class="overview-col">
       <section class="card overview-today">
         <div>
           <div class="card-kicker">TODAY / RESEARCH DESK</div>
@@ -200,19 +209,6 @@
         </div>
       </section>
 
-      <div class="overview-academic-grid">
-        ${academicProgressCard(academic)}
-        ${graduationConditionsCard(academic)}
-      </div>
-
-      ${researchHeatmapCard(activity)}
-
-      <div class="grid grid-3 overview-ops-grid">
-        ${researchRhythmCard(activity,academic)}
-        <section class="card card-pad"><div class="card-head"><div><div class="card-kicker">TODAY TASKS</div><h3>当前任务</h3></div><button class="secondary-btn" data-go="todos">全部待办</button></div>${listRows(openTodos.map(t=>({title:t.title,meta:`${t.project||'未归属项目'} · 截止 ${fmtDate(t.due)}`})), '暂无待办')}</section>
-        <section class="card card-pad"><div class="card-head"><div><div class="card-kicker">NEXT MILESTONE</div><h3>近期节点</h3></div><button class="secondary-btn" data-go="milestones">时间轴</button></div>${listRows((dash.upcoming_milestones||[]).slice(0,5).map(d=>({title:d.title,meta:`${d.project||'未归属项目'} · ${fmtDate(d.due)} · ${d.status}`})), '暂无近期里程碑')}</section>
-      </div>
-
       ${projectPulseCard(dash.project_stats||[])}
 
       <div class="grid grid-4 overview-stats">
@@ -221,9 +217,18 @@
         ${stat('里程碑',dash.counts.milestone||0,'MILESTONES')}
         ${stat('研究日志',dash.counts.journal||0,'JOURNALS')}
       </div>
+      </div>
+
+      <div class="overview-col">
+      <div class="grid grid-3 overview-ops-grid">
+        ${researchRhythmCard(activity,academic)}
+        <section class="card card-pad"><div class="card-head"><div><div class="card-kicker">TODAY TASKS</div><h3>当前任务</h3></div><button class="secondary-btn" data-go="todos">全部待办</button></div>${listRows(openTodos.map(t=>({title:t.title,meta:`${t.project||'未归属项目'} · 截止 ${fmtDate(t.due)}`})), '暂无待办')}</section>
+        <section class="card card-pad"><div class="card-head"><div><div class="card-kicker">NEXT MILESTONE</div><h3>近期节点</h3></div><button class="secondary-btn" data-go="milestones">时间轴</button></div>${listRows((dash.upcoming_milestones||[]).slice(0,5).map(d=>({title:d.title,meta:`${d.project||'未归属项目'} · ${fmtDate(d.due)} · ${d.status}`})), '暂无近期里程碑')}</section>
+      </div>
 
       <div class="section-title"><div><h3>最近研究活动</h3><p>快速回到最近产生的科研内容</p></div><button class="secondary-btn" data-go="research-overview">研究总览</button></div>
       <div class="grid grid-3">${recentCard('最近灵感',dash.recent.ideas,'ideas')}${recentCard('最近笔记',dash.recent.notes,'notes')}${recentCard('最近工作总结',dash.recent.summaries,'summaries')}</div>
+      </div>
     </div>`;
     wireGo();
     fitResearchHeatmap();
@@ -252,6 +257,7 @@
 
   function formatMetric(v){ const n=Number(v); return Number.isFinite(n)&&Math.abs(n%1)>1e-9?n.toFixed(1):String(Number.isFinite(n)?n:(v||0)); }
 
+  const HEATMAP_MONTH_OPTIONS=[2,4,6,12];
   const ACTIVITY_LABELS={doc_create:'新建文档',doc_update:'更新文档',doc_delete:'归档文档',todo_create:'新增任务',todo_update:'更新任务',todo_done:'完成任务',project_create:'新建项目',knowledge_export:'知识汇总',bibtex_export:'BibTeX导出',agent_chat:'Agent对话'};
   function researchHeatmapCard(activity){
     const rows=activity.days||[];
@@ -286,7 +292,8 @@
       if(monthIndex>0) monthBoundaries.push(`<i class="heatmap-month-boundary" data-col0="${Math.max(0,col0)}" data-row="${row}" aria-hidden="true"></i>`);
       monthCursor=next; monthIndex++;
     }
-    const options=Array.from({length:12},(_,i)=>i+1).map(n=>`<option value="${n}" ${n===months?'selected':''}>近 ${n} 个月</option>`).join('');
+    const monthChoices=HEATMAP_MONTH_OPTIONS.includes(months)?HEATMAP_MONTH_OPTIONS:[...HEATMAP_MONTH_OPTIONS,months].sort((a,b)=>a-b);
+    const options=monthChoices.map(n=>`<option value="${n}" ${n===months?'selected':''}>近 ${n} 个月</option>`).join('');
     return `<section class="card heatmap-card" data-heatmap-weeks="${weeks}"><div class="card-head"><div><div class="card-kicker">RESEARCH HEATMAP / ${months} MONTHS</div><h3>科研热力图</h3><p>根据 Markdown 创建/更新、任务完成与知识整理等本地活动自动累计。</p></div><div class="heatmap-head-tools"><div class="heatmap-summary"><strong>${activity.events_month||0}</strong><span>本月记录</span><strong>${activity.active_days_month||0}</strong><span>活跃日</span></div><select class="mini-select" id="heatmap-month-select" aria-label="科研热力图显示月份">${options}</select></div></div>
       <div class="heatmap-scroll"><div class="heatmap-plot"><div class="heatmap-axis"><div class="heatmap-axis-cap">星期</div><div class="heatmap-weekdays"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div></div><div class="heatmap-stage"><div class="heatmap-months" style="--heat-weeks:${weeks}">${monthLabels.join('')}</div><div class="heatmap-month-boundaries">${monthBoundaries.join('')}</div><div class="heatmap-cells" style="--heat-weeks:${weeks}">${cells.join('')}</div></div></div></div>
       <div class="heatmap-footer"><span>少</span><i class="heat-cell level-0"></i><i class="heat-cell level-1"></i><i class="heat-cell level-2"></i><i class="heat-cell level-3"></i><i class="heat-cell level-4"></i><span>多</span><span class="heatmap-hint">鼠标悬停查看当天活动</span></div>
@@ -295,12 +302,30 @@
 
   function fitResearchHeatmap(){
     const card=$('.heatmap-card'); const scroll=$('.heatmap-scroll'); if(!card||!scroll) return;
+    const topRow=card.closest('.overview-top-row');
+    const academicGrid=$('.overview-academic-grid');
     const apply=()=>{
-      const weeks=Math.max(1,Number(card.dataset.heatmapWeeks)||1), gap=4, axis=48;
-      const available=Math.max(240,scroll.clientWidth-axis-10);
-      const ideal=Math.floor((available-gap*(weeks-1))/weeks);
-      const maxSize=state.heatmapMonths<=2?26:state.heatmapMonths<=4?23:state.heatmapMonths<=8?20:18;
-      const size=Math.max(10,Math.min(maxSize,ideal));
+      const weeks=Math.max(1,Number(card.dataset.heatmapWeeks)||1), gap=2, axis=54;
+      const csp=getComputedStyle(card), ssp=getComputedStyle(scroll);
+      const chrome=axis+parseFloat(csp.paddingLeft)+parseFloat(csp.paddingRight)+parseFloat(ssp.paddingLeft)+parseFloat(ssp.paddingRight);
+      const wide=!!topRow&&window.matchMedia('(min-width:1280px)').matches;
+      const totalW=wide?topRow.clientWidth:scroll.clientWidth+chrome;
+      const defaultHeatW=wide?Math.max(360,Math.round((totalW-10)*2/3)):totalW-chrome;
+      const widthSize=Math.floor((defaultHeatW-chrome-gap*(weeks-1))/weeks);
+      const maxSize=weeks<=14?38:weeks<=30?32:weeks<=42?26:22;
+      const size=Math.max(6,Math.min(maxSize,widthSize));
+      const needW=Math.round(chrome+weeks*size+gap*(weeks-1));
+      if(wide){
+        const canShrink=size<widthSize&&totalW-needW-10>=480;
+        topRow.style.gridTemplateColumns=canShrink?`${needW}px minmax(0,1fr)`:'';
+        if(academicGrid){
+          const rightW=totalW-(canShrink?needW:Math.round((totalW-10)*2/3))-10;
+          academicGrid.style.gridTemplateColumns=rightW>=880?'minmax(0,1fr) minmax(0,1.08fr)':'';
+        }
+      }else{
+        if(topRow)topRow.style.gridTemplateColumns='';
+        if(academicGrid)academicGrid.style.gridTemplateColumns='';
+      }
       card.style.setProperty('--heat-cell-size',`${size}px`); card.style.setProperty('--heat-gap',`${gap}px`);
       const step=size+gap;
       $$('.heatmap-month-boundary',card).forEach(line=>{
@@ -310,13 +335,32 @@
         line.style.setProperty('--boundary-step',`${step}px`); line.style.setProperty('--boundary-y',`${y}px`);
       });
     };
-    apply();
-    if(window.ResizeObserver){state.heatmapObserver=new ResizeObserver(debounce(apply,80));state.heatmapObserver.observe(scroll);}
+    requestAnimationFrame(apply);
+    if(window.ResizeObserver){
+      state.heatmapObserver?.disconnect();
+      state.heatmapObserver=new ResizeObserver(debounce(apply,80));
+      state.heatmapObserver.observe(scroll);
+    }
   }
 
   async function setHeatmapMonths(value){
     const months=Math.max(1,Math.min(12,Number(value)||12)); state.heatmapMonths=months; localStorage.setItem('heatmapMonths',String(months));
     if(state.config?.app){state.config.app.ui={...(state.config.app.ui||{}),heatmap_months:months}; try{await api('/api/config/app',{method:'POST',body:state.config.app});}catch(e){console.warn('heatmap preference save failed',e);}}
+  }
+
+  function applyUiScale(pct){
+    const v=Math.max(80,Math.min(125,Math.round(Number(pct)||100)));
+    state.uiScale=v; localStorage.setItem('uiScale',String(v));
+    document.documentElement.style.zoom=v===100?'':String(v/100);
+    const btn=$('#zoom-btn'); if(btn) btn.textContent=v+'%';
+    $$('#zoom-menu button').forEach(b=>b.classList.toggle('active',Number(b.dataset.zoom)===v));
+  }
+
+  function applyDensity(mode){
+    const v=mode==='cozy'?'cozy':'compact';
+    state.density=v; localStorage.setItem('pageDensity',v);
+    document.documentElement.dataset.density=v;
+    const btn=$('#density-btn'); if(btn){btn.textContent=v==='cozy'?'宽松型':'紧凑型';btn.title=v==='cozy'?'当前：宽松型（间距加大、页面可下拉滚动）。点击切换为紧凑型':'当前：紧凑型（一屏收纳）。点击切换为宽松型';}
   }
 
   function projectPulseCard(items){
@@ -503,7 +547,7 @@
       <div class="field ${tagsSpan}"><label>标签（逗号分隔）</label><input id="f-tags" value="${esc((doc.tags||[]).join(', '))}" placeholder="标签1, 标签2, 标签3"></div>
       <div class="field span-4"><label>分类标记</label><div class="mark-chip-box" id="f-marks">${KIND_MARKS.map(k=>`<button type="button" class="mark-chip${(doc.kind_marks||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')}</div></div>
     </div>
-    <div style="margin-top:12px">${editorHtml(doc.body||'')}</div>
+    <div class="editor-wrap">${editorHtml(doc.body||'')}</div>
     <div class="editor-actions"><span class="row-meta">${esc(doc.path)} · 更新 ${fmtTime(doc.updated)}</span><div class="right"><button class="secondary-btn" id="doc-delete">删除</button><button class="primary-btn" id="doc-save">保存</button></div></div>`;
     wireEditor();
     ['f-title','f-status','f-date','f-tags','f-summary-type','f-authors','f-year','f-venue','f-doi','f-url','f-cite-key','f-bibtex'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('input',()=>state.dirty=true)});
@@ -756,7 +800,7 @@
     else if(tab==='weather'){const w=app.weather||{};p.innerHTML=`<div class="card-head"><div><div class="card-kicker">OPEN-METEO</div><h3>天气设置</h3></div><span class="badge accent">无需 API Key</span></div><div class="form-grid"><div class="field"><label>启用天气</label><select id="w-enabled"><option value="1" ${w.enabled!==false?'selected':''}>启用</option><option value="0" ${w.enabled===false?'selected':''}>关闭</option></select></div><div class="field span-2"><label>地点名称</label><input id="w-location" value="${esc(w.location||'')}"></div><div class="field"><label>纬度</label><input id="w-lat" type="number" step="0.0001" value="${w.latitude??''}"></div><div class="field"><label>经度</label><input id="w-lon" type="number" step="0.0001" value="${w.longitude??''}"></div><div class="field span-2"><label>时区</label><input id="w-tz" value="${esc(w.timezone||'Asia/Shanghai')}"></div></div><div style="margin-top:14px;display:flex;gap:7px"><button class="secondary-btn" id="weather-geocode">根据地点搜索坐标</button><button class="primary-btn" id="weather-save">保存并刷新天气</button></div>`;$('#weather-geocode').onclick=async()=>{const r=await api('/api/weather/geocode?name='+encodeURIComponent($('#w-location').value));if(!r.results?.length)return toast('没有找到地点',true);const x=r.results[0];$('#w-lat').value=x.latitude;$('#w-lon').value=x.longitude;$('#w-tz').value=x.timezone||'auto';toast(`已匹配：${x.name} ${x.admin1||''}`)};$('#weather-save').onclick=async()=>{app.weather={...w,enabled:$('#w-enabled').value==='1',location:$('#w-location').value,latitude:+$('#w-lat').value,longitude:+$('#w-lon').value,timezone:$('#w-tz').value};await api('/api/config/app',{method:'POST',body:app});state.config.app=app;toast('天气设置已保存');loadWeather(true);};}
     else if(tab==='rss'){p.innerHTML=`<div class="card-head"><div><div class="card-kicker">RSS SOURCES</div><h3>资讯源</h3></div><button class="secondary-btn" id="rss-add">＋ 添加</button></div><div id="rss-list">${rss.sources.map((s,i)=>sourceRow(s,i)).join('')}</div><div class="field" style="max-width:260px;margin-top:10px"><label>每源最大条数</label><input id="rss-limit" type="number" value="${rss.max_items_per_source||12}"></div><div style="margin-top:14px"><button class="primary-btn" id="rss-save">保存资讯配置</button></div>`;wireSourceRows();$('#rss-add').onclick=()=>{$('#rss-list').insertAdjacentHTML('beforeend',sourceRow({name:'新资讯源',url:'',enabled:true},$$('.source-row').length));wireSourceRows()};$('#rss-save').onclick=async()=>{const sources=$$('.source-row').map(r=>({name:$('[data-rss-name]',r).value,url:$('[data-rss-url]',r).value,enabled:$('[data-rss-enable]',r).checked}));await api('/api/config/rss',{method:'POST',body:{sources,max_items_per_source:+$('#rss-limit').value||12}});toast('资讯配置已保存')};}
     else if(tab==='llm'){const llm=app.llm||{};const fallbackPresets=[{id:'default',label:'默认（不附加参数）',params:{}},{id:'qwen-low',label:'Qwen · 低思考',params:{enable_thinking:true,thinking_budget:1024}},{id:'qwen-off',label:'Qwen · 无思考',params:{enable_thinking:false}}];const presets=Array.isArray(llm.request_presets)&&llm.request_presets.length?llm.request_presets:fallbackPresets;const presetText=JSON.stringify(presets,null,2);p.innerHTML=`<div class="card-head"><div><div class="card-kicker">RESEARCH AGENT / OPENAI COMPATIBLE</div><h3>Agent 与模型接口</h3><p class="row-meta">API Key 不写入工作台配置、不会上传 git。推荐填入本地私密文件 config/secrets.json（自动注入环境变量，保存后自动生效），或直接设置系统环境变量。</p></div><span class="badge ${llm.has_api_key?'accent':'warn'}">${llm.has_api_key?'环境变量已读取':'环境变量未设置'}</span></div><div class="form-grid"><div class="field"><label>接口名称</label><input id="llm-provider" value="${esc(llm.provider_label||'OpenAI-compatible')}" placeholder="OpenAI-compatible"></div><div class="field"><label>启用 Agent</label><select id="llm-enabled"><option value="1" ${llm.enabled?'selected':''}>启用</option><option value="0" ${!llm.enabled?'selected':''}>关闭</option></select></div><div class="field"><label>协议</label><select id="llm-protocol"><option value="chat_completions" ${llm.protocol!=='responses'?'selected':''}>OpenAI-compatible Chat Completions</option><option value="responses" ${llm.protocol==='responses'?'selected':''}>OpenAI Responses API</option></select></div><div class="field span-2"><label>Base URL</label><input id="llm-base" value="${esc(llm.base_url||'https://api.openai.com/v1')}" placeholder="https://api.openai.com/v1"></div><div class="field span-2"><label>API Key 环境变量名称</label><input id="llm-key-env" value="${esc(llm.api_key_env||'OPENAI_API_KEY')}" placeholder="OPENAI_API_KEY"><span class="field-help">推荐把密钥填入项目 config/secrets.json 的 env 对象（本地私密、不上传 git，保存后自动生效）；也可以在启动工作台前设置系统环境变量。工作台不会读取后写回 Key。</span></div><div class="field span-2"><label>模型</label><input id="llm-model" value="${esc(llm.model||'')}" placeholder="模型 ID"></div><div class="field"><label>显示模型思考过程</label><select id="llm-show-reasoning"><option value="1" ${llm.show_reasoning!==false?'selected':''}>显示（接口返回时）</option><option value="0" ${llm.show_reasoning===false?'selected':''}>隐藏</option></select></div><div class="field"><label>超时 / 秒</label><input id="llm-timeout" type="number" min="5" max="600" value="${Number(llm.timeout||120)}"></div><div class="field"><label>最大输出 tokens（可选）</label><input id="llm-max" type="number" min="0" value="${Number(llm.max_output_tokens||0)}" placeholder="0 = 使用模型默认"></div><div class="field"><label>Temperature（可选）</label><input id="llm-temp" type="number" min="0" max="2" step="0.1" value="${llm.temperature==null?'':Number(llm.temperature)}" placeholder="留空 = 不发送"></div><div class="field"><label>默认请求模式 ID</label><input id="llm-default-preset" value="${esc(llm.default_request_preset||presets[0].id||'default')}" placeholder="default"></div><div class="field span-4"><label>动态请求模式（JSON）</label><textarea id="llm-presets" class="mono" style="min-height:280px">${esc(presetText)}</textarea><span class="field-help">默认提供“默认 / Qwen 低思考 / Qwen 无思考”三套。params 会合并到请求 JSON；可按实际接口修改 enable_thinking、thinking_budget、reasoning_effort 等字段。</span></div><div class="field span-4"><label>系统提示词</label><textarea id="llm-system" style="min-height:130px">${esc(llm.system_prompt||'')}</textarea></div></div><div style="margin-top:14px;display:flex;gap:8px"><button class="primary-btn" id="llm-save">保存模型设置</button><button class="secondary-btn" id="llm-test">测试连接</button></div>`;$('#llm-save').onclick=async()=>{let requestPresets;try{requestPresets=JSON.parse($('#llm-presets').value);if(!Array.isArray(requestPresets)||!requestPresets.length)throw new Error('必须是非空 JSON 数组');const ids=new Set();for(const item of requestPresets){if(!item||typeof item!=='object'||!String(item.id||'').trim()||typeof item.params!=='object'||Array.isArray(item.params))throw new Error('每项必须包含 id、label 和 params 对象');if(ids.has(item.id))throw new Error('预设 id 不能重复：'+item.id);ids.add(item.id)}}catch(e){toast('请求模式 JSON 无效：'+e.message,true);return}app.llm={...llm,provider_label:$('#llm-provider').value.trim()||'OpenAI-compatible',enabled:$('#llm-enabled').value==='1',protocol:$('#llm-protocol').value,base_url:$('#llm-base').value.trim(),api_key_env:$('#llm-key-env').value.trim()||'OPENAI_API_KEY',show_reasoning:$('#llm-show-reasoning').value==='1',model:$('#llm-model').value.trim(),timeout:Math.max(5,Math.min(600,+$('#llm-timeout').value||120)),max_output_tokens:Math.max(0,+$('#llm-max').value||0),temperature:$('#llm-temp').value.trim()===''?null:Math.max(0,Math.min(2,+$('#llm-temp').value||0)),default_request_preset:$('#llm-default-preset').value.trim()||requestPresets[0].id,request_presets:requestPresets,system_prompt:$('#llm-system').value};delete app.llm.api_key;delete app.llm.has_api_key;const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;state.agentPreset=saved.llm?.default_request_preset||requestPresets[0].id;localStorage.setItem('agentRequestPreset',state.agentPreset);toast('Agent / LLM 设置已保存；API Key 将从环境变量读取')};$('#llm-test').onclick=async()=>{try{$('#llm-test').disabled=true;const r=await api('/api/agent/test',{method:'POST',body:{}});toast(r.models?.length?`连接成功 · ${r.models.slice(0,3).join(' / ')}`:'连接成功')}catch(e){toast(e.message,true)}finally{$('#llm-test').disabled=false}};}
-    else {const ui=app.ui||{};const pins=new Set(ui.sidebar_pinned_groups||[]);p.innerHTML=`<div class="card-head"><div><div class="card-kicker">INTERFACE</div><h3>界面设置</h3></div></div><div class="form-grid"><div class="field"><label>默认主题</label><select id="ui-theme"><option value="light" ${ui.theme==='light'?'selected':''}>明亮</option><option value="dark" ${ui.theme==='dark'?'selected':''}>深色</option></select></div><div class="field"><label>里程碑默认视图</label><select id="ui-ms"><option value="timeline">时间轴</option><option value="3d" ${ui.milestone_default_view==='3d'?'selected':''}>3D 时间线</option><option value="docs" ${ui.milestone_default_view==='docs'?'selected':''}>文档</option></select></div><div class="field"><label>图谱默认视图</label><select id="ui-graph"><option value="2d">2D</option><option value="3d" ${ui.graph_default_view==='3d'?'selected':''}>3D 星图</option></select></div><div class="field"><label>动画</label><select id="ui-anim"><option value="1" ${ui.animations!==false?'selected':''}>启用</option><option value="0" ${ui.animations===false?'selected':''}>关闭</option></select></div><div class="field"><label>科研热力图月份</label><select id="ui-heatmap">${Array.from({length:12},(_,i)=>i+1).map(n=>`<option value="${n}" ${Number(ui.heatmap_months||12)===n?'selected':''}>近 ${n} 个月</option>`).join('')}</select></div><div class="field span-4"><label>侧栏默认常驻展开</label><div class="check-grid">${NAV_GROUPS.map(g=>`<label><input type="checkbox" data-pin-default value="${g.id}" ${pins.has(g.id)?'checked':''}> ${g.label}</label>`).join('')}</div><span class="field-help">侧栏中仍可随时用菱形按钮单独固定；这里决定首次使用或重置后的默认状态。</span></div></div><div style="margin-top:14px"><button class="primary-btn" id="ui-save">保存界面设置</button> <button class="secondary-btn" id="ui-reset-sidebar">应用默认侧栏状态</button></div>`;$('#ui-save').onclick=async()=>{app.ui={...ui,theme:$('#ui-theme').value,milestone_default_view:$('#ui-ms').value,graph_default_view:$('#ui-graph').value,animations:$('#ui-anim').value==='1',heatmap_months:Math.max(1,Math.min(12,+$('#ui-heatmap').value||12)),sidebar_pinned_groups:$$('[data-pin-default]:checked').map(x=>x.value)};state.heatmapMonths=app.ui.heatmap_months;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));await api('/api/config/app',{method:'POST',body:app});state.config.app=app;applyTheme(app.ui.theme);toast('界面设置已保存')};$('#ui-reset-sidebar').onclick=()=>{state.sidebarPinned=new Set($$('[data-pin-default]:checked').map(x=>x.value));state.sidebarOpen=new Set([...state.sidebarPinned,'core']);saveSidebarState();renderSidebar();toast('已应用默认侧栏状态')};}
+    else {const ui=app.ui||{};const pins=new Set(ui.sidebar_pinned_groups||[]);p.innerHTML=`<div class="card-head"><div><div class="card-kicker">INTERFACE</div><h3>界面设置</h3></div></div><div class="form-grid"><div class="field"><label>默认主题</label><select id="ui-theme"><option value="light" ${ui.theme==='light'?'selected':''}>明亮</option><option value="dark" ${ui.theme==='dark'?'selected':''}>深色</option></select></div><div class="field"><label>里程碑默认视图</label><select id="ui-ms"><option value="timeline">时间轴</option><option value="3d" ${ui.milestone_default_view==='3d'?'selected':''}>3D 时间线</option><option value="docs" ${ui.milestone_default_view==='docs'?'selected':''}>文档</option></select></div><div class="field"><label>图谱默认视图</label><select id="ui-graph"><option value="2d">2D</option><option value="3d" ${ui.graph_default_view==='3d'?'selected':''}>3D 星图</option></select></div><div class="field"><label>动画</label><select id="ui-anim"><option value="1" ${ui.animations!==false?'selected':''}>启用</option><option value="0" ${ui.animations===false?'selected':''}>关闭</option></select></div><div class="field"><label>科研热力图月份</label><select id="ui-heatmap">${(()=>{const hm=Number(ui.heatmap_months||12);const cs=HEATMAP_MONTH_OPTIONS.includes(hm)?HEATMAP_MONTH_OPTIONS:[...HEATMAP_MONTH_OPTIONS,hm].sort((a,b)=>a-b);return cs.map(n=>`<option value="${n}" ${hm===n?'selected':''}>近 ${n} 个月</option>`).join('')})()}</select></div><div class="field span-4"><label>侧栏默认常驻展开</label><div class="check-grid">${NAV_GROUPS.map(g=>`<label><input type="checkbox" data-pin-default value="${g.id}" ${pins.has(g.id)?'checked':''}> ${g.label}</label>`).join('')}</div><span class="field-help">侧栏中仍可随时用菱形按钮单独固定；这里决定首次使用或重置后的默认状态。</span></div></div><div style="margin-top:14px"><button class="primary-btn" id="ui-save">保存界面设置</button> <button class="secondary-btn" id="ui-reset-sidebar">应用默认侧栏状态</button></div>`;$('#ui-save').onclick=async()=>{app.ui={...ui,theme:$('#ui-theme').value,milestone_default_view:$('#ui-ms').value,graph_default_view:$('#ui-graph').value,animations:$('#ui-anim').value==='1',heatmap_months:Math.max(1,Math.min(12,+$('#ui-heatmap').value||12)),sidebar_pinned_groups:$$('[data-pin-default]:checked').map(x=>x.value)};state.heatmapMonths=app.ui.heatmap_months;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));await api('/api/config/app',{method:'POST',body:app});state.config.app=app;applyTheme(app.ui.theme);toast('界面设置已保存')};$('#ui-reset-sidebar').onclick=()=>{state.sidebarPinned=new Set($$('[data-pin-default]:checked').map(x=>x.value));state.sidebarOpen=new Set([...state.sidebarPinned,'core']);saveSidebarState();renderSidebar();toast('已应用默认侧栏状态')};}
   }
   function conditionEditRow(x={}){return `<div class="condition-edit-row"><input class="search-input" data-cond-label value="${esc(x.label||'')}" placeholder="例如：期刊论文"><input class="search-input" data-cond-current type="number" min="0" step="0.1" value="${Number(x.current||0)}"><input class="search-input" data-cond-target type="number" min="0" step="0.1" value="${Number(x.target||0)}"><input class="search-input" data-cond-unit value="${esc(x.unit||'')}" placeholder="篇 / 项"><button class="ghost-btn danger" type="button" data-cond-del>删除</button></div>`}
   function sourceRow(s,i){return `<div class="source-row"><input class="search-input" data-rss-name value="${esc(s.name)}"><input class="search-input" data-rss-url value="${esc(s.url)}"><label class="badge"><input type="checkbox" data-rss-enable ${s.enabled!==false?'checked':''}> 启用</label><button class="ghost-btn danger" data-rss-del>删除</button></div>`}
@@ -776,10 +820,15 @@
   function bindGlobal(){
     $('#modal-close').onclick=closeModal;$('#modal-backdrop').addEventListener('click',e=>{if(e.target===$('#modal-backdrop'))closeModal()});
     $('#theme-btn').onclick=()=>applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
+    $('#zoom-btn').onclick=()=>$('#zoom-menu').classList.toggle('hidden');
+    $$('[data-zoom]').forEach(b=>b.onclick=()=>{applyUiScale(b.dataset.zoom);$('#zoom-menu').classList.add('hidden')});
+    applyUiScale(state.uiScale);
+    $('#density-btn').onclick=()=>applyDensity(state.density==='cozy'?'compact':'cozy');
+    applyDensity(state.density);
     $('#global-search-btn').onclick=()=>openGlobalSearch();
     document.addEventListener('keydown',e=>{const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='s'&&$('#md-input')&&state.selectedDoc){e.preventDefault();$('#doc-save')?.click();return}if(mod&&key==='k'){e.preventDefault();openGlobalSearch();}});
     $('#reload-btn').onclick=()=>systemAction('reload');$('#reload-menu-btn').onclick=()=>$('#reload-menu').classList.toggle('hidden');$$('[data-system-action]').forEach(b=>b.onclick=()=>{ $('#reload-menu').classList.add('hidden');systemAction(b.dataset.systemAction)});
-    document.addEventListener('click',e=>{if(!e.target.closest('.reload-wrap'))$('#reload-menu').classList.add('hidden')});
+    document.addEventListener('click',e=>{if(!e.target.closest('.reload-wrap'))$('#reload-menu').classList.add('hidden');if(!e.target.closest('.zoom-wrap'))$('#zoom-menu').classList.add('hidden')});
     window.addEventListener('beforeunload',e=>{if(state.dirty){e.preventDefault();e.returnValue=''}});
     window.addEventListener('hashchange',()=>{const r=location.hash.slice(1)||'overview';if(r!==state.route)navigate(r)});
   }
