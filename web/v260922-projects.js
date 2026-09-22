@@ -3,9 +3,10 @@
 
   const $ = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => [...r.querySelectorAll(s)];
-  const esc = (v='') => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
+  const esc = (v='') => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const STATUS = ['进行中','暂停','完成','归档'];
   let milestoneStatus = localStorage.getItem('milestoneStatusFilter') || '';
+  let projectsLoading = false;
 
   async function api(url, opts={}) {
     const init={...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}};
@@ -40,6 +41,8 @@
   }
 
   async function showProjects(){
+    if(projectsLoading)return;
+    projectsLoading=true;
     setProjectHeader(); const main=$('#main');
     main.innerHTML='<div class="empty"><div><div class="empty-symbol">PROJECTS</div>正在加载项目…</div></div>';
     try{
@@ -53,6 +56,7 @@
       $$('[data-project-edit]').forEach(b=>b.onclick=()=>openProjectEditor(rows.find(x=>x.id===b.dataset.projectEdit)));
       $$('[data-project-delete]').forEach(b=>b.onclick=()=>deleteProject(rows.find(x=>x.id===b.dataset.projectDelete)));
     }catch(e){main.innerHTML=`<div class="card card-pad danger">项目加载失败：${esc(e.message)}</div>`}
+    finally{projectsLoading=false;}
   }
 
   function projectCard(p){
