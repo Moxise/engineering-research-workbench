@@ -308,24 +308,26 @@
       const weeks=Math.max(1,Number(card.dataset.heatmapWeeks)||1), gap=2, axis=54;
       const csp=getComputedStyle(card), ssp=getComputedStyle(scroll);
       const chrome=axis+parseFloat(csp.paddingLeft)+parseFloat(csp.paddingRight)+parseFloat(ssp.paddingLeft)+parseFloat(ssp.paddingRight);
-      const wide=!!topRow&&window.matchMedia('(min-width:1280px)').matches;
+      const wide=!!topRow&&window.matchMedia('(min-width:1080px)').matches;
       const totalW=wide?topRow.clientWidth:scroll.clientWidth+chrome;
-      const defaultHeatW=wide?Math.max(360,Math.round((totalW-10)*2/3)):totalW-chrome;
-      const widthSize=Math.floor((defaultHeatW-chrome-gap*(weeks-1))/weeks);
+      const widthSize=Math.floor((totalW-chrome-gap*(weeks-1))/weeks);
       const maxSize=weeks<=14?38:weeks<=30?32:weeks<=42?26:22;
       const size=Math.max(6,Math.min(maxSize,widthSize));
       const needW=Math.round(chrome+weeks*size+gap*(weeks-1));
+      const canShrink=wide&&size<widthSize&&totalW-needW-10>=400;
+      const cardW=size<widthSize?needW:totalW;
       if(wide){
-        const canShrink=size<widthSize&&totalW-needW-10>=480;
-        topRow.style.gridTemplateColumns=canShrink?`${needW}px minmax(0,1fr)`:'';
+        topRow.style.gridTemplateColumns=canShrink?`${needW}px minmax(0,1fr)`:'minmax(0,1fr)';
         if(academicGrid){
-          const rightW=totalW-(canShrink?needW:Math.round((totalW-10)*2/3))-10;
+          const rightW=totalW-cardW-10;
           academicGrid.style.gridTemplateColumns=rightW>=880?'minmax(0,1fr) minmax(0,1.08fr)':'';
         }
       }else{
         if(topRow)topRow.style.gridTemplateColumns='';
         if(academicGrid)academicGrid.style.gridTemplateColumns='';
       }
+      card.style.maxWidth=size<widthSize?`${needW}px`:'';
+      card.classList.toggle('is-narrow',cardW<700);
       card.style.setProperty('--heat-cell-size',`${size}px`); card.style.setProperty('--heat-gap',`${gap}px`);
       const step=size+gap;
       $$('.heatmap-month-boundary',card).forEach(line=>{
@@ -335,6 +337,7 @@
         line.style.setProperty('--boundary-step',`${step}px`); line.style.setProperty('--boundary-y',`${y}px`);
       });
     };
+    apply();
     requestAnimationFrame(apply);
     if(window.ResizeObserver){
       state.heatmapObserver?.disconnect();

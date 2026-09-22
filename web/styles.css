@@ -71,6 +71,9 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 /* v260920.4 · academic dashboard + research contribution heatmap */
 .overview-dashboard{display:grid;gap:10px}
 .overview-col{display:grid;gap:10px;min-width:0;align-content:start}
+/* v260922d · topRow 基础网格：让 JS 动态双列（宽屏收缩）在 1080-1279 视口同样生效 */
+.overview-top-row{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;align-items:stretch;min-width:0}
+.overview-top-row>.heatmap-card{min-width:0}
 @media(min-width:1280px){.overview-dashboard{grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);align-items:stretch;min-height:calc(100vh - 102px)}.overview-top-row{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px;align-items:stretch}.overview-top-row>.heatmap-card{min-width:0}.overview-top-row .overview-academic-grid{grid-template-columns:1fr;align-content:stretch}.overview-col{align-content:stretch}.overview-col>.section-title{align-self:end}.overview-today{flex-wrap:wrap;gap:12px 28px}.today-metrics{min-width:0;flex:1 1 320px}}
 .overview-today{padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:28px;overflow:hidden;position:relative}
 .overview-today:after{content:"";position:absolute;right:-70px;top:-90px;width:260px;height:260px;border:1px solid var(--accent-soft);border-radius:50%;pointer-events:none}
@@ -275,3 +278,8 @@ html[data-density="cozy"] .quick-capture-card{padding:20px 22px}
 .heatmap-card .card-head{flex:0 0 auto}
 .heatmap-scroll{flex:1 1 auto;display:flex;min-height:0}
 .heatmap-plot{margin-block:auto}
+/* v260922c · 窄卡头部适配：标题/工具两行排布，避免挤压折行 */
+.heatmap-card.is-narrow .card-head{flex-wrap:wrap;row-gap:6px}
+.heatmap-card.is-narrow .card-head>div:first-child{flex:1 1 100%}
+.heatmap-card.is-narrow .card-head p{display:none}
+.heatmap-card.is-narrow .heatmap-head-tools{flex:1 1 100%;justify-content:space-between}
