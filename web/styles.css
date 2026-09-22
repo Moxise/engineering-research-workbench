@@ -74,13 +74,13 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 /* v260922d · topRow 基础网格：让 JS 动态双列（宽屏收缩）在 1080-1279 视口同样生效 */
 .overview-top-row{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;align-items:stretch;min-width:0}
 .overview-top-row>.heatmap-card{min-width:0}
-@media(min-width:1280px){.overview-dashboard{grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);align-items:stretch;min-height:calc(100vh - 102px)}.overview-top-row{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px;align-items:stretch}.overview-top-row>.heatmap-card{min-width:0}.overview-top-row .overview-academic-grid{grid-template-columns:1fr;align-content:stretch}.overview-col{align-content:stretch}.overview-col>.section-title{align-self:end}.overview-today{flex-wrap:wrap;gap:12px 28px}.today-metrics{min-width:0;flex:1 1 320px}}
 .overview-today{padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:28px;overflow:hidden;position:relative}
 .overview-today:after{content:"";position:absolute;right:-70px;top:-90px;width:260px;height:260px;border:1px solid var(--accent-soft);border-radius:50%;pointer-events:none}
 .overview-today h3{font-size:18px;margin:4px 0 5px}.overview-today p{margin:0;color:var(--muted);font-size:12px}
 .today-metrics{display:grid;grid-template-columns:repeat(4,minmax(86px,1fr));gap:8px;min-width:min(560px,48%);position:relative;z-index:1}
 .today-metrics>div{padding:8px 10px;border-left:1px solid var(--line)}.today-metrics strong{display:block;font-size:18px;line-height:1.1}.today-metrics span{display:block;color:var(--muted);font-size:10px;margin-top:4px;white-space:nowrap}
-.overview-academic-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);gap:14px}
+.overview-academic-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;min-width:0;align-content:start}
+.overview-academic-grid.is-row{grid-template-columns:minmax(0,1fr) minmax(0,1.08fr)}
 .academic-progress-card,.graduation-card{padding:14px 16px;min-height:0}.academic-progress-card .card-head,.graduation-card .card-head{margin-bottom:8px}
 .degree-progress-value{text-align:center;font-size:40px;font-weight:700;letter-spacing:-.045em;color:var(--accent);margin:8px 0 6px}.degree-progress-value span{font-size:16px;margin-left:3px;font-weight:600}
 .degree-progress-track,.condition-track{height:7px;border-radius:999px;background:var(--surface-3);overflow:hidden}.degree-progress-track i,.condition-track i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:inherit;transition:width .3s ease}
@@ -93,7 +93,7 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 .overview-ops-grid>.card{min-height:0}.overview-stats{margin-top:0}.rhythm-main>div:first-child{display:flex;align-items:baseline;gap:4px;margin:5px 0 7px}.rhythm-main strong{font-size:26px}.rhythm-main span{color:var(--muted);font-size:11px}.rhythm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}.rhythm-grid>div{padding:8px;border:1px solid var(--line);background:var(--surface-2);border-radius:8px}.rhythm-grid strong{display:block;font-size:15px}.rhythm-grid span{display:block;color:var(--muted);font-size:9px;margin-top:4px;white-space:nowrap}
 .overview-ops-grid .list-stack,.recent-card .list-stack{gap:6px}.overview-ops-grid .list-row{padding:8px 10px;gap:8px}.recent-card .list-row{padding:6px 9px}.overview-ops-grid .row-main,.recent-card .row-main{display:flex;align-items:baseline;gap:10px}.overview-ops-grid .row-title,.recent-card .row-title{flex:0 1 auto}.overview-ops-grid .row-meta,.recent-card .row-meta{margin-top:0;margin-left:auto;text-align:right;flex:0 0 auto;max-width:62%}.condition-list{gap:7px;margin-top:8px}.condition-line{margin-bottom:4px}
 .condition-editor-head,.condition-edit-row{display:grid;grid-template-columns:minmax(180px,1.7fr) 100px 100px 110px auto;gap:8px;align-items:center}.condition-editor-head{padding:0 2px 6px;color:var(--muted);font-size:10px}.condition-edit-row{margin-bottom:7px}.condition-edit-row .ghost-btn{min-height:36px}
-@media(max-width:1250px){.today-metrics{min-width:0;grid-template-columns:repeat(2,1fr)}.overview-academic-grid{grid-template-columns:1fr}.overview-ops-grid{grid-template-columns:1fr 1fr}.overview-ops-grid>.rhythm-card{grid-column:1/-1}}
+@media(max-width:1250px){.overview-ops-grid{grid-template-columns:1fr 1fr}.overview-ops-grid>.rhythm-card{grid-column:1/-1}}
 @media(max-width:820px){.overview-today{align-items:flex-start;flex-direction:column}.today-metrics{width:100%;grid-template-columns:repeat(2,1fr)}.today-metrics>div{border-left:0;border-top:1px solid var(--line)}.overview-ops-grid{grid-template-columns:1fr}.overview-ops-grid>.rhythm-card{grid-column:auto}.academic-progress-card,.graduation-card{min-height:0}.condition-editor-head{display:none}.condition-edit-row{grid-template-columns:1fr 1fr}.condition-edit-row [data-cond-label],.condition-edit-row [data-cond-unit]{grid-column:1/-1}.heatmap-card{padding-left:14px;padding-right:14px}.heatmap-summary{display:none}.degree-progress-dates{font-size:9px}}
 
 /* v260920.5 · heatmap/layout polish, clearer sidebar groups, motion and Mermaid */
@@ -258,20 +258,80 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 @media(max-width:1450px){.graph-wrap.preview-open{grid-template-columns:minmax(0,1fr) 330px}.graph-wrap.preview-open .graph-side{grid-column:1/-1;display:grid;grid-template-columns:minmax(220px,.8fr) 1fr 1fr;gap:14px}.milestone-3d-layout.preview-open{grid-template-columns:minmax(0,1fr) 330px}}
 @media(max-width:1100px){.graph-wrap,.graph-wrap.preview-open,.milestone-3d-layout.preview-open{grid-template-columns:1fr}.graph-preview,.milestone-preview{max-height:none}.graph-canvas-help{display:none}.graph-wrap.preview-open .graph-side{display:block;grid-column:auto}}
 
-/* v260922 · page density toggle（紧凑型 / 宽松型下拉滚动） */
+/* v260922h · page density toggle：紧凑型=并排一屏收纳（免滚动）；宽松型=纵向下拉、间距宽松 */
 .density-pill{border:1px solid var(--line);background:var(--surface);border-radius:9px;min-height:38px;padding:0 12px;color:var(--muted);font-size:12px;display:inline-flex;align-items:center;transition:border-color .16s ease,color .16s ease}.density-pill:hover{border-color:var(--accent);color:var(--accent)}
+.overview-mid-row{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;min-width:0;align-items:stretch}
+html[data-density="compact"] .overview-mid-row{grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:8px}
+html[data-density="compact"] .main-content{padding:10px 18px 16px}
+html[data-density="compact"] .grid{gap:8px}
+html[data-density="compact"] .card-pad{padding:11px 14px}
+html[data-density="compact"] .card-head{margin-bottom:8px}
+html[data-density="compact"] .stat-card{padding:10px 12px}
+html[data-density="compact"] .overview-dashboard{gap:8px}
+html[data-density="compact"] .overview-top-row{gap:8px}
+html[data-density="compact"] .overview-academic-grid{gap:8px}
+html[data-density="compact"] .overview-today{padding:11px 16px}
+html[data-density="compact"] .overview-today h3{font-size:15px;margin:3px 0 2px}
+html[data-density="compact"] .today-metrics strong{font-size:15px}
+html[data-density="compact"] .today-metrics{min-width:min(500px,56%)}
+html[data-density="compact"] .quick-capture-card{padding:11px 16px}
+html[data-density="compact"] .quick-capture-copy h3{font-size:13px;margin:3px 0}
+html[data-density="compact"] .heatmap-card{padding:8px 12px 6px}
+html[data-density="compact"] .heatmap-scroll{padding:2px 2px 4px}
+html[data-density="compact"] .section-title{margin:4px 0 4px}
+/* v260922h2 · 紧凑型第二档压缩：页面标题、热力图头部、学业数字、统计卡与列表行高全档下压，确保一屏收纳 */
+html[data-density="compact"] .page-heading h2{font-size:17px;margin-bottom:1px}
+html[data-density="compact"] .overview-today p,html[data-density="compact"] .heatmap-card .card-head p,html[data-density="compact"] .project-pulse-card .card-head p,html[data-density="compact"] .quick-capture-copy p{margin:2px 0 0;font-size:10px}
+html[data-density="compact"] .heatmap-summary strong{font-size:15px}
+html[data-density="compact"] .degree-progress-value{font-size:26px;margin:4px 0 4px}
+html[data-density="compact"] .condition-score{font-size:20px}
+/* v260922h3 · 紧凑型：科研进度/毕业条件卡内再压缩 */
+html[data-density="compact"] .academic-progress-card,html[data-density="compact"] .graduation-card{padding:9px 14px}
+html[data-density="compact"] .academic-progress-card .card-head,html[data-density="compact"] .graduation-card .card-head{margin-bottom:4px}
+html[data-density="compact"] .degree-progress-value{font-size:22px;margin:2px 0 3px}
+html[data-density="compact"] .degree-progress-value span{font-size:12px}
+html[data-density="compact"] .degree-progress-track,html[data-density="compact"] .condition-track{height:6px}
+html[data-density="compact"] .degree-progress-dates{margin-top:5px;font-size:9px}
+html[data-density="compact"] .degree-progress-foot{margin-top:4px;font-size:10px;gap:20px}
+html[data-density="compact"] .condition-list{gap:4px;margin-top:4px}
+html[data-density="compact"] .condition-line{margin-bottom:2px;font-size:11px}
+html[data-density="compact"] .condition-item .condition-track{height:4px}
+html[data-density="compact"] .condition-score{font-size:18px}
+html[data-density="compact"] .graduation-card .card-head .condition-score{margin-left:auto}
+html[data-density="compact"] .stat-value{font-size:18px}
+html[data-density="compact"] .stat-label{margin-top:3px;font-size:11px}
+html[data-density="compact"] .rhythm-main strong{font-size:20px}
+html[data-density="compact"] .quick-action{min-height:42px;padding:4px 9px}
+html[data-density="compact"] .overview-ops-grid .list-row,html[data-density="compact"] .recent-card .list-row{padding:5px 9px}
+html[data-density="compact"] .project-pulse-item{padding:8px 10px}
+html[data-density="compact"] .section-title h3{font-size:14px}
+html[data-density="compact"] .section-title p{font-size:11px;margin-top:1px}
+/* v260922h4 · 紧凑型：热力图整卡再压 + 学业两卡撑满行高，消除行内空隙 */
+html[data-density="compact"] .heatmap-card .card-head p{display:none}
+html[data-density="compact"] .heatmap-months{height:14px}
+html[data-density="compact"] .heatmap-footer{margin-top:2px}
+html[data-density="compact"] .overview-academic-grid{align-content:stretch}
+html[data-density="compact"] .academic-progress-card,html[data-density="compact"] .graduation-card{display:flex;flex-direction:column}
+html[data-density="compact"] .academic-progress-card .degree-progress-foot{margin-top:auto}
+html[data-density="compact"] .graduation-card .condition-list{flex:1 1 auto;align-content:center}
+/* v260922h5 · 紧凑型：热力图头部/图例再压，学业卡内容纵向均布消除内部空白 */
+html[data-density="compact"] .heatmap-card .card-head{margin-bottom:2px}
+html[data-density="compact"] .heatmap-hint{display:none}
+html[data-density="compact"] .academic-progress-card .degree-progress-dates{margin-top:auto}
 html[data-density="cozy"] .main-content{padding:22px 28px 34px}
 html[data-density="cozy"] .grid{gap:18px}
 html[data-density="cozy"] .card-pad{padding:18px 20px}
 html[data-density="cozy"] .card-head{margin-bottom:14px}
 html[data-density="cozy"] .stat-card{padding:16px 18px}
 html[data-density="cozy"] .overview-dashboard{gap:16px}
-html[data-density="cozy"] .overview-col{gap:16px}
 html[data-density="cozy"] .overview-top-row{gap:16px}
+html[data-density="cozy"] .overview-mid-row{gap:16px}
+html[data-density="cozy"] .overview-academic-grid{gap:16px}
 html[data-density="cozy"] .overview-today{padding:18px 22px}
 html[data-density="cozy"] .heatmap-card{padding:16px 20px 14px}
 html[data-density="cozy"] .heatmap-scroll{padding:10px 2px 14px}
 html[data-density="cozy"] .quick-capture-card{padding:20px 22px}
+@media(max-width:1250px){html[data-density="compact"] .overview-mid-row{grid-template-columns:minmax(0,1fr)}}
 
 /* v260922b · heatmap fills card width, plot vertically centered（消除右侧与下方空白） */
 .heatmap-card{display:flex;flex-direction:column}
@@ -283,3 +343,4 @@ html[data-density="cozy"] .quick-capture-card{padding:20px 22px}
 .heatmap-card.is-narrow .card-head>div:first-child{flex:1 1 100%}
 .heatmap-card.is-narrow .card-head p{display:none}
 .heatmap-card.is-narrow .heatmap-head-tools{flex:1 1 100%;justify-content:space-between}
+

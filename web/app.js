@@ -28,7 +28,7 @@
     graphKinds: new Set(storedArray('graphKinds', ['idea','journal','note','milestone','summary','literature','project','tag'])),
     graphRelations: new Set(storedArray('graphRelations', ['wikilink','tag','project'])),
     agentSession: null, agentRefs: [], agentImages: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false,
-    heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact',
+    heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact', /* v260922h · 默认紧凑型（并排一屏收纳） */
     focus: {mode:'专注', focusMinutes:savedFocusMinutes, breakMinutes:savedBreakMinutes, seconds:savedFocusMinutes*60, total:savedFocusMinutes*60, timer:null, running:false},
     sidebarPinned: new Set(storedArray('sidebarPinned', ['core'])),
     sidebarOpen: new Set(storedArray('sidebarOpen', ['core','resources','system'])),
@@ -183,51 +183,49 @@
         </div>
       </div>
 
-      <div class="overview-col">
-      <section class="card overview-today">
-        <div>
-          <div class="card-kicker">TODAY / RESEARCH DESK</div>
-          <h3>今天 · ${esc(dateTitle)}</h3>
-          <p>把学业周期、科研资产、任务与研究节奏放在同一张仪表盘里。</p>
-        </div>
-        <div class="today-metrics">
-          <div><strong>${todosList.filter(x=>!x.done).length}</strong><span>未完成待办</span></div>
-          <div><strong>${activity.active_days_month||0}</strong><span>本月活跃日</span></div>
-          <div><strong>${activity.events_month||0}</strong><span>本月科研记录</span></div>
-          <div><strong>${recentToday}</strong><span>今日科研记录</span></div>
-        </div>
-      </section>
+      <div class="overview-mid-row">
+        <section class="card overview-today">
+          <div>
+            <div class="card-kicker">TODAY / RESEARCH DESK</div>
+            <h3>今天 · ${esc(dateTitle)}</h3>
+            <p>把学业周期、科研资产、任务与研究节奏放在同一张仪表盘里。</p>
+          </div>
+          <div class="today-metrics">
+            <div><strong>${todosList.filter(x=>!x.done).length}</strong><span>未完成待办</span></div>
+            <div><strong>${activity.active_days_month||0}</strong><span>本月活跃日</span></div>
+            <div><strong>${activity.events_month||0}</strong><span>本月科研记录</span></div>
+            <div><strong>${recentToday}</strong><span>今日科研记录</span></div>
+          </div>
+        </section>
 
-      <section class="card quick-capture-card">
-        <div class="quick-capture-copy"><div class="card-kicker">QUICK CAPTURE</div><h3>快速记录</h3><p>把临时想法及时沉淀到 Workspace，减少页面跳转。</p></div>
-        <div class="quick-capture-actions">
-          <button class="quick-action" data-quick-doc="ideas"><span>✦</span><b>灵感</b><small>Idea</small></button>
-          <button class="quick-action" data-quick-doc="journals"><span>▤</span><b>研究日志</b><small>Journal</small></button>
-          <button class="quick-action" data-quick-doc="notes"><span>▧</span><b>笔记</b><small>Note</small></button>
-          <button class="quick-action" data-quick-doc="literature"><span>◫</span><b>文献</b><small>Paper</small></button>
-          <button class="quick-action" data-quick-doc="milestones"><span>⚑</span><b>里程碑</b><small>Milestone</small></button>
-        </div>
-      </section>
-
-      ${projectPulseCard(dash.project_stats||[])}
-
-      <div class="grid grid-4 overview-stats">
-        ${stat('笔记',dash.counts.note||0,'NOTES')}
-        ${stat('文献',dash.counts.literature||0,'LITERATURE')}
-        ${stat('里程碑',dash.counts.milestone||0,'MILESTONES')}
-        ${stat('研究日志',dash.counts.journal||0,'JOURNALS')}
-      </div>
+        <section class="card quick-capture-card">
+          <div class="quick-capture-copy"><div class="card-kicker">QUICK CAPTURE</div><h3>快速记录</h3><p>把临时想法及时沉淀到 Workspace，减少页面跳转。</p></div>
+          <div class="quick-capture-actions">
+            <button class="quick-action" data-quick-doc="ideas"><span>✦</span><b>灵感</b><small>Idea</small></button>
+            <button class="quick-action" data-quick-doc="journals"><span>▤</span><b>研究日志</b><small>Journal</small></button>
+            <button class="quick-action" data-quick-doc="notes"><span>▧</span><b>笔记</b><small>Note</small></button>
+            <button class="quick-action" data-quick-doc="literature"><span>◫</span><b>文献</b><small>Paper</small></button>
+            <button class="quick-action" data-quick-doc="milestones"><span>⚑</span><b>里程碑</b><small>Milestone</small></button>
+          </div>
+        </section>
       </div>
 
-      <div class="overview-col">
       <div class="grid grid-3 overview-ops-grid">
         ${researchRhythmCard(activity,academic)}
         <section class="card card-pad"><div class="card-head"><div><div class="card-kicker">TODAY TASKS</div><h3>当前任务</h3></div><button class="secondary-btn" data-go="todos">全部待办</button></div>${listRows(openTodos.map(t=>({title:t.title,meta:`${t.project||'未归属项目'} · 截止 ${fmtDate(t.due)}`})), '暂无待办')}</section>
         <section class="card card-pad"><div class="card-head"><div><div class="card-kicker">NEXT MILESTONE</div><h3>近期节点</h3></div><button class="secondary-btn" data-go="milestones">时间轴</button></div>${listRows((dash.upcoming_milestones||[]).slice(0,5).map(d=>({title:d.title,meta:`${d.project||'未归属项目'} · ${fmtDate(d.due)} · ${d.status}`})), '暂无近期里程碑')}</section>
       </div>
 
+      ${projectPulseCard(dash.project_stats||[])}
+
       <div class="section-title"><div><h3>最近研究活动</h3><p>快速回到最近产生的科研内容</p></div><button class="secondary-btn" data-go="research-overview">研究总览</button></div>
       <div class="grid grid-3">${recentCard('最近灵感',dash.recent.ideas,'ideas')}${recentCard('最近笔记',dash.recent.notes,'notes')}${recentCard('最近工作总结',dash.recent.summaries,'summaries')}</div>
+
+      <div class="grid grid-4 overview-stats">
+        ${stat('笔记',dash.counts.note||0,'NOTES')}
+        ${stat('文献',dash.counts.literature||0,'LITERATURE')}
+        ${stat('里程碑',dash.counts.milestone||0,'MILESTONES')}
+        ${stat('研究日志',dash.counts.journal||0,'JOURNALS')}
       </div>
     </div>`;
     wireGo();
@@ -308,25 +306,23 @@
       const weeks=Math.max(1,Number(card.dataset.heatmapWeeks)||1), gap=2, axis=54;
       const csp=getComputedStyle(card), ssp=getComputedStyle(scroll);
       const chrome=axis+parseFloat(csp.paddingLeft)+parseFloat(csp.paddingRight)+parseFloat(ssp.paddingLeft)+parseFloat(ssp.paddingRight);
-      const wide=!!topRow&&window.matchMedia('(min-width:1080px)').matches;
-      const totalW=wide?topRow.clientWidth:scroll.clientWidth+chrome;
+      const compact=document.documentElement.dataset.density==='compact';
+      const wide=!!topRow&&window.matchMedia('(min-width:1080px)').matches; /* v260922h3 · 宽屏两种密度都并排：宽松=原样式，紧凑=并排+学业两卡再并排保一屏 */
+      const totalW=topRow?topRow.clientWidth:scroll.clientWidth+chrome; /* v260922f · 用轨道宽度做基准，缩卡后无循环依赖 */
       const widthSize=Math.floor((totalW-chrome-gap*(weeks-1))/weeks);
-      const maxSize=weeks<=14?38:weeks<=30?32:weeks<=42?26:22;
+      const maxSize=compact?10:16; /* v260922h4 · 紧凑型格子再小一档，进一步压低整行高度 */
       const size=Math.max(6,Math.min(maxSize,widthSize));
       const needW=Math.round(chrome+weeks*size+gap*(weeks-1));
-      const canShrink=wide&&size<widthSize&&totalW-needW-10>=400;
-      const cardW=size<widthSize?needW:totalW;
-      if(wide){
-        topRow.style.gridTemplateColumns=canShrink?`${needW}px minmax(0,1fr)`:'minmax(0,1fr)';
-        if(academicGrid){
-          const rightW=totalW-cardW-10;
-          academicGrid.style.gridTemplateColumns=rightW>=880?'minmax(0,1fr) minmax(0,1.08fr)':'';
-        }
-      }else{
-        if(topRow)topRow.style.gridTemplateColumns='';
-        if(academicGrid)academicGrid.style.gridTemplateColumns='';
+      const canDual=wide&&size<widthSize&&totalW-needW-10>=420; /* 学业卡并排所需最小宽度 */
+      let dualAcademic=wide&&!canDual; /* 宽松型维持原行为：仅热力图全宽时进度/毕业条件两卡并排 */
+      if(compact) dualAcademic=wide&&canDual&&(totalW-needW-16>=680); /* v260922h · 紧凑型：热力图侧边宽度足够时进度/毕业条件并排，压低整行 */
+      if(topRow){
+        if(wide){topRow.style.gridTemplateColumns=canDual?`${needW}px minmax(0,1fr)`:'minmax(0,1fr)';}
+        else{topRow.style.gridTemplateColumns='';}
       }
-      card.style.maxWidth=size<widthSize?`${needW}px`:'';
+      if(academicGrid) academicGrid.classList.toggle('is-row',dualAcademic);
+      card.style.maxWidth=size<widthSize?`${needW}px`:''; /* v260922f · 两种密度都缩卡消除月数少时的右侧空白 */
+      const cardW=wide&&canDual?needW:scroll.clientWidth+chrome;
       card.classList.toggle('is-narrow',cardW<700);
       card.style.setProperty('--heat-cell-size',`${size}px`); card.style.setProperty('--heat-gap',`${gap}px`);
       const step=size+gap;
@@ -361,9 +357,9 @@
 
   function applyDensity(mode){
     const v=mode==='cozy'?'cozy':'compact';
-    state.density=v; localStorage.setItem('pageDensity',v);
+    state.density=v;
     document.documentElement.dataset.density=v;
-    const btn=$('#density-btn'); if(btn){btn.textContent=v==='cozy'?'宽松型':'紧凑型';btn.title=v==='cozy'?'当前：宽松型（间距加大、页面可下拉滚动）。点击切换为紧凑型':'当前：紧凑型（一屏收纳）。点击切换为宽松型';}
+    const btn=$('#density-btn'); if(btn){btn.textContent=v==='cozy'?'宽松型':'紧凑型';btn.title=v==='cozy'?'当前：宽松型（各卡片纵向排布、页面可下拉滚动）。点击切换为紧凑型':'当前：紧凑型（热力图与学业卡并排、一屏收纳免滚动）。点击切换为宽松型';}
   }
 
   function projectPulseCard(items){
@@ -826,8 +822,10 @@
     $('#zoom-btn').onclick=()=>$('#zoom-menu').classList.toggle('hidden');
     $$('[data-zoom]').forEach(b=>b.onclick=()=>{applyUiScale(b.dataset.zoom);$('#zoom-menu').classList.add('hidden')});
     applyUiScale(state.uiScale);
-    $('#density-btn').onclick=()=>applyDensity(state.density==='cozy'?'compact':'cozy');
-    applyDensity(state.density);
+    /* v260922h · 密度默认紧凑型（并排一屏收纳）；手动切换后记忆用户选择 */
+    $('#density-btn').onclick=()=>{const v=state.density==='cozy'?'compact':'cozy';localStorage.setItem('pageDensityManual','1');localStorage.setItem('pageDensity',v);applyDensity(v);fitResearchHeatmap();};
+    const savedDensity=localStorage.getItem('pageDensity'), manualDensity=localStorage.getItem('pageDensityManual')==='1';
+    applyDensity(manualDensity&&savedDensity?savedDensity:'compact'); /* v260922h · 默认紧凑型：并排一屏、免滚动 */
     $('#global-search-btn').onclick=()=>openGlobalSearch();
     document.addEventListener('keydown',e=>{const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='s'&&$('#md-input')&&state.selectedDoc){e.preventDefault();$('#doc-save')?.click();return}if(mod&&key==='k'){e.preventDefault();openGlobalSearch();}});
     $('#reload-btn').onclick=()=>systemAction('reload');$('#reload-menu-btn').onclick=()=>$('#reload-menu').classList.toggle('hidden');$$('[data-system-action]').forEach(b=>b.onclick=()=>{ $('#reload-menu').classList.add('hidden');systemAction(b.dataset.systemAction)});
