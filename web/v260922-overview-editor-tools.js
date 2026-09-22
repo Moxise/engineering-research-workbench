@@ -44,13 +44,72 @@
     applyEditorZoom();
   }
 
+  /* Only CURRENT TASKS and NEXT MILESTONE are capped here. Research Rhythm is untouched. */
   function limitOverviewRows(ops){
     if(!ops)return;
     const cards=[...ops.children];
     [1,2].forEach(i=>{
       const card=cards[i]; if(!card)return;
-      qsa('.list-row',card).forEach((row,index)=>row.hidden=index>=4);
+      qsa('.list-row',card).forEach((row,index)=>{
+        row.style.display=index>=3?'none':'';
+      });
     });
+  }
+
+  function openRecentDoc(card, docId){
+    const allButton=qs('[data-go]',card);
+    if(!allButton)return;
+    allButton.click();
+    let tries=0;
+    const timer=setInterval(()=>{
+      const target=qsa('[data-doc-id]').find(el=>el.dataset.docId===String(docId));
+      if(target){clearInterval(timer);target.click();return;}
+      if(++tries>=30)clearInterval(timer);
+    },80);
+  }
+
+  function paintRecentCard(card, docs){
+    const head=qs('.card-head',card); if(!head)return;
+    [...card.children].forEach(child=>{if(child!==head)child.remove();});
+    const rows=(docs||[]).slice(0,10);
+    if(!rows.length){
+      const empty=document.createElement('div');
+      empty.className='empty';
+      empty.style.minHeight='120px';
+      empty.textContent='暂无内容';
+      card.appendChild(empty);
+      return;
+    }
+    rows.forEach(doc=>{
+      const row=document.createElement('div');
+      row.className='list-row clickable';
+      const main=document.createElement('div'); main.className='row-main';
+      const title=document.createElement('div'); title.className='row-title'; title.textContent=doc.title||'未命名';
+      const meta=document.createElement('div'); meta.className='row-meta'; meta.textContent=`${doc.project||'未归属项目'} · ${doc.status||''}`;
+      main.append(title,meta); row.appendChild(main);
+      row.addEventListener('click',()=>openRecentDoc(card,doc.id));
+      card.appendChild(row);
+    });
+  }
+
+  async function expandRecentResearch(dashboard){
+    const group=qs('.overview-recent-group',dashboard); if(!group||group.dataset.recentExpanded==='loading'||group.dataset.recentExpanded==='done')return;
+    const cards=qsa('.recent-card',group); if(cards.length<3)return;
+    group.dataset.recentExpanded='loading';
+    const specs=[['idea',cards[0]],['note',cards[1]],['summary',cards[2]]];
+    try{
+      const results=await Promise.all(specs.map(async([kind])=>{
+        const res=await fetch('/api/docs?kind='+encodeURIComponent(kind));
+        if(!res.ok)throw new Error(`HTTP ${res.status}`);
+        const data=await res.json();
+        return Array.isArray(data)?data.slice(0,10):[];
+      }));
+      specs.forEach(([,card],i)=>paintRecentCard(card,results[i]));
+      group.dataset.recentExpanded='done';
+    }catch(err){
+      console.warn('recent research expansion failed',err);
+      group.dataset.recentExpanded='error';
+    }
   }
 
   function enhanceOverviewLayout(){
@@ -73,6 +132,7 @@
       }
     }
     limitOverviewRows(qs('.overview-mid-band .overview-ops-grid',dashboard)||qs('.overview-ops-grid',dashboard));
+    expandRecentResearch(dashboard);
     dashboard.dataset.layoutEnhanced='1';
   }
 
