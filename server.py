@@ -19,6 +19,7 @@ from app import weather
 from app import workspace
 from app import agent
 from app import projects
+from app import project_bridge
 from app import search as search_service
 
 ROOT = Path(__file__).resolve().parent
@@ -146,7 +147,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/graph/neighborhood":
             root = (q.get("root") or [""])[0]
             depth = int((q.get("depth") or ["1"])[0])
-            return self.send_json(store.graph_neighborhood(root, depth))
+            return self.send_json(project_bridge.neighborhood(root, depth))
         if path == "/api/todos":
             return self.send_json(todos.list_todos())
         if path == "/api/weather":
@@ -212,7 +213,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(projects.sync_doc(doc, normalized), 201)
         if path.startswith("/api/docs/"):
             doc_id = unquote(path.split("/api/docs/", 1)[1])
-            normalized = projects.normalize_payload(payload)
+            existing = projects.augment_doc(store.get_doc(doc_id))
+            normalized = projects.normalize_payload({**existing, **payload})
             doc = store.update_doc(doc_id, normalized)
             return self.send_json(projects.sync_doc(doc, normalized))
         if path == "/api/assets":
@@ -220,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/graph/bundle":
             root = str(payload.get("root") or "")
             ids = payload.get("selected_ids") or []
-            content = store.build_bundle(root, ids, str(payload.get("title") or ""), payload.get("active_node_ids") or [], payload.get("relations"))
+            content = project_bridge.build_bundle(root, ids, str(payload.get("title") or ""), payload.get("active_node_ids") or [], payload.get("relations"))
             return self.send_json({"ok": True, "content": content})
         if path == "/api/graph/bundle/save":
             return self.send_json(store.save_bundle(str(payload.get("filename") or "knowledge-bundle.md"), str(payload.get("content") or "")))
@@ -241,7 +243,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(projects.sync_todo(todos.create(normalized), normalized), 201)
         if path.startswith("/api/todos/"):
             todo_id = unquote(path.split("/api/todos/", 1)[1])
-            normalized = projects.normalize_payload(payload)
+            current = next((x for x in todos.list_todos() if x.get("id") == todo_id), None)
+            if current is None:
+                raise FileNotFoundError(todo_id)
+            normalized = projects.normalize_payload({**current, **payload})
             return self.send_json(projects.sync_todo(todos.update(todo_id, normalized), normalized))
         return self.send_json({"error": "not_found"}, 404)
 
