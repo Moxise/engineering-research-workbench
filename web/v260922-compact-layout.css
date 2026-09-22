@@ -59,6 +59,160 @@
   .overview-stats .stat-card{min-height:70px}
 }
 
+/* Dashboard composition inspired by a dense desktop research console.
+ * Existing overview DOM is deliberately reused: only visual placement changes.
+ */
+@media (min-width:1280px){
+  .overview-dashboard{
+    display:grid;
+    grid-template-columns:repeat(12,minmax(0,1fr));
+    gap:10px;
+    align-items:stretch;
+  }
+
+  /* Top: heatmap dominates; academic information stacks at the right. */
+  .overview-dashboard>.heatmap-card{
+    grid-column:1 / 8;
+    grid-row:1;
+    min-height:306px;
+  }
+  .overview-dashboard>.overview-academic-grid{
+    grid-column:8 / 13;
+    grid-row:1;
+    display:grid;
+    grid-template-columns:1fr;
+    grid-template-rows:minmax(0,1fr) minmax(0,1fr);
+    gap:10px;
+    min-width:0;
+  }
+  .overview-dashboard>.overview-academic-grid>.card{
+    min-height:0;
+    height:100%;
+  }
+  .overview-dashboard>.overview-academic-grid .degree-progress-value{
+    font-size:38px;
+    margin:4px 0 5px;
+  }
+  .overview-dashboard>.overview-academic-grid .condition-list{
+    gap:7px;
+    margin-top:6px;
+  }
+
+  /* Second band: daily desk on the left, rhythm/tasks/milestones on the right. */
+  .overview-dashboard>.overview-today{
+    grid-column:1 / 7;
+    grid-row:2;
+    min-height:92px;
+  }
+  .overview-dashboard>.overview-today .today-metrics{
+    min-width:52%;
+  }
+  .overview-dashboard>.overview-ops-grid{
+    grid-column:7 / 13;
+    grid-row:2;
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:10px;
+  }
+  .overview-dashboard>.overview-ops-grid>.card{
+    min-width:0;
+    min-height:92px;
+    padding:12px;
+  }
+  .overview-dashboard>.overview-ops-grid .card-head{
+    margin-bottom:7px;
+  }
+  .overview-dashboard>.overview-ops-grid .secondary-btn{
+    min-height:30px;
+    padding:0 8px;
+    font-size:10px;
+  }
+  .overview-dashboard>.overview-ops-grid .list-row{
+    padding:7px 8px;
+  }
+
+  /* Third/fourth bands: capture + project pulse at left, recent activity at right. */
+  .overview-dashboard>.quick-capture-card{
+    grid-column:1 / 7;
+    grid-row:3;
+    min-width:0;
+  }
+  .overview-dashboard>.quick-capture-card .quick-capture-copy{
+    min-width:160px;
+  }
+  .overview-dashboard>.quick-capture-card .quick-capture-actions{
+    grid-template-columns:repeat(5,minmax(72px,1fr));
+    gap:5px;
+    max-width:none;
+  }
+  .overview-dashboard>.quick-capture-card .quick-action{
+    min-width:0;
+  }
+
+  .overview-dashboard>.project-pulse-card{
+    grid-column:1 / 7;
+    grid-row:4;
+    min-width:0;
+  }
+  .overview-dashboard>.project-pulse-card .project-pulse-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .overview-dashboard>.section-title{
+    grid-column:7 / 13;
+    grid-row:3;
+    align-self:end;
+    margin:0;
+    min-height:58px;
+  }
+  .overview-dashboard>.section-title+ .grid.grid-3{
+    grid-column:7 / 13;
+    grid-row:4 / span 2;
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:10px;
+    align-self:stretch;
+  }
+  .overview-dashboard>.section-title+ .grid.grid-3>.card{
+    min-width:0;
+    min-height:154px;
+    padding:12px;
+  }
+
+  /* Asset counters finish the left column instead of consuming a full-width row. */
+  .overview-dashboard>.overview-stats{
+    grid-column:1 / 7;
+    grid-row:5;
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:10px;
+  }
+  .overview-dashboard>.overview-stats .stat-card{
+    min-width:0;
+    min-height:68px;
+    padding:10px 12px;
+  }
+  .overview-dashboard>.overview-stats .stat-value{font-size:22px}
+  .overview-dashboard>.overview-stats .stat-label{font-size:10px;margin-top:4px}
+
+  /* Make the heatmap visually fill the large top-left panel. */
+  .overview-dashboard>.heatmap-card .heatmap-scroll{
+    display:flex;
+    align-items:center;
+    min-height:218px;
+  }
+  .overview-dashboard>.heatmap-card .heatmap-plot{
+    width:max-content;
+    min-width:100%;
+  }
+}
+
+/* At medium desktop widths keep the compact sequential layout so cards do not become cramped. */
+@media (min-width:1101px) and (max-width:1279px){
+  .overview-academic-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .overview-ops-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+
 /* Keep the existing small-screen layout; only trim obvious dead space on tablets. */
 @media (min-width:821px) and (max-width:1100px){
   .main-content{padding:18px 20px 36px}.overview-dashboard{gap:11px}.overview-today{padding:16px 18px}.quick-capture-card{padding:13px 15px}.card-pad{padding:15px}
