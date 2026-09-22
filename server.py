@@ -19,8 +19,7 @@ from app import weather
 from app import workspace
 from app import agent
 from app import projects
-from app import project_bridge
-from app import search as search_service
+from app import indexer
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
@@ -30,13 +29,34 @@ def json_bytes(data) -> bytes:
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
 
+def _q_int(q, key: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int((q.get(key) or [str(default)])[0])
+    except Exception:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _project_registry_needs_migration() -> bool:
+    root = workspace.ensure_workspace(run_migration=False)
+    registry = root / "System" / "projects.json"
+    schema = root / "System" / "schema.json"
+    if not registry.exists() or not schema.exists():
+        return True
+    try:
+        data = json.loads(schema.read_text(encoding="utf-8"))
+        return int(data.get("workspace_schema_version") or 0) < indexer.WORKSPACE_SCHEMA_VERSION
+    except Exception:
+        return True
+
+
 class WorkbenchHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Workbench/260922.1"
+    server_version = "Workbench/260922-perf"
 
     def log_message(self, fmt, *args):
         sys.stdout.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
@@ -77,6 +97,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_static(path)
         except FileNotFoundError as e:
             self.send_json({"error": "not_found", "message": str(e)}, 404)
+        except ValueError as e:
+            self.send_json({"error": "bad_request", "message": str(e)}, 400)
         except Exception as e:
             self.send_json({"error": type(e).__name__, "message": str(e)}, 500)
 
@@ -99,13 +121,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path.startswith("/api/projects/"):
                 project_id = unquote(path.split("/api/projects/", 1)[1])
-                return self.send_json(projects.delete_project(project_id))
+                result = projects.delete_project(project_id)
+                indexer.sync(force=True)
+                return self.send_json(result)
             if path.startswith("/api/docs/"):
                 doc_id = unquote(path.split("/api/docs/", 1)[1])
-                return self.send_json(store.delete_doc(doc_id))
+                result = indexer.delete_doc(doc_id)
+                return self.send_json(result)
             if path.startswith("/api/todos/"):
                 todo_id = unquote(path.split("/api/todos/", 1)[1])
-                return self.send_json(todos.delete(todo_id))
+                result = todos.delete(todo_id)
+                indexer.refresh_todos()
+                return self.send_json(result)
             if path.startswith("/api/agent/sessions/"):
                 session_id = unquote(path.split("/api/agent/sessions/", 1)[1])
                 return self.send_json(agent.delete_session(session_id))
@@ -117,39 +144,61 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_api_get(self, path, q):
         if path == "/api/health":
-            return self.send_json({"ok": True, "version": (ROOT / "VERSION").read_text(encoding="utf-8").strip()})
+            return self.send_json({
+                "ok": True,
+                "version": (ROOT / "VERSION").read_text(encoding="utf-8").strip(),
+                "index": indexer.status(),
+            })
         if path == "/api/config":
             return self.send_json(config.get_public())
         if path == "/api/workspace/info":
-            return self.send_json(workspace.workspace_info())
+            info = workspace.workspace_info()
+            info["index"] = indexer.status()
+            return self.send_json(info)
         if path == "/api/workspace/tree":
-            return self.send_json(workspace.tree())
+            full = (q.get("full") or ["0"])[0] == "1"
+            return self.send_json(workspace.tree() if full else indexer.workspace_tree_root())
+        if path == "/api/workspace/children":
+            rel = (q.get("path") or [""])[0]
+            return self.send_json(indexer.workspace_children(rel))
+        if path == "/api/system/index":
+            return self.send_json(indexer.status())
         if path == "/api/docs":
             kind = (q.get("kind") or [""])[0] or None
             query = (q.get("q") or [""])[0]
             status = (q.get("status") or [""])[0]
             project = (q.get("project") or [""])[0]
             mark = (q.get("mark") or [""])[0]
-            return self.send_json(projects.augment_docs(store.list_docs(kind, query, status, project, mark)))
+            page = _q_int(q, "page", 1, 1, 1_000_000)
+            page_size = _q_int(q, "page_size", indexer.DEFAULT_PAGE_SIZE, 1, indexer.MAX_PAGE_SIZE)
+            paged = (q.get("paged") or ["0"])[0] == "1"
+            return self.send_json(indexer.list_docs(
+                kind, query, status, project, mark,
+                page=page, page_size=page_size, paged=paged,
+            ))
         if path.startswith("/api/docs/"):
             doc_id = unquote(path.split("/api/docs/", 1)[1])
-            return self.send_json(projects.augment_doc(store.get_doc(doc_id)))
+            return self.send_json(indexer.get_doc(doc_id))
         if path == "/api/statuses":
             return self.send_json(store.all_statuses())
         if path == "/api/projects":
-            return self.send_json(projects.project_names())
+            return self.send_json(indexer.project_names())
         if path == "/api/project-records":
-            return self.send_json(projects.list_projects())
+            return self.send_json(indexer.project_records())
         if path == "/api/dashboard":
-            return self.send_json(projects.dashboard_payload(store.dashboard()))
+            return self.send_json(indexer.dashboard())
+        if path == "/api/graph/overview":
+            limit = _q_int(q, "limit", indexer.OVERVIEW_GRAPH_LIMIT, 20, 120)
+            return self.send_json(indexer.graph_overview(limit))
         if path == "/api/graph":
-            return self.send_json(projects.graph_payload(store.graph()))
+            limit = _q_int(q, "limit", indexer.DEFAULT_GRAPH_LIMIT, 20, indexer.MAX_GRAPH_LIMIT)
+            return self.send_json(indexer.graph(limit))
         if path == "/api/graph/neighborhood":
             root = (q.get("root") or [""])[0]
-            depth = int((q.get("depth") or ["1"])[0])
-            return self.send_json(project_bridge.neighborhood(root, depth))
+            depth = _q_int(q, "depth", 1, 1, 2)
+            return self.send_json(indexer.graph_neighborhood(root, depth))
         if path == "/api/todos":
-            return self.send_json(todos.list_todos())
+            return self.send_json(indexer.list_todos())
         if path == "/api/weather":
             force = (q.get("force") or ["0"])[0] == "1"
             return self.send_json(weather.current(force=force))
@@ -161,8 +210,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(rss_service.fetch(force))
         if path == "/api/search":
             query = (q.get("q") or [""])[0]
-            limit = int((q.get("limit") or ["60"])[0])
-            return self.send_json(search_service.search_all(query, limit))
+            limit = _q_int(q, "limit", 60, 1, 120)
+            return self.send_json(indexer.search_all(query, limit))
         if path == "/api/agent/sessions":
             return self.send_json(agent.list_sessions())
         if path.startswith("/api/agent/sessions/"):
@@ -175,6 +224,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(config.save_app(payload))
         if path == "/api/config/rss":
             return self.send_json(config.save_rss(payload))
+        if path == "/api/system/index/rebuild":
+            return self.send_json(indexer.rebuild())
         if path == "/api/system/reload":
             data = config.reload_all()
             workspace.reset_runtime_state()
@@ -186,48 +237,77 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 migration = {"skipped": True, "reason": "workspace migration disabled"}
             project_migration = projects.ensure_registry()
-            return self.send_json({"ok": True, "message": "所有配置、缓存与 Workspace 已重新载入", "config": config.get_public(), "migration": migration, "project_migration": project_migration})
+            index_state = indexer.rebuild()
+            return self.send_json({
+                "ok": True,
+                "message": "所有配置、缓存与 Workspace 已重新载入",
+                "config": config.get_public(),
+                "migration": migration,
+                "project_migration": project_migration,
+                "index": index_state,
+            })
         if path == "/api/system/restart":
             self.send_json({"ok": True, "message": "服务正在快速重启"})
             setattr(self.server, "restart_requested", True)
             threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
         if path == "/api/workspace/folder":
-            return self.send_json(workspace.create_folder(str(payload.get("path") or "")))
+            result = workspace.create_folder(str(payload.get("path") or ""))
+            return self.send_json(result)
         if path == "/api/workspace/project":
-            result = projects.create_project(str(payload.get("name") or ""), str(payload.get("description") or ""), str(payload.get("status") or "进行中"))
+            result = projects.create_project(
+                str(payload.get("name") or ""),
+                str(payload.get("description") or ""),
+                str(payload.get("status") or "进行中"),
+            )
+            indexer.sync(force=True)
             return self.send_json(result)
         if path == "/api/project-records":
-            return self.send_json(projects.create_project(str(payload.get("name") or ""), str(payload.get("description") or ""), str(payload.get("status") or "进行中")), 201)
+            result = projects.create_project(
+                str(payload.get("name") or ""),
+                str(payload.get("description") or ""),
+                str(payload.get("status") or "进行中"),
+            )
+            indexer.sync(force=True)
+            return self.send_json(result, 201)
         if path.startswith("/api/projects/"):
             project_id = unquote(path.split("/api/projects/", 1)[1])
-            return self.send_json(projects.update_project(project_id, payload))
+            result = projects.update_project(project_id, payload)
+            indexer.sync(force=True)
+            return self.send_json(result)
         if path == "/api/workspace/migrate":
             legacy = workspace.migrate_legacy(workspace.ensure_workspace(), force_scan=True)
-            return self.send_json({"legacy": legacy, "projects": projects.ensure_registry()})
+            project_migration = projects.ensure_registry()
+            index_state = indexer.rebuild()
+            return self.send_json({"legacy": legacy, "projects": project_migration, "index": index_state})
         if path == "/api/workspace/open":
             return self.send_json(workspace.open_path(str(payload.get("path") or "")))
         if path == "/api/docs":
-            normalized = projects.normalize_payload(payload)
+            normalized = indexer.normalize_project_payload(payload)
             doc = store.create_doc(str(normalized.get("kind") or "note"), normalized)
-            return self.send_json(projects.sync_doc(doc, normalized), 201)
+            doc = indexer.apply_doc_project_ids(doc, normalized)
+            indexer.index_doc_path(str(doc.get("path") or ""))
+            return self.send_json(doc, 201)
         if path.startswith("/api/docs/"):
             doc_id = unquote(path.split("/api/docs/", 1)[1])
-            existing = projects.augment_doc(store.get_doc(doc_id))
-            normalized = projects.normalize_payload({**existing, **payload})
-            doc = store.update_doc(doc_id, normalized)
-            return self.send_json(projects.sync_doc(doc, normalized))
+            existing = indexer.get_doc(doc_id)
+            normalized = indexer.normalize_project_payload({**existing, **payload})
+            doc = indexer.update_doc(doc_id, normalized)
+            return self.send_json(doc)
         if path == "/api/assets":
             return self.send_json(store.save_asset(str(payload.get("data_url") or ""), str(payload.get("name") or "image.png")))
         if path == "/api/graph/bundle":
             root = str(payload.get("root") or "")
             ids = payload.get("selected_ids") or []
-            content = project_bridge.build_bundle(root, ids, str(payload.get("title") or ""), payload.get("active_node_ids") or [], payload.get("relations"))
+            content = indexer.build_bundle(
+                root, ids, str(payload.get("title") or ""),
+                payload.get("active_node_ids") or [], payload.get("relations"),
+            )
             return self.send_json({"ok": True, "content": content})
         if path == "/api/graph/bundle/save":
             return self.send_json(store.save_bundle(str(payload.get("filename") or "knowledge-bundle.md"), str(payload.get("content") or "")))
         if path == "/api/literature/export-bibtex":
-            return self.send_json(store.export_bibtex(payload.get("ids") or []))
+            return self.send_json(indexer.export_bibtex(payload.get("ids") or []))
         if path == "/api/agent/sessions":
             return self.send_json(agent.create_session(str(payload.get("title") or "")), 201)
         if path == "/api/agent/session/rename":
@@ -235,19 +315,28 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/agent/assets":
             return self.send_json(agent.save_image(str(payload.get("data_url") or ""), str(payload.get("name") or "image.png")))
         if path == "/api/agent/send":
-            return self.send_json(agent.send_message(str(payload.get("session_id") or ""), str(payload.get("message") or ""), payload.get("refs") or [], payload.get("images") or [], str(payload.get("request_preset") or "")))
+            return self.send_json(agent.send_message(
+                str(payload.get("session_id") or ""), str(payload.get("message") or ""),
+                payload.get("refs") or [], payload.get("images") or [], str(payload.get("request_preset") or ""),
+            ))
         if path == "/api/agent/test":
             return self.send_json(agent.test_connection())
         if path == "/api/todos":
-            normalized = projects.normalize_payload(payload)
-            return self.send_json(projects.sync_todo(todos.create(normalized), normalized), 201)
+            normalized = indexer.normalize_project_payload(payload)
+            item = todos.create(normalized)
+            item = indexer.apply_todo_project_id(item, normalized)
+            indexer.refresh_todos()
+            return self.send_json(item, 201)
         if path.startswith("/api/todos/"):
             todo_id = unquote(path.split("/api/todos/", 1)[1])
-            current = next((x for x in todos.list_todos() if x.get("id") == todo_id), None)
+            current = next((x for x in indexer.list_todos() if x.get("id") == todo_id), None)
             if current is None:
                 raise FileNotFoundError(todo_id)
-            normalized = projects.normalize_payload({**current, **payload})
-            return self.send_json(projects.sync_todo(todos.update(todo_id, normalized), normalized))
+            normalized = indexer.normalize_project_payload({**current, **payload})
+            item = todos.update(todo_id, normalized)
+            item = indexer.apply_todo_project_id(item, normalized)
+            indexer.refresh_todos()
+            return self.send_json(item)
         return self.send_json({"error": "not_found"}, 404)
 
     def serve_static(self, path):
@@ -287,7 +376,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     workspace.ensure_workspace()
-    projects.ensure_registry()
+    if _project_registry_needs_migration():
+        projects.ensure_registry()
+    index_state = indexer.initialize(force=False)
     cfg = config.get_app()
     host = str(cfg.get("host") or "127.0.0.1")
     port = int(cfg.get("port") or 8765)
@@ -295,6 +386,7 @@ def main():
     url = f"http://{host}:{port}"
     print(f"Engineering Research Workbench running at {url}")
     print(f"Workspace: {workspace.ensure_workspace()}")
+    print(f"Index: {index_state.get('counts', {}).get('documents', 0)} docs · {index_state.get('path', '')}")
     if cfg.get("auto_open_browser", True):
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     restart_requested = False

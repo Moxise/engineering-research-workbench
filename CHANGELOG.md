@@ -1,5 +1,56 @@
 # Changelog
 
+## v260922.3
+
+### 性能优化
+
+- 新增 SQLite 可重建索引，Markdown 仍作为唯一真实数据源。
+- 文档、项目、标签、待办、活动和知识关系改为索引查询，减少大规模 Workspace 下的重复扫描。
+- 文档列表支持服务端分页，全文搜索接入 FTS5。
+- Workspace 文件树改为按需加载。
+- Dashboard、项目统计和科研活动改为聚合查询。
+- 新增索引状态、手动重建接口及性能测试脚本。
+
+### 知识图谱优化
+
+- 知识图谱改用 Force-Directed Layout，并加入社区辅助布局。
+- 新增 Semantic Zoom、标签 LOD、标签碰撞检测和 Edge LOD。
+- 新增节点搜索、实时联想、最近编辑、自动定位和 Camera 聚焦。
+- 新增一阶 / 二阶 `Focus + Context` 关系浏览。
+- 建立邻接表、布局缓存、投影缓存、Viewport Culling 和 `requestAnimationFrame` 合帧。
+- 2D / 3D 共用统一的搜索、选择和 Focus 逻辑。
+- 修复搜索框、Canvas、预览区等 UI 层级覆盖问题。
+- 「研究 · 知识总览」中的知识关系预览同步升级为新版绘图方式。
+
+### 界面
+
+- 新增类似 ChatGPT Web 的左侧栏收起 / 展开功能。
+- 侧栏状态自动保存，收起后主区域自适应扩展。
+
+### Agent / LLM
+
+- Agent 配置升级为多套 API Profile，可独立保存并快速切换。
+- API Key 改为直接保存在本地 `config/secret.json`，不再依赖环境变量。
+- 每套 Profile 独立支持：
+  - Base URL；
+  - API Key；
+  - 超时时间；
+    -最大输出 Token；
+  - Temperature；
+  - 是否显示思考；
+  - 多套 Request Mode。
+- Request Mode 支持独立配置模型、Temperature 和扩展 `params`。
+- Agent 设置页改为结构化配置管理界面，不再手动编辑整段 Preset JSON。
+- Agent 对话页支持选择当前 API Profile 和 Request Mode。
+- 模型调用统一使用 OpenAI-compatible Chat Completions。
+
+### 配置迁移
+
+- 首次升级时自动读取旧版 Agent 配置并生成「未命名配置」。
+- 兼容旧 `app.json`、`secrets.json` 和 `api_key_env`。
+- 原有 Base URL、模型、请求模式、超时和思考设置等会尽量自动迁移。
+- 新版密钥配置保存在 Git 忽略的 `config/secret.json` 中。
+
 ## v260922.2
 
 * 优化「核心工作 → 概览」页面布局，整体调整为更紧凑的科研仪表盘结构，提高桌面端信息密度并减少纵向空白。
