@@ -187,19 +187,13 @@ def _reference_context(ref_ids: list[str]) -> tuple[str, list[dict[str, str]]]:
 
 
 def _llm_cfg() -> dict[str, Any]:
-    cfg = dict(config.get_app().get("llm") or {})
+    cfg = config.get_active_llm_profile_runtime()
     if not cfg.get("enabled", False):
         raise ValueError("尚未在 设置 → Agent / LLM 中启用模型接口")
-    env_name = str(cfg.get("api_key_env") or "OPENAI_API_KEY").strip()
-    api_key = os.environ.get(env_name, "") if env_name else ""
-    if not api_key:
-        raise ValueError(f"环境变量 {env_name or 'OPENAI_API_KEY'} 未设置，无法读取 API Key")
+    if not str(cfg.get("api_key") or "").strip():
+        raise ValueError("当前 Agent 配置尚未填写 API Key")
     if not str(cfg.get("base_url") or "").strip():
-        raise ValueError("尚未配置 Base URL")
-    if not str(cfg.get("model") or "").strip():
-        raise ValueError("尚未配置模型名称")
-    cfg["api_key_env"] = env_name
-    cfg["api_key"] = api_key  # runtime only; never persisted by config.py
+        raise ValueError("当前 Agent 配置尚未填写 Base URL")
     return cfg
 
 
@@ -212,7 +206,7 @@ def _endpoint(base_url: str, suffix: str) -> str:
 
 def _http_json(url: str, payload: dict[str, Any] | None, api_key: str, timeout: int = 120, method: str = "POST") -> dict[str, Any]:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
-    req = Request(url, data=body, method=method, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}", "User-Agent": "Workbench/260920.2"})
+    req = Request(url, data=body, method=method, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}", "User-Agent": "Workbench/260922.3"})
     try:
         with urlopen(req, timeout=max(5, min(int(timeout or 120), 600))) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
@@ -240,16 +234,32 @@ def _deep_merge_request(base: dict[str, Any], extra: dict[str, Any], protected: 
     return out
 
 
-def _request_preset(cfg: dict[str, Any], preset_id: str) -> tuple[str, str, dict[str, Any]]:
+def _request_preset(cfg: dict[str, Any], preset_id: str) -> tuple[str, str, str, float | None, dict[str, Any]]:
     presets = cfg.get("request_presets") if isinstance(cfg.get("request_presets"), list) else []
-    wanted = (preset_id or str(cfg.get("default_request_preset") or "default")).strip()
+    wanted = (preset_id or str(cfg.get("default_request_preset") or (presets[0].get("id") if presets else "default"))).strip()
     for item in presets:
         if not isinstance(item, dict):
             continue
         if str(item.get("id") or "") == wanted:
             params = item.get("params") if isinstance(item.get("params"), dict) else {}
-            return wanted, str(item.get("label") or wanted), params
-    return "default", "默认", {}
+            model = str(item.get("model") or "").strip()
+            temperature = item.get("temperature")
+            if temperature is not None:
+                try:
+                    temperature = float(temperature)
+                except Exception:
+                    temperature = None
+            return wanted, str(item.get("label") or wanted), model, temperature, params
+    if presets:
+        first = presets[0]
+        return (
+            str(first.get("id") or "default"),
+            str(first.get("label") or "默认"),
+            str(first.get("model") or "").strip(),
+            float(first.get("temperature")) if first.get("temperature") is not None else None,
+            first.get("params") if isinstance(first.get("params"), dict) else {},
+        )
+    return "default", "默认", "", None, {}
 
 
 def _reasoning_text(value: Any) -> str:
@@ -295,7 +305,7 @@ def _chat_completions(cfg: dict[str, Any], system_prompt: str, history: list[dic
         messages.append({"role": "user", "content": user_text})
     payload: dict[str, Any] = {"model": cfg["model"], "messages": messages, "stream": False}
     if cfg.get("temperature") is not None:
-        payload["temperature"] = float(cfg.get("temperature", 0.2))
+        payload["temperature"] = float(cfg.get("temperature"))
     if int(cfg.get("max_output_tokens") or 0) > 0:
         payload["max_tokens"] = int(cfg["max_output_tokens"])
     payload = _deep_merge_request(payload, request_params or {}, {"model", "messages", "stream"})
@@ -308,63 +318,13 @@ def _chat_completions(cfg: dict[str, Any], system_prompt: str, history: list[dic
     if isinstance(content, list):
         content = "\n".join(str(x.get("text") or "") for x in content if isinstance(x, dict))
     reasoning = ""
-    for key in ("reasoning_content", "reasoning", "thinking", "analysis"):
-        if message.get(key) is not None:
-            reasoning = _reasoning_text(message.get(key))
-            if reasoning:
-                break
+    if cfg.get("show_reasoning", True):
+        for key in ("reasoning_content", "reasoning", "thinking", "analysis"):
+            if message.get(key) is not None:
+                reasoning = _reasoning_text(message.get(key))
+                if reasoning:
+                    break
     return str(content or "").strip(), reasoning
-
-
-def _responses(cfg: dict[str, Any], system_prompt: str, history: list[dict[str, Any]], user_text: str, image_paths: list[str], request_params: dict[str, Any] | None = None) -> tuple[str, str]:
-    input_items: list[dict[str, Any]] = []
-    for m in history[-_MAX_HISTORY_MESSAGES:]:
-        role = m.get("role")
-        if role not in ("user", "assistant"):
-            continue
-        text = str(m.get("content") or "").strip()
-        if text:
-            input_items.append({"role": role, "content": text})
-    current: list[dict[str, Any]] = [{"type": "input_text", "text": user_text or "请分析这些图片。"}]
-    for p in image_paths[:6]:
-        current.append({"type": "input_image", "image_url": _image_data_url(p)})
-    input_items.append({"role": "user", "content": current})
-    payload: dict[str, Any] = {"model": cfg["model"], "input": input_items}
-    if system_prompt:
-        payload["instructions"] = system_prompt
-    if int(cfg.get("max_output_tokens") or 0) > 0:
-        payload["max_output_tokens"] = int(cfg["max_output_tokens"])
-    payload = _deep_merge_request(payload, request_params or {}, {"model", "input", "instructions"})
-    data = _http_json(_endpoint(str(cfg["base_url"]), "/responses"), payload, str(cfg["api_key"]), int(cfg.get("timeout") or 120))
-    texts: list[str] = []
-    reasoning_parts: list[str] = []
-    if data.get("output_text"):
-        texts.append(str(data["output_text"]))
-    for item in data.get("output") or []:
-        item_type = str(item.get("type") or "") if isinstance(item, dict) else ""
-        if item_type == "reasoning":
-            r = _reasoning_text(item.get("summary") or item.get("content") or item)
-            if r:
-                reasoning_parts.append(r)
-        for part in (item.get("content") or []) if isinstance(item, dict) else []:
-            ptype = str(part.get("type") or "") if isinstance(part, dict) else ""
-            if ptype in ("output_text", "text") and part.get("text"):
-                texts.append(str(part["text"]))
-            elif ptype in ("reasoning", "reasoning_text", "analysis"):
-                r = _reasoning_text(part)
-                if r:
-                    reasoning_parts.append(r)
-    # Some compatible providers expose reasoning at the top level.
-    for key in ("reasoning", "reasoning_content", "thinking", "analysis"):
-        if data.get(key) is not None:
-            r = _reasoning_text(data.get(key))
-            if r:
-                reasoning_parts.append(r)
-    answer = "\n".join(x for x in texts if x).strip()
-    if not answer:
-        raise ValueError("模型返回中没有可用文本")
-    reasoning = "\n\n".join(dict.fromkeys(x for x in reasoning_parts if x)).strip()
-    return answer, reasoning
 
 
 def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "") -> dict[str, Any]:
@@ -392,14 +352,18 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         messages = session.get("messages") if isinstance(session.get("messages"), list) else []
         history = list(messages)
     context, refs = _reference_context(ref_ids)
-    system_prompt = str(cfg.get("system_prompt") or "你是一个严谨的科研助手。优先基于用户显式引用的研究资料回答，不确定时明确说明。").strip()
+    system_prompt = str(cfg.get("system_prompt") or config.DEFAULT_SYSTEM_PROMPT).strip()
     if context:
         system_prompt += "\n\n以下是用户手动引用的本地研究资料。仅将其作为上下文，不要声称看到了未提供的资料：\n\n" + context
-    preset_id, preset_label, request_params = _request_preset(cfg, request_preset)
+    preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, request_preset)
+    if not preset_model:
+        raise ValueError(f"请求模式 {preset_label} 尚未配置模型名称")
+    request_cfg = dict(cfg)
+    request_cfg["model"] = preset_model
+    if preset_temperature is not None:
+        request_cfg["temperature"] = preset_temperature
     now = _now()
-    user_msg = {"id": "msg-" + uuid.uuid4().hex[:10], "role": "user", "content": text, "created": now, "refs": refs, "images": image_paths, "request_preset": preset_id, "request_preset_label": preset_label}
-    # Persist the user's message before the blocking model call. This keeps the chat UI/history
-    # consistent even when the provider is slow or the request ultimately fails.
+    user_msg = {"id": "msg-" + uuid.uuid4().hex[:10], "role": "user", "content": text, "created": now, "refs": refs, "images": image_paths, "request_preset": preset_id, "request_preset_label": preset_label, "profile_id": cfg.get("id"), "profile_name": cfg.get("name")}
     with _LOCK:
         session = get_session(session_id)
         session.setdefault("messages", []).append(user_msg)
@@ -407,12 +371,12 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
             session["title"] = (text or "图片分析")[:36]
         session["updated"] = _now()
         _atomic_json(_session_path(session_id), session)
-    protocol = str(cfg.get("protocol") or "chat_completions")
-    if protocol == "responses":
-        answer, reasoning = _responses(cfg, system_prompt, history, text, image_paths, request_params)
-    else:
-        answer, reasoning = _chat_completions(cfg, system_prompt, history, text, image_paths, request_params)
-    assistant_msg = {"id": "msg-" + uuid.uuid4().hex[:10], "role": "assistant", "content": answer, "reasoning": reasoning, "created": _now(), "model": cfg.get("model") or "", "request_preset": preset_id, "request_preset_label": preset_label}
+    answer, reasoning = _chat_completions(request_cfg, system_prompt, history, text, image_paths, request_params)
+    assistant_msg = {
+        "id": "msg-" + uuid.uuid4().hex[:10], "role": "assistant", "content": answer, "reasoning": reasoning,
+        "created": _now(), "model": preset_model, "request_preset": preset_id, "request_preset_label": preset_label,
+        "profile_id": cfg.get("id"), "profile_name": cfg.get("name"),
+    }
     with _LOCK:
         session = get_session(session_id)
         session.setdefault("messages", []).append(assistant_msg)
@@ -428,4 +392,4 @@ def test_connection() -> dict[str, Any]:
     data = _http_json(url, None, str(cfg["api_key"]), min(int(cfg.get("timeout") or 30), 45), method="GET")
     models = data.get("data") if isinstance(data, dict) else []
     names = [str(x.get("id")) for x in (models or []) if isinstance(x, dict) and x.get("id")][:12]
-    return {"ok": True, "models": names, "message": "连接成功"}
+    return {"ok": True, "models": names, "message": "连接成功", "profile": cfg.get("name") or ""}
