@@ -18,6 +18,8 @@ from app import todos
 from app import weather
 from app import workspace
 from app import agent
+from app import projects
+from app import project_bridge
 from app import search as search_service
 
 ROOT = Path(__file__).resolve().parent
@@ -34,7 +36,7 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Workbench/260920.2"
+    server_version = "Workbench/260922.1"
 
     def log_message(self, fmt, *args):
         sys.stdout.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
@@ -95,6 +97,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         try:
+            if path.startswith("/api/projects/"):
+                project_id = unquote(path.split("/api/projects/", 1)[1])
+                return self.send_json(projects.delete_project(project_id))
             if path.startswith("/api/docs/"):
                 doc_id = unquote(path.split("/api/docs/", 1)[1])
                 return self.send_json(store.delete_doc(doc_id))
@@ -125,22 +130,24 @@ class Handler(BaseHTTPRequestHandler):
             status = (q.get("status") or [""])[0]
             project = (q.get("project") or [""])[0]
             mark = (q.get("mark") or [""])[0]
-            return self.send_json(store.list_docs(kind, query, status, project, mark))
+            return self.send_json(projects.augment_docs(store.list_docs(kind, query, status, project, mark)))
         if path.startswith("/api/docs/"):
             doc_id = unquote(path.split("/api/docs/", 1)[1])
-            return self.send_json(store.get_doc(doc_id))
+            return self.send_json(projects.augment_doc(store.get_doc(doc_id)))
         if path == "/api/statuses":
             return self.send_json(store.all_statuses())
         if path == "/api/projects":
-            return self.send_json(store.projects())
+            return self.send_json(projects.project_names())
+        if path == "/api/project-records":
+            return self.send_json(projects.list_projects())
         if path == "/api/dashboard":
-            return self.send_json(store.dashboard())
+            return self.send_json(projects.dashboard_payload(store.dashboard()))
         if path == "/api/graph":
-            return self.send_json(store.graph())
+            return self.send_json(projects.graph_payload(store.graph()))
         if path == "/api/graph/neighborhood":
             root = (q.get("root") or [""])[0]
             depth = int((q.get("depth") or ["1"])[0])
-            return self.send_json(store.graph_neighborhood(root, depth))
+            return self.send_json(project_bridge.neighborhood(root, depth))
         if path == "/api/todos":
             return self.send_json(todos.list_todos())
         if path == "/api/weather":
@@ -178,7 +185,8 @@ class Handler(BaseHTTPRequestHandler):
                 migration = workspace.migrate_legacy(root, force_scan=True)
             else:
                 migration = {"skipped": True, "reason": "workspace migration disabled"}
-            return self.send_json({"ok": True, "message": "所有配置、缓存与 Workspace 已重新载入", "config": config.get_public(), "migration": migration})
+            project_migration = projects.ensure_registry()
+            return self.send_json({"ok": True, "message": "所有配置、缓存与 Workspace 已重新载入", "config": config.get_public(), "migration": migration, "project_migration": project_migration})
         if path == "/api/system/restart":
             self.send_json({"ok": True, "message": "服务正在快速重启"})
             setattr(self.server, "restart_requested", True)
@@ -187,22 +195,34 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/workspace/folder":
             return self.send_json(workspace.create_folder(str(payload.get("path") or "")))
         if path == "/api/workspace/project":
-            return self.send_json(workspace.create_project(str(payload.get("name") or "")))
+            result = projects.create_project(str(payload.get("name") or ""), str(payload.get("description") or ""), str(payload.get("status") or "进行中"))
+            return self.send_json(result)
+        if path == "/api/project-records":
+            return self.send_json(projects.create_project(str(payload.get("name") or ""), str(payload.get("description") or ""), str(payload.get("status") or "进行中")), 201)
+        if path.startswith("/api/projects/"):
+            project_id = unquote(path.split("/api/projects/", 1)[1])
+            return self.send_json(projects.update_project(project_id, payload))
         if path == "/api/workspace/migrate":
-            return self.send_json(workspace.migrate_legacy(workspace.ensure_workspace(), force_scan=True))
+            legacy = workspace.migrate_legacy(workspace.ensure_workspace(), force_scan=True)
+            return self.send_json({"legacy": legacy, "projects": projects.ensure_registry()})
         if path == "/api/workspace/open":
             return self.send_json(workspace.open_path(str(payload.get("path") or "")))
         if path == "/api/docs":
-            return self.send_json(store.create_doc(str(payload.get("kind") or "note"), payload), 201)
+            normalized = projects.normalize_payload(payload)
+            doc = store.create_doc(str(normalized.get("kind") or "note"), normalized)
+            return self.send_json(projects.sync_doc(doc, normalized), 201)
         if path.startswith("/api/docs/"):
             doc_id = unquote(path.split("/api/docs/", 1)[1])
-            return self.send_json(store.update_doc(doc_id, payload))
+            existing = projects.augment_doc(store.get_doc(doc_id))
+            normalized = projects.normalize_payload({**existing, **payload})
+            doc = store.update_doc(doc_id, normalized)
+            return self.send_json(projects.sync_doc(doc, normalized))
         if path == "/api/assets":
             return self.send_json(store.save_asset(str(payload.get("data_url") or ""), str(payload.get("name") or "image.png")))
         if path == "/api/graph/bundle":
             root = str(payload.get("root") or "")
             ids = payload.get("selected_ids") or []
-            content = store.build_bundle(root, ids, str(payload.get("title") or ""), payload.get("active_node_ids") or [], payload.get("relations"))
+            content = project_bridge.build_bundle(root, ids, str(payload.get("title") or ""), payload.get("active_node_ids") or [], payload.get("relations"))
             return self.send_json({"ok": True, "content": content})
         if path == "/api/graph/bundle/save":
             return self.send_json(store.save_bundle(str(payload.get("filename") or "knowledge-bundle.md"), str(payload.get("content") or "")))
@@ -219,10 +239,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/agent/test":
             return self.send_json(agent.test_connection())
         if path == "/api/todos":
-            return self.send_json(todos.create(payload), 201)
+            normalized = projects.normalize_payload(payload)
+            return self.send_json(projects.sync_todo(todos.create(normalized), normalized), 201)
         if path.startswith("/api/todos/"):
             todo_id = unquote(path.split("/api/todos/", 1)[1])
-            return self.send_json(todos.update(todo_id, payload))
+            current = next((x for x in todos.list_todos() if x.get("id") == todo_id), None)
+            if current is None:
+                raise FileNotFoundError(todo_id)
+            normalized = projects.normalize_payload({**current, **payload})
+            return self.send_json(projects.sync_todo(todos.update(todo_id, normalized), normalized))
         return self.send_json({"error": "not_found"}, 404)
 
     def serve_static(self, path):
@@ -260,9 +285,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
 
-
 def main():
     workspace.ensure_workspace()
+    projects.ensure_registry()
     cfg = config.get_app()
     host = str(cfg.get("host") or "127.0.0.1")
     port = int(cfg.get("port") or 8765)
