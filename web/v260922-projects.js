@@ -3,7 +3,7 @@
 
   const $ = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => [...r.querySelectorAll(s)];
-  const esc = (v='') => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const esc = (v='') => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
   const STATUS = ['进行中','暂停','完成','归档'];
   let milestoneStatus = localStorage.getItem('milestoneStatusFilter') || '';
 
@@ -92,13 +92,14 @@
   }
 
   function enhanceMilestones(){
-    const root=$('#ms-view'); if(!root || root.dataset.statusEnhanced==='1')return;
+    const root=$('#ms-view'); if(!root)return;
     const timeline=$('.timeline',root), three=$('.milestone-3d-layout',root); if(!timeline&&!three)return;
-    root.dataset.statusEnhanced='1';
-    const bar=document.createElement('div');bar.className='milestone-status-filter';
-    bar.innerHTML=`<span>状态筛选</span><select class="mini-select" id="milestone-status-filter"><option value="">全部状态</option>${['计划','进行中','受阻','完成'].map(s=>`<option value="${s}" ${milestoneStatus===s?'selected':''}>${s}</option>`).join('')}</select>`;
-    root.insertAdjacentElement('afterbegin',bar);
-    $('#milestone-status-filter').onchange=e=>{milestoneStatus=e.target.value;localStorage.setItem('milestoneStatusFilter',milestoneStatus);applyMilestoneFilter(root)};
+    if(!$('.milestone-status-filter',root)){
+      const bar=document.createElement('div');bar.className='milestone-status-filter';
+      bar.innerHTML=`<span>状态筛选</span><select class="mini-select" id="milestone-status-filter"><option value="">全部状态</option>${['计划','进行中','受阻','完成'].map(s=>`<option value="${s}" ${milestoneStatus===s?'selected':''}>${s}</option>`).join('')}</select>`;
+      root.insertAdjacentElement('afterbegin',bar);
+      $('#milestone-status-filter',root).onchange=e=>{milestoneStatus=e.target.value;localStorage.setItem('milestoneStatusFilter',milestoneStatus);applyMilestoneFilter(root)};
+    }
     applyMilestoneFilter(root);
   }
 
