@@ -4,7 +4,7 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const CARD_SELECTOR = '.heatmap-card';
   const observed = new WeakMap();
-  const scheduled = new WeakMap();
+  const settleState = new WeakMap();
 
   function parseIsoLocal(value) {
     const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -14,15 +14,6 @@
       month: Number(m[2]),
       day: Number(m[3]),
     };
-  }
-
-  function schedule(card) {
-    if (!card || scheduled.get(card)) return;
-    scheduled.set(card, true);
-    requestAnimationFrame(() => {
-      scheduled.delete(card);
-      alignMonthDividers(card);
-    });
   }
 
   function ensureDividerLayer(stage) {
@@ -54,6 +45,29 @@
     });
   }
 
+  function geometrySignature(card) {
+    const stage = card.querySelector('.heatmap-stage');
+    const grid = card.querySelector('.heatmap-cells');
+    const cells = grid ? [...grid.querySelectorAll('.heat-cell[data-date]')] : [];
+    if (!stage || !grid || !cells.length) return '';
+
+    const gridRect = grid.getBoundingClientRect();
+    const firstRect = cells[0].getBoundingClientRect();
+    const lastRect = cells[cells.length - 1].getBoundingClientRect();
+    const computed = getComputedStyle(grid);
+
+    const round = n => Math.round(Number(n || 0) * 100) / 100;
+    return [
+      round(gridRect.left), round(gridRect.top), round(gridRect.width), round(gridRect.height),
+      round(firstRect.left), round(firstRect.top), round(firstRect.width), round(firstRect.height),
+      round(lastRect.left), round(lastRect.top),
+      computed.columnGap, computed.rowGap,
+      getComputedStyle(card).getPropertyValue('--heat-cell-size').trim(),
+      getComputedStyle(card).getPropertyValue('--heat-gap').trim(),
+      cells.length,
+    ].join('|');
+  }
+
   function alignMonthDividers(card) {
     const stage = card.querySelector('.heatmap-stage');
     const grid = card.querySelector('.heatmap-cells');
@@ -74,11 +88,7 @@
       return;
     }
 
-    /*
-     * Important: the SVG is anchored to the ACTUAL rendered heat-cell grid,
-     * not to the old data-col0/data-row formula. This matters when 1-11 month
-     * views use a different fitted cell size from the 12-month view.
-     */
+    /* Anchor the SVG to the final, actually rendered heat-cell grid. */
     const layerLeft = gridRect.left - stageRect.left;
     const layerTop = gridRect.top - stageRect.top;
     layer.style.left = `${layerLeft}px`;
@@ -99,7 +109,6 @@
       const cellLeft = rect.left - gridRect.left;
       const cellTop = rect.top - gridRect.top;
 
-      /* Use the center of the real inter-cell gap so the divider never cuts a cell. */
       const xLeft = Math.max(0, cellLeft - columnGap / 2);
       const xRight = Math.min(width, cellLeft + rect.width + columnGap / 2);
       const y = Math.max(0, cellTop - rowGap / 2);
@@ -119,6 +128,48 @@
     layer.replaceChildren(...paths);
   }
 
+  /*
+   * fitResearchHeatmap() updates --heat-cell-size/--heat-gap after the card is
+   * inserted. Measuring immediately can therefore catch the previous geometry.
+   * Wait until the real grid geometry is unchanged for three animation frames,
+   * then draw. This reproduces the useful part of a browser zoom/resize without
+   * requiring the user to trigger one manually.
+   */
+  function settleAndAlign(card) {
+    if (!card || !card.isConnected) return;
+
+    const previous = settleState.get(card) || { token: 0 };
+    const token = previous.token + 1;
+    settleState.set(card, { token });
+
+    let lastSignature = '';
+    let stableFrames = 0;
+    let frameCount = 0;
+    const maxFrames = 24;
+
+    const tick = () => {
+      requestAnimationFrame(() => {
+        const current = settleState.get(card);
+        if (!current || current.token !== token || !card.isConnected) return;
+
+        const signature = geometrySignature(card);
+        frameCount += 1;
+
+        if (signature && signature === lastSignature) stableFrames += 1;
+        else stableFrames = 0;
+        lastSignature = signature;
+
+        if ((signature && stableFrames >= 3) || frameCount >= maxFrames) {
+          alignMonthDividers(card);
+          return;
+        }
+        tick();
+      });
+    };
+
+    tick();
+  }
+
   function attach(card) {
     if (!card || observed.has(card)) return;
     card.classList.add('heatmap-divider-v2');
@@ -129,17 +180,25 @@
 
     let resizeObserver = null;
     if ('ResizeObserver' in window) {
-      resizeObserver = new ResizeObserver(() => schedule(card));
+      resizeObserver = new ResizeObserver(() => settleAndAlign(card));
       resizeObserver.observe(stage);
       resizeObserver.observe(grid);
     }
 
-    observed.set(card, { resizeObserver });
-    schedule(card);
+    /* fitResearchHeatmap writes the fitted size as inline CSS variables on card. */
+    const styleObserver = new MutationObserver(mutations => {
+      if (mutations.some(m => m.type === 'attributes' && m.attributeName === 'style')) {
+        settleAndAlign(card);
+      }
+    });
+    styleObserver.observe(card, { attributes: true, attributeFilter: ['style'] });
 
-    /* fitResearchHeatmap() may change CSS variables just after insertion. */
-    requestAnimationFrame(() => schedule(card));
-    setTimeout(() => schedule(card), 80);
+    observed.set(card, { resizeObserver, styleObserver });
+    settleAndAlign(card);
+
+    /* Delayed safety passes cover debounced fitResearchHeatmap() updates. */
+    setTimeout(() => settleAndAlign(card), 100);
+    setTimeout(() => settleAndAlign(card), 220);
   }
 
   function scan() {
@@ -151,15 +210,19 @@
   mutationObserver.observe(root, { childList: true, subtree: true });
 
   window.addEventListener('resize', () => {
-    document.querySelectorAll(CARD_SELECTOR).forEach(schedule);
+    document.querySelectorAll(CARD_SELECTOR).forEach(settleAndAlign);
   }, { passive: true });
 
+  /* Run after the select's own handler has replaced/refitted the heatmap DOM. */
   document.addEventListener('change', event => {
     if (event.target?.id !== 'heatmap-month-select') return;
-    requestAnimationFrame(scan);
-    setTimeout(scan, 40);
-    setTimeout(() => document.querySelectorAll(CARD_SELECTOR).forEach(schedule), 120);
-  }, true);
+    setTimeout(() => {
+      scan();
+      document.querySelectorAll(CARD_SELECTOR).forEach(settleAndAlign);
+    }, 0);
+    setTimeout(() => document.querySelectorAll(CARD_SELECTOR).forEach(settleAndAlign), 120);
+    setTimeout(() => document.querySelectorAll(CARD_SELECTOR).forEach(settleAndAlign), 260);
+  });
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', scan, { once: true });
