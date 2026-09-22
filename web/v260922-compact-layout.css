@@ -1,0 +1,65 @@
+/* v260922 · compact layout experiment
+ * Goal: increase information density without changing application logic.
+ * Loaded after the existing theme/project styles so this file can be removed
+ * cleanly if the experiment is not retained.
+ */
+
+@media (min-width:1101px){
+  :root{--sidebar:260px;--radius:10px}
+
+  /* Shell / navigation */
+  .brand{height:82px;padding:14px 17px 12px;gap:11px;align-items:center}
+  .brand-mark{width:30px;height:30px}.brand-mark:before{width:40px;left:-7px}.brand-mark:after{height:40px;top:-7px}.brand-mark span{width:12px;height:12px;box-shadow:0 0 0 4px var(--accent-soft)}
+  .brand h1{font-size:18px}.brand p{margin-top:3px;font-size:9px}
+  .sidebar-nav{padding:10px 8px 64px}.nav-group{margin-bottom:5px}.nav-group-head{height:31px;padding:0 7px}.nav-items{gap:1px}.nav-item{height:38px;gap:9px;padding:0 10px;border-radius:8px}
+  .nav-group[data-group="core"] .nav-group-head,.nav-group[data-group="research"] .nav-group-head{height:34px;margin-bottom:3px;padding:0 8px;border-radius:8px}
+  .sidebar-footer{padding:9px 13px}
+
+  /* Header / page canvas */
+  .topbar{height:82px;padding:10px 22px 9px 26px;gap:14px}
+  .page-heading h2{font-size:25px;margin:0 0 2px}.page-date{font-size:11px}.eyebrow{font-size:9px}
+  .top-actions{gap:6px}.weather-pill,.icon-btn,.primary-btn,.secondary-btn,.ghost-btn,.top-search-btn{min-height:34px}.icon-btn{width:34px}.weather-pill,.primary-btn,.secondary-btn,.ghost-btn{padding-left:11px;padding-right:11px}.top-search-btn{padding:0 9px}
+  .dropdown{top:39px}
+  .main-content{padding:16px 22px 34px}
+
+  /* Generic content density */
+  .grid{gap:10px}.card-pad{padding:14px}.card-head{gap:9px;margin-bottom:10px}.card-head h3{font-size:14px}
+  .section-title{margin:16px 0 8px}.section-title h3{font-size:16px}
+  .list-stack{gap:6px}.list-row{gap:10px;padding:9px 10px;border-radius:8px}.row-meta{margin-top:2px}
+  .empty{min-height:138px;padding:18px}
+  .stat-card{padding:12px;min-height:78px}.stat-value{font-size:24px}.stat-label{margin-top:6px}
+
+  /* Project manager page follows the same compact rhythm. */
+  .project-manager{gap:13px}.project-manager-head{gap:18px}.project-manager-head p{margin-top:4px;line-height:1.55}
+  .project-manager-grid{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:11px}.project-manager-card{padding:14px;gap:10px}.project-card-top{gap:10px}.project-desc{line-height:1.5;min-height:40px}.project-card-metrics{gap:6px}.project-card-metrics span{padding:8px;border-radius:8px}.project-card-metrics b{font-size:16px}.project-card-actions{gap:6px}
+}
+
+/* Overview is intentionally denser than the rest of the application. */
+@media (min-width:1101px){
+  .overview-dashboard{gap:10px}
+
+  .overview-today{padding:13px 16px;gap:18px}
+  .overview-today:after{right:-82px;top:-108px;width:250px;height:250px}
+  .overview-today h3{font-size:18px;margin:2px 0 4px}.overview-today p{font-size:11px}
+  .today-metrics{gap:4px;min-width:min(520px,47%)}
+  .today-metrics>div{padding:6px 9px}.today-metrics strong{font-size:18px}.today-metrics span{margin-top:3px;font-size:9px}
+
+  .quick-capture-card{padding:10px 14px;gap:14px}.quick-capture-copy{min-width:210px}.quick-capture-copy h3{margin:2px 0;font-size:14px}.quick-capture-copy p{font-size:9px}
+  .quick-capture-actions{gap:6px;max-width:820px}.quick-action{min-height:46px;padding:6px 8px;grid-template-columns:19px 1fr;column-gap:6px;border-radius:8px}.quick-action>span{font-size:15px}.quick-action b{font-size:11px}.quick-action small{font-size:8px}
+
+  .overview-academic-grid{gap:10px}.academic-progress-card,.graduation-card{padding:14px;min-height:0}.academic-progress-card .card-head,.graduation-card .card-head{margin-bottom:7px}
+  .degree-progress-value{font-size:44px;margin:7px 0 7px}.degree-progress-value span{font-size:15px}.degree-progress-dates,.degree-progress-foot{margin-top:7px}.degree-progress-foot{gap:20px}
+  .condition-score{font-size:23px}.condition-list{gap:9px;margin-top:9px}.condition-line{font-size:11px;margin-bottom:5px}.academic-empty,.academic-empty.compact{min-height:112px;padding:14px;gap:5px}
+
+  .heatmap-card{--heat-cell-size:13px;--heat-gap:3px;padding:13px 14px 10px}.heatmap-card .card-head{margin-bottom:6px}.heatmap-card .card-head p{margin-top:3px;font-size:10px}.heatmap-head-tools{gap:8px}.heatmap-summary{gap:3px 7px}.heatmap-summary strong{font-size:16px}.mini-select{padding-top:5px;padding-bottom:5px}.heatmap-scroll{padding:4px 2px 5px}.heatmap-axis{flex-basis:38px;width:38px}.heatmap-axis-cap,.heatmap-months{height:20px}.heatmap-footer{margin-top:2px}
+
+  .overview-ops-grid>.card{min-height:0}.rhythm-main>div:first-child{margin:3px 0 5px}.rhythm-main strong{font-size:25px}.rhythm-grid{gap:5px;margin-top:10px}.rhythm-grid>div{padding:7px}.rhythm-grid strong{font-size:15px}
+
+  .project-pulse-card .card-head p{margin-top:3px}.project-pulse-grid{gap:7px}.project-pulse-item{padding:9px;border-radius:8px}.project-pulse-name{gap:7px}.project-pulse-metrics{gap:4px;margin-top:8px}.project-pulse-metrics span{padding:4px 3px}.project-pulse-metrics b{font-size:12px;margin-bottom:1px}
+  .overview-stats .stat-card{min-height:70px}
+}
+
+/* Keep the existing small-screen layout; only trim obvious dead space on tablets. */
+@media (min-width:821px) and (max-width:1100px){
+  .main-content{padding:18px 20px 36px}.overview-dashboard{gap:11px}.overview-today{padding:16px 18px}.quick-capture-card{padding:13px 15px}.card-pad{padding:15px}
+}
