@@ -2,7 +2,7 @@
 
 > 一个面向科研人员的本地优先、Markdown-first 工科科研工作台：项目管理、研究笔记、文献卡片、知识图谱、科研时间线、全文检索、RSS 资讯与可引用本地知识的 LLM Agent，统一在一个轻量 Web 界面中完成。
 
-**当前版本：`workbench-v260921.1`**
+**当前版本：`workbench-v260922.1`**
 
 ---
 
@@ -1012,22 +1012,22 @@ config/
 
 以下为主要接口示例，并非完整 API 文档：
 
-| Endpoint | 用途 |
-|---|---|
-| `GET /api/health` | 健康检查 |
-| `GET /api/config` | 获取脱敏配置 |
-| `POST /api/config/app` | 保存应用配置 |
-| `GET /api/docs` | 查询 Markdown |
-| `POST /api/docs` | 创建 Markdown |
-| `GET /api/graph` | 生成知识图谱 |
-| `POST /api/graph/bundle` | 生成关联 Markdown |
-| `GET /api/search?q=` | 全局搜索 |
-| `GET /api/projects` | 项目列表 |
-| `POST /api/workspace/project` | 创建项目 |
-| `GET /api/agent/sessions` | Agent 会话列表 |
-| `POST /api/agent/send` | 发送 Agent 消息 |
-| `GET /api/rss` | 科研资讯 |
-| `GET /api/weather` | 天气 |
+| Endpoint                        | 用途              |
+| ------------------------------- | ----------------- |
+| `GET /api/health`             | 健康检查          |
+| `GET /api/config`             | 获取脱敏配置      |
+| `POST /api/config/app`        | 保存应用配置      |
+| `GET /api/docs`               | 查询 Markdown     |
+| `POST /api/docs`              | 创建 Markdown     |
+| `GET /api/graph`              | 生成知识图谱      |
+| `POST /api/graph/bundle`      | 生成关联 Markdown |
+| `GET /api/search?q=`          | 全局搜索          |
+| `GET /api/projects`           | 项目列表          |
+| `POST /api/workspace/project` | 创建项目          |
+| `GET /api/agent/sessions`     | Agent 会话列表    |
+| `POST /api/agent/send`        | 发送 Agent 消息   |
+| `GET /api/rss`                | 科研资讯          |
+| `GET /api/weather`            | 天气              |
 
 ---
 
