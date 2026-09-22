@@ -933,8 +933,6 @@ sequenceDiagram
 
 ## 1. Clone
 
-将下面的仓库地址替换为你的 GitHub Repository URL：
-
 ```bash
 git clone https://github.com/Smooling/engineering-research-workbench.git
 cd engineering-research-workbench
