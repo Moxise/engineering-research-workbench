@@ -57,13 +57,20 @@
   const KIND_ROUTE = {ideas:'idea', journals:'journal', notes:'note', milestones:'milestone', summaries:'summary', literature:'literature'};
   const KIND_LABEL = {idea:'灵感', journal:'研究日志', note:'笔记', milestone:'里程碑', summary:'工作总结', literature:'文献'};
 
-  /* v260921 · 固定分类标记（不依赖自定义类型） */
+  /* v260923 · 内置分类标记 + 自定义标记（localStorage 持久化） */
   const KIND_MARKS=[
     {id:'knowledge',icon:'◈',label:'知识',color:'#2a9d8f'},
     {id:'synthesis',icon:'◎',label:'归类',color:'#845ec2'},
     {id:'method',icon:'⚒',label:'方法',color:'#e76f51'},
-    {id:'question',icon:'？',label:'问题',color:'#bc4749'}
+    {id:'question',icon:'？',label:'问题',color:'#bc4749'},
+    {id:'thinking',icon:'✦',label:'思路',color:'#e9b44c'},
+    {id:'architecture',icon:'▤',label:'架构',color:'#4a6fa5'},
+    {id:'experiment',icon:'⚗',label:'实验',color:'#7b5ea7'},
+    {id:'data',icon:'⊞',label:'数据',color:'#2f7d6d'}
   ];
+  function customMarks(){ try{ const v=JSON.parse(localStorage.getItem('customMarks')||'[]'); return Array.isArray(v)?v:[]; }catch{ return []; } }
+  function saveCustomMarks(v){ localStorage.setItem('customMarks', JSON.stringify(v)); }
+  function allMarks(){ return KIND_MARKS.concat(customMarks()); }
   function kindLabel(kind){ return KIND_LABEL[kind] || kind; }
 
   async function api(url, opts={}) {
@@ -526,8 +533,48 @@
     if(kind==='literature') $('#export-bib').onclick=exportBibtex;
     if(docs.length) selectDoc(docs[0].id); else showEmptyEditor(kind);
   }
-  function docsShell(kind,docs,projects){return `<div class="docs-layout"><aside class="card doc-list-panel"><div class="doc-filter"><div style="display:flex;gap:6px"><input class="search-input" id="doc-search" placeholder="搜索标题、正文、标签、项目、分类…"><button class="secondary-btn" id="new-doc">＋</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><select class="search-input" id="doc-status"><option value="">全部状态</option>${(state.statuses[kind]||[]).map(s=>`<option>${esc(s)}</option>`).join('')}</select><select class="search-input" id="doc-project"><option value="">全部项目</option>${projects.map(p=>`<option>${esc(p)}</option>`).join('')}</select><select class="search-input" id="doc-mark" style="grid-column:span 2"><option value="">全部分类</option>${KIND_MARKS.map(k=>`<option value="${esc(k.id)}">${esc(k.icon)} ${esc(k.label)}</option>`).join('')}</select></div>${kind==='literature'?'<button class="secondary-btn" id="export-bib">批量导出 BibTeX</button>':''}</div><div class="doc-list" id="doc-list">${docItems(docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"></section></div>`}
-  function markBadges(d){return (d.kind_marks||[]).slice(0,2).map(id=>{const c=KIND_MARKS.find(k=>k.id===id);if(!c)return '';const col=esc(c.color);return `<span class="badge mark-badge" style="color:${col};border-color:${col};background:${col}1a">${esc(c.icon)} ${esc(c.label)}</span>`}).join('')}
+  function docsShell(kind,docs,projects){return `<div class="docs-layout"><aside class="card doc-list-panel"><div class="doc-filter"><div style="display:flex;gap:6px"><input class="search-input" id="doc-search" placeholder="搜索标题、正文、标签、项目、分类…"><button class="secondary-btn" id="new-doc">＋</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><select class="search-input" id="doc-status"><option value="">全部状态</option>${(state.statuses[kind]||[]).map(s=>`<option>${esc(s)}</option>`).join('')}</select><select class="search-input" id="doc-project"><option value="">全部项目</option>${projects.map(p=>`<option>${esc(p)}</option>`).join('')}</select><select class="search-input" id="doc-mark" style="grid-column:span 2"><option value="">全部分类</option>${allMarks().map(k=>`<option value="${esc(k.id)}">${esc(k.icon)} ${esc(k.label)}</option>`).join('')}</select></div>${kind==='literature'?'<button class="secondary-btn" id="export-bib">批量导出 BibTeX</button>':''}</div><div class="doc-list" id="doc-list">${docItems(docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"></section></div>`}
+  function markBadges(d){return (d.kind_marks||[]).slice(0,2).map(id=>{const c=allMarks().find(k=>k.id===id);if(!c)return '';const col=esc(c.color);return `<span class="badge mark-badge" style="color:${col};border-color:${col};background:${col}1a">${esc(c.icon)} ${esc(c.label)}</span>`}).join('')}
+  /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
+  function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')+'<button type="button" class="mark-chip add-mark" id="f-mark-add" title="添加自定义标记">＋ 自定义</button>'}
+  function wireMarkChips(){
+    $$('#f-marks .mark-chip:not(.add-mark)').forEach(b=>b.onclick=()=>{b.classList.toggle('on');state.dirty=true});
+    const add=$('#f-mark-add'); if(add)add.onclick=openMarkManager;
+  }
+  function refreshMarkChips(){
+    const box=$('#f-marks'); if(!box)return;
+    const on=$$('#f-marks .mark-chip.on').map(b=>b.dataset.mark);
+    const saved=(state.selectedDoc&&state.selectedDoc.kind_marks)||[];
+    box.innerHTML=markChipsHtml([...new Set([...on,...saved])]);
+    wireMarkChips();
+  }
+  function openMarkManager(){
+    const ICON_CHOICES=['★','✦','◆','●','■','▲','◈','◎','⚑','✿','☾','⚗']; /* v260923 · 预设标记形状 */
+    const renderList=()=>{
+      const list=customMarks();
+      $('#f-mark-manage-list').innerHTML=list.length?list.map(m=>`<span class="mark-chip" style="--mark-color:${esc(m.color)}">${esc(m.icon)} ${esc(m.label)}<button type="button" class="mark-del" data-del="${esc(m.id)}" title="删除该标记">×</button></span>`).join(''):'<span class="row-meta">暂无自定义标记</span>';
+      $$('#f-mark-manage-list .mark-del').forEach(b=>b.onclick=()=>{
+        const m=customMarks().find(x=>x.id===b.dataset.del);
+        if(m&&!confirm(`删除自定义标记「${m.label}」？已打标的内容将不再显示该标记。`))return;
+        saveCustomMarks(customMarks().filter(x=>x.id!==b.dataset.del)); toast('已删除'); refreshMarkChips(); renderList();
+      });
+    };
+    modal('自定义分类标记',`<div class="row-meta" style="margin-bottom:12px">选择形状、填写名称并挑一个颜色；标记保存在本浏览器，可在所有文档类型中使用与筛选。</div><div class="mark-icon-pick" id="f-mark-icon-pick" style="margin-bottom:12px">${ICON_CHOICES.map((ic,i)=>`<button type="button"${i===0?' class="on"':''} data-icon="${ic}">${ic}</button>`).join('')}</div><div class="mark-mgr-row" style="margin-bottom:12px"><input id="f-mark-label" class="mark-name" maxlength="8" placeholder="名称，如：思路"><label class="color-swatch" title="颜色"><input id="f-mark-color" type="color" value="#4a6fa5"><span id="f-mark-color-dot" style="background:#4a6fa5"></span></label><button class="primary-btn" id="f-mark-save">添加</button></div><div class="mark-chip-box" id="f-mark-manage-list"></div>`,`<button class="secondary-btn" id="mark-mgr-close">关闭</button>`);
+    $('#mark-mgr-close').onclick=closeModal;
+    $$('#f-mark-icon-pick button').forEach(b=>b.onclick=()=>$$('#f-mark-icon-pick button').forEach(x=>x.classList.toggle('on',x===b)));
+    $('#f-mark-color').oninput=e=>{$('#f-mark-color-dot').style.background=e.target.value};
+    $('#f-mark-save').onclick=()=>{
+      const label=$('#f-mark-label').value.trim();
+      if(!label){toast('请填写标记名称',true);return;}
+      const marks=customMarks();
+      if(marks.some(m=>m.label===label)||KIND_MARKS.some(m=>m.label===label)){toast('该名称已存在',true);return;}
+      if(marks.length>=8){toast('自定义标记最多 8 个',true);return;}
+      const picked=$('#f-mark-icon-pick button.on');
+      marks.push({id:'c_'+Date.now().toString(36),icon:(picked&&picked.dataset.icon)||'★',label,color:$('#f-mark-color').value});
+      saveCustomMarks(marks); toast(`已添加「${label}」`); refreshMarkChips(); renderList();
+    };
+    renderList();
+  }
   function docItems(docs){return docs.length?docs.map(d=>`<article class="doc-item" data-doc-id="${d.id}"><div class="title">${esc(d.title)}</div><div class="excerpt">${esc(d.excerpt||'')}</div><div class="tags"><span class="badge">${esc(d.status||'')}</span>${markBadges(d)}${(d.projects||[]).slice(0,2).map(p=>`<span class="badge accent">${esc(p)}</span>`).join('') || (d.project?`<span class="badge accent">${esc(d.project)}</span>`:'')}${dateBadge(d)}</div></article>`).join(''):'<div class="empty" style="min-height:140px">暂无内容</div>'}
   function dateBadge(d){ const val=d.due||d.record_date||d.added_date; return val?`<span class="badge mono">${fmtDate(val)}</span>`:''; }
   function wireDocList(kind){ $$('[data-doc-id]').forEach(x=>x.onclick=()=>selectDoc(x.dataset.docId)); }
@@ -552,15 +599,16 @@
       ${dateField?`<div class="field"><label>${dateField==='due'?'截止日期':'日期'}</label><input id="f-date" type="date" value="${esc(doc[dateField]||today())}"></div>`:''}
       ${kind==='summary'?`<div class="field"><label>总结类型</label><select id="f-summary-type">${['日总结','周总结','月总结','阶段总结'].map(s=>`<option ${s===doc.summary_type?'selected':''}>${s}</option>`).join('')}</select></div>`:''}
       ${special?literatureFields(doc):''}
-      <div class="field ${tagsSpan}"><label>标签（逗号分隔）</label><input id="f-tags" value="${esc((doc.tags||[]).join(', '))}" placeholder="标签1, 标签2, 标签3"></div>
-      <div class="field span-4"><label>分类标记</label><div class="mark-chip-box" id="f-marks">${KIND_MARKS.map(k=>`<button type="button" class="mark-chip${(doc.kind_marks||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')}</div></div>
+      <div class="field ${tagsSpan}"><div class="field-label-row"><label>标签</label><span class="field-help">点击 ＋ 添加：可勾选已有标签或输入新标签。</span></div><div class="project-picker-row"><div class="project-chip-box" id="f-tags" data-tags="${esc(JSON.stringify(doc.tags||[]))}"></div><button type="button" class="secondary-btn project-add-btn" id="f-tag-add" title="添加标签">＋</button></div></div>
+      <div class="field span-4"><label>分类标记</label><div class="mark-chip-box" id="f-marks">${markChipsHtml(doc.kind_marks||[])}</div></div>
     </div>
     <div class="editor-wrap">${editorHtml(doc.body||'')}</div>
     <div class="editor-actions"><span class="row-meta">${esc(doc.path)} · 更新 ${fmtTime(doc.updated)}</span><div class="right"><button class="secondary-btn" id="doc-delete">删除</button><button class="primary-btn" id="doc-save">保存</button></div></div>`;
     wireEditor();
-    ['f-title','f-status','f-date','f-tags','f-summary-type','f-authors','f-year','f-venue','f-doi','f-url','f-cite-key','f-bibtex'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('input',()=>state.dirty=true)});
+    ['f-title','f-status','f-date','f-summary-type','f-authors','f-year','f-venue','f-doi','f-url','f-cite-key','f-bibtex'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('input',()=>state.dirty=true)});
     paintEditorProjects(doc.projects||[]); $('#f-project-add').onclick=openEditorProjectPicker;
-    $$('.mark-chip').forEach(b=>b.onclick=()=>{b.classList.toggle('on');state.dirty=true});
+    paintEditorTags(doc.tags||[]); $('#f-tag-add').onclick=openEditorTagPicker;
+    wireMarkChips();
     $('#doc-save').onclick=()=>saveCurrentDoc(doc,dateField); $('#doc-delete').onclick=()=>deleteCurrentDoc(doc);
     renderMarkdownPreview();
   }
@@ -569,6 +617,38 @@
   }
   function paintEditorProjects(projects){
     const box=$('#f-projects');if(!box)return;const list=[...new Set((projects||[]).map(x=>String(x).trim()).filter(Boolean))];box.dataset.projects=JSON.stringify(list);box.innerHTML=list.length?list.map((p,i)=>`<span class="project-chip">${esc(p)}<button type="button" data-project-remove="${i}" title="移除项目">×</button></span>`).join(''):'<span class="row-meta">未关联项目</span>';$$('[data-project-remove]',box).forEach(b=>b.onclick=()=>{const now=editorProjects();now.splice(+b.dataset.projectRemove,1);paintEditorProjects(now);state.dirty=true});
+  }
+  /* v260923 · 标签 chip 化：与项目一致的交互（× 移除 + ＋ 弹窗添加） */
+  function editorTags(){
+    const box=$('#f-tags');if(!box)return [];try{const v=JSON.parse(box.dataset.tags||'[]');return Array.isArray(v)?v:[]}catch{return []}
+  }
+  function paintEditorTags(tags){
+    const box=$('#f-tags');if(!box)return;const list=[...new Set((tags||[]).map(x=>String(x).trim()).filter(Boolean))];box.dataset.tags=JSON.stringify(list);box.innerHTML=list.length?list.map((t,i)=>`<span class="project-chip tag-chip">${esc(t)}<button type="button" data-tag-remove="${i}" title="移除标签">×</button></span>`).join(''):'<span class="row-meta">暂无标签</span>';$$('[data-tag-remove]',box).forEach(b=>b.onclick=()=>{const now=editorTags();now.splice(+b.dataset.tagRemove,1);paintEditorTags(now);state.dirty=true});
+  }
+  function openEditorTagPicker(){
+    const selected=new Set(editorTags());
+    let query=''; /* v260923 · 搜索与新建合并：输入即过滤，回车选中已有或创建新标签 */
+    const allKnown=()=>[...new Set(state.docs.flatMap(d=>d.tags||[]))];
+    const renderList=()=>{
+      const q=query.trim().toLowerCase();
+      const known=allKnown().filter(t=>!selected.has(t)).filter(t=>!q||t.toLowerCase().includes(q)).sort((a,b)=>a.localeCompare(b,'zh'));
+      const picked=[...selected];
+      $('#f-tag-pick-list').innerHTML=(picked.map(t=>`<label class="bundle-item"><input type="checkbox" data-tag-pick="${esc(t)}" checked><span><strong>${esc(t)}</strong><span class="row-meta">新选择</span></span></label>`).join('')+(known.length?known.map(t=>`<label class="bundle-item"><input type="checkbox" data-tag-pick="${esc(t)}"><span><strong>${esc(t)}</strong></span></label>`).join(''):(q?`<div class="empty">没有匹配的标签，回车将创建「${esc(query.trim())}」</div>`:(picked.length?'':'<div class="empty">暂无已有标签，直接输入即可创建。</div>'))));
+    };
+    const commitQuery=()=>{
+      const v=$('#f-tag-query').value.trim();if(!v)return;
+      const hit=allKnown().find(t=>t.toLowerCase()===v.toLowerCase());
+      const val=hit||v;
+      if(selected.has(val)){toast('该标签已在列表中',true);return;}
+      selected.add(val);$('#f-tag-query').value='';query='';renderList();
+    };
+    modal('添加标签',`<div class="row-meta" style="margin-bottom:10px">输入即实时搜索已有标签；没有匹配时回车或点「添加」将创建为新标签。</div><div class="mark-mgr-row" style="margin-bottom:10px"><input id="f-tag-query" class="mark-name" maxlength="24" placeholder="搜索已有标签，或输入新标签"><button class="primary-btn" id="f-tag-query-add">添加</button></div><div class="project-pick-list" id="f-tag-pick-list"></div>`,`<button class="secondary-btn" id="tag-pick-cancel">取消</button><button class="primary-btn" id="tag-pick-done">应用</button>`);
+    $('#tag-pick-cancel').onclick=closeModal;
+    $('#f-tag-query-add').onclick=commitQuery;
+    $('#f-tag-query').oninput=e=>{query=e.target.value;renderList();};
+    $('#f-tag-query').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();commitQuery();}};
+    $('#tag-pick-done').onclick=()=>{const list=$$('[data-tag-pick]:checked').map(x=>x.dataset.tagPick);paintEditorTags(list);state.dirty=true;closeModal()};
+    renderList();
   }
   function openEditorProjectPicker(){
     const selected=new Set(editorProjects());
@@ -661,7 +741,7 @@
   async function onPasteImage(e){ const files=[...e.clipboardData.items].filter(x=>x.type.startsWith('image/')).map(x=>x.getAsFile()).filter(Boolean); if(!files.length)return;e.preventDefault();for(const f of files)await uploadImage(f); }
   async function onDropImage(e){e.preventDefault();const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));for(const f of files)await uploadImage(f);}
   async function uploadImage(file){ if(file.size>15*1024*1024)return toast('图片不能超过 15 MB',true); const dataUrl=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file)}); const res=await api('/api/assets',{method:'POST',body:{data_url:dataUrl,name:file.name}});insertAtSelection($('#md-input'),'\n'+res.markdown+'\n');toast('图片已保存到 Workspace/Knowledge/Attachments'); }
-  async function saveCurrentDoc(doc,dateField){ const projects=editorProjects(); const body={title:$('#f-title').value.trim(),project:projects[0]||'',projects,status:$('#f-status').value,tags:$('#f-tags').value.split(/[,，]/).map(x=>x.trim()).filter(Boolean),kind_marks:$$('.mark-chip.on').map(b=>b.dataset.mark),body:$('#md-input').value}; if(dateField)body[dateField]=$('#f-date').value||today(); if(doc.kind==='summary')body.summary_type=$('#f-summary-type').value; if(doc.kind==='literature'){Object.assign(body,{authors:$('#f-authors').value,year:$('#f-year').value,venue:$('#f-venue').value,doi:$('#f-doi').value,url:$('#f-url').value,cite_key:$('#f-cite-key').value,bibtex:$('#f-bibtex').value,added_date:$('#f-date').value||today()});} const saved=await api('/api/docs/'+doc.id,{method:'POST',body});state.dirty=false;toast('已保存 Markdown');state.selectedDoc=saved; await refreshListAfterSave(doc.kind,saved.id); }
+  async function saveCurrentDoc(doc,dateField){ const projects=editorProjects(); const body={title:$('#f-title').value.trim(),project:projects[0]||'',projects,status:$('#f-status').value,tags:editorTags(),kind_marks:$$('#f-marks .mark-chip.on').map(b=>b.dataset.mark),body:$('#md-input').value}; if(dateField)body[dateField]=$('#f-date').value||today(); if(doc.kind==='summary')body.summary_type=$('#f-summary-type').value; if(doc.kind==='literature'){Object.assign(body,{authors:$('#f-authors').value,year:$('#f-year').value,venue:$('#f-venue').value,doi:$('#f-doi').value,url:$('#f-url').value,cite_key:$('#f-cite-key').value,bibtex:$('#f-bibtex').value,added_date:$('#f-date').value||today()});} const saved=await api('/api/docs/'+doc.id,{method:'POST',body});state.dirty=false;toast('已保存 Markdown');state.selectedDoc=saved; await refreshListAfterSave(doc.kind,saved.id); }
   async function refreshListAfterSave(kind,id){ state.docs=await api('/api/docs?kind='+kind);const list=$('#doc-list');if(list){list.innerHTML=docItems(state.docs);wireDocList(kind);$$('[data-doc-id]').forEach(x=>x.classList.toggle('active',x.dataset.docId===id));} }
   async function deleteCurrentDoc(doc){ if(!confirm(`删除“${doc.title}”？文件会移入 Workspace/System/Trash。`))return;await api('/api/docs/'+doc.id,{method:'DELETE'});toast('已移入回收目录');state.dirty=false;renderDocsPage(doc.kind); }
   function routeForKind(k){ return {idea:'ideas',journal:'journals',note:'notes',milestone:'milestones',summary:'summaries',literature:'literature'}[k]||'notes'}
