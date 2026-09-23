@@ -107,6 +107,22 @@
   html[data-density="cozy"] .main-shell:has(>.main-content .overview-dashboard)>.main-content>.overview-dashboard{
     grid-template-rows:none; /* 行高随内容，不再按 fr 强制占比 */
   }
+  /* v260922k7 · 紧凑型：灵感/研究日志/笔记等文档页锁定一屏，消除整页滚动条 */
+  html[data-density="compact"] .main-shell:has(>.main-content .docs-layout){
+    height:100vh;
+    display:flex;flex-direction:column;
+  }
+  html[data-density="compact"] .main-shell:has(>.main-content .docs-layout)>.main-content{
+    flex:1 1 auto;
+    min-height:0;
+    display:flex;flex-direction:column; /* v260922k7d · 高度链闭合：让 docs-layout 的 flex:1 真正生效，否则其高度塌陷、内容被裁 */
+    overflow:hidden; /* 高度由 flex 精确分配，杜绝整页滚动 */
+  }
+  html[data-density="compact"] .main-shell:has(>.main-content .docs-layout)>.main-content>.docs-layout{
+    height:auto; /* k6 的 calc 基准作废，改由 flex 填满剩余空间 */
+    flex:1 1 auto;
+    min-height:0;
+  }
   .overview-dashboard{
     display:grid;
     grid-template-columns:repeat(12,minmax(0,1fr));
