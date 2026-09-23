@@ -73,15 +73,21 @@ def _clamped_window_size(preferred_w: int = 1440, preferred_h: int = 900) -> tup
 
 
 def _load_window_state() -> dict:
-    """v260923x · 读取上次关闭时的窗口状态。尺寸需通过合理性校验才采信。"""
+    """v260923x · 读取上次关闭时的窗口状态。尺寸需通过合理性校验才采信。
+    v260923y · 用 utf-8-sig 读以免疫 BOM（外部工具写的带 BOM 文件不再静默失效），
+    解析失败时打印原始字节前 16 位，便于从 workbench.log 直接定位坏文件。"""
+    fallback = {"maximized": False, "width": 0, "height": 0}
+    raw = b""
     try:
-        data = json.loads(_WINDOW_STATE_FILE.read_text(encoding="utf-8"))
+        raw = _WINDOW_STATE_FILE.read_bytes()
+        data = json.loads(raw.decode("utf-8-sig"))
         w, h = int(data.get("width") or 0), int(data.get("height") or 0)
         if 400 <= w <= 8000 and 300 <= h <= 4000:
             return {"maximized": bool(data.get("maximized")), "width": w, "height": h}
-    except Exception:
-        pass
-    return {"maximized": False, "width": 0, "height": 0}
+        print(f"[client] window state ignored (size out of range): {raw[:64]!r}")
+    except Exception as e:
+        print(f"[client] window state unreadable ({e}): bytes={raw[:16]!r}")
+    return fallback
 
 
 def _save_window_state(state: dict) -> None:
@@ -89,8 +95,9 @@ def _save_window_state(state: dict) -> None:
         _WINDOW_STATE_FILE.write_text(
             json.dumps(state, ensure_ascii=False), encoding="utf-8"
         )
-    except OSError:
-        pass
+        print(f"[client] {time.strftime('%H:%M:%S')} window state saved: {state}")
+    except OSError as e:
+        print(f"[client] window state save failed: {e}")
 
 
 def _run_window(url: str, cfg, httpd=None):
@@ -106,6 +113,7 @@ def _run_window(url: str, cfg, httpd=None):
     title = str(cfg.get("app_name") or "科研工作台")
     # v260923x · 恢复上次窗口状态：有有效记忆则用记忆尺寸，否则默认 1440x900；均向工作区收缩
     saved = _load_window_state()
+    print(f"[client] {time.strftime('%H:%M:%S')} window state restored: {saved}")
     pref_w = saved["width"] or 1440
     pref_h = saved["height"] or 900
     win_w, win_h = _clamped_window_size(pref_w, pref_h)
@@ -119,7 +127,9 @@ def _run_window(url: str, cfg, httpd=None):
     # v260923x · 运行期采集窗口状态：maximized/restored 维护标志，resized 仅在非最大化时记录
     # 尺寸（事件按 maximized/restored → resized 顺序触发，标志总是先就位）。pywebview 的
     # events.resized 回传逻辑像素，与 create_window 同单位，可直接存档复用。
-    live = {"maximized": saved["maximized"], "width": 0, "height": 0}
+    # v260923y · live 尺寸用 saved 值兜底：最大化恢复打开的窗口从未处于非最大化，
+    # resized 不会记录尺寸，若无兜底则退出时 live["width"]=0 导致状态漏存。
+    live = {"maximized": saved["maximized"], "width": saved["width"], "height": saved["height"]}
 
     def _on_maximized():
         live["maximized"] = True
