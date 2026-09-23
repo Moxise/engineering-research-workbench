@@ -164,7 +164,9 @@
   white-space:nowrap;
 }
 .editor-zoom-field select{
-  height:30px;
+  height:26px; /* v260923 · 与 .toolbar button 26px 统一，消除工具栏内高低不一 */
+  box-sizing:border-box;
+  line-height:24px;
   min-width:66px;
   padding:0 5px;
   border:1px solid var(--line);
@@ -175,6 +177,7 @@
   outline:none;
 }
 .editor-zoom-field select:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.editor-tabs button{height:26px;padding:0 10px} /* v260923 · 模式切换按钮显式同高 */
 .editor-zoom-controls+.editor-tabs{margin-left:4px}
 
 #editor-pane{--md-edit-scale:1;--md-preview-scale:1}
