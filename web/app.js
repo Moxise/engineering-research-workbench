@@ -309,19 +309,28 @@
       const compact=document.documentElement.dataset.density==='compact';
       const wide=!!topRow&&window.matchMedia('(min-width:1080px)').matches; /* v260922h3 · 宽屏两种密度都并排：宽松=原样式，紧凑=并排+学业两卡再并排保一屏 */
       const totalW=topRow?topRow.clientWidth:scroll.clientWidth+chrome; /* v260922f · 用轨道宽度做基准，缩卡后无循环依赖 */
+      /* v260922h6 · 防护：测量未就绪或异常窄时清空内联样式回退 CSS 默认，等下一轮 rAF/RO 重测，防坏值写死布局 */
+      if(topRow&&(!Number.isFinite(totalW)||totalW<600)){
+        topRow.style.gridTemplateColumns=''; card.style.maxWidth='';
+        if(academicGrid) academicGrid.classList.remove('is-row');
+        return;
+      }
       const widthSize=Math.floor((totalW-chrome-gap*(weeks-1))/weeks);
-      const maxSize=compact?10:16; /* v260922h4 · 紧凑型格子再小一档，进一步压低整行高度 */
+      /* v260922k3 · 宽松型格子不设固定上限：按可用宽度自动放大铺满，
+       * 仅保留学业区 330px 保底以维持并排；紧凑型仍用 21px 上限。 */
+      const cozyMax=Math.floor((totalW-10-330-chrome-gap*(weeks-1))/weeks);
+      const maxSize=compact?21:Math.max(6,cozyMax);
       const size=Math.max(6,Math.min(maxSize,widthSize));
       const needW=Math.round(chrome+weeks*size+gap*(weeks-1));
-      const canDual=wide&&size<widthSize&&totalW-needW-10>=420; /* 学业卡并排所需最小宽度 */
+      const canDual=wide&&size<widthSize&&totalW-needW-10>=330; /* v260922k · 学业区最小宽度 420→330，让热力图多占横向空间；学业区变窄时进度/毕业条件自动改纵向堆叠 */
       let dualAcademic=wide&&!canDual; /* 宽松型维持原行为：仅热力图全宽时进度/毕业条件两卡并排 */
-      if(compact) dualAcademic=wide&&canDual&&(totalW-needW-16>=680); /* v260922h · 紧凑型：热力图侧边宽度足够时进度/毕业条件并排，压低整行 */
+      if(compact) dualAcademic=wide&&canDual&&(totalW-needW-16>=640); /* v260922k · 双列门槛 680→640，配合热力图加宽后学业区仍可保持两卡并排 */
       if(topRow){
         if(wide){topRow.style.gridTemplateColumns=canDual?`${needW}px minmax(0,1fr)`:'minmax(0,1fr)';}
         else{topRow.style.gridTemplateColumns='';}
       }
       if(academicGrid) academicGrid.classList.toggle('is-row',dualAcademic);
-      card.style.maxWidth=size<widthSize?`${needW}px`:''; /* v260922f · 两种密度都缩卡消除月数少时的右侧空白 */
+      card.style.maxWidth=wide&&size<widthSize?`${needW}px`:''; /* v260922h6 · maxWidth 仅在宽屏并排管线收紧；窄屏一律放开，防热力图卡被压成窄条 */
       const cardW=wide&&canDual?needW:scroll.clientWidth+chrome;
       card.classList.toggle('is-narrow',cardW<700);
       card.style.setProperty('--heat-cell-size',`${size}px`); card.style.setProperty('--heat-gap',`${gap}px`);
