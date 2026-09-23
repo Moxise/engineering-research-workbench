@@ -65,7 +65,7 @@
     {id:'question',icon:'？',label:'问题',color:'#bc4749'},
     {id:'thinking',icon:'✦',label:'思路',color:'#e9b44c'},
     {id:'architecture',icon:'▤',label:'架构',color:'#4a6fa5'},
-    {id:'experiment',icon:'⚗',label:'实验',color:'#7b5ea7'},
+    {id:'experiment',icon:'⚗',label:'实验',color:'#d1569a'},
     {id:'data',icon:'⊞',label:'数据',color:'#2f7d6d'}
   ];
   function customMarks(){ try{ const v=JSON.parse(localStorage.getItem('customMarks')||'[]'); return Array.isArray(v)?v:[]; }catch{ return []; } }
@@ -546,7 +546,7 @@
     if(docs.length) selectDoc(docs[0].id); else showEmptyEditor(kind);
   }
   function docsShell(kind,docs,projects){return `<div class="docs-layout"><aside class="card doc-list-panel"><div class="doc-filter"><div style="display:flex;gap:6px"><input class="search-input" id="doc-search" placeholder="搜索标题、正文、标签、项目、分类…"><button class="secondary-btn" id="new-doc">＋</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><select class="search-input" id="doc-status"><option value="">全部状态</option>${(state.statuses[kind]||[]).map(s=>`<option>${esc(s)}</option>`).join('')}</select><select class="search-input" id="doc-project"><option value="">全部项目</option>${projects.map(p=>`<option>${esc(p)}</option>`).join('')}</select><select class="search-input" id="doc-mark" style="grid-column:span 2"><option value="">全部分类</option>${allMarks().map(k=>`<option value="${esc(k.id)}">${esc(k.icon)} ${esc(k.label)}</option>`).join('')}</select></div>${kind==='literature'?'<button class="secondary-btn" id="export-bib">批量导出 BibTeX</button>':''}</div><div class="doc-list" id="doc-list">${docItems(docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"></section></div>`}
-  function markBadges(d){return (d.kind_marks||[]).slice(0,2).map(id=>{const c=allMarks().find(k=>k.id===id);if(!c)return '';const col=esc(c.color);return `<span class="badge mark-badge" style="color:${col};border-color:${col};background:${col}1a">${esc(c.icon)} ${esc(c.label)}</span>`}).join('')}
+  function markBadges(d){return (d.kind_marks||[]).slice(0,4).map(id=>{const c=allMarks().find(k=>k.id===id);if(!c)return '';const col=esc(c.color);return `<span class="badge mark-badge" style="color:${col};border-color:${col};background:${col}1a">${esc(c.icon)} ${esc(c.label)}</span>`}).join('')}
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
   function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')+'<button type="button" class="mark-chip add-mark" id="f-mark-add" title="添加自定义标记">＋ 自定义</button>'}
   function wireMarkChips(){
@@ -587,8 +587,9 @@
     };
     renderList();
   }
-  function docItems(docs){return docs.length?docs.map(d=>`<article class="doc-item" data-doc-id="${d.id}"><div class="title">${esc(d.title)}</div><div class="excerpt">${esc(d.excerpt||'')}</div><div class="tags"><span class="badge">${esc(d.status||'')}</span>${markBadges(d)}${(d.projects||[]).slice(0,2).map(p=>`<span class="badge accent">${esc(p)}</span>`).join('') || (d.project?`<span class="badge accent">${esc(d.project)}</span>`:'')}${dateBadge(d)}</div></article>`).join(''):'<div class="empty" style="min-height:140px">暂无内容</div>'}
-  function dateBadge(d){ const val=d.due||d.record_date||d.added_date; return val?`<span class="badge mono">${fmtDate(val)}</span>`:''; }
+  /* v260923 · 笔记卡片格式统一：状态/分类一行；时间与项目名同排，项目名过长固定宽度省略 */
+  function docItems(docs){return docs.length?docs.map(d=>{const projBadges=(d.projects||[]).map(p=>`<span class="badge accent proj-badge"><span class="proj-text">${esc(p)}</span></span>`).join('')||(d.project?`<span class="badge accent proj-badge"><span class="proj-text">${esc(d.project)}</span></span>`:'');const dateB=dateBadge(d);const projRow=(projBadges||dateB)?`<div class="doc-projects">${projBadges}${dateB}</div>`:'';return `<article class="doc-item" data-doc-id="${d.id}"><div class="title">${esc(d.title)}</div><div class="excerpt">${esc(d.excerpt||'')}</div><div class="tags"><span class="badge">${esc(d.status||'')}</span>${markBadges(d)}</div>${projRow}</article>`}).join(''):'<div class="empty" style="min-height:140px">暂无内容</div>'}
+  function dateBadge(d){ const val=d.due||d.record_date||d.added_date; if(val)return `<span class="badge mono">${fmtDate(val)}</span>`; return d.updated?`<span class="badge mono" title="更新时间">更新 ${fmtDate(d.updated)}</span>`:''; }
   function wireDocList(kind){ $$('[data-doc-id]').forEach(x=>x.onclick=()=>selectDoc(x.dataset.docId)); }
   function wireDocFilters(kind){ const run=debounce(async()=>{const q=$('#doc-search').value,status=$('#doc-status').value,project=$('#doc-project').value,mark=$('#doc-mark')?.value||'';const url=`/api/docs?kind=${kind}&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&project=${encodeURIComponent(project)}&mark=${encodeURIComponent(mark)}`;state.docs=await api(url);$('#doc-list').innerHTML=docItems(state.docs);wireDocList(kind);},180); $('#doc-search').oninput=run;$('#doc-status').onchange=run;$('#doc-project').onchange=run;if($('#doc-mark'))$('#doc-mark').onchange=run; }
   async function createAndSelect(kind){ const doc=await api('/api/docs',{method:'POST',body:{kind,title:`未命名${kindLabel(kind)}`}}); await renderDocsPage(kind); setTimeout(()=>selectDoc(doc.id),10); }
