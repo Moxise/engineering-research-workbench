@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import json
 import socket
 import subprocess
 import sys
@@ -17,6 +18,9 @@ import urllib.request
 from pathlib import Path
 
 from app.paths import DATA_ROOT, FROZEN
+
+# v260923x · 窗口状态记忆文件：记住上次关闭时的尺寸与最大化状态，下次启动原样恢复
+_WINDOW_STATE_FILE = DATA_ROOT / "window-state.json"
 
 
 def _setup_logging():
@@ -51,21 +55,42 @@ def _wait_ready(url: str, timeout: float = 10.0) -> bool:
     return False
 
 
-def _clamped_window_size() -> tuple[int, int]:
-    """v260923v · 按屏幕工作区预收缩默认窗口尺寸。小屏上若按 1440x900 建窗，
-    Windows 会先显示大窗再压回屏幕，产生用户可见的「拉伸」闪动。"""
-    w, h = 1440, 900
+def _clamped_window_size(preferred_w: int = 1440, preferred_h: int = 900) -> tuple[int, int]:
+    """v260923v · 按屏幕工作区预收缩窗口尺寸。小屏上若按原始尺寸建窗，
+    Windows 会先显示大窗再压回屏幕，产生用户可见的「拉伸」闪动。
+    v260923x · 接受任意期望尺寸（含窗口状态记忆的恢复值），统一向工作区收缩。"""
     try:
         import ctypes
         from ctypes import wintypes
         rect = wintypes.RECT()
         # SPI_GETWORKAREA：任务栏以外的可用区域，返回值与窗口逻辑坐标一致
         if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
-            w = min(w, rect.right - rect.left)
-            h = min(h, rect.bottom - rect.top)
+            preferred_w = min(preferred_w, rect.right - rect.left)
+            preferred_h = min(preferred_h, rect.bottom - rect.top)
     except Exception:
         pass
-    return w, h
+    return preferred_w, preferred_h
+
+
+def _load_window_state() -> dict:
+    """v260923x · 读取上次关闭时的窗口状态。尺寸需通过合理性校验才采信。"""
+    try:
+        data = json.loads(_WINDOW_STATE_FILE.read_text(encoding="utf-8"))
+        w, h = int(data.get("width") or 0), int(data.get("height") or 0)
+        if 400 <= w <= 8000 and 300 <= h <= 4000:
+            return {"maximized": bool(data.get("maximized")), "width": w, "height": h}
+    except Exception:
+        pass
+    return {"maximized": False, "width": 0, "height": 0}
+
+
+def _save_window_state(state: dict) -> None:
+    try:
+        _WINDOW_STATE_FILE.write_text(
+            json.dumps(state, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError:
+        pass
 
 
 def _run_window(url: str, cfg, httpd=None):
@@ -79,14 +104,43 @@ def _run_window(url: str, cfg, httpd=None):
         sys.exit(1)
 
     title = str(cfg.get("app_name") or "科研工作台")
+    # v260923x · 恢复上次窗口状态：有有效记忆则用记忆尺寸，否则默认 1440x900；均向工作区收缩
+    saved = _load_window_state()
+    pref_w = saved["width"] or 1440
+    pref_h = saved["height"] or 900
+    win_w, win_h = _clamped_window_size(pref_w, pref_h)
     # v260923v · 尺寸与 min_size 都按工作区收缩，min_size 超过实际窗口会触发二次调整（同样可见）
-    win_w, win_h = _clamped_window_size()
-    webview.create_window(
+    window = webview.create_window(
         title, url, width=win_w, height=win_h,
         min_size=(min(1080, win_w), min(720, win_h)),
+        maximized=saved["maximized"],
     )
+
+    # v260923x · 运行期采集窗口状态：maximized/restored 维护标志，resized 仅在非最大化时记录
+    # 尺寸（事件按 maximized/restored → resized 顺序触发，标志总是先就位）。pywebview 的
+    # events.resized 回传逻辑像素，与 create_window 同单位，可直接存档复用。
+    live = {"maximized": saved["maximized"], "width": 0, "height": 0}
+
+    def _on_maximized():
+        live["maximized"] = True
+
+    def _on_restored():
+        live["maximized"] = False
+
+    def _on_resized(w, h):
+        if not live["maximized"] and w and h:
+            live["width"], live["height"] = int(w), int(h)
+
+    window.events.maximized += _on_maximized
+    window.events.restored += _on_restored
+    window.events.resized += _on_resized
+
     # storage_path 指向 exe 同级，保证 localStorage（自定义标记、侧栏状态等）便携持久化
     webview.start(storage_path=str(DATA_ROOT / ".webview-profile"))
+
+    # v260923x · 窗口关闭后落盘窗口状态，供下次启动恢复
+    if live["width"] > 0:
+        _save_window_state(live)
 
     if httpd is None:
         return
