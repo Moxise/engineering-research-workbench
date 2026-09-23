@@ -8,7 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+from .paths import DATA_ROOT
+
+# v260923 · 打包 exe 后可写数据（config/、Workspace/）须落在 exe 同级目录而非临时解压目录
+ROOT = DATA_ROOT
 CONFIG_DIR = ROOT / "config"
 SECRET_PATH = CONFIG_DIR / "secret.json"
 LEGACY_SECRET_PATH = CONFIG_DIR / "secrets.json"

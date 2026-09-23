@@ -138,7 +138,9 @@
     if (state.dirty && !confirm('当前 Markdown 有未保存修改，确定离开吗？')) return;
     state.dirty=false; state.route=route; location.hash=route; renderSidebar(); setHeader(route);
     if(state.heatmapObserver){try{state.heatmapObserver.disconnect();}catch{} state.heatmapObserver=null;}
-    $('#main').innerHTML='<div class="empty"><div><div class="empty-symbol">LOADING</div>正在加载…</div></div>';
+    /* v260923u · 切页不再先清空主区为 LOADING：保留旧页面内容直到新页数据就绪后一次性替换，
+     * 消除「白一下→加载→跳变」的重新加载感。navSeq 序号守卫：快速连点时丢弃过期渲染的收尾动画/错误覆盖。 */
+    const seq=state.navSeq=(state.navSeq||0)+1;
     try {
       if(route==='overview') await renderOverview();
       else if(route==='todos') await renderTodos();
@@ -151,8 +153,12 @@
       else if(route==='settings') await renderSettings();
       else if(KIND_ROUTE[route]) await renderDocsPage(KIND_ROUTE[route]);
       else await renderOverview();
+      if(seq!==state.navSeq) return;
       animateMain();
-    } catch(err){ console.error(err); $('#main').innerHTML=`<div class="card card-pad danger">加载失败：${esc(err.message)}</div>`; animateMain(); }
+    } catch(err){
+      if(seq!==state.navSeq) return;
+      console.error(err); $('#main').innerHTML=`<div class="card card-pad danger">加载失败：${esc(err.message)}</div>`; animateMain();
+    }
   }
 
   function animateMain(){
@@ -307,6 +313,14 @@
 
   function fitResearchHeatmap(){
     const card=$('.heatmap-card'); const scroll=$('.heatmap-scroll'); if(!card||!scroll) return;
+    /* v260923s · 一次性挂载窗口 resize 与 1080px 断点监听：RO 只观察 .heatmap-scroll，
+     * 窗口尺寸/断点跨越变化时不会触发，这里兜底重算（state 标志防监听器堆积）。 */
+    if(!state.heatmapResizeHooked){
+      state.heatmapResizeHooked=true;
+      const reapply=debounce(()=>{ if(state.route==='overview') fitResearchHeatmap(); },80);
+      window.addEventListener('resize',reapply);
+      window.matchMedia('(min-width:1080px)').addEventListener?.('change',reapply);
+    }
     const topRow=card.closest('.overview-top-row');
     const academicGrid=$('.overview-academic-grid');
     const apply=()=>{
@@ -316,22 +330,30 @@
       const compact=document.documentElement.dataset.density==='compact';
       const wide=!!topRow&&window.matchMedia('(min-width:1080px)').matches; /* v260922h3 · 宽屏两种密度都并排：宽松=原样式，紧凑=并排+学业两卡再并排保一屏 */
       const totalW=topRow?topRow.clientWidth:scroll.clientWidth+chrome; /* v260922f · 用轨道宽度做基准，缩卡后无循环依赖 */
-      /* v260922h6 · 防护：测量未就绪或异常窄时清空内联样式回退 CSS 默认，等下一轮 rAF/RO 重测，防坏值写死布局 */
+      /* v260923s · 防护：测量未就绪或异常窄时清空内联样式回退 CSS 默认并解除一屏锁定，等下一轮 rAF/RO 重测 */
       if(topRow&&(!Number.isFinite(totalW)||totalW<600)){
         topRow.style.gridTemplateColumns=''; card.style.maxWidth='';
         if(academicGrid) academicGrid.classList.remove('is-row');
+        card.closest('.overview-dashboard')?.classList.remove('one-screen');
         return;
       }
       const widthSize=Math.floor((totalW-chrome-gap*(weeks-1))/weeks);
       /* v260922k3 · 宽松型格子不设固定上限：按可用宽度自动放大铺满，
-       * 仅保留学业区 330px 保底以维持并排；紧凑型仍用 21px 上限。 */
+       * 仅保留学业区 330px 保底以维持并排。 */
       const cozyMax=Math.floor((totalW-10-330-chrome-gap*(weeks-1))/weeks);
-      const maxSize=compact?21:Math.max(6,cozyMax);
+      /* v260923s · 紧凑型：格子 16px 上限（用户既定规格），并以 11px 为保底让
+       * 「热力图|学业区」并排在 ~1420px 视口下依然成立；低于保底则放弃并排。 */
+      const maxSize=compact?Math.max(11,Math.min(16,cozyMax)):Math.max(6,cozyMax);
       const size=Math.max(6,Math.min(maxSize,widthSize));
       const needW=Math.round(chrome+weeks*size+gap*(weeks-1));
       const canDual=wide&&size<widthSize&&totalW-needW-10>=330; /* v260922k · 学业区最小宽度 420→330，让热力图多占横向空间；学业区变窄时进度/毕业条件自动改纵向堆叠 */
       let dualAcademic=wide&&!canDual; /* 宽松型维持原行为：仅热力图全宽时进度/毕业条件两卡并排 */
       if(compact) dualAcademic=wide&&canDual&&(totalW-needW-16>=640); /* v260922k · 双列门槛 680→640，配合热力图加宽后学业区仍可保持两卡并排 */
+      /* v260923s · 一屏锁定仅在紧凑型并排成立时生效；堆叠/窄屏回退自然流式布局+整页滚动，杜绝卡片区溢出重叠
+       * v260923t · 追加纵向门槛：四行下限 350+106+150+260=866 + 3×10 行距 + 顶部工具栏 chrome 预算 100，
+       * 视口有效高度（按根 zoom 折算）<996 时同样解除锁定回退流式滚动，防止 fr 压缩行轨道导致卡片重叠 */
+      const effH=window.innerHeight/(parseFloat(document.documentElement.style.zoom)||1);
+      card.closest('.overview-dashboard')?.classList.toggle('one-screen',compact&&canDual&&effH>=996);
       if(topRow){
         if(wide){topRow.style.gridTemplateColumns=canDual?`${needW}px minmax(0,1fr)`:'minmax(0,1fr)';}
         else{topRow.style.gridTemplateColumns='';}
@@ -367,6 +389,9 @@
     const v=Math.max(80,Math.min(125,Math.round(Number(pct)||100)));
     state.uiScale=v; localStorage.setItem('uiScale',String(v));
     document.documentElement.style.zoom=v===100?'':String(v/100);
+    /* v260923s · 根元素 zoom 变化时 ResizeObserver 不触发（局部坐标系尺寸不变），
+     * 必须手动重跑热力图适配，否则 one-screen 类与内联样式残留导致小屏卡片重叠。 */
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ if(state.route==='overview') fitResearchHeatmap(); }));
     const btn=$('#zoom-btn'); if(btn) btn.textContent=v+'%';
     $$('#zoom-menu button').forEach(b=>b.classList.toggle('active',Number(b.dataset.zoom)===v));
   }

@@ -45,6 +45,8 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 .timeline-3d{height:520px;perspective:1000px;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:radial-gradient(circle at 50% 50%,var(--accent-soft),var(--surface) 55%);position:relative}.timeline-3d-stage{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .4s}.timeline-3d-card{position:absolute;width:230px;padding:12px;background:color-mix(in srgb,var(--surface) 94%,transparent);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;box-shadow:var(--shadow);transform-style:preserve-3d;cursor:pointer}.timeline-3d-axis{position:absolute;left:50%;top:28px;bottom:28px;width:1px;background:linear-gradient(transparent,var(--accent),transparent)}
 .graph-wrap{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px}.graph-canvas-wrap{height:590px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);position:relative;overflow:hidden}.graph-canvas{width:100%;height:100%;display:block}.graph-side{padding:14px}.graph-side h3{margin:0 0 8px}.graph-node-info{font-size:12px;color:var(--muted);line-height:1.7}.graph-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.graph-legend .badge{font-size:9px}.view-tabs{display:flex;gap:5px}.view-tabs button{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:7px 10px}.view-tabs button.active{background:var(--accent-soft);border-color:var(--accent-soft);color:var(--accent-ink)}
 .research-overview{display:grid;gap:10px}.recent-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.overview-split{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:10px}.mini-graph{height:380px}.recent-card{padding:11px 13px}.recent-card .list-row{padding:7px 9px;background:transparent}.recent-card .row-title{font-size:12px}
+/* v260923s · 窄卡下标题/「全部」按钮不换行：标题省略号截断，按钮保持单行 */
+.recent-card .card-head{gap:8px}.recent-card .card-head h3{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent-card .card-head .ghost-btn{flex:0 0 auto;white-space:nowrap}
 .focus-panel{max-width:720px;margin:28px auto;text-align:center;padding:34px}.focus-time{font:700 72px/1 Consolas,monospace;letter-spacing:-.04em;margin:24px 0 10px}.focus-mode{color:var(--muted);font-size:12px}.focus-actions{display:flex;justify-content:center;gap:8px;margin-top:24px}.progress-ring{width:160px;height:160px;margin:12px auto;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--accent) 0deg,var(--surface-3) 0deg)}.progress-ring:after{content:"";width:138px;height:138px;background:var(--surface);border-radius:50%}
 .todo-add{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(0,1fr) 150px 120px auto;gap:8px}.todo-row{display:grid;grid-template-columns:auto minmax(0,1fr) 170px 120px auto;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line)}.todo-row:last-child{border-bottom:0}.todo-row.done .todo-title{text-decoration:line-through;color:var(--muted)}.todo-check{accent-color:var(--accent);width:17px;height:17px}
 .news-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.news-card{padding:14px}.news-card h3{font-size:14px;margin:0 0 7px;line-height:1.5}.news-card p{color:var(--muted);font-size:12px;line-height:1.65}.news-meta{font-size:10px;color:var(--accent);font-family:Consolas,monospace}
@@ -172,11 +174,16 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 
 /* A restrained engineering-style route transition: depth + scan lines + staggered cards. */
 .main-content{position:relative;isolation:isolate}
-@keyframes erwPageInV6{0%{opacity:0;transform:translateY(14px) scale(.989);filter:blur(5px)}45%{opacity:.92;filter:blur(.8px)}100%{opacity:1;transform:none;filter:none}}
-@keyframes erwCardFluxV6{0%{opacity:0;transform:translate3d(0,13px,0) scale(.986);filter:blur(3px)}60%{opacity:1;filter:none}100%{opacity:1;transform:none;filter:none}}
-@keyframes erwRouteSweepV6{0%{opacity:0;transform:translateX(-20%) scaleX(.08)}22%{opacity:.95}100%{opacity:0;transform:translateX(18%) scaleX(1)}}
+/* v260923v · 进入动画去除 scale/blur/letter-spacing：小屏用户反馈「进入界面有窗口拉伸感」，
+ * 缩放与模糊是主要来源，改为纯淡入+上移，保留节奏但不再有拉伸观感
+ * v260923w · 位移方向改为自上而下(-10px→0)、扫描线改纯 scaleX：总览(一屏锁定)与知识图谱(画布满高)
+ * 的内容恰好贴合视口，向下/向右位移会在动画期间产生临时滚动溢出→滚动条闪现；顶部/左侧溢出不产生
+ * 滚动条，故从上方滑入既保留动效又杜绝闪现 */
+@keyframes erwPageInV6{0%{opacity:0;transform:translateY(-10px)}45%{opacity:.92}100%{opacity:1;transform:none}}
+@keyframes erwCardFluxV6{0%{opacity:0;transform:translate3d(0,-10px,0)}60%{opacity:1}100%{opacity:1;transform:none}}
+@keyframes erwRouteSweepV6{0%{opacity:0;transform:scaleX(.08)}22%{opacity:.95}100%{opacity:0;transform:scaleX(1)}}
 @keyframes erwRouteGlowV6{0%{opacity:0;transform:translateX(-25%)}35%{opacity:.22}100%{opacity:0;transform:translateX(45%)}}
-@keyframes erwHeadingV6{0%{opacity:.15;transform:translateX(-10px);letter-spacing:.055em}100%{opacity:1;transform:none;letter-spacing:.02em}}
+@keyframes erwHeadingV6{0%{opacity:.15;transform:translateX(-10px)}100%{opacity:1;transform:none}}
 @keyframes erwNavPulseV6{0%{transform:scale(.78);opacity:.35}55%{transform:scale(1.14);opacity:1}100%{transform:none;opacity:1}}
 .main-content.route-enter>*{animation:erwPageInV6 .48s cubic-bezier(.16,.8,.2,1) both!important}
 .main-content.route-enter .card{animation:erwCardFluxV6 .54s cubic-bezier(.16,.82,.2,1) both!important}

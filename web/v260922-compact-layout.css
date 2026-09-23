@@ -64,34 +64,36 @@
  */
 @media (min-width:1280px){
   /* v260922j · 响应式高度系统：视口→主区→dashboard 全链拉通，
-   * 概览路由时锁定视口高度，四条横带按 fr 比例分配剩余空间。 */
-  .app-shell:has(>.main-shell .overview-dashboard){
+   * 概览路由时锁定视口高度，四条横带按 fr 比例分配剩余空间。
+   * v260923s · 锁定改由 .one-screen 门控（JS 在热力图与学业区并排成立时添加）：
+   * 堆叠/窄屏场景回退自然流式+整页滚动，防止行轨道小于内容导致卡片区溢出重叠。 */
+  .app-shell:has(>.main-shell .overview-dashboard.one-screen){
     height:100vh;
   }
-  .app-shell:has(>.main-shell .overview-dashboard)>.sidebar{
+  .app-shell:has(>.main-shell .overview-dashboard.one-screen)>.sidebar{
     height:100vh;
     overflow-y:auto; /* 侧栏独立滚动，不撑破整页高度 */
   }
-  .main-shell:has(>.main-content .overview-dashboard){
+  .main-shell:has(>.main-content .overview-dashboard.one-screen){
     height:100vh;
     display:flex;
     flex-direction:column;
   }
-  .main-shell:has(>.main-content .overview-dashboard)>.main-content{
+  .main-shell:has(>.main-content .overview-dashboard.one-screen)>.main-content{
     flex:1 1 auto;
     min-height:0;
     display:flex;
     flex-direction:column;
     overflow-y:auto; /* 模块内容下限之和超出视口时自然回退为滚动 */
   }
-  .main-shell:has(>.main-content .overview-dashboard)>.main-content>.overview-dashboard{
+  .main-shell:has(>.main-content .overview-dashboard.one-screen)>.main-content>.overview-dashboard{
     flex:1 1 auto;
     min-height:0;
     grid-template-rows:
-      minmax(242px,34fr)  /* 行1 热力图+学业区：内容最多，占比最大 */
-      minmax(92px,12fr)   /* 行2 今天+快速记录：宽屏两种密度都双列并排 */
-      minmax(140px,17fr)  /* 行3 节奏|任务|里程碑 */
-      minmax(220px,29fr); /* 行4 项目推进|最近研究活动 */
+      minmax(350px,34fr)  /* 行1 热力图+学业区并排：v260923t · 下限 330→350，实测学业双卡(170+170+间距)=349 必须完整容纳，否则毕业条件卡溢出压到行2 */
+      minmax(106px,12fr)  /* 行2 今天+快速记录：v260923t · 下限 92→106，实测 today/quick 内容高 106，防止小视口被 fr 压缩溢出 */
+      minmax(150px,17fr)  /* 行3 节奏|任务|里程碑：v260923t · 下限 140→150，同上 */
+      minmax(260px,29fr); /* 行4 项目推进|最近研究活动：v260923s · 下限 220→260 覆盖项目推进空态高度 */
   }
   /* v260922k4 · 宽松型 mid-row 宽屏也双列：堆叠布局会把行 2 撑到约 230px 破坏一屏高度；
    * 紧凑型规则（styles.css，特异性更高）不受影响。 */

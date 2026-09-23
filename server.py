@@ -20,9 +20,11 @@ from app import workspace
 from app import agent
 from app import projects
 from app import indexer
+from app.paths import ASSET_ROOT, DATA_ROOT
 
-ROOT = Path(__file__).resolve().parent
-WEB = ROOT / "web"
+# v260923 · 打包 exe 后：只读资源（web/、VERSION）在 PyInstaller 解压目录；可写数据在 exe 同级
+ROOT = DATA_ROOT
+WEB = ASSET_ROOT / "web"
 
 
 def json_bytes(data) -> bytes:
@@ -52,7 +54,10 @@ def _project_registry_needs_migration() -> bool:
 
 class WorkbenchHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # v260923v · Windows 上 allow_reuse_address=1(SO_REUSEADDR) 允许第二个进程静默重复绑定同一端口，
+    # 曾导致旧实例/开发服务与新实例同端口打架、前端 bundle 版本错乱。Windows 改为独占绑定；
+    # Unix 上该标志仅用于绕过 TIME_WAIT，保留 True 方便开发时快速重启。
+    allow_reuse_address = (sys.platform != "win32")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -146,7 +151,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             return self.send_json({
                 "ok": True,
-                "version": (ROOT / "VERSION").read_text(encoding="utf-8").strip(),
+                "version": (ASSET_ROOT / "VERSION").read_text(encoding="utf-8").strip(),
                 "index": indexer.status(),
             })
         if path == "/api/config":
@@ -374,21 +379,32 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
 
-def main():
+def build_server(port_override: int | None = None, auto_open_browser: bool | None = None):
+    """初始化 workspace/索引并绑定 HTTP 服务。供 main() 与桌面客户端 client.py 共用。
+
+    port_override：端口被占用时由调用方传入空闲端口。
+    auto_open_browser：桌面窗口模式传 False，避免额外打开系统浏览器。
+    """
     workspace.ensure_workspace()
     if _project_registry_needs_migration():
         projects.ensure_registry()
     index_state = indexer.initialize(force=False)
     cfg = config.get_app()
     host = str(cfg.get("host") or "127.0.0.1")
-    port = int(cfg.get("port") or 8765)
+    port = int(port_override or cfg.get("port") or 8765)
     server = WorkbenchHTTPServer((host, port), Handler)
     url = f"http://{host}:{port}"
     print(f"Engineering Research Workbench running at {url}")
     print(f"Workspace: {workspace.ensure_workspace()}")
     print(f"Index: {index_state.get('counts', {}).get('documents', 0)} docs · {index_state.get('path', '')}")
-    if cfg.get("auto_open_browser", True):
+    open_browser = cfg.get("auto_open_browser", True) if auto_open_browser is None else auto_open_browser
+    if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    return server, cfg, url
+
+
+def main():
+    server, _cfg, _url = build_server()
     restart_requested = False
     try:
         server.serve_forever(poll_interval=0.25)
@@ -399,6 +415,11 @@ def main():
         server.server_close()
     if restart_requested:
         print("Restarting service...")
+        if getattr(sys, "frozen", False):
+            # v260923 · 打包后多线程进程内 os.execv 不可靠，改为拉起新 exe 进程后退出
+            import subprocess
+            subprocess.Popen([sys.executable])
+            sys.exit(0)
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
 

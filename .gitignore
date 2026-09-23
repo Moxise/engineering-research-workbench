@@ -19,6 +19,8 @@
 !/VERSION
 !/requirements.txt
 !/server.py
+!/client.py
+!/build_client.bat
 !/run.bat
 !/run.sh
 
@@ -47,5 +49,7 @@
 config/
 Workspace/
 .update_backups/
+build/
+dist/
 _verify_*.py
 _verify_out.txt
