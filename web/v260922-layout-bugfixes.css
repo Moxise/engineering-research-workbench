@@ -1,0 +1,73 @@
+/* v260922 · heatmap month-divider and quick-capture layout fixes */
+
+/* The legacy separator is formula-positioned. Keep it out of the paint tree;
+   the SVG layer below is measured from the actual rendered grid instead. */
+.heatmap-divider-v2 .heatmap-month-boundaries{
+  visibility:hidden!important;
+}
+.heatmap-stage>.heatmap-month-divider-layer{
+  position:absolute;
+  overflow:visible;
+  pointer-events:none;
+  z-index:3;
+}
+.heatmap-month-divider-path{
+  fill:none;
+  stroke:color-mix(in srgb,var(--accent) 58%,var(--line-strong));
+  stroke-width:1.5;
+  stroke-dasharray:3.5 3;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  vector-effect:non-scaling-stroke;
+  opacity:.9;
+}
+[data-theme="dark"] .heatmap-month-divider-path{
+  stroke:color-mix(in srgb,var(--accent) 70%,var(--line-strong));
+  opacity:.96;
+}
+
+/* Let the explanatory copy take a predictable width so the five action cards
+   receive the remaining space. The copy itself is intentionally wrappable. */
+.quick-capture-copy{
+  min-width:0;
+}
+.quick-capture-copy p{
+  white-space:normal;
+  overflow-wrap:break-word;
+  line-height:1.45;
+}
+.quick-capture-actions{
+  min-width:0;
+}
+.quick-action{
+  min-width:0;
+  grid-template-columns:18px minmax(0,1fr);
+  column-gap:5px;
+}
+.quick-action b{
+  min-width:0;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  word-break:normal;
+  line-height:1.2;
+}
+
+@media (min-width:1280px){
+  .overview-mid-left>.quick-capture-card .quick-capture-copy{
+    flex:0 1 190px;
+    width:190px;
+    max-width:190px;
+  }
+  .overview-mid-left>.quick-capture-card .quick-capture-actions{
+    flex:1 1 auto;
+    grid-template-columns:repeat(5,minmax(0,1fr));
+  }
+}
+
+@media (min-width:1280px) and (max-width:1500px){
+  .overview-mid-left>.quick-capture-card .quick-capture-copy{
+    flex-basis:170px;
+    width:170px;
+    max-width:170px;
+  }
+}
