@@ -7,14 +7,15 @@
   <title>科研工作台</title>
   <link rel="icon" type="image/png" href="/favicon.png?v=260923">
   <link rel="apple-touch-icon" href="/favicon.png?v=260923">
-  <link rel="stylesheet" href="/styles.css">
-  <link rel="stylesheet" href="/v260922-projects.css">
-  <link rel="stylesheet" href="/v260922-compact-layout.css">
-  <link rel="stylesheet" href="/v260922-overview-editor-tools.css">
-  <link rel="stylesheet" href="/v260922-performance.css">
-  <link rel="stylesheet" href="/v260922-graph-performance.css">
-  <link rel="stylesheet" href="/v260922-agent-profiles.css">
-  <link rel="stylesheet" href="/v260922-layout-bugfixes.css">
+  <!-- v260924f · CSS 引用带版本参数，避免 WebView 缓存旧样式；本次随 topbar 防压缩修复升级 -->
+  <link rel="stylesheet" href="/styles.css?v=260924f">
+  <link rel="stylesheet" href="/v260922-projects.css?v=260924f">
+  <link rel="stylesheet" href="/v260922-compact-layout.css?v=260924f">
+  <link rel="stylesheet" href="/v260922-overview-editor-tools.css?v=260924f">
+  <link rel="stylesheet" href="/v260922-performance.css?v=260924f">
+  <link rel="stylesheet" href="/v260922-graph-performance.css?v=260924f">
+  <link rel="stylesheet" href="/v260922-agent-profiles.css?v=260924f">
+  <link rel="stylesheet" href="/v260922-layout-bugfixes.css?v=260924f">
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
   <script>
     window.MathJax = {
@@ -98,7 +99,7 @@
   </div>
 
   <script defer src="/v260922-performance.js"></script>
-  <script defer src="/app.js"></script>
+  <script defer src="/app.js?v=260924g"></script><!-- v260924g · 版本参数防 WebView 缓存（滚动同步锁修复） -->
   <script defer src="/v260922-projects.js"></script>
   <script defer src="/v260922-overview-editor-tools.js"></script>
   <script defer src="/v260922-graph-performance.js"></script>

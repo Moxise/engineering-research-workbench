@@ -8,16 +8,22 @@
   :root{--sidebar:260px;--radius:10px}
 
   /* Shell / navigation */
-  .brand{height:82px;padding:14px 17px 12px;gap:11px;align-items:center}
-  .brand-mark{width:30px;height:30px}.brand-mark:before{width:40px;left:-7px}.brand-mark:after{height:40px;top:-7px}.brand-mark span{width:12px;height:12px;box-shadow:0 0 0 4px var(--accent-soft)}
-  .brand h1{font-size:18px}.brand p{margin-top:3px;font-size:9px}
+  /* v260924e · 顶栏两侧等高对齐：brand 与 topbar 统一上下内边距（内容区同为 62px），
+     文本块拉伸充满并垂直居中，右侧行高向左侧副题靠拢，首末行错位收敛，
+     上边条观感高度不随页面内容与密度切换变化 */
+  .brand{height:82px;padding:10px 17px 9px;gap:11px;align-items:stretch}
+  .brand-mark{width:30px;height:30px;align-self:center}.brand-mark:before{width:40px;left:-7px}.brand-mark:after{height:40px;top:-7px}.brand-mark span{width:12px;height:12px;box-shadow:0 0 0 4px var(--accent-soft)}
+  .brand-copy{display:flex;flex-direction:column;justify-content:center;min-height:0}
+  .brand h1{font-size:18px;line-height:1.2}.brand p{margin-top:3px;font-size:9px;line-height:1.45}
   .sidebar-nav{padding:10px 8px 64px}.nav-group{margin-bottom:5px}.nav-group-head{height:31px;padding:0 7px}.nav-items{gap:1px}.nav-item{height:38px;gap:9px;padding:0 10px;border-radius:8px}
   .nav-group[data-group="core"] .nav-group-head,.nav-group[data-group="research"] .nav-group-head{height:34px;margin-bottom:3px;padding:0 8px;border-radius:8px}
   .sidebar-footer{padding:9px 13px}
 
   /* Header / page canvas */
-  .topbar{height:82px;padding:10px 22px 9px 26px;gap:14px}
-  .page-heading h2{font-size:25px;margin:0 0 2px}.page-date{font-size:11px}.eyebrow{font-size:9px}
+  .topbar{height:82px;padding:10px 22px 9px 26px;gap:14px;flex-shrink:0;min-height:82px}/* v260924f · 紧凑型 main-shell 锁 100vh 成 flex column（一屏仪表盘/docs 页），下方内容填满后 flex 加权收缩会压缩 topbar，禁收缩并锁高下限 */
+  /* v260924e · 右侧标题块与左侧 brand 同规则等高垂直居中，行高与左侧副题对齐 */
+  .topbar>.page-heading{height:100%;display:flex;flex-direction:column;justify-content:center;min-height:0}
+  .page-heading h2{font-size:25px;margin:0 0 2px;line-height:1.2}.page-date{font-size:11px;line-height:1.45}.eyebrow{font-size:9px}
   .top-actions{gap:6px}.weather-pill,.icon-btn,.primary-btn,.secondary-btn,.ghost-btn,.top-search-btn{min-height:34px}.icon-btn{width:34px}.weather-pill,.primary-btn,.secondary-btn,.ghost-btn{padding-left:11px;padding-right:11px}.top-search-btn{padding:0 9px}
   .dropdown{top:39px}
   .main-content{padding:16px 22px 34px}
@@ -116,6 +122,7 @@
   }
   html[data-density="compact"] .main-shell:has(>.main-content .docs-layout)>.main-content{
     flex:1 1 auto;
+    width:100%; /* v260924c · flex column 下 margin:auto 禁用 stretch，交叉轴收缩为内容宽；显式铺满（base 的 max-width:1800px 超宽截断居中行为不变） */
     min-height:0;
     display:flex;flex-direction:column; /* v260922k7d · 高度链闭合：让 docs-layout 的 flex:1 真正生效，否则其高度塌陷、内容被裁 */
     overflow:hidden; /* 高度由 flex 精确分配，杜绝整页滚动 */

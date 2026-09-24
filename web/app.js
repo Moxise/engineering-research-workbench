@@ -714,11 +714,16 @@
     const bib=$('#f-bibtex'); let syncingBib=false;
     /* v260924b · 分屏滚动同步（精确版）：预览按 top-level 块渲染并记录源行号锚点（见 renderMarkdownPreview），
        编辑侧用 canvas 量宽估算软换行的物理行→逻辑行映射；两侧任一滚动，另一侧先落到所在块、再按块内比例对齐。 */
-    const pv=$('#md-preview'); let syncLock=false;
+    const pv=$('#md-preview'); let syncLock=false, syncLockTimer=0;
+    /* v260924g · 锁改由「被写侧的 scroll 事件」释放：旧实现用 rAF 解锁，但渲染帧内 rAF 回调先于 scroll 事件派发，
+     * 锁在回声事件到来前已失效 → 编辑器↔预览互相写入形成无限互滚（滚动条自动滑动）。
+     * 事件驱动释放 + 150ms 兜底定时器（写入未引起滚动时防锁死）。 */
     const bindScrollSync=(src,dst,fn)=>src.addEventListener('scroll',()=>{
-      if(state.editorMode!=='split'||syncLock)return;
+      if(syncLock){syncLock=false;clearTimeout(syncLockTimer);return;}
+      if(state.editorMode!=='split')return;
       if(src.scrollHeight-src.clientHeight<=1||dst.scrollHeight-dst.clientHeight<=1)return;
-      syncLock=true; fn(); requestAnimationFrame(()=>syncLock=false);
+      syncLock=true; fn();
+      clearTimeout(syncLockTimer); syncLockTimer=setTimeout(()=>{syncLock=false},150);
     });
     if(pv){bindScrollSync(ta,pv,syncEdToPv);bindScrollSync(pv,ta,syncPvToEd);}
     ta.addEventListener('input',()=>{state.dirty=true;state._mdSyncVer=(state._mdSyncVer||0)+1;if(bib&&!syncingBib){const m=ta.value.match(/```bibtex\s*\n([\s\S]*?)```/i);if(m&&bib.value.trim()!==m[1].trim()){syncingBib=true;bib.value=m[1].trim();syncingBib=false;}}debouncedPreview();});
