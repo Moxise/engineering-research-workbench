@@ -9,7 +9,7 @@ import time
 import webbrowser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from app import config
 from app import rss as rss_service
@@ -181,6 +181,21 @@ class Handler(BaseHTTPRequestHandler):
                 kind, query, status, project, mark,
                 page=page, page_size=page_size, paged=paged,
             ))
+        # v260923 · 文献 PDF 附件下载：/api/docs/<id>/attachment，路径须置于 /api/docs/ 泛匹配之前
+        if path.startswith("/api/docs/") and path.endswith("/attachment"):
+            doc_id = unquote(path[len("/api/docs/"):-len("/attachment")])
+            att = store.attachment_file(doc_id)
+            if not att:
+                return self.send_json({"error": "not_found", "message": "附件未配置或文件不存在"}, 404)
+            content = att.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Disposition", f'inline; filename="{quote(att.name)}"')
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "private, max-age=60")
+            self.end_headers()
+            self.wfile.write(content)
+            return
         if path.startswith("/api/docs/"):
             doc_id = unquote(path.split("/api/docs/", 1)[1])
             return self.send_json(indexer.get_doc(doc_id))

@@ -246,6 +246,9 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 
 /* v260921 · doc kind marks */
 .mark-badge{font-weight:600}
+/* v260923 · 文献 PDF 附件徽章：仅 attachment_exists 时显示，可点击打开 */
+.att-badge{color:var(--accent-ink);background:var(--accent-soft);border-color:transparent;cursor:pointer;transition:filter .15s}
+.att-badge:hover{filter:brightness(.93)}
 .mark-chip-box{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:30px}
 .mark-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line-strong);background:var(--surface-2);border-radius:999px;padding:4px 11px;font-size:11px;color:var(--muted);cursor:pointer;transition:border-color .15s,color .15s,background .15s}
 .mark-chip:hover{border-color:var(--mark-color);color:var(--mark-color)}
