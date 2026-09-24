@@ -253,6 +253,14 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 /* v260923 · 文献 PDF 附件徽章：仅 attachment_exists 时显示，可点击打开 */
 .att-badge{color:var(--accent-ink);background:var(--accent-soft);border-color:transparent;cursor:pointer;transition:filter .15s}
 .att-badge:hover{filter:brightness(.93)}
+/* v260924i · 置顶徽章与置顶卡片提示：徽章醒目、卡片左侧细条示意排头 */
+.pin-badge{color:#a4732a;background:#fff4de;border-color:#e8c98a}
+.doc-item.pinned{border-left:3px solid #e8c98a}
+/* v260924i · 编辑器置顶开关：原生 14px 复选框行内排布，覆盖 .field input 的 width:100% 撑大 */
+.pin-toggle{display:flex;align-items:center;gap:7px;height:34px;color:var(--text);font-size:12px;white-space:nowrap;cursor:pointer}
+.pin-toggle input{width:14px;height:14px;flex:0 0 auto;accent-color:var(--accent)}
+/* v260924k · 置顶开关嵌入分类标记标签行：右对齐、跟随行高 */
+.field-label-row .pin-toggle{margin-left:auto;height:auto;font-weight:400}
 .mark-chip-box{display:flex;flex-wrap:nowrap;gap:6px;align-items:center;min-height:30px;overflow-x:auto;scrollbar-width:none} /* v260924d · 恒定单行（多时横向滚动），上边条高度稳定 */.mark-chip-box::-webkit-scrollbar{display:none}
 .mark-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line-strong);background:var(--surface-2);border-radius:999px;padding:4px 11px;font-size:11px;color:var(--muted);cursor:pointer;transition:border-color .15s,color .15s,background .15s}
 .mark-chip:hover{border-color:var(--mark-color);color:var(--mark-color)}

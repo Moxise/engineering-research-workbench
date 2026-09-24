@@ -65,7 +65,7 @@ def list_docs(
         total = int(conn.execute(f"SELECT COUNT(*) FROM documents d WHERE {sql_where}", params).fetchone()[0])
         rows = conn.execute(
             f"SELECT d.* FROM documents d WHERE {sql_where} "
-            "ORDER BY COALESCE(NULLIF(d.updated,''),d.created) DESC, d.id DESC LIMIT ? OFFSET ?",
+            "ORDER BY d.pinned DESC, COALESCE(NULLIF(d.updated,''),d.created) DESC, d.id DESC LIMIT ? OFFSET ?",  # v260924i · 置顶条目排头显示
             [*params, page_size, (page - 1) * page_size],
         ).fetchall()
     items = [_row_doc(r) for r in rows]
