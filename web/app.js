@@ -866,6 +866,14 @@
       }catch(e){console.warn('marked chunked parse failed, fallback whole',e);state._mdAnchors=null;html=marked.parse(raw,opts);}
     } else {html=basicMarkdown(raw);state._mdAnchors=null;}
     html=html.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(_,target,label)=>`<a href="#" class="wiki-link" data-wiki="${esc(target)}">${esc(label||target)}</a>`);
+    /* v260924 · 关联条目跳转：符合知识库命名前缀的反引号标题（如 `知识-方法-…`、`文献-…`）自动转为
+       可点击链接（点击复用双链逻辑，按目标 kind 路由到笔记/文献/总结等管理页并选中），
+       仅包裹已有文本、不新增界面元素，避免加剧界面拥挤 */
+    html=html.replace(/<code>([^<]{1,160})<\/code>/g,(m,inner)=>{
+      const text=inner.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&amp;/g,'&');
+      if(!/^(知识|总结|灵感|日志|里程碑|文献)-/.test(text))return m;
+      return `<a href="#" class="wiki-link kb-ref" data-wiki="${esc(text)}"><code>${inner}</code></a>`;
+    });
     html=normalizePreviewPaths(html);
     if(seq!==state.previewSeq||!document.body.contains(out))return;
     out.innerHTML=window.DOMPurify?DOMPurify.sanitize(html,{ADD_ATTR:['target','rel','data-wiki','checked','disabled'],ADD_TAGS:['mjx-container']}):html;
@@ -874,7 +882,7 @@
     if(seq!==state.previewSeq||!document.body.contains(out))return;
     if(window.MathJax?.typesetPromise){try{MathJax.typesetClear?.([out]);await MathJax.typesetPromise([out])}catch(e){console.warn(e)}}
     if(seq!==state.previewSeq||!document.body.contains(out))return;
-    $$('.wiki-link',out).forEach(a=>a.onclick=async e=>{e.preventDefault();const q=a.dataset.wiki;const results=await api('/api/docs?q='+encodeURIComponent(q));const exact=results.find(x=>x.id===q||x.title===q)||results[0];if(exact){const r=routeForKind(exact.kind);await navigate(r);setTimeout(()=>selectDoc(exact.id),10)}else toast(`未找到双链：${q}`,true)});
+    $$('.wiki-link',out).forEach(a=>a.onclick=async e=>{e.preventDefault();const q=a.dataset.wiki;const results=await api('/api/docs?q='+encodeURIComponent(q));const self=state.selectedDoc&&state.selectedDoc.id;const exact=results.find(x=>x.id===q||x.title===q)||results.find(x=>x.id!==self)||null;if(exact){const r=routeForKind(exact.kind);await navigate(r);setTimeout(()=>selectDoc(exact.id),10)}else toast(`未找到关联条目：${q}`,true)});
   }
   function applyMdCommand(cmd){
     const ta=$('#md-input'); const a=ta.selectionStart,b=ta.selectionEnd,sel=ta.value.slice(a,b);

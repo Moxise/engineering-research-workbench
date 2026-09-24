@@ -70,6 +70,10 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 .md-preview hr{border:0;border-top:1px solid var(--line);margin:24px 0}
 .md-preview del{color:var(--muted)}
 .md-preview a{word-break:break-word}.md-preview .wiki-link{border-bottom:1px dashed var(--accent);font-weight:600}
+/* v260924 · 关联条目链接（kb-ref）：保留 inline code 外观，仅虚线下划线 + hover 变色标识可点击，不增加视觉拥挤 */
+.md-preview a.kb-ref{border-bottom:none;font-weight:400}
+.md-preview a.kb-ref code{border-bottom:1px dashed var(--accent);transition:color .15s,border-color .15s}
+.md-preview a.kb-ref:hover code{color:var(--accent-ink);border-bottom-style:solid}
 .md-preview mjx-container{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:2px 0}
 .md-preview .task-list-item{list-style:none}.md-preview .task-list-item input{margin-right:7px}
 .task-fallback{margin:5px 0}.task-fallback input{accent-color:var(--accent)}
