@@ -6,10 +6,13 @@ cd /d "%~dp0"
 echo [1/3] 安装构建依赖（pyinstaller / pywebview / pillow）...
 python -m pip install --quiet pyinstaller pywebview pillow || (echo 依赖安装失败 & exit /b 1)
 
-echo [2/3] 生成应用图标...
+echo [2/3] 准备应用图标...
 if not exist build mkdir build
-python -c "from PIL import Image; img=Image.open('web/favicon.png'); img.save('build/favicon.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])" 2>nul
-if exist build\favicon.ico (set ICON_ARG=--icon build\favicon.ico) else (echo 图标转换跳过，使用默认图标 & set ICON_ARG=)
+set ICON_ARG=
+rem v260923z · 优先使用正式图标 build\research-workstation.ico；缺失时从 web/favicon.png 现场生成同名文件兜底
+if not exist build\research-workstation.ico python -c "from PIL import Image; img=Image.open('web/favicon.png'); img.save('build/research-workstation.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])" 2>nul
+if exist build\research-workstation.ico set ICON_ARG=--icon build\research-workstation.ico
+if not defined ICON_ARG echo 图标缺失，使用 PyInstaller 默认图标
 
 echo [3/3] PyInstaller 打包中...
 rem v260923w · exe 直接生成在项目根目录（--distpath .），与开发环境共用根目录的 config\ 与 Workspace\
