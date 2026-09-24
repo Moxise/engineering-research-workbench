@@ -712,13 +712,94 @@
   function wireEditor(){
     const ta=$('#md-input'); if(!ta)return;
     const bib=$('#f-bibtex'); let syncingBib=false;
-    ta.addEventListener('input',()=>{state.dirty=true;if(bib&&!syncingBib){const m=ta.value.match(/```bibtex\s*\n([\s\S]*?)```/i);if(m&&bib.value.trim()!==m[1].trim()){syncingBib=true;bib.value=m[1].trim();syncingBib=false;}}debouncedPreview();});
+    /* v260924b · 分屏滚动同步（精确版）：预览按 top-level 块渲染并记录源行号锚点（见 renderMarkdownPreview），
+       编辑侧用 canvas 量宽估算软换行的物理行→逻辑行映射；两侧任一滚动，另一侧先落到所在块、再按块内比例对齐。 */
+    const pv=$('#md-preview'); let syncLock=false;
+    const bindScrollSync=(src,dst,fn)=>src.addEventListener('scroll',()=>{
+      if(state.editorMode!=='split'||syncLock)return;
+      if(src.scrollHeight-src.clientHeight<=1||dst.scrollHeight-dst.clientHeight<=1)return;
+      syncLock=true; fn(); requestAnimationFrame(()=>syncLock=false);
+    });
+    if(pv){bindScrollSync(ta,pv,syncEdToPv);bindScrollSync(pv,ta,syncPvToEd);}
+    ta.addEventListener('input',()=>{state.dirty=true;state._mdSyncVer=(state._mdSyncVer||0)+1;if(bib&&!syncingBib){const m=ta.value.match(/```bibtex\s*\n([\s\S]*?)```/i);if(m&&bib.value.trim()!==m[1].trim()){syncingBib=true;bib.value=m[1].trim();syncingBib=false;}}debouncedPreview();});
     if(bib)bib.addEventListener('input',()=>{if(syncingBib)return;syncingBib=true;const block='```bibtex\n'+bib.value.trim()+'\n```';if(/```bibtex\s*\n[\s\S]*?```/i.test(ta.value))ta.value=ta.value.replace(/```bibtex\s*\n[\s\S]*?```/i,block);else ta.value='## BibTeX\n\n'+block+'\n\n'+ta.value;syncingBib=false;state.dirty=true;debouncedPreview();});
     ta.addEventListener('paste',onPasteImage); ta.addEventListener('dragover',e=>e.preventDefault()); ta.addEventListener('drop',onDropImage);
     $$('[data-edit-mode]').forEach(b=>b.onclick=()=>{state.editorMode=b.dataset.editMode; const p=$('#editor-pane');p.className='editor-pane '+(state.editorMode==='edit'?'edit-only':state.editorMode==='preview'?'preview-only':'');$$('[data-edit-mode]').forEach(x=>x.classList.toggle('active',x.dataset.editMode===state.editorMode)); if(state.editorMode!=='edit')renderMarkdownPreview();});
     $$('[data-md]').forEach(b=>b.onclick=()=>applyMdCommand(b.dataset.md));
   }
   const debouncedPreview=debounce(renderMarkdownPreview,250);
+  /* ---------- v260924b · 分屏滚动同步核心 ---------- */
+  let _mdMeasureCtx=null;
+  /* 用 canvas 逐行量宽，估算 textarea 软换行后的物理行累计表 cum[k] = 前 k 个逻辑行占用的物理行数 */
+  function ensureMdSyncMap(ta){
+    const ver=state._mdSyncVer||0,c=state._mdSyncCache;
+    /* v260924b · 缓存键含文本长度：setRangeText/直接赋值不触发 input 事件，长度变化时强制重建 */
+    if(c&&c.ver===ver&&c.w===ta.clientWidth&&c.len===ta.value.length)return c;
+    const cs=getComputedStyle(ta);
+    const lineH=parseFloat(cs.lineHeight)||parseFloat(cs.fontSize)*1.65||21;
+    const wrapW=Math.max(40,ta.clientWidth-parseFloat(cs.paddingLeft||0)-parseFloat(cs.paddingRight||0));
+    if(!_mdMeasureCtx)_mdMeasureCtx=document.createElement('canvas').getContext('2d');
+    try{_mdMeasureCtx.font=`${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight==='normal'?'normal':cs.lineHeight} ${cs.fontFamily}`;}catch(e){_mdMeasureCtx.font=`${cs.fontSize} ${cs.fontFamily}`;}
+    const lines=ta.value.split('\n'),cum=[0];
+    for(const ln of lines){const w=ln?_mdMeasureCtx.measureText(ln).width:0;cum.push(cum[cum.length-1]+(w<=0?1:Math.max(1,Math.ceil(w/wrapW))));}
+    state._mdSyncCache={ver,w:ta.clientWidth,len:ta.value.length,cum,lineH};
+    return state._mdSyncCache;
+  }
+  /* 物理行位置 → 逻辑行号（浮点） */
+  function mdPhysToLogical(m,p){
+    const cum=m.cum; p=Math.max(0,Math.min(p,cum[cum.length-1]));
+    let lo=0,hi=cum.length-1;
+    while(lo<hi-1){const mid=(lo+hi)>>1;if(p<cum[mid])hi=mid;else lo=mid;}
+    const span=Math.max(1,cum[lo+1]-cum[lo]);
+    return Math.min(lo+(p-cum[lo])/span,cum.length-2);
+  }
+  /* 逻辑行号（浮点） → 物理行位置 */
+  function mdLogicalToPhys(m,L){
+    const cum=m.cum,n=cum.length-1;
+    let k=Math.max(0,Math.min(Math.floor(L),n-1));
+    const frac=Math.max(0,Math.min(L-k,1));
+    return cum[k]+frac*Math.max(1,cum[k+1]-cum[k]);
+  }
+  /* 取当前滚动位置所在的锚点块：返回像素区间（pStart/pEnd）与逻辑行区间（lStart/lEnd），blocks 与 anchors 一一对应 */
+  function mdAnchorAt(pv,anchors,blocks,pos,isPixel){
+    if(!anchors||!blocks.length||anchors.length!==blocks.length)return null;
+    const pvTop=pv.getBoundingClientRect().top;
+    const tops=blocks.map(el=>el.getBoundingClientRect().top-pvTop+pv.scrollTop);
+    let i=0;
+    if(isPixel){for(let k=0;k<blocks.length;k++){if(tops[k]<=pos)i=k;else break;}}
+    else{for(let k=0;k<anchors.length;k++){if(anchors[k].line<=pos)i=k;else break;}}
+    const pStart=tops[i],pEnd=(i+1<blocks.length?tops[i+1]:tops[i]+blocks[i].offsetHeight);
+    const lStart=anchors[i].line,lEnd=(i+1<anchors.length?anchors[i+1].line:anchors[i].end);
+    return {i,pStart,pEnd,lStart,lEnd,el:blocks[i]};
+  }
+  function syncEdToPv(){
+    const ta=$('#md-input'),pv=$('#md-preview'); if(!ta||!pv)return;
+    const sh=ta.scrollHeight-ta.clientHeight,dh=pv.scrollHeight-pv.clientHeight; if(sh<=1||dh<=1)return;
+    const anchors=state._mdAnchors,blocks=$$('.md-block',pv);
+    let target;
+    if(anchors&&blocks.length===anchors.length){
+      const m=ensureMdSyncMap(ta);
+      const L=mdPhysToLogical(m,ta.scrollTop/m.lineH);
+      const iv=mdAnchorAt(pv,anchors,blocks,L,false); if(!iv)return;
+      const frac=iv.lEnd>iv.lStart?(L-iv.lStart)/(iv.lEnd-iv.lStart):0;
+      target=iv.pStart+frac*(iv.pEnd-iv.pStart)-2;
+    }else target=ta.scrollTop/sh*dh;
+    pv.scrollTop=Math.max(0,Math.min(dh,target));
+  }
+  function syncPvToEd(){
+    const ta=$('#md-input'),pv=$('#md-preview'); if(!ta||!pv)return;
+    const sh=ta.scrollHeight-ta.clientHeight,dh=pv.scrollHeight-pv.clientHeight; if(sh<=1||dh<=1)return;
+    const anchors=state._mdAnchors,blocks=$$('.md-block',pv);
+    let target;
+    if(anchors&&blocks.length===anchors.length){
+      const m=ensureMdSyncMap(ta);
+      const iv=mdAnchorAt(pv,anchors,blocks,pv.scrollTop+2,true); if(!iv)return;
+      const frac=iv.pEnd>iv.pStart?(pv.scrollTop+2-iv.pStart)/(iv.pEnd-iv.pStart):0;
+      const L=iv.lStart+frac*(iv.lEnd-iv.lStart);
+      target=mdLogicalToPhys(m,L)*m.lineH-2;
+    }else target=pv.scrollTop/dh*sh;
+    ta.scrollTop=Math.max(0,Math.min(sh,target));
+  }
   function normalizePreviewPaths(html){
     return html
       .replace(/(src|href)="\.\.\/Attachments\//g, '$1="/workspace-file/Knowledge/Attachments/')
@@ -758,8 +839,25 @@
     if(window.marked && window.DOMPurify){
       const renderer=new marked.Renderer();
       renderer.code=(tokenOrCode,info)=>{let code='',lang='';if(tokenOrCode&&typeof tokenOrCode==='object'){code=tokenOrCode.text||'';lang=tokenOrCode.lang||'';}else{code=String(tokenOrCode||'');lang=String(info||'');}lang=lang.trim();if(lang==='mermaid')return `<div class="mermaid">${esc(code)}</div>`;return `<pre><code class="language-${esc(lang)}">${esc(code)}</code></pre>`;};
-      try{html=marked.parse(raw,{gfm:true,breaks:false,renderer});}catch(e){console.warn('marked failed, fallback',e);html=basicMarkdown(raw);}
-    } else html=basicMarkdown(raw);
+      const opts={gfm:true,breaks:false,renderer};
+      /* v260924b · 按 top-level token 分块渲染并记录源行号锚点（供分屏滚动同步）；
+         链接引用定义（[x]: url）注入每个分块，避免跨块引用失效 */
+      try{
+        const tokens=marked.lexer(raw);
+        const parts=[],anchors=[];let lineNo=0,defsRaw='';
+        for(const tk of tokens){
+          const startLine=lineNo;lineNo+=tk.raw.split('\n').length-1;
+          if(tk.type==='def'){defsRaw+=tk.raw;continue;}
+          if(tk.type==='space'||!tk.raw.trim())continue;
+          anchors.push({line:startLine,end:0});
+          parts.push(marked.parse((defsRaw?defsRaw+'\n':'')+tk.raw,opts));
+        }
+        const totalLines=Math.max(lineNo,raw.split('\n').length);
+        for(let i=0;i<anchors.length;i++)anchors[i].end=(i+1<anchors.length?anchors[i+1].line:totalLines);
+        state._mdAnchors=anchors.length?anchors:null;
+        html=parts.map((h,i)=>`<div class="md-block" data-line="${anchors[i].line}">${h}</div>`).join('');
+      }catch(e){console.warn('marked chunked parse failed, fallback whole',e);state._mdAnchors=null;html=marked.parse(raw,opts);}
+    } else {html=basicMarkdown(raw);state._mdAnchors=null;}
     html=html.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(_,target,label)=>`<a href="#" class="wiki-link" data-wiki="${esc(target)}">${esc(label||target)}</a>`);
     html=normalizePreviewPaths(html);
     if(seq!==state.previewSeq||!document.body.contains(out))return;
