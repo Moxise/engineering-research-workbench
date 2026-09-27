@@ -3,7 +3,7 @@
 const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp=v=>Math.max(0,Math.min(1,v));
-const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,categories:[]};
+const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,categories:[],selectedAnn:null};
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
 async function ensurePdfJs(){
@@ -23,7 +23,7 @@ async function loadList(){
  qa("[data-paper]").forEach(e=>e.onclick=()=>openPaper(e.dataset.paper));
 }
 function shell(){
- q("#main").innerHTML='<div class="lit-shell"><aside class="card lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-category"><option value="">全部分类</option></select></div><div class="lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><span class="lit-hint" id="lit-hint">选择文字后即可添加批注</span><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button data-ann="note" disabled>添加备注</button><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
+ q("#main").innerHTML='<div class="lit-shell"><aside class="card lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-category"><option value="">全部分类</option></select></div><div class="lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><span class="lit-hint" id="lit-hint">选择文字后即可添加批注</span><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
  q("#lit-upload").onclick=()=>q("#lit-file").click();q("#lit-file").onchange=e=>upload(e.target.files?.[0]);
  let t;q("#lit-search").oninput=()=>{clearTimeout(t);t=setTimeout(loadList,160)};q("#lit-status").onchange=loadList;q("#lit-category").onchange=loadList;
  qa("[data-ann]").forEach(b=>b.onclick=()=>commit(b.dataset.ann));q("#lit-area").onclick=toggleArea;q("#lit-undo").onclick=undo;q("#lit-zoom-in").onclick=()=>zoom(.15);q("#lit-zoom-out").onclick=()=>zoom(-.15);
@@ -35,7 +35,7 @@ async function openPaper(id){
  try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+encodeURIComponent(id)+"/pdf",rangeChunkSize:4*1024*1024}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
  catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
-function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null}
+function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null}
 async function build(){
  const host=q("#lit-pages");host.innerHTML="";S.pages.clear();const gen=S.generation;
  for(let n=1;n<=S.pdf.numPages;n++){
@@ -57,16 +57,62 @@ async function renderPage(n){
   r.annotations=await api("/api/literature/"+S.paper.id+"/annotations?page="+n);r.rendered=true;layer.onmouseup=()=>selectText(n);paint(n);
  }catch(e){r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{r.rendering=false}
 }
+
+function nodeSpan(node){
+ const el=node?.nodeType===1?node:node?.parentElement;
+ return el?.closest?.(".lit-text-layer span")||null;
+}
+function refinedSelectionRects(range,page){
+ const pr=page.getBoundingClientRect();
+ let raw=Array.from(range.getClientRects()).filter(r=>r.width>1&&r.height>1);
+ const a=nodeSpan(range.startContainer),b=nodeSpan(range.endContainer);
+ const ar=a?.getBoundingClientRect(),br=b?.getBoundingClientRect();
+ if(ar&&br){
+  const mid=pr.left+pr.width/2;
+  const ac=(ar.left+ar.right)/2,bc=(br.left+br.right)/2;
+  const sameLeft=ac<mid&&bc<mid,sameRight=ac>mid&&bc>mid;
+  if(sameLeft)raw=raw.filter(r=>(r.left+r.right)/2<mid);
+  else if(sameRight)raw=raw.filter(r=>(r.left+r.right)/2>mid);
+ }
+ let rects=raw.map(r=>{
+  let x1=clamp((r.left-pr.left)/pr.width),x2=clamp((r.right-pr.left)/pr.width);
+  let y1=clamp((r.top-pr.top)/pr.height),y2=clamp((r.bottom-pr.top)/pr.height);
+  const h=y2-y1;
+  if(h>0.002){y1+=h*0.06;y2-=h*0.06;}
+  return [x1,y1,x2,y2];
+ }).filter(r=>r[2]-r[0]>0.001&&r[3]-r[1]>0.001);
+ rects.sort((u,v)=>(((u[1]+u[3])/2)-((v[1]+v[3])/2))||u[0]-v[0]);
+ const merged=[];
+ for(const r of rects){
+  const last=merged[merged.length-1];
+  if(last){
+   const cy=(r[1]+r[3])/2,lcy=(last[1]+last[3])/2;
+   const h=Math.max(r[3]-r[1],last[3]-last[1]);
+   const sameLine=Math.abs(cy-lcy)<=h*0.55;
+   const gap=r[0]-last[2];
+   if(sameLine&&gap<=0.012){
+    last[0]=Math.min(last[0],r[0]);last[1]=Math.min(last[1],r[1]);
+    last[2]=Math.max(last[2],r[2]);last[3]=Math.max(last[3],r[3]);
+    continue;
+   }
+  }
+  merged.push([...r]);
+ }
+ return merged;
+}
+
 function selectText(n){
  if(S.area)return;const sel=window.getSelection();if(!sel||sel.isCollapsed)return;const r=S.pages.get(n),page=q(".lit-page",r.el),range=sel.getRangeAt(0);if(!page.contains(range.commonAncestorContainer))return;
- const pr=page.getBoundingClientRect(),rects=Array.from(range.getClientRects()).filter(x=>x.width>1&&x.height>1).map(x=>[clamp((x.left-pr.left)/pr.width),clamp((x.top-pr.top)/pr.height),clamp((x.right-pr.left)/pr.width),clamp((x.bottom-pr.top)/pr.height)]);
+ const rects=refinedSelectionRects(range,page);
  if(!rects.length)return;S.pending={page:n,rects,text:sel.toString(),kind:"text"};sel.removeAllRanges();paintPending();toolbar();
 }
 function paintPending(){qa(".lit-selection-layer").forEach(x=>x.innerHTML="");if(!S.pending)return;const r=S.pages.get(S.pending.page);if(!r?.rendered)return;const l=q(".lit-selection-layer",r.el);S.pending.rects.forEach(a=>{const d=document.createElement("div");d.className="lit-pending-selection";d.style.left=a[0]*100+"%";d.style.top=a[1]*100+"%";d.style.width=(a[2]-a[0])*100+"%";d.style.height=(a[3]-a[1])*100+"%";l.appendChild(d)})}
 async function commit(action){
- if(!S.pending)return;let comment="";if(action==="note"){comment=prompt("为所选内容添加备注：","");if(comment===null)return}const type=action==="note"?"highlight":action;
- const row=await api("/api/literature/"+S.paper.id+"/annotations",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({page:S.pending.page,type,rects:S.pending.rects,text:S.pending.text||"",comment})});
- S.undo.push({id:row.id,page:S.pending.page});const r=S.pages.get(S.pending.page);r?.annotations.push(row);S.pending=null;paintPending();paint(row.page);toolbar();annList();
+ if(!S.pending)return;
+ const row=await api("/api/literature/"+S.paper.id+"/annotations",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({page:S.pending.page,type:action,rects:S.pending.rects,text:S.pending.text||"",comment:""})});
+ S.undo.push({id:row.id,page:S.pending.page});
+ const r=S.pages.get(S.pending.page);r?.annotations.push(row);
+ S.pending=null;paintPending();paint(row.page);toolbar();annList();
 }
 function toggleArea(){S.area=!S.area;S.pending=null;paintPending();toolbar();q("#lit-pages").onpointerdown=S.area?areaStart:null}
 function areaStart(e){
@@ -75,12 +121,49 @@ function areaStart(e){
  const up=()=>{document.removeEventListener("pointermove",move);document.removeEventListener("pointerup",up);S.area=false;q("#lit-pages").onpointerdown=null;toolbar()};document.addEventListener("pointermove",move);document.addEventListener("pointerup",up);
 }
 async function undo(){const op=S.undo.pop();if(!op)return;await api("/api/literature/"+S.paper.id+"/annotations/"+op.id,{method:"DELETE"});const r=S.pages.get(op.page);if(r){r.annotations=r.annotations.filter(a=>a.id!==op.id);paint(op.page)}toolbar();annList()}
-function paint(n){const r=S.pages.get(n);if(!r?.rendered)return;const svg=q(".lit-annotation-layer",r.el);svg.innerHTML="";(r.annotations||[]).forEach(a=>(a.rects||[]).forEach(x=>{const e=document.createElementNS("http://www.w3.org/2000/svg","rect");e.setAttribute("x",x[0]);e.setAttribute("y",x[1]);e.setAttribute("width",x[2]-x[0]);e.setAttribute("height",x[3]-x[1]);e.setAttribute("class","ann-"+a.type);svg.appendChild(e)}))}
+function paint(n){
+ const r=S.pages.get(n);if(!r?.rendered)return;
+ const svg=q(".lit-annotation-layer",r.el);svg.innerHTML="";
+ (r.annotations||[]).forEach(a=>(a.rects||[]).forEach(x=>{
+  const g=document.createElementNS("http://www.w3.org/2000/svg","g");
+  g.setAttribute("data-ann-id",a.id);g.setAttribute("data-ann-page",String(n));g.setAttribute("class","ann-group");
+  if(a.type==="underline"||a.type==="strikeout"){
+   const hit=document.createElementNS("http://www.w3.org/2000/svg","rect");
+   hit.setAttribute("x",x[0]);hit.setAttribute("y",x[1]);hit.setAttribute("width",x[2]-x[0]);hit.setAttribute("height",x[3]-x[1]);hit.setAttribute("class","ann-hit");
+   const line=document.createElementNS("http://www.w3.org/2000/svg","line");
+   const y=a.type==="underline"?x[3]:(x[1]+x[3])/2;
+   line.setAttribute("x1",x[0]);line.setAttribute("x2",x[2]);line.setAttribute("y1",y);line.setAttribute("y2",y);line.setAttribute("class","ann-line "+(a.type==="underline"?"ann-underline-line":"ann-strike-line"));
+   g.appendChild(hit);g.appendChild(line);
+  }else{
+   const e=document.createElementNS("http://www.w3.org/2000/svg","rect");
+   e.setAttribute("x",x[0]);e.setAttribute("y",x[1]);e.setAttribute("width",x[2]-x[0]);e.setAttribute("height",x[3]-x[1]);e.setAttribute("class","ann-highlight ann-click");
+   g.appendChild(e);
+  }
+  svg.appendChild(g);
+ }));
+ qa("[data-ann-id]",svg).forEach(el=>el.onclick=e=>{e.stopPropagation();openAnnotation(+el.dataset.annPage,el.dataset.annId)});
+}
 function track(){const sc=q("#lit-scroll"),y=sc.getBoundingClientRect().top+70;let best=1,d=Infinity;S.pages.forEach((r,n)=>{const z=Math.abs(r.el.getBoundingClientRect().top-y);if(z<d){d=z;best=n}});if(best===S.current)return;S.current=best;toolbar();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)}
 async function savePos(page){if(!S.paper||!S.pdf)return;const st=S.paper.reading_status==="未读"?"在读":S.paper.reading_status;S.paper.last_page=page;S.paper.reading_status=st;try{await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({last_page:page,page_count:S.pdf.numPages,reading_status:st})})}catch{}}
 function go(n,smooth=true){S.pages.get(n)?.el.scrollIntoView({behavior:smooth?"smooth":"auto",block:"start"})}
 async function zoom(delta){if(!S.pdf)return;const keep=S.current;S.scale=Math.max(.65,Math.min(2.4,S.scale+delta));S.generation++;S.observer?.disconnect();await build();requestAnimationFrame(()=>go(keep,false))}
-function toolbar(){if(!S.pdf)return;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;q("#lit-hint").textContent=S.pending?"已选择内容，请选择批注方式":"选择文字，或框选区域后再添加批注"}
+function toolbar(){if(!S.pdf)return;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;q("#lit-hint").textContent=S.pending?"已选择内容：请选择高亮、下划线或删除线":"先选择文字/区域并创建标记；点击已有标记可添加批注"}
+
+
+function openAnnotation(page,id){
+ const r=S.pages.get(page),a=r?.annotations.find(x=>x.id===id);if(!a)return;
+ S.selectedAnn={page,id};
+ qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab==="annotations"));
+ annList();
+}
+async function saveAnnotationComment(){
+ if(!S.selectedAnn)return;
+ const r=S.pages.get(S.selectedAnn.page),a=r?.annotations.find(x=>x.id===S.selectedAnn.id);if(!a)return;
+ const comment=q("#ann-comment")?.value||"";
+ const saved=await api("/api/literature/"+S.paper.id+"/annotations",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...a,comment})});
+ const i=r.annotations.findIndex(x=>x.id===saved.id);if(i>=0)r.annotations[i]=saved;
+ annList();paint(S.selectedAnn.page);
+}
 
 function side(){const p=S.paper;q("#lit-side").innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button></div><div id="lit-side-body"></div>';qa("[data-tab]").forEach(b=>b.onclick=()=>{qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});sideTab("info")}
 function sideTab(tab){
@@ -90,7 +173,20 @@ function sideTab(tab){
 }
 async function saveInfo(){const p={title:q("#li-title").value,authors:q("#li-authors").value,year:q("#li-year").value,reading_status:q("#li-status").value,categories:q("#li-categories").value.split(",").map(x=>x.trim()).filter(Boolean),tags:q("#li-tags").value.split(",").map(x=>x.trim()).filter(Boolean),venue:q("#li-venue").value,doi:q("#li-doi").value,cite_key:q("#li-cite").value,favorite:q("#li-favorite").checked};S.paper=await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});await loadList()}
 function loadedAnns(){return [...S.pages.entries()].flatMap(([page,r])=>(r.annotations||[]).map(a=>({...a,page}))).sort((a,b)=>a.page-b.page)}
-function annList(){const root=q("#lit-side-body");if(!root||!q('[data-tab="annotations"]')?.classList.contains("active"))return;const rows=loadedAnns();root.innerHTML='<div class="lit-ann-list">'+(rows.length?rows.map(a=>'<article class="lit-ann" data-jump="'+a.page+'"><div><strong>P.'+a.page+" · "+esc(a.type)+'</strong><button data-del="'+a.id+'" data-page="'+a.page+'">×</button></div><blockquote>'+esc(a.text||"区域批注")+"</blockquote>"+(a.comment?"<p>"+esc(a.comment)+"</p>":"")+"</article>").join(""):'<div class="lit-empty">当前已加载页面暂无批注</div>')+"</div>";qa("[data-jump]").forEach(x=>x.onclick=e=>{if(!e.target.closest("[data-del]"))go(+x.dataset.jump)});qa("[data-del]").forEach(b=>b.onclick=async()=>{await api("/api/literature/"+S.paper.id+"/annotations/"+b.dataset.del,{method:"DELETE"});const r=S.pages.get(+b.dataset.page);if(r){r.annotations=r.annotations.filter(x=>x.id!==b.dataset.del);paint(+b.dataset.page)}annList()})}
+function annList(){
+ const root=q("#lit-side-body");if(!root||!q('[data-tab="annotations"]')?.classList.contains("active"))return;
+ const rows=loadedAnns();
+ let editor="";
+ if(S.selectedAnn){
+  const rr=S.pages.get(S.selectedAnn.page),a=rr?.annotations.find(x=>x.id===S.selectedAnn.id);
+  if(a)editor='<section class="lit-ann-editor"><div class="lit-ann-editor-head"><strong>P.'+S.selectedAnn.page+' · '+esc(a.type)+'</strong><button id="ann-editor-close">×</button></div><blockquote>'+esc(a.text||"区域标记")+'</blockquote><label>批注<textarea id="ann-comment" placeholder="为这个标记添加批注…">'+esc(a.comment||"")+'</textarea></label><button class="primary-btn" id="ann-comment-save">保存批注</button></section>';
+ }
+ root.innerHTML=editor+'<div class="lit-ann-list">'+(rows.length?rows.map(a=>'<article class="lit-ann '+(S.selectedAnn?.id===a.id?"selected":"")+'" data-open-ann="'+a.id+'" data-page="'+a.page+'"><div><strong>P.'+a.page+" · "+esc(a.type)+'</strong><button data-del="'+a.id+'" data-page="'+a.page+'">×</button></div><blockquote>'+esc(a.text||"区域批注")+"</blockquote>"+(a.comment?"<p>"+esc(a.comment)+"</p>":"")+"</article>").join(""):'<div class="lit-empty">当前已加载页面暂无批注</div>')+"</div>";
+ if(q("#ann-comment-save"))q("#ann-comment-save").onclick=saveAnnotationComment;
+ if(q("#ann-editor-close"))q("#ann-editor-close").onclick=()=>{S.selectedAnn=null;annList()};
+ qa("[data-open-ann]").forEach(x=>x.onclick=e=>{if(e.target.closest("[data-del]"))return;openAnnotation(+x.dataset.page,x.dataset.openAnn);go(+x.dataset.page)});
+ qa("[data-del]").forEach(b=>b.onclick=async()=>{await api("/api/literature/"+S.paper.id+"/annotations/"+b.dataset.del,{method:"DELETE"});const r=S.pages.get(+b.dataset.page);if(r){r.annotations=r.annotations.filter(x=>x.id!==b.dataset.del);paint(+b.dataset.page)}if(S.selectedAnn?.id===b.dataset.del)S.selectedAnn=null;annList()});
+}
 async function note(){const root=q("#lit-side-body"),d=await api("/api/literature/"+S.paper.id+"/note");root.innerHTML='<textarea class="lit-note" id="lit-note" placeholder="Markdown 文献笔记…">'+esc(d.content||"")+'</textarea><div class="lit-note-actions"><span>Markdown · Ctrl+S 保存</span><button class="primary-btn" id="lit-note-save">保存笔记</button></div>';q("#lit-note-save").onclick=saveNote}
 async function saveNote(){await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:q("#lit-note").value})})}
 function throttle(fn,ms){let wait=false;return(...a)=>{if(wait)return;wait=true;fn(...a);setTimeout(()=>wait=false,ms)}}
