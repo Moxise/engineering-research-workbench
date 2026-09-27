@@ -228,6 +228,8 @@ class Handler(BaseHTTPRequestHandler):
                 (q.get("q") or [""])[0], (q.get("status") or [""])[0], (q.get("category") or [""])[0],
                 _q_int(q, "page", 1, 1, 1000000), _q_int(q, "page_size", 60, 10, 200),
             ))
+        if path == "/api/literature/export-bibtex":
+            return self.send_json(indexer.export_bibtex(payload.get("ids") or []))
         if path.startswith("/api/literature/") and path.endswith("/annotations"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
             page_raw = (q.get("page") or [""])[0]
@@ -344,8 +346,6 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/literature/"):
             paper_id = unquote(path.split("/api/literature/",1)[1])
             return self.send_json(literature.update_item(paper_id, payload))
-        if path == "/api/literature/export-bibtex":
-            return self.send_json(indexer.export_bibtex(payload.get("ids") or []))
         if path == "/api/agent/sessions":
             return self.send_json(agent.create_session(str(payload.get("title") or "")), 201)
         if path == "/api/agent/session/rename":
