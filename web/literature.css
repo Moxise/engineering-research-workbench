@@ -22,3 +22,12 @@
 .lit-text-layer span{position:absolute;white-space:pre;transform-origin:0 0;color:transparent;cursor:text}
 .lit-text-layer ::selection,.lit-text-layer span::selection{background:rgba(30,136,229,.34)}
 .lit-annotation-layer{z-index:3;pointer-events:none}
+
+/* continuous reader v2 compatibility */
+.lit-reader #lit-reader-live{height:100%}
+.lit-reader .lit-canvas-scroll{overflow:auto;overscroll-behavior:contain}
+.lit-page-shell .lit-page{position:relative;margin:0}
+.lit-page-shell .lit-text-layer{position:absolute;inset:0;overflow:hidden;opacity:1;line-height:1;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0}
+.lit-page-shell .lit-text-layer span,.lit-page-shell .lit-text-layer br{position:absolute;color:transparent;white-space:pre;cursor:text;transform-origin:0% 0%}
+.lit-page-shell .lit-text-layer span::selection{background:rgba(0,120,215,.32)}
+.lit-page-shell .lit-annotation-layer,.lit-page-shell .lit-selection-layer{position:absolute;inset:0;width:100%;height:100%}
