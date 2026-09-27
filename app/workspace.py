@@ -28,6 +28,7 @@ WORKSPACE_LAYOUT = [
     "Knowledge/Literature/Annotations",
     "Knowledge/Literature/Notes",
     "Knowledge/Literature/Index",
+    "Knowledge/Literature/Previews",
     "Knowledge/Attachments",
     "Knowledge/Exports/KnowledgeBundles",
     "Knowledge/Exports/BibTeX",
