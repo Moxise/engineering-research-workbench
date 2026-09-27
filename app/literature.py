@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -17,7 +18,7 @@ ANNOTATION_TYPES = ("highlight", "underline", "strikeout", "rect", "ink", "note"
 
 def _root() -> Path:
     root = ensure_workspace() / "Knowledge" / "Literature"
-    for rel in ("PDF", "Annotations", "Notes", "Index"):
+    for rel in ("PDF", "Annotations", "Notes", "Index", "Previews"):
         (root / rel).mkdir(parents=True, exist_ok=True)
     return root
 
@@ -97,7 +98,7 @@ def delete_item(paper_id: str) -> dict[str, Any]:
     trash = ensure_workspace() / "System" / "Trash" / "Literature"
     trash.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    for p in (pdf, annotation_path(paper_id), note_path(paper_id)):
+    for p in (pdf, annotation_path(paper_id), note_path(paper_id), _root() / "Previews" / paper_id):
         if p.exists(): shutil.move(str(p), str(trash / f"{stamp}-{p.name}"))
     _save_registry(data)
     return {"ok": True}
@@ -144,6 +145,29 @@ def annotation_path(paper_id: str) -> Path:
 def note_path(paper_id: str) -> Path:
     return _root() / "Notes" / f"{paper_id}.md"
 
+def preview_dir(paper_id: str) -> Path:
+    p = _root() / "Previews" / str(paper_id)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+def _save_preview_data_url(paper_id: str, ann_id: str, data_url: str) -> str:
+    data_url = str(data_url or "")
+    m = re.match(r"^data:image/(webp|png|jpeg);base64,(.+)$", data_url, re.I | re.S)
+    if not m:
+        raise ValueError("Invalid annotation preview")
+    ext = {"jpeg": "jpg"}.get(m.group(1).lower(), m.group(1).lower())
+    try:
+        raw = base64.b64decode(m.group(2), validate=True)
+    except Exception as exc:
+        raise ValueError("Invalid annotation preview encoding") from exc
+    if not raw or len(raw) > 3 * 1024 * 1024:
+        raise ValueError("Annotation preview is too large")
+    target = preview_dir(paper_id) / f"{ann_id}.{ext}"
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_bytes(raw)
+    tmp.replace(target)
+    return str(target.relative_to(ensure_workspace())).replace("\\", "/")
+
 def get_annotations(paper_id: str, page: int | None = None) -> list[dict[str, Any]]:
     get_item(paper_id)
     p = annotation_path(paper_id)
@@ -156,25 +180,55 @@ def get_annotations(paper_id: str, page: int | None = None) -> list[dict[str, An
 def save_annotation(paper_id: str, annotation: dict[str, Any]) -> dict[str, Any]:
     get_item(paper_id)
     typ = str(annotation.get("type") or "highlight")
-    if typ not in ANNOTATION_TYPES: raise ValueError("Unsupported annotation type")
+    if typ not in ANNOTATION_TYPES:
+        raise ValueError("Unsupported annotation type")
     p = annotation_path(paper_id)
     rows = get_annotations(paper_id)
     ann_id = str(annotation.get("id") or uuid.uuid4().hex)
+    existing = next((x for x in rows if x.get("id") == ann_id), {}) or {}
+    selection_kind = str(annotation.get("selection_kind") or existing.get("selection_kind") or "text")
+    if selection_kind not in {"text", "area"}:
+        selection_kind = "text"
+    preview_path = str(annotation.get("preview_path") or existing.get("preview_path") or "")
+    preview_data_url = str(annotation.get("preview_data_url") or "")
+    if preview_data_url:
+        preview_path = _save_preview_data_url(paper_id, ann_id, preview_data_url)
     row = {
-        "id": ann_id, "page": max(1, int(annotation.get("page") or 1)), "type": typ,
-        "rects": annotation.get("rects") or [], "points": annotation.get("points") or [],
-        "text": str(annotation.get("text") or "")[:20000], "comment": str(annotation.get("comment") or "")[:20000],
-        "color": str(annotation.get("color") or "yellow"), "created_at": annotation.get("created_at") or datetime.now().isoformat(timespec="seconds"),
+        "id": ann_id,
+        "page": max(1, int(annotation.get("page") or existing.get("page") or 1)),
+        "type": typ,
+        "rects": annotation.get("rects") if "rects" in annotation else existing.get("rects", []),
+        "points": annotation.get("points") if "points" in annotation else existing.get("points", []),
+        "text": str(annotation.get("text") if "text" in annotation else existing.get("text", ""))[:20000],
+        "comment": str(annotation.get("comment") if "comment" in annotation else existing.get("comment", ""))[:20000],
+        "color": str(annotation.get("color") or existing.get("color") or "yellow"),
+        "selection_kind": selection_kind,
+        "preview_path": preview_path,
+        "created_at": existing.get("created_at") or annotation.get("created_at") or datetime.now().isoformat(timespec="seconds"),
         "updated_at": datetime.now().isoformat(timespec="seconds"),
     }
     rows = [x for x in rows if x.get("id") != ann_id] + [row]
-    tmp = p.with_suffix(".tmp"); tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8"); tmp.replace(p)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(p)
     return row
 
 def delete_annotation(paper_id: str, annotation_id: str) -> dict[str, Any]:
-    rows = [x for x in get_annotations(paper_id) if x.get("id") != annotation_id]
+    rows = get_annotations(paper_id)
+    victim = next((x for x in rows if x.get("id") == annotation_id), None)
+    rows = [x for x in rows if x.get("id") != annotation_id]
     p = annotation_path(paper_id)
-    tmp = p.with_suffix(".tmp"); tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8"); tmp.replace(p)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(p)
+    if victim and victim.get("preview_path"):
+        target = (ensure_workspace() / str(victim["preview_path"])).resolve()
+        root = ensure_workspace().resolve()
+        if root in target.parents and target.is_file():
+            try:
+                target.unlink()
+            except OSError:
+                pass
     return {"ok": True}
 
 def get_note(paper_id: str) -> str:
