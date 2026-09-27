@@ -61,7 +61,7 @@ async function loadNote(){const root=$('#lit-side-body'),d=await api('/api/liter
 async function saveNote(){await api('/api/literature/'+S.paper.id+'/note',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:$('#lit-note').value})})}
 function bindReader(){
  $('[data-lit-tool]').forEach(b=>b.onclick=()=>{S.tool=b.dataset.litTool;$('[data-lit-tool]').forEach(x=>x.classList.toggle('active',x===b));wireSelection()});
- $('#lit-prev').onclick=()=>{if(S.page>1){S.page--;renderPage()}};$('#lit-next').onclick=()=>{if(S.pdf&&S.page<S.pdf.numPages){S.page++;renderPage()}};
+ $('#lit-prev').onclick=()=>{if(S.page>1){S.page--;renderPage()}};$('#lit-next').onclick=()=>{if(S.pdf&&S.page<S.pdf.numPages){S.page++;renderPage()}};let wheelLock=false;$('#lit-scroll').onwheel=e=>{if(!S.pdf||e.ctrlKey)return;e.preventDefault();if(wheelLock)return;wheelLock=true;setTimeout(()=>wheelLock=false,120);if(e.deltaY>0&&S.page<S.pdf.numPages){S.page++;renderPage()}else if(e.deltaY<0&&S.page>1){S.page--;renderPage()}};
  $('#lit-zoom-in').onclick=()=>{S.scale=Math.min(2.5,S.scale+.15);renderPage()};$('#lit-zoom-out').onclick=()=>{S.scale=Math.max(.6,S.scale-.15);renderPage()};
 }
 async function start(){shell();bindReader();await loadList()}
