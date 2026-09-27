@@ -3,7 +3,7 @@
 const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp=v=>Math.max(0,Math.min(1,v));
-const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,categories:[],selectedAnn:null,selectionOrigin:null};
+const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,categories:[],selectedAnn:null,selectionOrigin:null,dragSel:null};
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
 async function ensurePdfJs(){
@@ -35,7 +35,7 @@ async function openPaper(id){
  try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+encodeURIComponent(id)+"/pdf",rangeChunkSize:4*1024*1024}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
  catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
-function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null}
+function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null}
 async function build(){
  const host=q("#lit-pages");host.innerHTML="";S.pages.clear();const gen=S.generation;
  for(let n=1;n<=S.pdf.numPages;n++){
@@ -55,8 +55,7 @@ async function renderPage(n){
   const text=await p.getTextContent(),layer=q(".lit-text-layer",r.el);layer.style.width=vp.width+"px";layer.style.height=vp.height+"px";
   const task=window.pdfjsLib.renderTextLayer({textContentSource:text,container:layer,viewport:vp,textDivs:[]});if(task?.promise)await task.promise;
   r.annotations=await api("/api/literature/"+S.paper.id+"/annotations?page="+n);r.rendered=true;
-  layer.onmousedown=e=>beginTextSelection(n,e);
-  layer.onmouseup=()=>selectText(n);
+  layer.onpointerdown=e=>beginGeometricSelection(n,e);
   q(".lit-page",r.el).onclick=e=>handlePageAnnotationClick(n,e);
   paint(n);
  }catch(e){r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{r.rendering=false}
@@ -67,108 +66,169 @@ function nodeSpan(node){
  return el?.closest?.(".lit-text-layer span")||null;
 }
 
-function beginTextSelection(n,e){
- if(S.area)return;
- const r=S.pages.get(n),page=q(".lit-page",r.el),pr=page.getBoundingClientRect();
- S.selectionOrigin={page:n,x:clamp((e.clientX-pr.left)/pr.width)};
- if(S.pending){S.pending=null;paintPending();toolbar();}
- const sel=window.getSelection();if(sel&&!sel.isCollapsed)sel.removeAllRanges();
-}
-function detectTwoColumns(page){
- const pr=page.getBoundingClientRect(),spans=qa(".lit-text-layer span",page);
- let left=0,right=0,wide=0;
- for(const s of spans){
-  const r=s.getBoundingClientRect();if(r.width<2)continue;
-  const x1=(r.left-pr.left)/pr.width,x2=(r.right-pr.left)/pr.width,c=(x1+x2)/2,w=x2-x1;
-  if(w>.55){wide++;continue}
-  if(c<.46)left++;else if(c>.54)right++;
+function textCaretAt(x,y,page){
+ let node=null,offset=0;
+ if(document.caretPositionFromPoint){
+  const p=document.caretPositionFromPoint(x,y);
+  node=p?.offsetNode||null;offset=p?.offset||0;
+ }else if(document.caretRangeFromPoint){
+  const r=document.caretRangeFromPoint(x,y);
+  node=r?.startContainer||null;offset=r?.startOffset||0;
  }
- return left>12&&right>12&&wide<Math.max(8,(left+right)*.15);
+ const span=nodeSpan(node);
+ if(!span||!page.contains(span))return null;
+ const tn=Array.from(span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
+ if(!tn)return null;
+ return {span,node:tn,offset:Math.max(0,Math.min(tn.length,offset))};
 }
-
-function boundaryOffsetInSpan(container,offset,span,isStart){
- if(!span)return isStart?0:(span.textContent||"").length;
- if(container?.nodeType===Node.TEXT_NODE&&span.contains(container)){
-  return Math.max(0,Math.min((container.textContent||"").length,offset));
- }
- if(container===span){
-  return isStart?0:(span.textContent||"").length;
- }
- return isStart?0:(span.textContent||"").length;
-}
-function charAwareSpanRects(range,page){
- const pr=page.getBoundingClientRect(),spans=qa(".lit-text-layer span",page);
- const startSpan=nodeSpan(range.startContainer),endSpan=nodeSpan(range.endContainer);
- const si=spans.indexOf(startSpan),ei=spans.indexOf(endSpan);
- if(si<0||ei<0)return [];
- const lo=Math.min(si,ei),hi=Math.max(si,ei);
- const two=detectTwoColumns(page);
- const origin=(S.selectionOrigin?.page===+page.dataset.page)?S.selectionOrigin.x:null;
- const side=two&&origin!=null?(origin<.5?"left":"right"):null;
- const raw=[];
- for(let i=lo;i<=hi;i++){
-  const span=spans[i],sr=span.getBoundingClientRect(),center=((sr.left+sr.right)/2-pr.left)/pr.width;
-  if(side==="left"&&center>=.5)continue;
-  if(side==="right"&&center<=.5)continue;
-  const textNode=Array.from(span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
-  if(!textNode||!(textNode.textContent||"").length){
-   raw.push(sr);continue;
-  }
-  let from=0,to=textNode.textContent.length;
-  if(span===startSpan)from=boundaryOffsetInSpan(range.startContainer,range.startOffset,span,true);
-  if(span===endSpan)to=boundaryOffsetInSpan(range.endContainer,range.endOffset,span,false);
-  if(startSpan===endSpan){
-   from=boundaryOffsetInSpan(range.startContainer,range.startOffset,span,true);
-   to=boundaryOffsetInSpan(range.endContainer,range.endOffset,span,false);
-  }
-  if(to<from){const t=from;from=to;to=t;}
-  if(to===from)continue;
-  const sub=document.createRange();
-  try{
-   sub.setStart(textNode,Math.max(0,Math.min(textNode.length,from)));
-   sub.setEnd(textNode,Math.max(0,Math.min(textNode.length,to)));
-   const rs=Array.from(sub.getClientRects()).filter(r=>r.width>.5&&r.height>.5);
-   if(rs.length)raw.push(...rs);else raw.push(sr);
-  }catch{raw.push(sr)}
- }
- return raw;
-}
-function refinedSelectionRects(range,page){
+function pagePoint(page,x,y){
  const pr=page.getBoundingClientRect();
- let raw=charAwareSpanRects(range,page);
- if(!raw.length)raw=Array.from(range.getClientRects()).filter(r=>r.width>1&&r.height>1);
- const normalized=[];
- for(const r of raw){
+ return {x:clamp((x-pr.left)/pr.width),y:clamp((y-pr.top)/pr.height)};
+}
+function visualRows(page,side){
+ const pr=page.getBoundingClientRect();
+ const spans=qa(".lit-text-layer span",page).map(span=>{
+  const r=span.getBoundingClientRect();
+  return {span,r,cx:(r.left+r.right)/2,cy:(r.top+r.bottom)/2,h:r.height};
+ }).filter(x=>x.r.width>.5&&x.r.height>.5)
+   .filter(x=>side==="left"?x.cx<pr.left+pr.width*.5:side==="right"?x.cx>pr.left+pr.width*.5:true)
+   .sort((a,b)=>a.cy-b.cy||a.r.left-b.r.left);
+ const rows=[];
+ for(const item of spans){
+  let row=rows[rows.length-1];
+  if(!row||Math.abs(item.cy-row.cy)>Math.max(item.h,row.h)*.48){
+   row={items:[],cy:item.cy,h:item.h};rows.push(row);
+  }
+  row.items.push(item);
+  row.cy=row.items.reduce((s,v)=>s+v.cy,0)/row.items.length;
+  row.h=Math.max(...row.items.map(v=>v.h));
+ }
+ rows.forEach(row=>row.items.sort((a,b)=>a.r.left-b.r.left));
+ return rows;
+}
+function rowIndexForSpan(rows,span){
+ for(let i=0;i<rows.length;i++)if(rows[i].items.some(x=>x.span===span))return i;
+ return -1;
+}
+function nearestRowIndex(rows,y){
+ if(!rows.length)return -1;
+ let best=0,d=Infinity;
+ rows.forEach((r,i)=>{const z=Math.abs(r.cy-y);if(z<d){d=z;best=i}});
+ return best;
+}
+function sliceSpan(span,from,to){
+ const tn=Array.from(span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
+ if(!tn)return null;
+ const len=tn.length;from=Math.max(0,Math.min(len,from));to=Math.max(0,Math.min(len,to));
+ if(to<from){const t=from;from=to;to=t}if(to<=from)return null;
+ try{
+  const rg=document.createRange();rg.setStart(tn,from);rg.setEnd(tn,to);
+  const rects=Array.from(rg.getClientRects()).filter(r=>r.width>.3&&r.height>.3);
+  return {text:tn.textContent.slice(from,to),rects};
+ }catch{return null}
+}
+function offsetByX(span,x){
+ const tn=Array.from(span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
+ if(!tn||!tn.length)return 0;
+ const sr=span.getBoundingClientRect();
+ if(x<=sr.left)return 0;if(x>=sr.right)return tn.length;
+ // Binary-search the caret position by rendered substring width. This respects PDF.js span transforms.
+ let lo=0,hi=tn.length;
+ while(lo<hi){
+  const mid=Math.ceil((lo+hi)/2),part=sliceSpan(span,0,mid);
+  const right=part?.rects?.length?Math.max(...part.rects.map(r=>r.right)):sr.left;
+  if(right<x)lo=mid;else hi=mid-1;
+ }
+ const a=Math.max(0,lo),b=Math.min(tn.length,a+1);
+ const ra=sliceSpan(span,0,a),rb=sliceSpan(span,0,b);
+ const xa=ra?.rects?.length?Math.max(...ra.rects.map(r=>r.right)):sr.left;
+ const xb=rb?.rects?.length?Math.max(...rb.rects.map(r=>r.right)):sr.right;
+ return Math.abs(x-xa)<=Math.abs(x-xb)?a:b;
+}
+function buildGeometricSelection(n,startClient,endClient){
+ const rec=S.pages.get(n),page=q(".lit-page",rec.el),pr=page.getBoundingClientRect();
+ const two=detectTwoColumns(page),startNorm=pagePoint(page,startClient.x,startClient.y);
+ const side=two?(startNorm.x<.5?"left":"right"):null;
+ const rows=visualRows(page,side);if(!rows.length)return null;
+ const startCaret=textCaretAt(startClient.x,startClient.y,page),endCaret=textCaretAt(endClient.x,endClient.y,page);
+ let sRow=startCaret?rowIndexForSpan(rows,startCaret.span):nearestRowIndex(rows,startClient.y);
+ let eRow=endCaret?rowIndexForSpan(rows,endCaret.span):nearestRowIndex(rows,endClient.y);
+ if(sRow<0)sRow=nearestRowIndex(rows,startClient.y);if(eRow<0)eRow=nearestRowIndex(rows,endClient.y);
+ if(sRow<0||eRow<0)return null;
+ let forward=sRow<eRow||(sRow===eRow&&endClient.x>=startClient.x);
+ let firstRow=forward?sRow:eRow,lastRow=forward?eRow:sRow;
+ const anchor=forward?{client:startClient,caret:startCaret,row:sRow}:{client:endClient,caret:endCaret,row:eRow};
+ const focus=forward?{client:endClient,caret:endCaret,row:eRow}:{client:startClient,caret:startCaret,row:sRow};
+ const rawRects=[],lines=[];
+ for(let ri=firstRow;ri<=lastRow;ri++){
+  const row=rows[ri],parts=[];
+  for(const it of row.items){
+   const tn=Array.from(it.span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);if(!tn||!tn.length)continue;
+   let from=0,to=tn.length;
+   if(ri===firstRow){
+    if(anchor.caret?.span===it.span)from=anchor.caret.offset;
+    else if(it.r.right<=anchor.client.x)continue;
+    else if(it.r.left<anchor.client.x&&it.r.right>anchor.client.x)from=offsetByX(it.span,anchor.client.x);
+   }
+   if(ri===lastRow){
+    if(focus.caret?.span===it.span)to=focus.caret.offset;
+    else if(it.r.left>=focus.client.x)continue;
+    else if(it.r.left<focus.client.x&&it.r.right>focus.client.x)to=offsetByX(it.span,focus.client.x);
+   }
+   const part=sliceSpan(it.span,from,to);if(!part||!part.rects.length)continue;
+   parts.push(part.text);rawRects.push(...part.rects);
+  }
+  if(parts.length)lines.push(parts.join("").trimEnd());
+ }
+ const rects=normalizeVisualRects(rawRects,pr);
+ if(!rects.length)return null;
+ return {page:n,rects,text:lines.join("\n").trim(),kind:"text"};
+}
+function normalizeVisualRects(raw,pr){
+ const rects=raw.map(r=>{
   let x1=clamp((r.left-pr.left)/pr.width),x2=clamp((r.right-pr.left)/pr.width);
   let y1=clamp((r.top-pr.top)/pr.height),y2=clamp((r.bottom-pr.top)/pr.height);
-  if(x2-x1<=.0005||y2-y1<=.0005)continue;
-  const h=y2-y1;
-  y1+=h*.12;y2-=h*.08;
-  normalized.push([x1,y1,x2,y2]);
- }
- normalized.sort((a,b)=>(((a[1]+a[3])/2)-((b[1]+b[3])/2))||a[0]-b[0]);
+  const h=y2-y1;y1+=h*.08;y2-=h*.06;return [x1,y1,x2,y2];
+ }).filter(r=>r[2]-r[0]>.0004&&r[3]-r[1]>.0004)
+   .sort((u,v)=>(((u[1]+u[3])/2)-((v[1]+v[3])/2))||u[0]-v[0]);
  const merged=[];
- for(const r of normalized){
+ for(const r of rects){
   const last=merged[merged.length-1];
   if(last){
-   const cy=(r[1]+r[3])/2,lcy=(last[1]+last[3])/2;
    const h=Math.max(r[3]-r[1],last[3]-last[1]);
-   const sameLine=Math.abs(cy-lcy)<=h*.35;
+   const sameLine=Math.abs((r[1]+r[3]-last[1]-last[3])/2)<=h*.38;
    const gap=r[0]-last[2];
-   if(sameLine&&gap>=-.002&&gap<=.0045){
-    last[0]=Math.min(last[0],r[0]);last[1]=Math.min(last[1],r[1]);
-    last[2]=Math.max(last[2],r[2]);last[3]=Math.max(last[3],r[3]);
-    continue;
+   if(sameLine&&gap>=-.002&&gap<=.005){
+    last[0]=Math.min(last[0],r[0]);last[1]=Math.min(last[1],r[1]);last[2]=Math.max(last[2],r[2]);last[3]=Math.max(last[3],r[3]);continue;
    }
   }
   merged.push([...r]);
  }
  return merged;
 }
-function selectText(n){
- if(S.area)return;const sel=window.getSelection();if(!sel||sel.isCollapsed)return;const r=S.pages.get(n),page=q(".lit-page",r.el),range=sel.getRangeAt(0);if(!page.contains(range.commonAncestorContainer))return;
- const rects=refinedSelectionRects(range,page);
- if(!rects.length){S.selectionOrigin=null;return;}S.pending={page:n,rects,text:sel.toString(),kind:"text"};S.selectionOrigin=null;sel.removeAllRanges();paintPending();toolbar();
+function beginGeometricSelection(n,e){
+ if(S.area||e.button!==0)return;
+ const rec=S.pages.get(n),page=q(".lit-page",rec.el);if(!page)return;
+ e.preventDefault();
+ if(S.pending){S.pending=null;paintPending();toolbar()}
+ window.getSelection()?.removeAllRanges();
+ const start={x:e.clientX,y:e.clientY};S.dragSel={page:n,start,last:start,moved:false};
+ const move=ev=>{
+  if(!S.dragSel||S.dragSel.page!==n)return;
+  S.dragSel.last={x:ev.clientX,y:ev.clientY};
+  if(Math.hypot(ev.clientX-start.x,ev.clientY-start.y)>3)S.dragSel.moved=true;
+  if(!S.dragSel.moved)return;
+  const next=buildGeometricSelection(n,start,S.dragSel.last);
+  if(next){S.pending=next;paintPending();toolbar()}
+ };
+ const up=ev=>{
+  document.removeEventListener("pointermove",move);document.removeEventListener("pointerup",up);
+  const drag=S.dragSel;S.dragSel=null;
+  if(!drag?.moved){S.pending=null;paintPending();toolbar();return}
+  const next=buildGeometricSelection(n,start,{x:ev.clientX,y:ev.clientY});
+  S.pending=next;paintPending();toolbar();
+ };
+ document.addEventListener("pointermove",move);document.addEventListener("pointerup",up);
 }
 function paintPending(){qa(".lit-selection-layer").forEach(x=>x.innerHTML="");if(!S.pending)return;const r=S.pages.get(S.pending.page);if(!r?.rendered)return;const l=q(".lit-selection-layer",r.el);S.pending.rects.forEach(a=>{const d=document.createElement("div");d.className="lit-pending-selection";d.style.left=a[0]*100+"%";d.style.top=a[1]*100+"%";d.style.width=(a[2]-a[0])*100+"%";d.style.height=(a[3]-a[1])*100+"%";l.appendChild(d)})}
 async function commit(action){
@@ -219,7 +279,11 @@ function handlePageAnnotationClick(n,e){
 }
 function track(){const sc=q("#lit-scroll"),y=sc.getBoundingClientRect().top+70;let best=1,d=Infinity;S.pages.forEach((r,n)=>{const z=Math.abs(r.el.getBoundingClientRect().top-y);if(z<d){d=z;best=n}});if(best===S.current)return;S.current=best;toolbar();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)}
 async function savePos(page){if(!S.paper||!S.pdf)return;const st=S.paper.reading_status==="未读"?"在读":S.paper.reading_status;S.paper.last_page=page;S.paper.reading_status=st;try{await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({last_page:page,page_count:S.pdf.numPages,reading_status:st})})}catch{}}
-function go(n,smooth=true){S.pages.get(n)?.el.scrollIntoView({behavior:smooth?"smooth":"auto",block:"start"})}
+function go(n,smooth=true){
+ const rec=S.pages.get(n),sc=q("#lit-scroll");if(!rec||!sc)return;
+ const top=Math.max(0,rec.el.offsetTop-8);
+ sc.scrollTo({top,behavior:smooth?"smooth":"auto"});S.current=n;toolbar();
+}
 async function zoom(delta){if(!S.pdf)return;const keep=S.current;S.scale=Math.max(.65,Math.min(2.4,S.scale+delta));S.generation++;S.observer?.disconnect();await build();requestAnimationFrame(()=>go(keep,false))}
 function toolbar(){if(!S.pdf)return;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;q("#lit-hint").textContent=S.pending?"已选择内容：请选择高亮、下划线或删除线":"先选择文字/区域并创建标记；点击已有标记可添加批注"}
 
@@ -238,10 +302,8 @@ async function jumpToAnnotation(page,id){
  const r=S.pages.get(page);if(!r)return;
  if(!r.rendered)await renderPage(page);
  go(page,true);
- setTimeout(()=>{
-  const rr=S.pages.get(page),a=rr?.annotations.find(x=>x.id===id);
-  if(a){S.selectedAnn={page,id};qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab==="annotations"));annList();}
- },180);
+ const rr=S.pages.get(page),a=rr?.annotations.find(x=>x.id===id);
+ if(a){S.selectedAnn={page,id};qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab==="annotations"));annList();}
 }
 async function saveAnnotationComment(){
  if(!S.selectedAnn)return;
@@ -256,7 +318,7 @@ async function saveAnnotationComment(){
  S.selectedAnn=null;
  paint(page);
  annList();
- requestAnimationFrame(()=>go(page,true));
+ go(page,true);
 }
 function side(){const p=S.paper;q("#lit-side").innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button></div><div id="lit-side-body"></div>';qa("[data-tab]").forEach(b=>b.onclick=()=>{if(b.dataset.tab!=="annotations")S.selectedAnn=null;qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});sideTab("info")}
 function sideTab(tab){
