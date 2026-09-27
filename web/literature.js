@@ -56,7 +56,7 @@ async function renderPage(n){
   const task=window.pdfjsLib.renderTextLayer({textContentSource:text,container:layer,viewport:vp,textDivs:[]});if(task?.promise)await task.promise;
   r.annotations=await api("/api/literature/"+S.paper.id+"/annotations?page="+n);r.rendered=true;
   const pageEl=q(".lit-page",r.el);
-  pageEl.addEventListener("pointerdown",e=>beginGeometricSelection(n,e),true);
+  pageEl.addEventListener("mousedown",e=>beginGeometricSelection(n,e),true);
   pageEl.onclick=e=>handlePageAnnotationClick(n,e);
   paint(n);
  }catch(e){r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{r.rendering=false}
@@ -213,36 +213,40 @@ function normalizeVisualRects(raw,pr){
 function beginGeometricSelection(n,e){
  if(S.area||e.button!==0)return;
  const rec=S.pages.get(n),page=q(".lit-page",rec.el);if(!page)return;
- // Only start a text drag when the pointer is inside the rendered text column area.
- const pr=page.getBoundingClientRect();
  const p=pagePoint(page,e.clientX,e.clientY);
  if(p.x<.02||p.x>.98||p.y<.01||p.y>.99)return;
  e.preventDefault();
+ e.stopPropagation();
  window.getSelection()?.removeAllRanges();
  if(S.pending){S.pending=null;paintPending();toolbar()}
  const start={x:e.clientX,y:e.clientY};
  S.dragSel={page:n,start,last:start,moved:false};
- try{page.setPointerCapture?.(e.pointerId)}catch{}
+
  const move=ev=>{
   if(!S.dragSel||S.dragSel.page!==n)return;
-  const last={x:ev.clientX,y:ev.clientY};S.dragSel.last=last;
+  const last={x:ev.clientX,y:ev.clientY};
+  S.dragSel.last=last;
   if(!S.dragSel.moved&&Math.hypot(last.x-start.x,last.y-start.y)>2)S.dragSel.moved=true;
   if(!S.dragSel.moved)return;
   const next=buildGeometricSelection(n,start,last);
-  if(next){S.pending=next;paintPending();toolbar()}
+  if(next){
+   S.pending=next;
+   paintPending();
+   toolbar();
+  }
  };
  const up=ev=>{
-  document.removeEventListener("pointermove",move,true);
-  document.removeEventListener("pointerup",up,true);
+  document.removeEventListener("mousemove",move,true);
+  document.removeEventListener("mouseup",up,true);
   const drag=S.dragSel;S.dragSel=null;
-  try{page.releasePointerCapture?.(e.pointerId)}catch{}
   if(!drag?.moved)return;
   const next=buildGeometricSelection(n,start,{x:ev.clientX,y:ev.clientY});
   if(next)S.pending=next;
-  paintPending();toolbar();
+  paintPending();
+  toolbar();
  };
- document.addEventListener("pointermove",move,true);
- document.addEventListener("pointerup",up,true);
+ document.addEventListener("mousemove",move,true);
+ document.addEventListener("mouseup",up,true);
 }
 function paintPending(){qa(".lit-selection-layer").forEach(x=>x.innerHTML="");if(!S.pending)return;const r=S.pages.get(S.pending.page);if(!r?.rendered)return;const l=q(".lit-selection-layer",r.el);S.pending.rects.forEach(a=>{const d=document.createElement("div");d.className="lit-pending-selection";d.style.left=a[0]*100+"%";d.style.top=a[1]*100+"%";d.style.width=(a[2]-a[0])*100+"%";d.style.height=(a[3]-a[1])*100+"%";l.appendChild(d)})}
 async function commit(action){
@@ -252,11 +256,11 @@ async function commit(action){
  const r=S.pages.get(S.pending.page);r?.annotations.push(row);
  S.pending=null;paintPending();paint(row.page);toolbar();annList();
 }
-function toggleArea(){S.area=!S.area;S.pending=null;paintPending();toolbar();q("#lit-pages").onpointerdown=S.area?areaStart:null}
+function toggleArea(){S.area=!S.area;S.pending=null;paintPending();toolbar();q("#lit-pages").onmousedown=S.area?areaStart:null}
 function areaStart(e){
  const page=e.target.closest(".lit-page");if(!page||!S.area)return;e.preventDefault();const n=+page.dataset.page,pr=page.getBoundingClientRect(),a=[clamp((e.clientX-pr.left)/pr.width),clamp((e.clientY-pr.top)/pr.height)];
  const move=ev=>{const b=[clamp((ev.clientX-pr.left)/pr.width),clamp((ev.clientY-pr.top)/pr.height)];S.pending={page:n,text:"区域选块",kind:"area",rects:[[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]]};paintPending()};
- const up=()=>{document.removeEventListener("pointermove",move);document.removeEventListener("pointerup",up);S.area=false;q("#lit-pages").onpointerdown=null;toolbar()};document.addEventListener("pointermove",move);document.addEventListener("pointerup",up);
+ const up=()=>{document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);S.area=false;q("#lit-pages").onmousedown=null;toolbar()};document.addEventListener("mousemove",move,true);document.addEventListener("mouseup",up,true);
 }
 async function undo(){const op=S.undo.pop();if(!op)return;await api("/api/literature/"+S.paper.id+"/annotations/"+op.id,{method:"DELETE"});const r=S.pages.get(op.page);if(r){r.annotations=r.annotations.filter(a=>a.id!==op.id);paint(op.page)}toolbar();annList()}
 function paint(n){
