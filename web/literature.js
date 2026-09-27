@@ -86,27 +86,64 @@ function detectTwoColumns(page){
  return left>12&&right>12&&wide<Math.max(8,(left+right)*.15);
 }
 
-function refinedSelectionRects(range,page){
- const pr=page.getBoundingClientRect();
- let raw=Array.from(range.getClientRects()).filter(r=>r.width>1&&r.height>1);
+function boundaryOffsetInSpan(container,offset,span,isStart){
+ if(!span)return isStart?0:(span.textContent||"").length;
+ if(container?.nodeType===Node.TEXT_NODE&&span.contains(container)){
+  return Math.max(0,Math.min((container.textContent||"").length,offset));
+ }
+ if(container===span){
+  return isStart?0:(span.textContent||"").length;
+ }
+ return isStart?0:(span.textContent||"").length;
+}
+function charAwareSpanRects(range,page){
+ const pr=page.getBoundingClientRect(),spans=qa(".lit-text-layer span",page);
+ const startSpan=nodeSpan(range.startContainer),endSpan=nodeSpan(range.endContainer);
+ const si=spans.indexOf(startSpan),ei=spans.indexOf(endSpan);
+ if(si<0||ei<0)return [];
+ const lo=Math.min(si,ei),hi=Math.max(si,ei);
  const two=detectTwoColumns(page);
  const origin=(S.selectionOrigin?.page===+page.dataset.page)?S.selectionOrigin.x:null;
- let side=null;
- if(two&&origin!=null)side=origin<.5?"left":"right";
+ const side=two&&origin!=null?(origin<.5?"left":"right"):null;
+ const raw=[];
+ for(let i=lo;i<=hi;i++){
+  const span=spans[i],sr=span.getBoundingClientRect(),center=((sr.left+sr.right)/2-pr.left)/pr.width;
+  if(side==="left"&&center>=.5)continue;
+  if(side==="right"&&center<=.5)continue;
+  const textNode=Array.from(span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
+  if(!textNode||!(textNode.textContent||"").length){
+   raw.push(sr);continue;
+  }
+  let from=0,to=textNode.textContent.length;
+  if(span===startSpan)from=boundaryOffsetInSpan(range.startContainer,range.startOffset,span,true);
+  if(span===endSpan)to=boundaryOffsetInSpan(range.endContainer,range.endOffset,span,false);
+  if(startSpan===endSpan){
+   from=boundaryOffsetInSpan(range.startContainer,range.startOffset,span,true);
+   to=boundaryOffsetInSpan(range.endContainer,range.endOffset,span,false);
+  }
+  if(to<from){const t=from;from=to;to=t;}
+  if(to===from)continue;
+  const sub=document.createRange();
+  try{
+   sub.setStart(textNode,Math.max(0,Math.min(textNode.length,from)));
+   sub.setEnd(textNode,Math.max(0,Math.min(textNode.length,to)));
+   const rs=Array.from(sub.getClientRects()).filter(r=>r.width>.5&&r.height>.5);
+   if(rs.length)raw.push(...rs);else raw.push(sr);
+  }catch{raw.push(sr)}
+ }
+ return raw;
+}
+function refinedSelectionRects(range,page){
+ const pr=page.getBoundingClientRect();
+ let raw=charAwareSpanRects(range,page);
+ if(!raw.length)raw=Array.from(range.getClientRects()).filter(r=>r.width>1&&r.height>1);
  const normalized=[];
  for(const r of raw){
   let x1=clamp((r.left-pr.left)/pr.width),x2=clamp((r.right-pr.left)/pr.width);
   let y1=clamp((r.top-pr.top)/pr.height),y2=clamp((r.bottom-pr.top)/pr.height);
-  if(side==="left"){
-   if(x1>=.505)continue;
-   x2=Math.min(x2,.495);
-  }else if(side==="right"){
-   if(x2<=.495)continue;
-   x1=Math.max(x1,.505);
-  }
-  if(x2-x1<=.001||y2-y1<=.001)continue;
+  if(x2-x1<=.0005||y2-y1<=.0005)continue;
   const h=y2-y1;
-  if(h>.002){y1+=h*.08;y2-=h*.08;}
+  y1+=h*.12;y2-=h*.08;
   normalized.push([x1,y1,x2,y2]);
  }
  normalized.sort((a,b)=>(((a[1]+a[3])/2)-((b[1]+b[3])/2))||a[0]-b[0]);
@@ -116,9 +153,9 @@ function refinedSelectionRects(range,page){
   if(last){
    const cy=(r[1]+r[3])/2,lcy=(last[1]+last[3])/2;
    const h=Math.max(r[3]-r[1],last[3]-last[1]);
-   const sameLine=Math.abs(cy-lcy)<=h*.42;
+   const sameLine=Math.abs(cy-lcy)<=h*.35;
    const gap=r[0]-last[2];
-   if(sameLine&&gap>=-.004&&gap<=.008){
+   if(sameLine&&gap>=-.002&&gap<=.0045){
     last[0]=Math.min(last[0],r[0]);last[1]=Math.min(last[1],r[1]);
     last[2]=Math.max(last[2],r[2]);last[3]=Math.max(last[3],r[3]);
     continue;
@@ -187,21 +224,40 @@ async function zoom(delta){if(!S.pdf)return;const keep=S.current;S.scale=Math.ma
 function toolbar(){if(!S.pdf)return;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;q("#lit-hint").textContent=S.pending?"已选择内容：请选择高亮、下划线或删除线":"先选择文字/区域并创建标记；点击已有标记可添加批注"}
 
 
-function openAnnotation(page,id){
- const r=S.pages.get(page),a=r?.annotations.find(x=>x.id===id);if(!a)return;
+async function openAnnotation(page,id){
+ let r=S.pages.get(page);
+ if(!r)return;
+ if(!r.rendered)await renderPage(page);
+ r=S.pages.get(page);
+ const a=r?.annotations.find(x=>x.id===id);if(!a)return;
  S.selectedAnn={page,id};
  qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab==="annotations"));
  annList();
 }
+async function jumpToAnnotation(page,id){
+ const r=S.pages.get(page);if(!r)return;
+ if(!r.rendered)await renderPage(page);
+ go(page,true);
+ setTimeout(()=>{
+  const rr=S.pages.get(page),a=rr?.annotations.find(x=>x.id===id);
+  if(a){S.selectedAnn={page,id};qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab==="annotations"));annList();}
+ },180);
+}
 async function saveAnnotationComment(){
  if(!S.selectedAnn)return;
- const r=S.pages.get(S.selectedAnn.page),a=r?.annotations.find(x=>x.id===S.selectedAnn.id);if(!a)return;
+ const page=S.selectedAnn.page,id=S.selectedAnn.id;
+ let r=S.pages.get(page);
+ if(!r?.rendered)await renderPage(page);
+ r=S.pages.get(page);
+ const a=r?.annotations.find(x=>x.id===id);if(!a)return;
  const comment=q("#ann-comment")?.value||"";
  const saved=await api("/api/literature/"+S.paper.id+"/annotations",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...a,comment})});
- const i=r.annotations.findIndex(x=>x.id===saved.id);if(i>=0)r.annotations[i]=saved;
- annList();paint(S.selectedAnn.page);
+ const i=r.annotations.findIndex(x=>x.id===saved.id);if(i>=0)r.annotations[i]=saved;else r.annotations.push(saved);
+ S.selectedAnn=null;
+ paint(page);
+ annList();
+ requestAnimationFrame(()=>go(page,true));
 }
-
 function side(){const p=S.paper;q("#lit-side").innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button></div><div id="lit-side-body"></div>';qa("[data-tab]").forEach(b=>b.onclick=()=>{if(b.dataset.tab!=="annotations")S.selectedAnn=null;qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});sideTab("info")}
 function sideTab(tab){
  const root=q("#lit-side-body"),p=S.paper;
@@ -221,7 +277,7 @@ function annList(){
  root.innerHTML=editor+'<div class="lit-ann-list">'+(rows.length?rows.map(a=>'<article class="lit-ann '+(S.selectedAnn?.id===a.id?"selected":"")+'" data-open-ann="'+a.id+'" data-page="'+a.page+'"><div><strong>P.'+a.page+" · "+esc(a.type)+'</strong><button data-del="'+a.id+'" data-page="'+a.page+'">×</button></div><blockquote>'+esc(a.text||"区域批注")+"</blockquote>"+(a.comment?"<p>"+esc(a.comment)+"</p>":"")+"</article>").join(""):'<div class="lit-empty">当前已加载页面暂无批注</div>')+"</div>";
  if(q("#ann-comment-save"))q("#ann-comment-save").onclick=saveAnnotationComment;
  if(q("#ann-editor-close"))q("#ann-editor-close").onclick=()=>{S.selectedAnn=null;annList()};
- qa("[data-open-ann]").forEach(x=>x.onclick=e=>{if(e.target.closest("[data-del]"))return;openAnnotation(+x.dataset.page,x.dataset.openAnn);go(+x.dataset.page)});
+ qa("[data-open-ann]").forEach(x=>x.onclick=e=>{if(e.target.closest("[data-del]"))return;jumpToAnnotation(+x.dataset.page,x.dataset.openAnn)});
  qa("[data-del]").forEach(b=>b.onclick=async()=>{await api("/api/literature/"+S.paper.id+"/annotations/"+b.dataset.del,{method:"DELETE"});const r=S.pages.get(+b.dataset.page);if(r){r.annotations=r.annotations.filter(x=>x.id!==b.dataset.del);paint(+b.dataset.page)}if(S.selectedAnn?.id===b.dataset.del)S.selectedAnn=null;annList()});
 }
 async function note(){const root=q("#lit-side-body"),d=await api("/api/literature/"+S.paper.id+"/note");root.innerHTML='<textarea class="lit-note" id="lit-note" placeholder="Markdown 文献笔记…">'+esc(d.content||"")+'</textarea><div class="lit-note-actions"><span>Markdown · Ctrl+S 保存</span><button class="primary-btn" id="lit-note-save">保存笔记</button></div>';q("#lit-note-save").onclick=saveNote}
