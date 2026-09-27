@@ -49,201 +49,152 @@ async function renderPage(n){
  const r=S.pages.get(n);if(!r||r.rendered||r.rendering||!S.pdf)return;r.rendering=true;const gen=S.generation;
  try{
   const p=await S.pdf.getPage(n),vp=p.getViewport({scale:S.scale}),dpr=window.devicePixelRatio||1;if(gen!==S.generation)return;
-  r.el.style.width=vp.width+"px";r.el.style.height=vp.height+"px";r.el.innerHTML='<div class="lit-page" data-page="'+n+'" style="width:'+vp.width+'px;height:'+vp.height+'px"><canvas></canvas><div class="lit-text-layer"></div><svg class="lit-annotation-layer" viewBox="0 0 1 1" preserveAspectRatio="none"></svg><div class="lit-selection-layer"></div></div>';
+  r.el.style.width=vp.width+"px";r.el.style.height=vp.height+"px";r.el.innerHTML='<div class="lit-page" data-page="'+n+'" style="width:'+vp.width+'px;height:'+vp.height+'px"><canvas></canvas><svg class="lit-annotation-layer" viewBox="0 0 1 1" preserveAspectRatio="none"></svg><div class="lit-selection-layer"></div><div class="lit-interaction-layer" title="拖动选择文字"></div></div>';
   const cv=q("canvas",r.el),ctx=cv.getContext("2d");cv.width=Math.floor(vp.width*dpr);cv.height=Math.floor(vp.height*dpr);cv.style.width=vp.width+"px";cv.style.height=vp.height+"px";
   await p.render({canvasContext:ctx,viewport:vp,transform:dpr===1?null:[dpr,0,0,dpr,0,0]}).promise;if(gen!==S.generation)return;
-  const text=await p.getTextContent(),layer=q(".lit-text-layer",r.el);layer.style.width=vp.width+"px";layer.style.height=vp.height+"px";
-  const task=window.pdfjsLib.renderTextLayer({textContentSource:text,container:layer,viewport:vp,textDivs:[]});if(task?.promise)await task.promise;
+  const text=await p.getTextContent();
+  r.textItems=buildPdfTextGeometry(text,vp);
   r.annotations=await api("/api/literature/"+S.paper.id+"/annotations?page="+n);r.rendered=true;
-  const pageEl=q(".lit-page",r.el);
-  pageEl.addEventListener("mousedown",e=>beginGeometricSelection(n,e),true);
-  pageEl.onclick=e=>handlePageAnnotationClick(n,e);
+  const pageEl=q(".lit-page",r.el),hit=q(".lit-interaction-layer",r.el);
+  hit.onmousedown=e=>beginPdfGeometrySelection(n,e);
+  hit.onclick=e=>handlePageAnnotationClick(n,e);
   paint(n);
  }catch(e){r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{r.rendering=false}
 }
 
-function nodeSpan(node){
- const el=node?.nodeType===1?node:node?.parentElement;
- return el?.closest?.(".lit-text-layer span")||null;
-}
-
-function textCaretAt(x,y,page){
- let node=null,offset=0;
- if(document.caretPositionFromPoint){
-  const p=document.caretPositionFromPoint(x,y);
-  node=p?.offsetNode||null;offset=p?.offset||0;
- }else if(document.caretRangeFromPoint){
-  const r=document.caretRangeFromPoint(x,y);
-  node=r?.startContainer||null;offset=r?.startOffset||0;
+function buildPdfTextGeometry(text,viewport){
+ const out=[];
+ for(const it of text.items||[]){
+  const str=String(it.str||"");if(!str.trim())continue;
+  const tx=window.pdfjsLib.Util.transform(viewport.transform,it.transform);
+  const h=Math.max(1,Math.hypot(tx[2],tx[3]));
+  const w=Math.max(1,Math.abs((it.width||0)*viewport.scale));
+  const x=tx[4],y=tx[5]-h;
+  out.push({
+   text:str,
+   x1:clamp(x/viewport.width), y1:clamp(y/viewport.height),
+   x2:clamp((x+w)/viewport.width), y2:clamp((y+h)/viewport.height),
+   cx:clamp((x+w*.5)/viewport.width), cy:clamp((y+h*.5)/viewport.height),
+   h:h/viewport.height
+  });
  }
- const span=nodeSpan(node);
- if(!span||!page.contains(span))return null;
- const tn=Array.from(span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
- if(!tn)return null;
- return {span,node:tn,offset:Math.max(0,Math.min(tn.length,offset))};
+ return out;
 }
-function pagePoint(page,x,y){
- const pr=page.getBoundingClientRect();
- return {x:clamp((x-pr.left)/pr.width),y:clamp((y-pr.top)/pr.height)};
+function geometryHasTwoColumns(items){
+ if(!items?.length)return false;
+ let left=0,right=0,center=0;
+ for(const it of items){
+  if(it.x2-it.x1>.55){center++;continue}
+  if(it.cx<.46)left++;else if(it.cx>.54)right++;else center++;
+ }
+ return left>10&&right>10&&center<Math.max(12,(left+right)*.22);
 }
-function visualRows(page,side){
- const pr=page.getBoundingClientRect();
- const spans=qa(".lit-text-layer span",page).map(span=>{
-  const r=span.getBoundingClientRect();
-  return {span,r,cx:(r.left+r.right)/2,cy:(r.top+r.bottom)/2,h:r.height};
- }).filter(x=>x.r.width>.5&&x.r.height>.5)
-   .filter(x=>side==="left"?x.cx<pr.left+pr.width*.5:side==="right"?x.cx>pr.left+pr.width*.5:true)
-   .sort((a,b)=>a.cy-b.cy||a.r.left-b.r.left);
+function geometryRows(items,side){
+ let list=(items||[]).filter(it=>side==="left"?it.cx<.5:side==="right"?it.cx>.5:true)
+   .slice().sort((a,b)=>a.cy-b.cy||a.x1-b.x1);
  const rows=[];
- for(const item of spans){
+ for(const it of list){
   let row=rows[rows.length-1];
-  if(!row||Math.abs(item.cy-row.cy)>Math.max(item.h,row.h)*.48){
-   row={items:[],cy:item.cy,h:item.h};rows.push(row);
+  if(!row||Math.abs(it.cy-row.cy)>Math.max(it.h,row.h)*.58){
+   row={items:[],cy:it.cy,h:it.h};rows.push(row);
   }
-  row.items.push(item);
+  row.items.push(it);
   row.cy=row.items.reduce((s,v)=>s+v.cy,0)/row.items.length;
   row.h=Math.max(...row.items.map(v=>v.h));
  }
- rows.forEach(row=>row.items.sort((a,b)=>a.r.left-b.r.left));
+ rows.forEach(row=>row.items.sort((a,b)=>a.x1-b.x1));
  return rows;
 }
-function rowIndexForSpan(rows,span){
- for(let i=0;i<rows.length;i++)if(rows[i].items.some(x=>x.span===span))return i;
- return -1;
-}
-function nearestRowIndex(rows,y){
- if(!rows.length)return -1;
- let best=0,d=Infinity;
+function nearestGeometryRow(rows,y){
+ let best=-1,d=Infinity;
  rows.forEach((r,i)=>{const z=Math.abs(r.cy-y);if(z<d){d=z;best=i}});
  return best;
 }
-function sliceSpan(span,from,to){
- const tn=Array.from(span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
- if(!tn)return null;
- const len=tn.length;from=Math.max(0,Math.min(len,from));to=Math.max(0,Math.min(len,to));
- if(to<from){const t=from;from=to;to=t}if(to<=from)return null;
- try{
-  const rg=document.createRange();rg.setStart(tn,from);rg.setEnd(tn,to);
-  const rects=Array.from(rg.getClientRects()).filter(r=>r.width>.3&&r.height>.3);
-  return {text:tn.textContent.slice(from,to),rects};
- }catch{return null}
+function charOffsetForX(it,x){
+ const len=Math.max(1,it.text.length);
+ const t=clamp((x-it.x1)/Math.max(.00001,it.x2-it.x1));
+ return Math.max(0,Math.min(len,Math.round(t*len)));
 }
-function offsetByX(span,x){
- const tn=Array.from(span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
- if(!tn||!tn.length)return 0;
- const sr=span.getBoundingClientRect();
- if(x<=sr.left)return 0;if(x>=sr.right)return tn.length;
- // Binary-search the caret position by rendered substring width. This respects PDF.js span transforms.
- let lo=0,hi=tn.length;
- while(lo<hi){
-  const mid=Math.ceil((lo+hi)/2),part=sliceSpan(span,0,mid);
-  const right=part?.rects?.length?Math.max(...part.rects.map(r=>r.right)):sr.left;
-  if(right<x)lo=mid;else hi=mid-1;
- }
- const a=Math.max(0,lo),b=Math.min(tn.length,a+1);
- const ra=sliceSpan(span,0,a),rb=sliceSpan(span,0,b);
- const xa=ra?.rects?.length?Math.max(...ra.rects.map(r=>r.right)):sr.left;
- const xb=rb?.rects?.length?Math.max(...rb.rects.map(r=>r.right)):sr.right;
- return Math.abs(x-xa)<=Math.abs(x-xb)?a:b;
-}
-function buildGeometricSelection(n,startClient,endClient){
- const rec=S.pages.get(n),page=q(".lit-page",rec.el),pr=page.getBoundingClientRect();
- const start=pagePoint(page,startClient.x,startClient.y),end=pagePoint(page,endClient.x,endClient.y);
- const two=detectTwoColumns(page);
+function buildSelectionFromPdfGeometry(n,start,end){
+ const rec=S.pages.get(n);if(!rec?.textItems?.length)return null;
+ const two=geometryHasTwoColumns(rec.textItems);
  const side=two?(start.x<.5?"left":"right"):null;
- const rows=visualRows(page,side);if(!rows.length)return null;
- let sr=nearestRowIndex(rows,startClient.y),er=nearestRowIndex(rows,endClient.y);
+ const rows=geometryRows(rec.textItems,side);if(!rows.length)return null;
+ let sr=nearestGeometryRow(rows,start.y),er=nearestGeometryRow(rows,end.y);
  if(sr<0||er<0)return null;
- const forward=sr<er||(sr===er&&endClient.x>=startClient.x);
+ const forward=sr<er||(sr===er&&end.x>=start.x);
  const first=forward?sr:er,last=forward?er:sr;
- const firstX=forward?startClient.x:endClient.x;
- const lastX=forward?endClient.x:startClient.x;
- const raw=[],texts=[];
+ const firstX=forward?start.x:end.x,lastX=forward?end.x:start.x;
+ const rects=[],lines=[];
  for(let ri=first;ri<=last;ri++){
-  const row=rows[ri],parts=[];
-  const rowLeft=Math.min(...row.items.map(it=>it.r.left));
-  const rowRight=Math.max(...row.items.map(it=>it.r.right));
+  const row=rows[ri],rowLeft=Math.min(...row.items.map(it=>it.x1)),rowRight=Math.max(...row.items.map(it=>it.x2));
   let minX=rowLeft,maxX=rowRight;
-  if(first===last){
-   minX=Math.min(startClient.x,endClient.x);
-   maxX=Math.max(startClient.x,endClient.x);
-  }else{
-   if(ri===first)minX=firstX;
-   if(ri===last)maxX=lastX;
-  }
+  if(first===last){minX=Math.min(start.x,end.x);maxX=Math.max(start.x,end.x);}
+  else{if(ri===first)minX=firstX;if(ri===last)maxX=lastX;}
   if(maxX<minX){const t=minX;minX=maxX;maxX=t}
+  const parts=[];
   for(const it of row.items){
-   const tn=Array.from(it.span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
-   if(!tn||!tn.length)continue;
-   if(it.r.right<=minX||it.r.left>=maxX)continue;
-   let from=0,to=tn.length;
-   if(minX>it.r.left&&minX<it.r.right)from=offsetByX(it.span,minX);
-   if(maxX>it.r.left&&maxX<it.r.right)to=offsetByX(it.span,maxX);
-   const part=sliceSpan(it.span,from,to);if(!part||!part.rects.length)continue;
-   parts.push(part.text);raw.push(...part.rects);
+   if(it.x2<=minX||it.x1>=maxX)continue;
+   let from=0,to=it.text.length;
+   if(minX>it.x1&&minX<it.x2)from=charOffsetForX(it,minX);
+   if(maxX>it.x1&&maxX<it.x2)to=charOffsetForX(it,maxX);
+   if(to<from){const t=from;from=to;to=t}
+   if(to<=from)continue;
+   const len=Math.max(1,it.text.length),w=it.x2-it.x1;
+   const x1=it.x1+w*(from/len),x2=it.x1+w*(to/len);
+   const hh=it.y2-it.y1;
+   rects.push([x1,it.y1+hh*.10,x2,it.y2-hh*.08]);
+   parts.push(it.text.slice(from,to));
   }
-  if(parts.length)texts.push(parts.join("").trimEnd());
+  if(parts.length)lines.push(parts.join("").trimEnd());
  }
- const rects=normalizeVisualRects(raw,pr);
- if(!rects.length)return null;
- return {page:n,rects,text:texts.join("\n").trim(),kind:"text"};
+ const merged=mergeGeometryRects(rects);
+ if(!merged.length)return null;
+ return {page:n,rects:merged,text:lines.join("\n").trim(),kind:"text"};
 }
-function normalizeVisualRects(raw,pr){
- const rects=raw.map(r=>{
-  let x1=clamp((r.left-pr.left)/pr.width),x2=clamp((r.right-pr.left)/pr.width);
-  let y1=clamp((r.top-pr.top)/pr.height),y2=clamp((r.bottom-pr.top)/pr.height);
-  const h=y2-y1;y1+=h*.08;y2-=h*.06;return [x1,y1,x2,y2];
- }).filter(r=>r[2]-r[0]>.0004&&r[3]-r[1]>.0004)
-   .sort((u,v)=>(((u[1]+u[3])/2)-((v[1]+v[3])/2))||u[0]-v[0]);
- const merged=[];
- for(const r of rects){
-  const last=merged[merged.length-1];
+function mergeGeometryRects(rects){
+ const list=rects.filter(r=>r[2]-r[0]>.0003&&r[3]-r[1]>.0003)
+  .sort((a,b)=>(((a[1]+a[3])/2)-((b[1]+b[3])/2))||a[0]-b[0]);
+ const out=[];
+ for(const r of list){
+  const last=out[out.length-1];
   if(last){
    const h=Math.max(r[3]-r[1],last[3]-last[1]);
-   const sameLine=Math.abs((r[1]+r[3]-last[1]-last[3])/2)<=h*.38;
+   const same=Math.abs((r[1]+r[3]-last[1]-last[3])/2)<=h*.5;
    const gap=r[0]-last[2];
-   if(sameLine&&gap>=-.002&&gap<=.005){
-    last[0]=Math.min(last[0],r[0]);last[1]=Math.min(last[1],r[1]);last[2]=Math.max(last[2],r[2]);last[3]=Math.max(last[3],r[3]);continue;
+   if(same&&gap>=-.003&&gap<=.012){
+    last[0]=Math.min(last[0],r[0]);last[1]=Math.min(last[1],r[1]);
+    last[2]=Math.max(last[2],r[2]);last[3]=Math.max(last[3],r[3]);continue;
    }
   }
-  merged.push([...r]);
+  out.push([...r]);
  }
- return merged;
+ return out;
 }
-function beginGeometricSelection(n,e){
+function eventPointInPage(page,e){
+ const pr=page.getBoundingClientRect();
+ return {x:clamp((e.clientX-pr.left)/pr.width),y:clamp((e.clientY-pr.top)/pr.height)};
+}
+function beginPdfGeometrySelection(n,e){
  if(S.area||e.button!==0)return;
- const rec=S.pages.get(n),page=q(".lit-page",rec.el);if(!page)return;
- const p=pagePoint(page,e.clientX,e.clientY);
- if(p.x<.02||p.x>.98||p.y<.01||p.y>.99)return;
- e.preventDefault();
- e.stopPropagation();
- window.getSelection()?.removeAllRanges();
+ const rec=S.pages.get(n),page=q(".lit-page",rec.el);if(!page||!rec.textItems?.length)return;
+ e.preventDefault();e.stopPropagation();
  if(S.pending){S.pending=null;paintPending();toolbar()}
- const start={x:e.clientX,y:e.clientY};
+ const start=eventPointInPage(page,e);
  S.dragSel={page:n,start,last:start,moved:false};
-
  const move=ev=>{
   if(!S.dragSel||S.dragSel.page!==n)return;
-  const last={x:ev.clientX,y:ev.clientY};
-  S.dragSel.last=last;
-  if(!S.dragSel.moved&&Math.hypot(last.x-start.x,last.y-start.y)>2)S.dragSel.moved=true;
+  const last=eventPointInPage(page,ev);S.dragSel.last=last;
+  if(!S.dragSel.moved&&Math.hypot((last.x-start.x)*page.clientWidth,(last.y-start.y)*page.clientHeight)>3)S.dragSel.moved=true;
   if(!S.dragSel.moved)return;
-  const next=buildGeometricSelection(n,start,last);
-  if(next){
-   S.pending=next;
-   paintPending();
-   toolbar();
-  }
+  const next=buildSelectionFromPdfGeometry(n,start,last);
+  if(next){S.pending=next;paintPending();toolbar()}
  };
  const up=ev=>{
-  document.removeEventListener("mousemove",move,true);
-  document.removeEventListener("mouseup",up,true);
-  const drag=S.dragSel;S.dragSel=null;
-  if(!drag?.moved)return;
-  const next=buildGeometricSelection(n,start,{x:ev.clientX,y:ev.clientY});
-  if(next)S.pending=next;
-  paintPending();
-  toolbar();
+  document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);
+  const drag=S.dragSel;S.dragSel=null;if(!drag?.moved)return;
+  const last=eventPointInPage(page,ev),next=buildSelectionFromPdfGeometry(n,start,last);
+  if(next)S.pending=next;paintPending();toolbar();
  };
  document.addEventListener("mousemove",move,true);
  document.addEventListener("mouseup",up,true);
@@ -256,11 +207,14 @@ async function commit(action){
  const r=S.pages.get(S.pending.page);r?.annotations.push(row);
  S.pending=null;paintPending();paint(row.page);toolbar();annList();
 }
-function toggleArea(){S.area=!S.area;S.pending=null;paintPending();toolbar();q("#lit-pages").onmousedown=S.area?areaStart:null}
+function toggleArea(){
+ S.area=!S.area;S.pending=null;paintPending();toolbar();
+ qa(".lit-interaction-layer").forEach(el=>{el.onmousedown=S.area?areaStart:null});
+}
 function areaStart(e){
  const page=e.target.closest(".lit-page");if(!page||!S.area)return;e.preventDefault();const n=+page.dataset.page,pr=page.getBoundingClientRect(),a=[clamp((e.clientX-pr.left)/pr.width),clamp((e.clientY-pr.top)/pr.height)];
  const move=ev=>{const b=[clamp((ev.clientX-pr.left)/pr.width),clamp((ev.clientY-pr.top)/pr.height)];S.pending={page:n,text:"区域选块",kind:"area",rects:[[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]]};paintPending()};
- const up=()=>{document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);S.area=false;q("#lit-pages").onmousedown=null;toolbar()};document.addEventListener("mousemove",move,true);document.addEventListener("mouseup",up,true);
+ const up=()=>{document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);S.area=false;qa(".lit-interaction-layer").forEach(el=>el.onmousedown=null);toolbar()};document.addEventListener("mousemove",move,true);document.addEventListener("mouseup",up,true);
 }
 async function undo(){const op=S.undo.pop();if(!op)return;await api("/api/literature/"+S.paper.id+"/annotations/"+op.id,{method:"DELETE"});const r=S.pages.get(op.page);if(r){r.annotations=r.annotations.filter(a=>a.id!==op.id);paint(op.page)}toolbar();annList()}
 function paint(n){
@@ -282,7 +236,6 @@ function paint(n){
 }
 function handlePageAnnotationClick(n,e){
  if(S.pending||S.area)return;
- const sel=window.getSelection();if(sel&&!sel.isCollapsed)return;
  const r=S.pages.get(n),page=q(".lit-page",r.el),pr=page.getBoundingClientRect();
  const x=clamp((e.clientX-pr.left)/pr.width),y=clamp((e.clientY-pr.top)/pr.height);
  const anns=[...(r.annotations||[])].reverse();
