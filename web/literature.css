@@ -53,3 +53,11 @@
 .lit-page-shell .lit-selection-layer{z-index:6;pointer-events:none}
 .lit-page-shell .lit-annotation-layer{z-index:4;pointer-events:none!important}
 .lit-annotation-layer .ann-group,.lit-annotation-layer .ann-hit,.lit-annotation-layer .ann-click{pointer-events:none!important}
+
+/* geometric multiline selection: native browser selection disabled in PDF text layer */
+.lit-page-shell .lit-text-layer,
+.lit-page-shell .lit-text-layer span{
+  user-select:none;
+  -webkit-user-select:none;
+}
+.lit-page-shell .lit-text-layer{touch-action:none;cursor:text}
