@@ -23,7 +23,7 @@ async function loadList(){
  qa("[data-paper]").forEach(e=>e.onclick=()=>openPaper(e.dataset.paper));
 }
 function shell(){
- q("#main").innerHTML='<div class="lit-shell"><aside class="card lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-category"><option value="">全部分类</option></select></div><div class="lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><span class="lit-hint" id="lit-hint">选择文字后即可添加批注</span><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
+ q("#main").innerHTML='<div class="lit-shell"><aside class="card lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-category"><option value="">全部分类</option></select></div><div class="lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
  q("#lit-upload").onclick=()=>q("#lit-file").click();q("#lit-file").onchange=e=>upload(e.target.files?.[0]);
  let t;q("#lit-search").oninput=()=>{clearTimeout(t);t=setTimeout(loadList,160)};q("#lit-status").onchange=loadList;q("#lit-category").onchange=loadList;
  qa("[data-ann]").forEach(b=>b.onclick=()=>commit(b.dataset.ann));q("#lit-area").onclick=toggleArea;q("#lit-undo").onclick=undo;q("#lit-zoom-in").onclick=()=>zoom(.15);q("#lit-zoom-out").onclick=()=>zoom(-.15);
@@ -55,8 +55,9 @@ async function renderPage(n){
   const text=await p.getTextContent(),layer=q(".lit-text-layer",r.el);layer.style.width=vp.width+"px";layer.style.height=vp.height+"px";
   const task=window.pdfjsLib.renderTextLayer({textContentSource:text,container:layer,viewport:vp,textDivs:[]});if(task?.promise)await task.promise;
   r.annotations=await api("/api/literature/"+S.paper.id+"/annotations?page="+n);r.rendered=true;
-  layer.onpointerdown=e=>beginGeometricSelection(n,e);
-  q(".lit-page",r.el).onclick=e=>handlePageAnnotationClick(n,e);
+  const pageEl=q(".lit-page",r.el);
+  pageEl.addEventListener("pointerdown",e=>beginGeometricSelection(n,e),true);
+  pageEl.onclick=e=>handlePageAnnotationClick(n,e);
   paint(n);
  }catch(e){r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{r.rendering=false}
 }
@@ -147,42 +148,45 @@ function offsetByX(span,x){
 }
 function buildGeometricSelection(n,startClient,endClient){
  const rec=S.pages.get(n),page=q(".lit-page",rec.el),pr=page.getBoundingClientRect();
- const two=detectTwoColumns(page),startNorm=pagePoint(page,startClient.x,startClient.y);
- const side=two?(startNorm.x<.5?"left":"right"):null;
+ const start=pagePoint(page,startClient.x,startClient.y),end=pagePoint(page,endClient.x,endClient.y);
+ const two=detectTwoColumns(page);
+ const side=two?(start.x<.5?"left":"right"):null;
  const rows=visualRows(page,side);if(!rows.length)return null;
- const startCaret=textCaretAt(startClient.x,startClient.y,page),endCaret=textCaretAt(endClient.x,endClient.y,page);
- let sRow=startCaret?rowIndexForSpan(rows,startCaret.span):nearestRowIndex(rows,startClient.y);
- let eRow=endCaret?rowIndexForSpan(rows,endCaret.span):nearestRowIndex(rows,endClient.y);
- if(sRow<0)sRow=nearestRowIndex(rows,startClient.y);if(eRow<0)eRow=nearestRowIndex(rows,endClient.y);
- if(sRow<0||eRow<0)return null;
- let forward=sRow<eRow||(sRow===eRow&&endClient.x>=startClient.x);
- let firstRow=forward?sRow:eRow,lastRow=forward?eRow:sRow;
- const anchor=forward?{client:startClient,caret:startCaret,row:sRow}:{client:endClient,caret:endCaret,row:eRow};
- const focus=forward?{client:endClient,caret:endCaret,row:eRow}:{client:startClient,caret:startCaret,row:sRow};
- const rawRects=[],lines=[];
- for(let ri=firstRow;ri<=lastRow;ri++){
+ let sr=nearestRowIndex(rows,startClient.y),er=nearestRowIndex(rows,endClient.y);
+ if(sr<0||er<0)return null;
+ const forward=sr<er||(sr===er&&endClient.x>=startClient.x);
+ const first=forward?sr:er,last=forward?er:sr;
+ const firstX=forward?startClient.x:endClient.x;
+ const lastX=forward?endClient.x:startClient.x;
+ const raw=[],texts=[];
+ for(let ri=first;ri<=last;ri++){
   const row=rows[ri],parts=[];
-  for(const it of row.items){
-   const tn=Array.from(it.span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);if(!tn||!tn.length)continue;
-   let from=0,to=tn.length;
-   if(ri===firstRow){
-    if(anchor.caret?.span===it.span)from=anchor.caret.offset;
-    else if(it.r.right<=anchor.client.x)continue;
-    else if(it.r.left<anchor.client.x&&it.r.right>anchor.client.x)from=offsetByX(it.span,anchor.client.x);
-   }
-   if(ri===lastRow){
-    if(focus.caret?.span===it.span)to=focus.caret.offset;
-    else if(it.r.left>=focus.client.x)continue;
-    else if(it.r.left<focus.client.x&&it.r.right>focus.client.x)to=offsetByX(it.span,focus.client.x);
-   }
-   const part=sliceSpan(it.span,from,to);if(!part||!part.rects.length)continue;
-   parts.push(part.text);rawRects.push(...part.rects);
+  const rowLeft=Math.min(...row.items.map(it=>it.r.left));
+  const rowRight=Math.max(...row.items.map(it=>it.r.right));
+  let minX=rowLeft,maxX=rowRight;
+  if(first===last){
+   minX=Math.min(startClient.x,endClient.x);
+   maxX=Math.max(startClient.x,endClient.x);
+  }else{
+   if(ri===first)minX=firstX;
+   if(ri===last)maxX=lastX;
   }
-  if(parts.length)lines.push(parts.join("").trimEnd());
+  if(maxX<minX){const t=minX;minX=maxX;maxX=t}
+  for(const it of row.items){
+   const tn=Array.from(it.span.childNodes).find(n=>n.nodeType===Node.TEXT_NODE);
+   if(!tn||!tn.length)continue;
+   if(it.r.right<=minX||it.r.left>=maxX)continue;
+   let from=0,to=tn.length;
+   if(minX>it.r.left&&minX<it.r.right)from=offsetByX(it.span,minX);
+   if(maxX>it.r.left&&maxX<it.r.right)to=offsetByX(it.span,maxX);
+   const part=sliceSpan(it.span,from,to);if(!part||!part.rects.length)continue;
+   parts.push(part.text);raw.push(...part.rects);
+  }
+  if(parts.length)texts.push(parts.join("").trimEnd());
  }
- const rects=normalizeVisualRects(rawRects,pr);
+ const rects=normalizeVisualRects(raw,pr);
  if(!rects.length)return null;
- return {page:n,rects,text:lines.join("\n").trim(),kind:"text"};
+ return {page:n,rects,text:texts.join("\n").trim(),kind:"text"};
 }
 function normalizeVisualRects(raw,pr){
  const rects=raw.map(r=>{
@@ -209,26 +213,36 @@ function normalizeVisualRects(raw,pr){
 function beginGeometricSelection(n,e){
  if(S.area||e.button!==0)return;
  const rec=S.pages.get(n),page=q(".lit-page",rec.el);if(!page)return;
+ // Only start a text drag when the pointer is inside the rendered text column area.
+ const pr=page.getBoundingClientRect();
+ const p=pagePoint(page,e.clientX,e.clientY);
+ if(p.x<.02||p.x>.98||p.y<.01||p.y>.99)return;
  e.preventDefault();
- if(S.pending){S.pending=null;paintPending();toolbar()}
  window.getSelection()?.removeAllRanges();
- const start={x:e.clientX,y:e.clientY};S.dragSel={page:n,start,last:start,moved:false};
+ if(S.pending){S.pending=null;paintPending();toolbar()}
+ const start={x:e.clientX,y:e.clientY};
+ S.dragSel={page:n,start,last:start,moved:false};
+ try{page.setPointerCapture?.(e.pointerId)}catch{}
  const move=ev=>{
   if(!S.dragSel||S.dragSel.page!==n)return;
-  S.dragSel.last={x:ev.clientX,y:ev.clientY};
-  if(Math.hypot(ev.clientX-start.x,ev.clientY-start.y)>3)S.dragSel.moved=true;
+  const last={x:ev.clientX,y:ev.clientY};S.dragSel.last=last;
+  if(!S.dragSel.moved&&Math.hypot(last.x-start.x,last.y-start.y)>2)S.dragSel.moved=true;
   if(!S.dragSel.moved)return;
-  const next=buildGeometricSelection(n,start,S.dragSel.last);
+  const next=buildGeometricSelection(n,start,last);
   if(next){S.pending=next;paintPending();toolbar()}
  };
  const up=ev=>{
-  document.removeEventListener("pointermove",move);document.removeEventListener("pointerup",up);
+  document.removeEventListener("pointermove",move,true);
+  document.removeEventListener("pointerup",up,true);
   const drag=S.dragSel;S.dragSel=null;
-  if(!drag?.moved){S.pending=null;paintPending();toolbar();return}
+  try{page.releasePointerCapture?.(e.pointerId)}catch{}
+  if(!drag?.moved)return;
   const next=buildGeometricSelection(n,start,{x:ev.clientX,y:ev.clientY});
-  S.pending=next;paintPending();toolbar();
+  if(next)S.pending=next;
+  paintPending();toolbar();
  };
- document.addEventListener("pointermove",move);document.addEventListener("pointerup",up);
+ document.addEventListener("pointermove",move,true);
+ document.addEventListener("pointerup",up,true);
 }
 function paintPending(){qa(".lit-selection-layer").forEach(x=>x.innerHTML="");if(!S.pending)return;const r=S.pages.get(S.pending.page);if(!r?.rendered)return;const l=q(".lit-selection-layer",r.el);S.pending.rects.forEach(a=>{const d=document.createElement("div");d.className="lit-pending-selection";d.style.left=a[0]*100+"%";d.style.top=a[1]*100+"%";d.style.width=(a[2]-a[0])*100+"%";d.style.height=(a[3]-a[1])*100+"%";l.appendChild(d)})}
 async function commit(action){
@@ -285,7 +299,7 @@ function go(n,smooth=true){
  sc.scrollTo({top,behavior:smooth?"smooth":"auto"});S.current=n;toolbar();
 }
 async function zoom(delta){if(!S.pdf)return;const keep=S.current;S.scale=Math.max(.65,Math.min(2.4,S.scale+delta));S.generation++;S.observer?.disconnect();await build();requestAnimationFrame(()=>go(keep,false))}
-function toolbar(){if(!S.pdf)return;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;q("#lit-hint").textContent=S.pending?"已选择内容：请选择高亮、下划线或删除线":"先选择文字/区域并创建标记；点击已有标记可添加批注"}
+function toolbar(){if(!S.pdf)return;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length}
 
 
 async function openAnnotation(page,id){
