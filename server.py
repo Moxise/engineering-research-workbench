@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import webbrowser
+import tempfile
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -20,6 +21,7 @@ from app import workspace
 from app import agent
 from app import projects
 from app import indexer
+from app import literature
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
@@ -106,6 +108,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         try:
+            if path == "/api/literature/import":
+                return self.handle_literature_import()
             payload = self.read_json()
             return self.handle_api_post(path, payload)
         except FileNotFoundError as e:
@@ -133,6 +137,13 @@ class Handler(BaseHTTPRequestHandler):
                 result = todos.delete(todo_id)
                 indexer.refresh_todos()
                 return self.send_json(result)
+            if path.startswith("/api/literature/") and "/annotations/" in path:
+                tail = path.split("/api/literature/",1)[1]
+                paper_id, annotation_id = tail.split("/annotations/",1)
+                return self.send_json(literature.delete_annotation(unquote(paper_id), unquote(annotation_id)))
+            if path.startswith("/api/literature/"):
+                paper_id = unquote(path.split("/api/literature/",1)[1])
+                return self.send_json(literature.delete_item(paper_id))
             if path.startswith("/api/agent/sessions/"):
                 session_id = unquote(path.split("/api/agent/sessions/", 1)[1])
                 return self.send_json(agent.delete_session(session_id))
@@ -212,6 +223,24 @@ class Handler(BaseHTTPRequestHandler):
             query = (q.get("q") or [""])[0]
             limit = _q_int(q, "limit", 60, 1, 120)
             return self.send_json(indexer.search_all(query, limit))
+        if path == "/api/literature":
+            return self.send_json(literature.list_items(
+                (q.get("q") or [""])[0], (q.get("status") or [""])[0], (q.get("category") or [""])[0],
+                _q_int(q, "page", 1, 1, 1000000), _q_int(q, "page_size", 60, 10, 200),
+            ))
+        if path.startswith("/api/literature/") and path.endswith("/annotations"):
+            paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
+            page_raw = (q.get("page") or [""])[0]
+            return self.send_json(literature.get_annotations(paper_id, int(page_raw) if page_raw else None))
+        if path.startswith("/api/literature/") and path.endswith("/note"):
+            paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/note",1)[0])
+            return self.send_json({"content": literature.get_note(paper_id)})
+        if path.startswith("/api/literature/") and path.endswith("/pdf"):
+            paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/pdf",1)[0])
+            return self.serve_file_range(literature.pdf_path(paper_id), "application/pdf")
+        if path.startswith("/api/literature/"):
+            paper_id = unquote(path.split("/api/literature/",1)[1])
+            return self.send_json(literature.get_item(paper_id))
         if path == "/api/agent/sessions":
             return self.send_json(agent.list_sessions())
         if path.startswith("/api/agent/sessions/"):
@@ -306,6 +335,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True, "content": content})
         if path == "/api/graph/bundle/save":
             return self.send_json(store.save_bundle(str(payload.get("filename") or "knowledge-bundle.md"), str(payload.get("content") or "")))
+        if path.startswith("/api/literature/") and path.endswith("/annotations"):
+            paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
+            return self.send_json(literature.save_annotation(paper_id, payload), 201)
+        if path.startswith("/api/literature/") and path.endswith("/note"):
+            paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/note",1)[0])
+            return self.send_json(literature.save_note(paper_id, str(payload.get("content") or "")))
+        if path.startswith("/api/literature/"):
+            paper_id = unquote(path.split("/api/literature/",1)[1])
+            return self.send_json(literature.update_item(paper_id, payload))
         if path == "/api/literature/export-bibtex":
             return self.send_json(indexer.export_bibtex(payload.get("ids") or []))
         if path == "/api/agent/sessions":
@@ -338,6 +376,56 @@ class Handler(BaseHTTPRequestHandler):
             indexer.refresh_todos()
             return self.send_json(item)
         return self.send_json({"error": "not_found"}, 404)
+
+
+    def handle_literature_import(self):
+        ctype = self.headers.get("Content-Type") or ""
+        if "application/pdf" not in ctype and "application/octet-stream" not in ctype:
+            raise ValueError("PDF import requires application/pdf")
+        length = int(self.headers.get("Content-Length") or "0")
+        if length <= 0 or length > 512 * 1024 * 1024:
+            raise ValueError("PDF size must be between 1 byte and 512 MB")
+        filename = unquote(self.headers.get("X-Filename") or "paper.pdf")
+        fd, tmp_name = tempfile.mkstemp(prefix="erw-pdf-", suffix=".pdf")
+        try:
+            with os.fdopen(fd, "wb") as out:
+                remaining = length
+                while remaining:
+                    chunk = self.rfile.read(min(1024 * 1024, remaining))
+                    if not chunk: break
+                    out.write(chunk); remaining -= len(chunk)
+            item = literature.import_pdf(filename, Path(tmp_name))
+            return self.send_json(item, 201)
+        finally:
+            try: os.unlink(tmp_name)
+            except OSError: pass
+
+    def serve_file_range(self, target: Path, content_type: str):
+        if not target.exists(): raise FileNotFoundError(str(target))
+        size = target.stat().st_size
+        start, end, status = 0, max(0, size - 1), 200
+        rng = self.headers.get("Range") or ""
+        if rng.startswith("bytes="):
+            spec = rng[6:].split(",",1)[0]
+            left, right = spec.split("-",1)
+            if left: start = max(0, min(size - 1, int(left)))
+            if right: end = max(start, min(size - 1, int(right)))
+            else: end = min(size - 1, start + 4 * 1024 * 1024 - 1)
+            status = 206
+        length = max(0, end - start + 1)
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(length))
+        self.send_header("Cache-Control", "private, max-age=3600")
+        if status == 206: self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+        with target.open("rb") as f:
+            f.seek(start); remaining = length
+            while remaining:
+                chunk = f.read(min(1024 * 1024, remaining))
+                if not chunk: break
+                self.wfile.write(chunk); remaining -= len(chunk)
 
     def serve_static(self, path):
         rel = "index.html" if path in ("", "/") else unquote(path.lstrip("/"))
