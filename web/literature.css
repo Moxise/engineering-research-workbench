@@ -61,3 +61,12 @@
   -webkit-user-select:none;
 }
 .lit-page-shell .lit-text-layer{touch-action:none;cursor:text}
+
+/* PDF geometry interaction engine */
+.lit-page-shell .lit-interaction-layer{
+  position:absolute;inset:0;z-index:7;cursor:text;
+  background:transparent;
+  user-select:none;-webkit-user-select:none;
+}
+.lit-page-shell .lit-selection-layer{z-index:8;pointer-events:none}
+.lit-page-shell .lit-annotation-layer{z-index:6;pointer-events:none!important}
