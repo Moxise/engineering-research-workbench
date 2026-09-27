@@ -70,3 +70,26 @@
 }
 .lit-page-shell .lit-selection-layer{z-index:8;pointer-events:none}
 .lit-page-shell .lit-annotation-layer{z-index:6;pointer-events:none!important}
+
+/* area annotation preview + copy selection */
+.lit-ann-preview-wrap{
+  margin:8px 0 10px;
+  border:1px solid var(--border);
+  border-radius:9px;
+  overflow:hidden;
+  background:#fff;
+}
+.lit-ann-preview{
+  display:block;
+  width:100%;
+  height:auto;
+  max-height:240px;
+  object-fit:contain;
+  background:#fff;
+}
+.lit-ann-preview.small{max-height:150px}
+#lit-copy.copied{
+  background:var(--accent-soft);
+  color:var(--accent);
+  box-shadow:inset 0 0 0 1px var(--accent);
+}
