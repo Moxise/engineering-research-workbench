@@ -3,7 +3,7 @@
 const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp=v=>Math.max(0,Math.min(1,v));
-const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,categories:[],selectedAnn:null};
+const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,categories:[],selectedAnn:null,selectionOrigin:null};
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
 async function ensurePdfJs(){
@@ -35,7 +35,7 @@ async function openPaper(id){
  try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+encodeURIComponent(id)+"/pdf",rangeChunkSize:4*1024*1024}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
  catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
-function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null}
+function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null}
 async function build(){
  const host=q("#lit-pages");host.innerHTML="";S.pages.clear();const gen=S.generation;
  for(let n=1;n<=S.pdf.numPages;n++){
@@ -54,7 +54,11 @@ async function renderPage(n){
   await p.render({canvasContext:ctx,viewport:vp,transform:dpr===1?null:[dpr,0,0,dpr,0,0]}).promise;if(gen!==S.generation)return;
   const text=await p.getTextContent(),layer=q(".lit-text-layer",r.el);layer.style.width=vp.width+"px";layer.style.height=vp.height+"px";
   const task=window.pdfjsLib.renderTextLayer({textContentSource:text,container:layer,viewport:vp,textDivs:[]});if(task?.promise)await task.promise;
-  r.annotations=await api("/api/literature/"+S.paper.id+"/annotations?page="+n);r.rendered=true;layer.onmouseup=()=>selectText(n);paint(n);
+  r.annotations=await api("/api/literature/"+S.paper.id+"/annotations?page="+n);r.rendered=true;
+  layer.onmousedown=e=>beginTextSelection(n,e);
+  layer.onmouseup=()=>selectText(n);
+  q(".lit-page",r.el).onclick=e=>handlePageAnnotationClick(n,e);
+  paint(n);
  }catch(e){r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{r.rendering=false}
 }
 
@@ -62,35 +66,59 @@ function nodeSpan(node){
  const el=node?.nodeType===1?node:node?.parentElement;
  return el?.closest?.(".lit-text-layer span")||null;
 }
+
+function beginTextSelection(n,e){
+ if(S.area)return;
+ const r=S.pages.get(n),page=q(".lit-page",r.el),pr=page.getBoundingClientRect();
+ S.selectionOrigin={page:n,x:clamp((e.clientX-pr.left)/pr.width)};
+ if(S.pending){S.pending=null;paintPending();toolbar();}
+ const sel=window.getSelection();if(sel&&!sel.isCollapsed)sel.removeAllRanges();
+}
+function detectTwoColumns(page){
+ const pr=page.getBoundingClientRect(),spans=qa(".lit-text-layer span",page);
+ let left=0,right=0,wide=0;
+ for(const s of spans){
+  const r=s.getBoundingClientRect();if(r.width<2)continue;
+  const x1=(r.left-pr.left)/pr.width,x2=(r.right-pr.left)/pr.width,c=(x1+x2)/2,w=x2-x1;
+  if(w>.55){wide++;continue}
+  if(c<.46)left++;else if(c>.54)right++;
+ }
+ return left>12&&right>12&&wide<Math.max(8,(left+right)*.15);
+}
+
 function refinedSelectionRects(range,page){
  const pr=page.getBoundingClientRect();
  let raw=Array.from(range.getClientRects()).filter(r=>r.width>1&&r.height>1);
- const a=nodeSpan(range.startContainer),b=nodeSpan(range.endContainer);
- const ar=a?.getBoundingClientRect(),br=b?.getBoundingClientRect();
- if(ar&&br){
-  const mid=pr.left+pr.width/2;
-  const ac=(ar.left+ar.right)/2,bc=(br.left+br.right)/2;
-  const sameLeft=ac<mid&&bc<mid,sameRight=ac>mid&&bc>mid;
-  if(sameLeft)raw=raw.filter(r=>(r.left+r.right)/2<mid);
-  else if(sameRight)raw=raw.filter(r=>(r.left+r.right)/2>mid);
- }
- let rects=raw.map(r=>{
+ const two=detectTwoColumns(page);
+ const origin=(S.selectionOrigin?.page===+page.dataset.page)?S.selectionOrigin.x:null;
+ let side=null;
+ if(two&&origin!=null)side=origin<.5?"left":"right";
+ const normalized=[];
+ for(const r of raw){
   let x1=clamp((r.left-pr.left)/pr.width),x2=clamp((r.right-pr.left)/pr.width);
   let y1=clamp((r.top-pr.top)/pr.height),y2=clamp((r.bottom-pr.top)/pr.height);
+  if(side==="left"){
+   if(x1>=.505)continue;
+   x2=Math.min(x2,.495);
+  }else if(side==="right"){
+   if(x2<=.495)continue;
+   x1=Math.max(x1,.505);
+  }
+  if(x2-x1<=.001||y2-y1<=.001)continue;
   const h=y2-y1;
-  if(h>0.002){y1+=h*0.06;y2-=h*0.06;}
-  return [x1,y1,x2,y2];
- }).filter(r=>r[2]-r[0]>0.001&&r[3]-r[1]>0.001);
- rects.sort((u,v)=>(((u[1]+u[3])/2)-((v[1]+v[3])/2))||u[0]-v[0]);
+  if(h>.002){y1+=h*.08;y2-=h*.08;}
+  normalized.push([x1,y1,x2,y2]);
+ }
+ normalized.sort((a,b)=>(((a[1]+a[3])/2)-((b[1]+b[3])/2))||a[0]-b[0]);
  const merged=[];
- for(const r of rects){
+ for(const r of normalized){
   const last=merged[merged.length-1];
   if(last){
    const cy=(r[1]+r[3])/2,lcy=(last[1]+last[3])/2;
    const h=Math.max(r[3]-r[1],last[3]-last[1]);
-   const sameLine=Math.abs(cy-lcy)<=h*0.55;
+   const sameLine=Math.abs(cy-lcy)<=h*.42;
    const gap=r[0]-last[2];
-   if(sameLine&&gap<=0.012){
+   if(sameLine&&gap>=-.004&&gap<=.008){
     last[0]=Math.min(last[0],r[0]);last[1]=Math.min(last[1],r[1]);
     last[2]=Math.max(last[2],r[2]);last[3]=Math.max(last[3],r[3]);
     continue;
@@ -100,11 +128,10 @@ function refinedSelectionRects(range,page){
  }
  return merged;
 }
-
 function selectText(n){
  if(S.area)return;const sel=window.getSelection();if(!sel||sel.isCollapsed)return;const r=S.pages.get(n),page=q(".lit-page",r.el),range=sel.getRangeAt(0);if(!page.contains(range.commonAncestorContainer))return;
  const rects=refinedSelectionRects(range,page);
- if(!rects.length)return;S.pending={page:n,rects,text:sel.toString(),kind:"text"};sel.removeAllRanges();paintPending();toolbar();
+ if(!rects.length){S.selectionOrigin=null;return;}S.pending={page:n,rects,text:sel.toString(),kind:"text"};S.selectionOrigin=null;sel.removeAllRanges();paintPending();toolbar();
 }
 function paintPending(){qa(".lit-selection-layer").forEach(x=>x.innerHTML="");if(!S.pending)return;const r=S.pages.get(S.pending.page);if(!r?.rendered)return;const l=q(".lit-selection-layer",r.el);S.pending.rects.forEach(a=>{const d=document.createElement("div");d.className="lit-pending-selection";d.style.left=a[0]*100+"%";d.style.top=a[1]*100+"%";d.style.width=(a[2]-a[0])*100+"%";d.style.height=(a[3]-a[1])*100+"%";l.appendChild(d)})}
 async function commit(action){
@@ -125,23 +152,33 @@ function paint(n){
  const r=S.pages.get(n);if(!r?.rendered)return;
  const svg=q(".lit-annotation-layer",r.el);svg.innerHTML="";
  (r.annotations||[]).forEach(a=>(a.rects||[]).forEach(x=>{
-  const g=document.createElementNS("http://www.w3.org/2000/svg","g");
-  g.setAttribute("data-ann-id",a.id);g.setAttribute("data-ann-page",String(n));g.setAttribute("class","ann-group");
   if(a.type==="underline"||a.type==="strikeout"){
-   const hit=document.createElementNS("http://www.w3.org/2000/svg","rect");
-   hit.setAttribute("x",x[0]);hit.setAttribute("y",x[1]);hit.setAttribute("width",x[2]-x[0]);hit.setAttribute("height",x[3]-x[1]);hit.setAttribute("class","ann-hit");
    const line=document.createElementNS("http://www.w3.org/2000/svg","line");
    const y=a.type==="underline"?x[3]:(x[1]+x[3])/2;
-   line.setAttribute("x1",x[0]);line.setAttribute("x2",x[2]);line.setAttribute("y1",y);line.setAttribute("y2",y);line.setAttribute("class","ann-line "+(a.type==="underline"?"ann-underline-line":"ann-strike-line"));
-   g.appendChild(hit);g.appendChild(line);
+   line.setAttribute("x1",x[0]);line.setAttribute("x2",x[2]);line.setAttribute("y1",y);line.setAttribute("y2",y);
+   line.setAttribute("class","ann-line "+(a.type==="underline"?"ann-underline-line":"ann-strike-line"));
+   svg.appendChild(line);
   }else{
    const e=document.createElementNS("http://www.w3.org/2000/svg","rect");
-   e.setAttribute("x",x[0]);e.setAttribute("y",x[1]);e.setAttribute("width",x[2]-x[0]);e.setAttribute("height",x[3]-x[1]);e.setAttribute("class","ann-highlight ann-click");
-   g.appendChild(e);
+   e.setAttribute("x",x[0]);e.setAttribute("y",x[1]);e.setAttribute("width",x[2]-x[0]);e.setAttribute("height",x[3]-x[1]);
+   e.setAttribute("class","ann-highlight");svg.appendChild(e);
   }
-  svg.appendChild(g);
  }));
- qa("[data-ann-id]",svg).forEach(el=>el.onclick=e=>{e.stopPropagation();openAnnotation(+el.dataset.annPage,el.dataset.annId)});
+}
+function handlePageAnnotationClick(n,e){
+ if(S.pending||S.area)return;
+ const sel=window.getSelection();if(sel&&!sel.isCollapsed)return;
+ const r=S.pages.get(n),page=q(".lit-page",r.el),pr=page.getBoundingClientRect();
+ const x=clamp((e.clientX-pr.left)/pr.width),y=clamp((e.clientY-pr.top)/pr.height);
+ const anns=[...(r.annotations||[])].reverse();
+ for(const a of anns){
+  for(const rect of a.rects||[]){
+   const padY=Math.max(.003,(rect[3]-rect[1])*.28),padX=.003;
+   if(x>=rect[0]-padX&&x<=rect[2]+padX&&y>=rect[1]-padY&&y<=rect[3]+padY){
+    openAnnotation(n,a.id);return;
+   }
+  }
+ }
 }
 function track(){const sc=q("#lit-scroll"),y=sc.getBoundingClientRect().top+70;let best=1,d=Infinity;S.pages.forEach((r,n)=>{const z=Math.abs(r.el.getBoundingClientRect().top-y);if(z<d){d=z;best=n}});if(best===S.current)return;S.current=best;toolbar();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)}
 async function savePos(page){if(!S.paper||!S.pdf)return;const st=S.paper.reading_status==="未读"?"在读":S.paper.reading_status;S.paper.last_page=page;S.paper.reading_status=st;try{await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({last_page:page,page_count:S.pdf.numPages,reading_status:st})})}catch{}}
@@ -165,7 +202,7 @@ async function saveAnnotationComment(){
  annList();paint(S.selectedAnn.page);
 }
 
-function side(){const p=S.paper;q("#lit-side").innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button></div><div id="lit-side-body"></div>';qa("[data-tab]").forEach(b=>b.onclick=()=>{qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});sideTab("info")}
+function side(){const p=S.paper;q("#lit-side").innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button></div><div id="lit-side-body"></div>';qa("[data-tab]").forEach(b=>b.onclick=()=>{if(b.dataset.tab!=="annotations")S.selectedAnn=null;qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});sideTab("info")}
 function sideTab(tab){
  const root=q("#lit-side-body"),p=S.paper;
  if(tab==="info"){root.innerHTML='<div class="lit-info"><label>题名<input id="li-title" value="'+esc(p.title)+'"></label><label>作者<input id="li-authors" value="'+esc(p.authors||"")+'"></label><div class="lit-two"><label>年份<input id="li-year" value="'+esc(p.year||"")+'"></label><label>阅读状态<select id="li-status"><option '+(p.reading_status==="未读"?"selected":"")+'>未读</option><option '+(p.reading_status==="在读"?"selected":"")+'>在读</option><option '+(p.reading_status==="已读"?"selected":"")+'>已读</option></select></label></div><label>分类（逗号分隔）<input id="li-categories" value="'+esc((p.categories||[]).join(", "))+'"></label><label>标签（逗号分隔）<input id="li-tags" value="'+esc((p.tags||[]).join(", "))+'"></label><label>期刊 / 会议<input id="li-venue" value="'+esc(p.venue||"")+'"></label><div class="lit-two"><label>DOI<input id="li-doi" value="'+esc(p.doi||"")+'"></label><label>Cite Key<input id="li-cite" value="'+esc(p.cite_key||"")+'"></label></div><label class="lit-favorite"><input type="checkbox" id="li-favorite" '+(p.favorite?"checked":"")+'> 收藏此文献</label><button class="primary-btn" id="li-save">保存信息</button></div>';q("#li-save").onclick=saveInfo}
@@ -175,7 +212,7 @@ async function saveInfo(){const p={title:q("#li-title").value,authors:q("#li-aut
 function loadedAnns(){return [...S.pages.entries()].flatMap(([page,r])=>(r.annotations||[]).map(a=>({...a,page}))).sort((a,b)=>a.page-b.page)}
 function annList(){
  const root=q("#lit-side-body");if(!root||!q('[data-tab="annotations"]')?.classList.contains("active"))return;
- const rows=loadedAnns();
+ const rows=loadedAnns().filter(a=>!S.selectedAnn||a.id!==S.selectedAnn.id);
  let editor="";
  if(S.selectedAnn){
   const rr=S.pages.get(S.selectedAnn.page),a=rr?.annotations.find(x=>x.id===S.selectedAnn.id);
