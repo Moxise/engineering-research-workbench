@@ -6,8 +6,8 @@ const S={items:[],paper:null,pdf:null,page:1,scale:1.2,tool:'select',annotations
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||r.status);return d}
 async function ensurePdfJs(){
  if(window.pdfjsLib)return;
- await new Promise((ok,bad)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';s.type='module';s.onload=ok;s.onerror=bad;document.head.appendChild(s)});
- if(!window.pdfjsLib) throw new Error('PDF.js 加载失败，请检查网络。');
+ await new Promise((ok,bad)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';s.onload=ok;s.onerror=bad;document.head.appendChild(s)});
+ if(!window.pdfjsLib) throw new Error('PDF.js 加载失败，请检查网络。'); window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 }
 function statusBadge(s){return '<span class="lit-status '+(s==='已读'?'done':s==='在读'?'reading':'')+'">'+esc(s||'未读')+'</span>'}
 function itemHtml(x){return '<article class="lit-item '+(S.paper?.id===x.id?'active':'')+'" data-lit-id="'+x.id+'"><div class="lit-item-title">'+esc(x.title)+'</div><div class="lit-item-meta">'+esc(x.authors||'')+(x.year?' · '+esc(x.year):'')+'</div><div class="lit-item-foot">'+statusBadge(x.reading_status)+(x.categories||[]).slice(0,2).map(c=>'<span class="lit-chip">'+esc(c)+'</span>').join('')+(x.favorite?'<span title="收藏">★</span>':'')+'</div></article>'}
