@@ -92,11 +92,12 @@ def delete_item(paper_id: str) -> dict[str, Any]:
     data = _load_registry()
     item = next((x for x in data.get("items") or [] if x.get("id") == paper_id), None)
     if not item: raise FileNotFoundError(paper_id)
+    pdf = (_root() / "PDF" / str(item.get("stored_filename") or "")).resolve()
     data["items"] = [x for x in data["items"] if x.get("id") != paper_id]
     trash = ensure_workspace() / "System" / "Trash" / "Literature"
     trash.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    for p in (pdf_path(paper_id), annotation_path(paper_id), note_path(paper_id)):
+    for p in (pdf, annotation_path(paper_id), note_path(paper_id)):
         if p.exists(): shutil.move(str(p), str(trash / f"{stamp}-{p.name}"))
     _save_registry(data)
     return {"ok": True}
