@@ -47,3 +47,9 @@
 .lit-ann-editor blockquote{margin:8px 0;padding-left:8px;border-left:2px solid var(--accent);font-size:12px}
 .lit-ann-editor label{display:block;font-size:12px}
 .lit-ann-editor textarea{width:100%;min-height:96px;margin:6px 0 8px;padding:8px;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:inherit;resize:vertical}
+
+/* repeat-selection + click-through annotation fix */
+.lit-page-shell .lit-text-layer{z-index:5;pointer-events:auto}
+.lit-page-shell .lit-selection-layer{z-index:6;pointer-events:none}
+.lit-page-shell .lit-annotation-layer{z-index:4;pointer-events:none!important}
+.lit-annotation-layer .ann-group,.lit-annotation-layer .ann-hit,.lit-annotation-layer .ann-click{pointer-events:none!important}
