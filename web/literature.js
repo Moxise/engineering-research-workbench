@@ -224,7 +224,7 @@ async function copyPendingText(){
   const ta=document.createElement("textarea");ta.value=text;ta.style.position="fixed";ta.style.opacity="0";
   document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();
  }
- const b=q("#lit-copy");if(b){const old=b.textContent;b.textContent="已复制";setTimeout(()=>{if(b)b.textContent=old},900)}
+ const b=q("#lit-copy");if(b){const old=b.textContent;b.textContent="已复制";b.classList.add("copied");setTimeout(()=>{if(b){b.textContent=old;b.classList.remove("copied")}},900)}
 }
 function previewUrl(a){
  return a?.preview_path?"/workspace-file/"+String(a.preview_path).split("/").map(encodeURIComponent).join("/"):"";
@@ -347,7 +347,7 @@ function annList(){
   const rr=S.pages.get(S.selectedAnn.page),a=rr?.annotations.find(x=>x.id===S.selectedAnn.id);
   if(a)editor='<section class="lit-ann-editor"><div class="lit-ann-editor-head"><strong>P.'+S.selectedAnn.page+' · '+esc(a.type)+'</strong><button id="ann-editor-close">×</button></div>'+annotationExcerpt(a,false)+'<label>批注<textarea id="ann-comment" placeholder="为这个标记添加批注…">'+esc(a.comment||"")+'</textarea></label><button class="primary-btn" id="ann-comment-save">保存批注</button></section>';
  }
- root.innerHTML=editor+'<div class="lit-ann-list">'+(rows.length?rows.map(a=>'<article class="lit-ann '+(S.selectedAnn?.id===a.id?"selected":"")+'" data-open-ann="'+a.id+'" data-page="'+a.page+'"><div><strong>P.'+a.page+" · "+esc(a.type)+'</strong><button data-del="'+a.id+'" data-page="'+a.page+'">×</button></div><blockquote>'+esc(a.text||"区域批注")+"</blockquote>"+(a.comment?"<p>"+esc(a.comment)+"</p>":"")+"</article>").join(""):'<div class="lit-empty">当前已加载页面暂无批注</div>')+"</div>";
+ root.innerHTML=editor+'<div class="lit-ann-list">'+(rows.length?rows.map(a=>'<article class="lit-ann '+(S.selectedAnn?.id===a.id?"selected":"")+'" data-open-ann="'+a.id+'" data-page="'+a.page+'"><div><strong>P.'+a.page+" · "+esc(a.type)+'</strong><button data-del="'+a.id+'" data-page="'+a.page+'">×</button></div>'+annotationExcerpt(a,true)+(a.comment?"<p>"+esc(a.comment)+"</p>":"")+"</article>").join(""):'<div class="lit-empty">当前已加载页面暂无批注</div>')+"</div>";
  if(q("#ann-comment-save"))q("#ann-comment-save").onclick=saveAnnotationComment;
  if(q("#ann-editor-close"))q("#ann-editor-close").onclick=()=>{S.selectedAnn=null;annList()};
  qa("[data-open-ann]").forEach(x=>x.onclick=e=>{if(e.target.closest("[data-del]"))return;jumpToAnnotation(+x.dataset.page,x.dataset.openAnn)});
