@@ -149,11 +149,11 @@ def get_item(paper_id: str) -> dict[str, Any]:
             return _join_doc_meta(dict(item))
     raise FileNotFoundError(paper_id)
 
-_MD_SYNC_KEYS = {"title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex", "tags", "projects"}
+_MD_SYNC_KEYS = {"title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex", "tags", "projects", "kind_marks"}  # v260929 · 分类标记同样以 md 为真值
 
 def update_item(paper_id: str, patch: dict[str, Any]) -> dict[str, Any]:
     data = _load_registry()
-    allowed = {"title","authors","year","venue","doi","url","cite_key","bibtex","reading_status","categories","tags","projects","favorite","last_page","page_count"}
+    allowed = {"title","authors","year","venue","doi","url","cite_key","bibtex","reading_status","categories","tags","projects","favorite","last_page","page_count","kind_marks"}
     for item in data.get("items") or []:
         if item.get("id") != paper_id: continue
         md_patch: dict[str, Any] = {}

@@ -609,6 +609,8 @@
   function markBadges(d){return (d.kind_marks||[]).slice(0,4).map(id=>{const c=allMarks().find(k=>k.id===id);if(!c)return '';const col=esc(c.color);return `<span class="badge mark-badge" style="color:${col};border-color:${col};background:${col}1a">${esc(c.icon)} ${esc(c.label)}</span>`}).join('')}
   /* v260929 · 暴露给 PDF 阅读工作区复用同一套标记徽章渲染，避免标记目录二次维护 */
   window.ERWMarkBadges = markBadges;
+  /* v260929 · 分类标记 chips 暴露给 PDF 阅读工作区复用（html 渲染 + 自定义标记管理）；onChanged 供调用方重渲染自己的 chips 盒 */
+  window.ERWMarkChips = {html:markChipsHtml, openManager:openMarkManager};
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
   function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')+'<button type="button" class="mark-chip add-mark" id="f-mark-add" title="添加自定义标记">＋ 自定义</button>'}
   function wireMarkChips(){
@@ -622,7 +624,7 @@
     box.innerHTML=markChipsHtml([...new Set([...on,...saved])]);
     wireMarkChips();
   }
-  function openMarkManager(){
+  function openMarkManager(onChanged){
     const ICON_CHOICES=['★','✦','◆','●','■','▲','◈','◎','⚑','✿','☾','⚗']; /* v260923 · 预设标记形状 */
     const renderList=()=>{
       const list=customMarks();
@@ -630,7 +632,7 @@
       $$('#f-mark-manage-list .mark-del').forEach(b=>b.onclick=()=>{
         const m=customMarks().find(x=>x.id===b.dataset.del);
         if(m&&!confirm(`删除自定义标记「${m.label}」？已打标的内容将不再显示该标记。`))return;
-        saveCustomMarks(customMarks().filter(x=>x.id!==b.dataset.del)); toast('已删除'); refreshMarkChips(); renderList();
+        saveCustomMarks(customMarks().filter(x=>x.id!==b.dataset.del)); toast('已删除'); refreshMarkChips(); renderList(); if(onChanged)onChanged();
       });
     };
     modal('自定义分类标记',`<div class="row-meta" style="margin-bottom:12px">选择形状、填写名称并挑一个颜色；标记保存在本浏览器，可在所有文档类型中使用与筛选。</div><div class="mark-icon-pick" id="f-mark-icon-pick" style="margin-bottom:12px">${ICON_CHOICES.map((ic,i)=>`<button type="button"${i===0?' class="on"':''} data-icon="${ic}">${ic}</button>`).join('')}</div><div class="mark-mgr-row" style="margin-bottom:12px"><input id="f-mark-label" class="mark-name" maxlength="8" placeholder="名称，如：思路"><label class="color-swatch" title="颜色"><input id="f-mark-color" type="color" value="#4a6fa5"><span id="f-mark-color-dot" style="background:#4a6fa5"></span></label><button class="primary-btn" id="f-mark-save">添加</button></div><div class="mark-chip-box" id="f-mark-manage-list"></div>`,`<button class="secondary-btn" id="mark-mgr-close">关闭</button>`);
@@ -645,7 +647,7 @@
       if(marks.length>=8){toast('自定义标记最多 8 个',true);return;}
       const picked=$('#f-mark-icon-pick button.on');
       marks.push({id:'c_'+Date.now().toString(36),icon:(picked&&picked.dataset.icon)||'★',label,color:$('#f-mark-color').value});
-      saveCustomMarks(marks); toast(`已添加「${label}」`); refreshMarkChips(); renderList();
+      saveCustomMarks(marks); toast(`已添加「${label}」`); refreshMarkChips(); renderList(); if(onChanged)onChanged();
     };
     renderList();
   }
