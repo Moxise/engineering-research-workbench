@@ -107,6 +107,8 @@ def _apply_doc_meta(item: dict[str, Any], doc: dict[str, Any]) -> None:
         item["tags"] = doc["tags"]
     if doc.get("projects"):
         item["projects"] = doc["projects"]
+    if doc.get("excerpt"):  # v260929 · 摘要仅供列表展示（与文献列表页同源同款），不回写
+        item["excerpt"] = doc["excerpt"]
 
 def _join_doc_meta_batch(rows: list[dict[str, Any]]) -> None:
     """v260929 · 列表批量归一：一次批量取 doc（每篇文献只读一次盘），替代逐条 get_doc 的
