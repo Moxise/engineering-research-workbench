@@ -386,6 +386,45 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
     return {"ok": True, "session": session, "assistant": assistant_msg}
 
 
+_ASSIST_PROMPTS = {  # v260929 · PDF 阅读区 AI 助手：按动作切换系统提示词，全部要求中文 Markdown 输出
+    "translate": "你是科研文献翻译助手。将用户提供的外文学术内容准确翻译为中文：专业术语首次出现时在括号内保留原文；公式、变量、单位、人名保持原样。只输出译文本身，不要任何解释或原文重复。",
+    "summarize": "你是科研文献阅读助手。用中文对用户提供的内容做要点总结：提炼核心观点、方法与结论，输出为简洁的 Markdown 列表；只依据给定内容，不得编造其中不存在的信息。",
+    "organize": "你是科研知识整理助手。把用户提供的内容整理为结构化中文知识笔记（Markdown 分节）：核心要点、关键术语、方法/数据、可引用结论；条目化并保留关键数字与公式；只依据给定内容，不得编造。",
+    "polish": "你是科研笔记编辑助手。整理润色用户提供的文献笔记（Markdown）：统一为清晰的结构（如 摘要/要点/方法/结论/摘录），修正错别字与冗余表达；必须保留用户笔记中的全部原有信息，不得删改实质内容，不得添加虚构内容。",
+}
+_MAX_ASSIST_CHARS = 24_000
+
+
+def assist(action: str, text: str, instruction: str = "") -> dict[str, Any]:
+    """v260929 · PDF 阅读区 AI 助手（无会话状态的一次性补全）：
+    复用 设置→Agent/LLM 的模型档案与默认请求模式，按动作套用对应系统提示词。"""
+    action = str(action or "").strip() or "custom"
+    instruction = str(instruction or "").strip()
+    text = str(text or "").strip()
+    if not text:
+        raise ValueError("没有可处理的文本")
+    if len(text) > _MAX_ASSIST_CHARS:
+        text = text[:_MAX_ASSIST_CHARS]
+    if action in _ASSIST_PROMPTS:
+        system_prompt = _ASSIST_PROMPTS[action]
+    else:
+        if not instruction:
+            raise ValueError("自定义指令不能为空")
+        system_prompt = "你是科研工作台里的 AI 助手，严格按用户给出的指令处理提供的文本，输出中文 Markdown。"
+    cfg = _llm_cfg()
+    preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, "")
+    if not preset_model:
+        raise ValueError(f"请求模式 {preset_label} 尚未配置模型名称")
+    request_cfg = dict(cfg)
+    request_cfg["model"] = preset_model
+    if preset_temperature is not None:
+        request_cfg["temperature"] = preset_temperature
+    user_text = text + (f"\n\n---\n指令：{instruction}" if instruction and action == "custom" else "")
+    content, reasoning = _chat_completions(request_cfg, system_prompt, [], user_text, None, request_params)
+    return {"ok": True, "action": action, "content": content, "model": preset_model,
+            "reasoning": reasoning if cfg.get("show_reasoning", True) else ""}
+
+
 def test_connection() -> dict[str, Any]:
     cfg = _llm_cfg()
     url = _endpoint(str(cfg["base_url"]), "/models")
