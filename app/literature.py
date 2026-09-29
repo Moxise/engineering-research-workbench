@@ -93,6 +93,7 @@ def delete_item(paper_id: str) -> dict[str, Any]:
     data = _load_registry()
     item = next((x for x in data.get("items") or [] if x.get("id") == paper_id), None)
     if not item: raise FileNotFoundError(paper_id)
+    doc_id = str(item.get("doc_id") or "")  # v260929 · 删除前留存关联，供联动清理 md 条目
     pdf = (_root() / "PDF" / str(item.get("stored_filename") or "")).resolve()
     data["items"] = [x for x in data["items"] if x.get("id") != paper_id]
     trash = ensure_workspace() / "System" / "Trash" / "Literature"
@@ -101,6 +102,12 @@ def delete_item(paper_id: str) -> dict[str, Any]:
     for p in (pdf, annotation_path(paper_id), note_path(paper_id), _root() / "Previews" / paper_id):
         if p.exists(): shutil.move(str(p), str(trash / f"{stamp}-{p.name}"))
     _save_registry(data)
+    if doc_id:  # v260929 · 联动：关联 md 条目一并移入 Trash，避免孤儿文献条目
+        try:
+            from . import store
+            store.delete_doc(doc_id)
+        except Exception:
+            pass
     return {"ok": True}
 
 def import_pdf(filename: str, source_path: Path, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -131,7 +138,39 @@ def import_pdf(filename: str, source_path: Path, metadata: dict[str, Any] | None
     }
     data = _load_registry(); data["items"].append(item); _save_registry(data)
     note_path(paper_id).write_text(f"# {item['title']}\n\n", encoding="utf-8")
+    _ensure_doc_entry(item)  # v260929 · 数据互认：上传即同步创建 literature md 条目（真值载体）
     return item
+
+
+def _ensure_doc_entry(item: dict[str, Any]) -> str:
+    """v260929 · 数据互认（合并阶段 2）：为 library 条目同步创建 literature md 条目。
+    md 是元数据唯一真值载体：attachment 指向工作区 PDF（相对 Workspace 路径），
+    cite_key 留空由 store 自动生成；doc_id 回写 library.json 形成双向关联。
+    md 创建失败不阻塞上传（doc_id 置空，可由重建端点补齐）。"""
+    if item.get("doc_id"):
+        return str(item["doc_id"])
+    doc_id = ""
+    try:
+        from . import store
+        doc = store.create_doc("literature", {
+            "title": str(item.get("title") or item.get("filename") or "未命名文献"),
+            "authors": item.get("authors") or "",
+            "year": item.get("year") or "",
+            "venue": item.get("venue") or "",
+            "doi": item.get("doi") or "",
+            "url": item.get("url") or "",
+            "cite_key": item.get("cite_key") or "",
+            "attachment": f"Knowledge/Literature/PDF/{item['stored_filename']}",
+        })
+        doc_id = str(doc["id"])
+        data = _load_registry()
+        for x in data.get("items") or []:
+            if x.get("id") == item.get("id"):
+                x["doc_id"] = doc_id
+        _save_registry(data)
+    except Exception:
+        doc_id = ""
+    return doc_id
 
 def pdf_path(paper_id: str) -> Path:
     item = get_item(paper_id)
