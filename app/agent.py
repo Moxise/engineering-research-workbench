@@ -386,33 +386,47 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
     return {"ok": True, "session": session, "assistant": assistant_msg}
 
 
-_ASSIST_PROMPTS = {  # v260929 · PDF 阅读区 AI 助手：按动作切换系统提示词，全部要求中文 Markdown 输出
-    "translate": "你是科研文献翻译助手。将用户提供的外文学术内容准确翻译为中文：专业术语首次出现时在括号内保留原文；公式、变量、单位、人名保持原样。只输出译文本身，不要任何解释或原文重复。",
+_ASSIST_PROMPTS = {  # v260929 · PDF 阅读区 AI 助手：按动作切换系统提示词，全部要求 Markdown 输出；具体行为可经 设置→文献/PDF→AI 阅读助手 调整
+    "translate": "你是科研文献翻译助手。将用户提供的学术内容准确翻译为目标语言：专业术语首次出现时在括号内保留原文；公式、变量、单位、人名保持原样。只输出译文本身，不要任何解释或原文重复。",
     "summarize": "你是科研文献阅读助手。用中文对用户提供的内容做要点总结：提炼核心观点、方法与结论，输出为简洁的 Markdown 列表；只依据给定内容，不得编造其中不存在的信息。",
     "organize": "你是科研知识整理助手。把用户提供的内容整理为结构化中文知识笔记（Markdown 分节）：核心要点、关键术语、方法/数据、可引用结论；条目化并保留关键数字与公式；只依据给定内容，不得编造。",
     "polish": "你是科研笔记编辑助手。整理润色用户提供的文献笔记（Markdown）：统一为清晰的结构（如 摘要/要点/方法/结论/摘录），修正错别字与冗余表达；必须保留用户笔记中的全部原有信息，不得删改实质内容，不得添加虚构内容。",
 }
-_MAX_ASSIST_CHARS = 24_000
+_MAX_ASSIST_CHARS = 24_000  # 默认输入上限，可经 设置→文献/PDF→AI 阅读助手 调整（1000–60000）
 
 
 def assist(action: str, text: str, instruction: str = "") -> dict[str, Any]:
     """v260929 · PDF 阅读区 AI 助手（无会话状态的一次性补全）：
-    复用 设置→Agent/LLM 的模型档案与默认请求模式，按动作套用对应系统提示词。"""
+    复用 设置→Agent/LLM 的模型档案；行为参数（启用/请求模式/翻译目标语言/附加风格指令/输入上限）
+    来自 设置→文献/PDF→AI 阅读助手（config/app.json llm.assist）。"""
     action = str(action or "").strip() or "custom"
     instruction = str(instruction or "").strip()
     text = str(text or "").strip()
     if not text:
         raise ValueError("没有可处理的文本")
-    if len(text) > _MAX_ASSIST_CHARS:
-        text = text[:_MAX_ASSIST_CHARS]
+    cfg = _llm_cfg()
+    st = cfg.get("assist") if isinstance(cfg.get("assist"), dict) else {}
+    if st.get("enabled") is False:
+        raise ValueError("AI 阅读助手已在 设置 → 文献 / PDF 中关闭")
+    try:
+        max_chars = max(1000, min(60000, int(st.get("max_chars") or _MAX_ASSIST_CHARS)))
+    except Exception:
+        max_chars = _MAX_ASSIST_CHARS
+    if len(text) > max_chars:
+        text = text[:max_chars]
     if action in _ASSIST_PROMPTS:
         system_prompt = _ASSIST_PROMPTS[action]
+        if action == "translate":
+            lang = str(st.get("target_language") or "中文").strip() or "中文"
+            system_prompt += f"\n目标语言：{lang}。"
     else:
         if not instruction:
             raise ValueError("自定义指令不能为空")
         system_prompt = "你是科研工作台里的 AI 助手，严格按用户给出的指令处理提供的文本，输出中文 Markdown。"
-    cfg = _llm_cfg()
-    preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, "")
+    style = str(st.get("style_instruction") or "").strip()
+    if style:
+        system_prompt += "\n\n附加要求：\n" + style
+    preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, str(st.get("request_preset") or ""))
     if not preset_model:
         raise ValueError(f"请求模式 {preset_label} 尚未配置模型名称")
     request_cfg = dict(cfg)

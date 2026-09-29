@@ -1124,16 +1124,27 @@
     else if(tab==='literature'){renderLiteratureSettings(p);return}
     else {const ui=app.ui||{};const pins=new Set(ui.sidebar_pinned_groups||[]);p.innerHTML=`<div class="card-head"><div><div class="card-kicker">INTERFACE</div><h3>界面设置</h3></div></div><div class="form-grid cols-5"><div class="field"><label>默认主题</label><select id="ui-theme"><option value="light" ${ui.theme==='light'?'selected':''}>明亮</option><option value="dark" ${ui.theme==='dark'?'selected':''}>深色</option></select></div><div class="field"><label>里程碑默认视图</label><select id="ui-ms"><option value="timeline">时间轴</option><option value="3d" ${ui.milestone_default_view==='3d'?'selected':''}>3D 时间线</option><option value="docs" ${ui.milestone_default_view==='docs'?'selected':''}>文档</option></select></div><div class="field"><label>图谱默认视图</label><select id="ui-graph"><option value="2d">2D</option><option value="3d" ${ui.graph_default_view==='3d'?'selected':''}>3D 星图</option></select></div><div class="field"><label>动画</label><select id="ui-anim"><option value="1" ${ui.animations!==false?'selected':''}>启用</option><option value="0" ${ui.animations===false?'selected':''}>关闭</option></select></div><div class="field"><label>科研热力图月份</label><select id="ui-heatmap">${(()=>{const hm=Number(ui.heatmap_months||12);const cs=HEATMAP_MONTH_OPTIONS.includes(hm)?HEATMAP_MONTH_OPTIONS:[...HEATMAP_MONTH_OPTIONS,hm].sort((a,b)=>a-b);return cs.map(n=>`<option value="${n}" ${hm===n?'selected':''}>近 ${n} 个月</option>`).join('')})()}</select></div><div class="field span-4"><label>侧栏默认常驻展开</label><div class="check-grid">${NAV_GROUPS.map(g=>`<label><input type="checkbox" data-pin-default value="${g.id}" ${pins.has(g.id)?'checked':''}> ${g.label}</label>`).join('')}</div><span class="field-help">侧栏中仍可随时用菱形按钮单独固定；这里决定首次使用或重置后的默认状态。</span></div></div><div style="margin-top:14px"><button class="primary-btn" id="ui-save">保存界面设置</button> <button class="secondary-btn" id="ui-reset-sidebar">应用默认侧栏状态</button></div>`;$('#ui-save').onclick=async()=>{app.ui={...ui,theme:$('#ui-theme').value,milestone_default_view:$('#ui-ms').value,graph_default_view:$('#ui-graph').value,animations:$('#ui-anim').value==='1',heatmap_months:Math.max(1,Math.min(12,+$('#ui-heatmap').value||12)),sidebar_pinned_groups:$$('[data-pin-default]:checked').map(x=>x.value)};state.heatmapMonths=app.ui.heatmap_months;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));await api('/api/config/app',{method:'POST',body:app});state.config.app=app;applyTheme(app.ui.theme);toast('界面设置已保存')};$('#ui-reset-sidebar').onclick=()=>{state.sidebarPinned=new Set($$('[data-pin-default]:checked').map(x=>x.value));state.sidebarOpen=new Set([...state.sidebarPinned,'core']);saveSidebarState();renderSidebar();toast('已应用默认侧栏状态')};}
   }
-  /* v260929 · 设置 · 文献 / PDF：PDF 存放路径查看/修改/迁移、打开文件夹、重建关联入口 */
+  /* v260929 · 设置 · 文献 / PDF：PDF 存放路径查看/修改/迁移、打开文件夹、重建关联入口 + AI 阅读助手（启用/请求模式/目标语言/风格指令/输入上限） */
   async function renderLiteratureSettings(p){
     let st={pdf_dir:'',is_default:true,file_count:0,total_bytes:0};
     try{st=await api('/api/literature/storage')}catch(e){}
     const mb=((st.total_bytes||0)/1048576).toFixed(1);
+    const llm=state.config?.app?.llm||{},as=llm.assist||{};
+    const presets=Array.isArray(llm.request_presets)?llm.request_presets:[];
     p.innerHTML=`<div class="card-head"><div><div class="card-kicker">LITERATURE / PDF</div><h3>文献 PDF 附件</h3><p class="row-meta">PDF 附件统一存放在下方目录；阅读工作区、附件登记与重建关联都以此为基准。批注、笔记与索引仍保存在 Workspace 的 Knowledge/Literature 下，不受此路径影响。</p></div><span class="badge ${st.is_default?'':'accent'}">${st.is_default?'默认路径':'自定义路径'}</span></div>
     <div class="form-grid"><div class="field span-4"><label>当前 PDF 存放路径</label><input value="${esc(st.pdf_dir||'')}" readonly><span class="field-help">现有 PDF：${st.file_count||0} 个 · 共 ${mb} MB${st.is_default?' · 默认目录 Workspace/Knowledge/Literature/PDF':''}</span></div>
     <div class="field span-4"><label>新的存放路径</label><input id="lit-pdf-dir" placeholder="例如 D:\\Papers\\PDF（绝对路径）或 Knowledge/Literature/PDF（相对 Workspace）"><span class="field-help">支持 Workspace 内相对路径或任意绝对路径；目录不存在会自动创建。留空保存 = 恢复默认目录。</span></div>
     <div class="field span-4"><label class="badge" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="lit-pdf-move" checked> 保存时迁移现有 PDF 到新目录，并回写文献条目的附件指向</label></div></div>
-    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="primary-btn" id="lit-pdf-save">保存并应用</button><button class="secondary-btn" id="lit-pdf-open">打开 PDF 文件夹</button><button class="secondary-btn" id="lit-pdf-rebuild" title="以文献条目为准，补齐 PDF 工作区关联与登记">重建关联</button></div>`;
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="primary-btn" id="lit-pdf-save">保存并应用</button><button class="secondary-btn" id="lit-pdf-open">打开 PDF 文件夹</button><button class="secondary-btn" id="lit-pdf-rebuild" title="以文献条目为准，补齐 PDF 工作区关联与登记">重建关联</button></div>
+    <div class="section-title" style="margin-top:22px"><div><h3>AI 阅读助手</h3><p>控制 PDF 阅读区的选中文本 AI 处理（翻译 / 总结 / 整理 / 笔记润色 / 自定义指令）。模型接口沿用「Agent / LLM」中启用的配置，此处仅调整阅读场景的行为参数。</p></div><span class="badge ${as.enabled===false?'warn':'accent'}">${as.enabled===false?'已关闭':'已启用'}</span></div>
+    <div class="form-grid">
+    <div class="field"><label>启用 AI 阅读助手</label><select id="lit-ai-enabled"><option value="1" ${as.enabled!==false?'selected':''}>启用</option><option value="0" ${as.enabled===false?'selected':''}>关闭</option></select></div>
+    <div class="field"><label>请求模式</label><select id="lit-ai-preset"><option value="">跟随 Agent 默认</option>${presets.map(x=>`<option value="${esc(x.id)}" ${as.request_preset===x.id?'selected':''}>${esc(x.label||x.id)}</option>`).join('')}</select><span class="field-help">可为阅读助手单独选择请求模式（如更快的翻译模型）；模式本身在「Agent / LLM」中维护。</span></div>
+    <div class="field"><label>翻译目标语言</label><input id="lit-ai-lang" value="${esc(as.target_language||'中文')}" placeholder="中文"><span class="field-help">作用于工具栏「AI 翻译」。</span></div>
+    <div class="field"><label>最大输入字符</label><input id="lit-ai-max" type="number" min="1000" max="60000" value="${Number(as.max_chars||24000)}"><span class="field-help">选中内容超出该长度会被截断（1000–60000）。</span></div>
+    <div class="field span-4"><label>附加风格指令（可选）</label><textarea id="lit-ai-style" style="min-height:90px">${esc(as.style_instruction||'')}</textarea><span class="field-help">追加到所有 AI 动作的系统提示词末尾。如：输出保持简洁；翻译保留术语对照表；总结按「结论 / 依据 / 局限」分节。</span></div>
+    </div>
+    <div style="margin-top:12px"><button class="primary-btn" id="lit-ai-save">保存 AI 助手设置</button></div>`;
     $('#lit-pdf-save').onclick=async()=>{
       const dir=$('#lit-pdf-dir').value.trim(),move=$('#lit-pdf-move').checked;
       if(move&&!confirm(`将把现有 PDF 迁移到「${dir||'默认目录 Knowledge/Literature/PDF'}」并回写文献条目的附件指向。继续？`))return;
@@ -1142,6 +1153,14 @@
         toast(`已保存：迁移 ${r.moved||0} 个 PDF（跳过 ${r.skipped||0}），更新 ${r.updated||0} 条附件指向`);
         renderLiteratureSettings(p);
       }catch(e){toast(e.message||'保存失败',true)}
+    };
+    $('#lit-ai-save').onclick=async()=>{ /* v260929 · AI 阅读助手设置写入 app.llm.assist，随 /api/config/app 持久化 */
+      const app=state.config.app,cur=app.llm||{};
+      cur.assist={enabled:$('#lit-ai-enabled').value==='1',request_preset:$('#lit-ai-preset').value,target_language:$('#lit-ai-lang').value.trim()||'中文',style_instruction:$('#lit-ai-style').value.trim(),max_chars:Math.max(1000,Math.min(60000,+$('#lit-ai-max').value||24000))};
+      app.llm=cur;
+      const saved=await api('/api/config/app',{method:'POST',body:app});
+      state.config.app=saved;toast('AI 阅读助手设置已保存');
+      renderLiteratureSettings(p);
     };
     $('#lit-pdf-open').onclick=async()=>{try{await api('/api/literature/open-folder',{method:'POST',body:{}})}catch(e){toast(e.message||'打开失败',true)}};
     $('#lit-pdf-rebuild').onclick=rebuildLiteratureLinks;

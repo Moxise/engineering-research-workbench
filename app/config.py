@@ -391,6 +391,7 @@ def get_active_llm_profile_runtime() -> dict[str, Any]:
     profile["enabled"] = app_llm.get("enabled", False) is True
     profile["system_prompt"] = str(app_llm.get("system_prompt") or DEFAULT_SYSTEM_PROMPT)
     profile["protocol"] = "chat_completions"
+    profile["assist"] = app_llm.get("assist") if isinstance(app_llm.get("assist"), dict) else {}  # v260929 · 阅读区 AI 助手设置（app.json 持久化，运行时透出给 agent.assist）
     return profile
 
 
@@ -431,9 +432,21 @@ def save_app(data: dict) -> dict:
             reload_all()
         current_secret = deepcopy(_cache["secret"])
         secret = _merge_profiles_from_public(incoming_llm, current_secret)
+        assist = incoming_llm.get("assist") if isinstance(incoming_llm.get("assist"), dict) else {}
+        try:
+            assist_max_chars = max(1000, min(60000, int(assist.get("max_chars") or 24000)))
+        except Exception:
+            assist_max_chars = 24000
         clean_llm = {
             "enabled": incoming_llm.get("enabled", False) is True,
             "system_prompt": str(incoming_llm.get("system_prompt") or DEFAULT_SYSTEM_PROMPT),
+            "assist": {  # v260929 · 阅读区 AI 助手设置：app.json 的 llm 下持久化（其余 llm 字段归 secret profiles，save 时会被清掉，故显式保留）
+                "enabled": assist.get("enabled") is not False,
+                "request_preset": str(assist.get("request_preset") or ""),
+                "target_language": str(assist.get("target_language") or "中文"),
+                "style_instruction": str(assist.get("style_instruction") or ""),
+                "max_chars": assist_max_chars,
+            },
         }
         incoming["llm"] = clean_llm
         merged = _deep_merge(DEFAULT_APP_CONFIG, incoming)
