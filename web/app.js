@@ -566,7 +566,6 @@
   }
 
   async function renderDocsPage(kind){
-    if(kind==='literature' && window.ERWLiterature){ state.selectedDoc=null; state.dirty=false; return window.ERWLiterature.start(); }
     const [docs,projects] = await Promise.all([api('/api/docs?kind='+encodeURIComponent(kind)), api('/api/projects')]); state.docs=docs; state.projects=projects; state.selectedDoc=null;
     if(kind==='milestone') return renderMilestoneShell(docs,projects);
     $('#main').innerHTML=docsShell(kind,docs,projects);
