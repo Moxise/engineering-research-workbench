@@ -580,7 +580,6 @@
   async function openLiteratureWorkspace(){
     if(!window.ERWLiterature){toast('PDF 阅读工作区未加载',true);return}
     if(state.dirty){toast('请先保存当前条目',true);return}
-    if(!openLiteratureWorkspace._back){openLiteratureWorkspace._back=true;window.addEventListener('erw-lit-back',()=>renderDocsPage('literature'))}
     state.selectedDoc=null; await window.ERWLiterature.start();
   }
   /* v260929 · 附件入口统一：徽章点击一律跳 PDF 阅读区（原新窗口直开功能并入工作区）；
@@ -1130,6 +1129,9 @@
     document.addEventListener('click',e=>{if(!e.target.closest('.reload-wrap'))$('#reload-menu').classList.add('hidden');if(!e.target.closest('.zoom-wrap'))$('#zoom-menu').classList.add('hidden')});
     window.addEventListener('beforeunload',e=>{if(state.dirty){e.preventDefault();e.returnValue=''}});
     window.addEventListener('hashchange',()=>{const r=location.hash.slice(1)||'overview';if(r!==state.route)navigate(r)});
+    /* v260929 · PDF 工作区「返回文献列表」事件：启动即注册（此前挂在 openLiteratureWorkspace 内，
+       从附件徽章进入时无人监听，点击返回无反应）；hash 未变不触发路由，须显式重渲染列表页 */
+    window.addEventListener('erw-lit-back',()=>renderDocsPage('literature'));
   }
 
   async function init(){ try{bindGlobal();await loadBootstrap();renderSidebar();loadWeather();const route=location.hash.slice(1)||'overview';await navigate(route);}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }

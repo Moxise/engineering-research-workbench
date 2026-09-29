@@ -93,3 +93,13 @@
   color:var(--accent);
   box-shadow:inset 0 0 0 1px var(--accent);
 }
+
+/* v260929 · 批注内容防出格：PDF 摘录常含长英文串/DOI/URL，默认不换行会撑破侧栏卡片；
+   摘录与批注文本按任意字符断行，卡片自身收住溢出 */
+.lit-ann,.lit-ann-editor{min-width:0;overflow:hidden}
+.lit-ann blockquote,.lit-ann p,.lit-ann-editor blockquote,.lit-ann-editor p{
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+.lit-ann>div,.lit-ann-editor-head{gap:6px}
+.lit-ann>div strong,.lit-ann-editor-head strong{min-width:0;overflow-wrap:anywhere}
