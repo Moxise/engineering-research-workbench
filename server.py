@@ -389,10 +389,10 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("session_id") or ""), str(payload.get("message") or ""),
                 payload.get("refs") or [], payload.get("images") or [], str(payload.get("request_preset") or ""),
             ))
-        if path == "/api/agent/assist":  # v260929 · PDF 阅读区 AI 助手：选中内容的翻译/总结/整理/笔记润色/自定义
+        if path == "/api/agent/assist":  # v260929 · PDF 阅读区 AI 助手：选中内容的翻译/总结/整理/笔记润色/自定义；v260929c · image 截图多模态
             return self.send_json(agent.assist(
                 str(payload.get("action") or ""), str(payload.get("text") or ""),
-                str(payload.get("instruction") or ""),
+                str(payload.get("instruction") or ""), str(payload.get("image") or ""),
             ))
         if path == "/api/agent/test":
             return self.send_json(agent.test_connection())

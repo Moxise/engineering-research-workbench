@@ -3,7 +3,7 @@
 const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp=v=>Math.max(0,Math.min(1,v));
-const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],ai:{text:"",result:"",error:"",busy:false,instruction:""}};
+const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
 async function ensurePdfJs(){
@@ -54,7 +54,7 @@ async function openPaper(id){
  try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
  catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
-function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.annotations=[];S.ai={text:"",result:"",error:"",busy:false,instruction:""}}
+function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.annotations=[];S.ai={text:"",image:"",result:"",error:"",busy:false,instruction:""}}
 function annotationsForPage(page){return (S.annotations||[]).filter(a=>+a.page===+page)}
 function annotationById(id){return (S.annotations||[]).find(a=>a.id===id)||null}
 function upsertAnnotation(a){
@@ -236,19 +236,29 @@ function beginPdfGeometrySelection(n,e){
 }
 function paintPending(){qa(".lit-selection-layer").forEach(x=>x.innerHTML="");if(!S.pending)return;const r=S.pages.get(S.pending.page);if(!r?.rendered)return;const l=q(".lit-selection-layer",r.el);S.pending.rects.forEach(a=>{const d=document.createElement("div");d.className="lit-pending-selection";d.style.left=a[0]*100+"%";d.style.top=a[1]*100+"%";d.style.width=(a[2]-a[0])*100+"%";d.style.height=(a[3]-a[1])*100+"%";l.appendChild(d)})}
 
-function areaPreviewDataUrl(pending){
+function areaPreviewDataUrl(pending,maxW=640,maxH=420,quality=.82){ /* v260929c · 加参数：批注预览用默认档，AI 截图用高清档（1400/1200/.86） */
  if(!pending||pending.kind!=="area"||!pending.rects?.[0])return "";
  const rec=S.pages.get(pending.page),canvas=q("canvas",rec?.el);
  if(!canvas)return "";
  const [x1,y1,x2,y2]=pending.rects[0];
  const sx=Math.max(0,Math.floor(x1*canvas.width)),sy=Math.max(0,Math.floor(y1*canvas.height));
  const sw=Math.max(1,Math.floor((x2-x1)*canvas.width)),sh=Math.max(1,Math.floor((y2-y1)*canvas.height));
- const maxW=640,maxH=420,scale=Math.min(1,maxW/sw,maxH/sh);
+ const scale=Math.min(1,maxW/sw,maxH/sh);
  const out=document.createElement("canvas");
  out.width=Math.max(1,Math.round(sw*scale));out.height=Math.max(1,Math.round(sh*scale));
  const ctx=out.getContext("2d");
  ctx.drawImage(canvas,sx,sy,sw,sh,0,0,out.width,out.height);
- return out.toDataURL("image/webp",.82);
+ return out.toDataURL("image/webp",quality);
+}
+/* v260929c · 截取当前整页给 AI（多模态）：降采样到 ≤1400px 宽的 WebP，代替选中文本提高公式/表格提取正确率 */
+function pageDataUrl(maxW=1400,quality=.86){
+ const rec=S.pages.get(S.current),canvas=q("canvas",rec?.el);
+ if(!canvas)return "";
+ const sc=Math.min(1,maxW/canvas.width);
+ const out=document.createElement("canvas");
+ out.width=Math.max(1,Math.round(canvas.width*sc));out.height=Math.max(1,Math.round(canvas.height*sc));
+ out.getContext("2d").drawImage(canvas,0,0,out.width,out.height);
+ return out.toDataURL("image/webp",quality);
 }
 async function copyPendingText(){
  const text=String(S.pending?.text||"");
@@ -367,13 +377,14 @@ function sideTab(tab){
 function switchTab(tab){qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab===tab))}
 function aiFromSelection(action){if(!(S.pending?.kind==="text"&&S.pending?.text))return;switchTab("ai");runAssist(action,"")}
 const AI_LABELS={translate:"AI 翻译中…",summarize:"AI 总结中…",organize:"AI 整理中…",polish:"AI 润色笔记中…",custom:"AI 处理中…"};
-async function runAssist(action,instruction,label){ /* v260929b · label：按钮文字，自定义动作据此显示「AI xxx中…」 */
+async function runAssist(action,instruction,label){ /* v260929b · label：按钮文字，自定义动作据此显示「AI xxx中…」；v260929c · image：截图代替/伴随文本 */
  if(S.ai.busy)return;
  const fresh=S.pending?.kind==="text"?String(S.pending.text||""):"";
  const src=fresh||S.ai.text||"";
- if(!src){S.ai={...S.ai,text:"",result:"",busy:false,error:"没有可处理的文本：请先在 PDF 中选中一段文字，或在「笔记」页用 AI 整理已有笔记。"};aiPanel();return}
+ const img=S.ai.image||"";
+ if(!src&&!img){S.ai={...S.ai,text:"",result:"",busy:false,error:"没有可处理的内容：请先在 PDF 中选中文字、截取页面/框选区域，或在「笔记」页用 AI 整理已有笔记。"};aiPanel();return}
  S.ai={...S.ai,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):"",result:"",error:"",busy:true,busyLabel:AI_LABELS[action]||(label?"AI "+label+"中…":"AI 处理中…")};aiPanel();
- try{const d=await api("/api/agent/assist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):""})});S.ai={...S.ai,result:String(d.content||""),error:"",busy:false}}
+ try{const d=await api("/api/agent/assist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):"",...(img?{image:img}:{})})});S.ai={...S.ai,result:String(d.content||""),error:"",busy:false}}
  catch(e){S.ai={...S.ai,error:String(e?.message||e),result:"",busy:false}}
  aiPanel();
 }
@@ -398,8 +409,12 @@ function mdLite(s){ /* 结果区轻量 Markdown 渲染：标题/列表/粗体/�
 function aiPanel(){
  const root=q("#lit-side-body");if(!root)return;const a=S.ai;
  const cas=window.ERWAssistCustomActions?window.ERWAssistCustomActions():[]; /* v260929b · 设置中维护的自定义阅读动作，与固定四动作并列 */
+ const vis=window.ERWVisionEnabled?window.ERWVisionEnabled():false; /* v260929c · 多模态开关：开启才显示截图入口 */
+ const srcHtml=a.image?'<img class="lit-ai-img" src="'+esc(a.image)+'" alt="待处理截图">'+(a.text?'<div class="lit-ai-src-text">'+esc(a.text.slice(0,600))+(a.text.length>600?"…":"")+'</div>':"")
+  :'<div class="lit-ai-src-text">'+(a.text?esc(a.text.slice(0,600))+(a.text.length>600?"…":""):'<i>暂无。选中文字后点工具栏「AI 翻译 / 总结 / 整理」'+(vis?'，或点下方「📷 截取当前页」用截图代替选中文本':'')+'；也可在「笔记」页点「AI 整理」。</i>')+'</div>';
  root.innerHTML='<div class="lit-ai">'
- +'<div class="lit-ai-src"><span class="lit-ai-src-head">待处理内容</span><div class="lit-ai-src-text">'+(a.text?esc(a.text.slice(0,600))+(a.text.length>600?"…":""):'<i>暂无。在 PDF 中选中文字后点工具栏「AI 翻译 / 总结 / 整理」，或在「笔记」页点「AI 整理」。</i>')+'</div></div>'
+ +'<div class="lit-ai-src"><span class="lit-ai-src-head">待处理内容</span>'+srcHtml+'</div>'
+ +(vis?'<div class="lit-ai-capture"><button type="button" class="secondary-btn" id="lit-ai-cap-page" title="把当前整页截图交给 AI（多模态），代替选中文本，公式/表格提取更准">📷 截取当前页</button>'+(S.pending?.kind==="area"?'<button type="button" class="secondary-btn" id="lit-ai-cap-area" title="把当前框选区域截图交给 AI">用框选区域</button>':"")+(a.image?'<button type="button" class="ghost-btn danger" id="lit-ai-cap-clear" title="移除截图，回到纯文本模式">移除截图</button>':"")+'</div>':"")
  +'<div class="lit-ai-actions"><button type="button" class="secondary-btn" data-aia="translate">翻译</button><button type="button" class="secondary-btn" data-aia="summarize">总结</button><button type="button" class="secondary-btn" data-aia="organize">整理</button><button type="button" class="secondary-btn" data-aia="polish" title="处理当前待处理内容为润色后的笔记">润色</button>'+cas.map(x=>'<button type="button" class="secondary-btn" data-aia="'+esc(x.id)+'" title="'+esc(String(x.prompt||"").slice(0,100))+'">'+esc(x.name)+'</button>').join('')+'</div>'
  +'<div class="lit-ai-custom"><input id="lit-ai-instr" placeholder="自定义指令，如：解释这段公式推导…" value="'+esc(a.instruction||"")+'"><button type="button" class="primary-btn" id="lit-ai-run">运行</button></div>'
  +(a.busy?'<div class="lit-ai-result busy">'+esc(a.busyLabel||"AI 处理中…")+'</div>'
@@ -407,6 +422,9 @@ function aiPanel(){
   :(a.error?'<div class="lit-ai-result err">'+esc(a.error)+'</div>':'')))
  +'</div>';
  qa("[data-aia]").forEach(b=>b.onclick=()=>runAssist(b.dataset.aia,"",b.textContent)); /* v260929b · 传按钮文字作 label，固定四动作仍由 AI_LABELS 优先 */
+ const capP=q("#lit-ai-cap-page");if(capP)capP.onclick=()=>{const d=pageDataUrl();if(!d){S.ai={...S.ai,error:"当前页尚未渲染完成，请稍候再试"};aiPanel();return}S.ai={...S.ai,image:d,result:"",error:""};aiPanel()}; /* v260929c · 整页截图 */
+ const capA=q("#lit-ai-cap-area");if(capA)capA.onclick=()=>{const d=areaPreviewDataUrl(S.pending,1400,1200,.86);if(d){S.ai={...S.ai,image:d,result:"",error:""};aiPanel()}}; /* v260929c · 框选区域截图（高清档） */
+ const capX=q("#lit-ai-cap-clear");if(capX)capX.onclick=()=>{S.ai={...S.ai,image:""};aiPanel()}; /* v260929c · 移除截图 */
  const run=q("#lit-ai-run");if(run)run.onclick=()=>{const v=q("#lit-ai-instr")?.value||"";S.ai.instruction=v;if(!v.trim()){S.ai={...S.ai,error:"请先输入自定义指令（如：解释这段公式推导）"};aiPanel();return}runAssist("custom",v)};
  const ap=q("#lit-ai-append");if(ap)ap.onclick=()=>noteApply("append");
  const rp=q("#lit-ai-replace");if(rp)rp.onclick=()=>noteApply("replace");

@@ -119,6 +119,10 @@ html[data-density="compact"] .lit-head-actions .ghost-btn{min-height:26px;paddin
 .lit-ai-src{display:grid;gap:4px}
 .lit-ai-src-head{font-size:11px;color:var(--muted)}
 .lit-ai-src-text{max-height:96px;overflow:auto;font-size:11px;line-height:1.5;color:var(--muted);border:1px dashed var(--border);border-radius:6px;padding:6px 8px;white-space:pre-wrap;word-break:break-word}
+.lit-ai-img{width:100%;display:block;border:1px solid var(--border);border-radius:6px} /* v260929c · 待处理截图预览 */
+.lit-ai-capture{display:flex;gap:6px;flex-wrap:wrap} /* v260929c · 截图入口（多模态开启时显示） */
+.lit-ai-capture .secondary-btn{min-height:28px;padding:0 12px;font-size:12px}
+.lit-ai-capture .ghost-btn{min-height:28px;padding:0 10px;font-size:12px}
 .lit-ai-actions{display:flex;gap:6px;flex-wrap:wrap}
 .lit-ai-actions .secondary-btn{min-height:28px;padding:0 12px;font-size:12px}
 .lit-ai-custom{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center}

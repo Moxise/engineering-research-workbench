@@ -328,6 +328,7 @@ def _strip_legacy_llm_for_storage(app: dict[str, Any]) -> dict[str, Any]:
         "enabled": old.get("enabled", False) is True,
         "system_prompt": str(old.get("system_prompt") or DEFAULT_SYSTEM_PROMPT),
         "assist": _clean_assist(old.get("assist")),  # v260929 · 保留 AI 阅读助手设置
+        "vision_enabled": old.get("vision_enabled", False) is True,  # v260929c · 多模态开关
     }
     return _deep_merge(DEFAULT_APP_CONFIG, out)
 
@@ -438,6 +439,7 @@ def get_active_llm_profile_runtime() -> dict[str, Any]:
     profile["system_prompt"] = str(app_llm.get("system_prompt") or DEFAULT_SYSTEM_PROMPT)
     profile["protocol"] = "chat_completions"
     profile["assist"] = app_llm.get("assist") if isinstance(app_llm.get("assist"), dict) else {}  # v260929 · 阅读区 AI 助手设置（app.json 持久化，运行时透出给 agent.assist）
+    profile["vision_enabled"] = app_llm.get("vision_enabled", False) is True  # v260929c · 多模态开关：阅读区 AI 助手可发送截图（需模型支持图片输入）
     return profile
 
 
@@ -483,6 +485,7 @@ def save_app(data: dict) -> dict:
             "enabled": incoming_llm.get("enabled", False) is True,
             "system_prompt": str(incoming_llm.get("system_prompt") or DEFAULT_SYSTEM_PROMPT),
             "assist": _clean_assist(assist),  # v260929 · AI 阅读助手设置：app.json 的 llm 下持久化（其余 llm 字段归 secret profiles，save 时会被清掉，故显式保留）
+            "vision_enabled": incoming_llm.get("vision_enabled", False) is True,  # v260929c · 多模态开关：阅读区 AI 助手可发送截图
         }
         incoming["llm"] = clean_llm
         merged = _deep_merge(DEFAULT_APP_CONFIG, incoming)
