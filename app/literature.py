@@ -6,6 +6,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +23,32 @@ def _root() -> Path:
     for rel in ("PDF", "Annotations", "Notes", "Index", "Previews"):
         (root / rel).mkdir(parents=True, exist_ok=True)
     return root
+
+def _configured_pdf_dir() -> str:
+    """v260929 · 设置项 app.literature.pdf_dir（空 = 默认 Knowledge/Literature/PDF）。"""
+    try:
+        from . import config
+        return str((config.get_app().get("literature") or {}).get("pdf_dir") or "").strip()
+    except Exception:
+        return ""
+
+def _pdf_dir() -> Path:
+    """v260929 · PDF 附件实际存放目录：可在设置中修改；相对路径相对 Workspace。"""
+    raw = _configured_pdf_dir()
+    p = Path(raw) if raw else _root() / "PDF"
+    if not p.is_absolute():
+        p = ensure_workspace() / p
+    p = p.resolve()
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+def _attachment_rel(path: Path) -> str:
+    """v260929 · 附件写回 md 的路径口径：Workspace 内相对路径（posix），外部绝对路径。"""
+    path = path.resolve()
+    try:
+        return str(path.relative_to(ensure_workspace().resolve())).replace("\\", "/")
+    except Exception:
+        return str(path)
 
 def _registry_path() -> Path:
     return _root() / "Index" / "library.json"
@@ -130,7 +158,7 @@ def delete_item(paper_id: str) -> dict[str, Any]:
     item = next((x for x in data.get("items") or [] if x.get("id") == paper_id), None)
     if not item: raise FileNotFoundError(paper_id)
     doc_id = str(item.get("doc_id") or "")  # v260929 · 删除前留存关联，供联动清理 md 条目
-    pdf = (_root() / "PDF" / str(item.get("stored_filename") or "")).resolve()
+    pdf = (_pdf_dir() / str(item.get("stored_filename") or "")).resolve()
     data["items"] = [x for x in data["items"] if x.get("id") != paper_id]
     trash = ensure_workspace() / "System" / "Trash" / "Literature"
     trash.mkdir(parents=True, exist_ok=True)
@@ -150,7 +178,7 @@ def import_pdf(filename: str, source_path: Path, metadata: dict[str, Any] | None
     metadata = metadata or {}
     paper_id = uuid.uuid4().hex
     name = _safe_name(filename)
-    dest = _root() / "PDF" / f"{paper_id}-{name}"
+    dest = _pdf_dir() / f"{paper_id}-{name}"
     h = hashlib.sha256()
     with source_path.open("rb") as src, dest.open("wb") as out:
         head = src.read(5)
@@ -196,7 +224,7 @@ def _ensure_doc_entry(item: dict[str, Any]) -> str:
             "doi": item.get("doi") or "",
             "url": item.get("url") or "",
             "cite_key": item.get("cite_key") or "",
-            "attachment": f"Knowledge/Literature/PDF/{item['stored_filename']}",
+            "attachment": _attachment_rel(_pdf_dir() / item["stored_filename"]),
         })
         doc_id = str(doc["id"])
         try:  # v260929 · 直写 md 须补刷 SQLite 索引，否则文献列表页（索引查询）看不到新条目
@@ -245,7 +273,7 @@ def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
             continue
         paper_id = uuid.uuid4().hex
         safe = _safe_name(src.name)
-        dest = _root() / "PDF" / f"{paper_id}-{safe}"
+        dest = _pdf_dir() / f"{paper_id}-{safe}"
         if src.resolve() != dest.resolve():
             in_ws = False  # v260929 · 合并存放空间：Workspace 内移动迁入，外部绝对路径复制保原件
             try:
@@ -276,7 +304,7 @@ def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
             "created_at": now, "updated_at": now,
         })
         stats["registered"] += 1
-        rel = f"Knowledge/Literature/PDF/{dest.name}"
+        rel = _attachment_rel(dest)
         result_att = rel  # 单条模式：登记后的库内路径，返回给前端重试跳转
         if att.replace("\\", "/") != rel:
             try:  # v260929 · attachment 更新走 store（indexer 白名单无此键），随后补刷该行索引
@@ -296,6 +324,91 @@ def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
     out = {"ok": True, **stats}
     if single: out["attachment"] = result_att
     return out
+
+
+def storage_info() -> dict[str, Any]:
+    """v260929 · 设置页：当前 PDF 存放目录与库内文件概况。"""
+    d = _pdf_dir()
+    files = [x for x in d.glob("*.pdf") if x.is_file()] if d.is_dir() else []
+    return {
+        "pdf_dir": str(d),
+        "is_default": not _configured_pdf_dir(),
+        "default_dir": str((_root() / "PDF").resolve()),
+        "file_count": len(files),
+        "total_bytes": sum(x.stat().st_size for x in files),
+    }
+
+def set_pdf_dir(new_dir: str, move_existing: bool = True) -> dict[str, Any]:
+    """v260929 · 设置页：修改 PDF 存放目录（app.literature.pdf_dir）。
+    move_existing 时把旧目录下现有 PDF 移动到新目录，并回写指向旧目录的文献条目 attachment。
+    目录本身不变更 Annotations/Notes/Index/Previews（仍在 Workspace 知识目录内）。"""
+    from . import config
+    new_dir = str(new_dir or "").strip()
+    old = _pdf_dir()
+    if new_dir:
+        target = Path(new_dir)
+        if not target.is_absolute():
+            target = ensure_workspace() / target
+        target = target.resolve()
+        if target.exists() and not target.is_dir():
+            raise ValueError("目标路径已存在且不是文件夹")
+        if target == old:
+            return {"ok": True, "pdf_dir": str(old), "moved": 0, "skipped": 0, "updated": 0}
+    else:
+        target = (_root() / "PDF").resolve()
+        if target == old:
+            return {"ok": True, "pdf_dir": str(old), "moved": 0, "skipped": 0, "updated": 0}
+    app = config.get_app()
+    app.setdefault("literature", {})["pdf_dir"] = new_dir
+    config.save_app(app)
+    moved = skipped = updated = 0
+    if move_existing and old.is_dir() and old != target:
+        target.mkdir(parents=True, exist_ok=True)
+        for f in old.iterdir():
+            if not (f.is_file() and f.suffix.lower() == ".pdf"):
+                continue
+            dest = target / f.name
+            if dest.exists():
+                skipped += 1
+                continue
+            shutil.move(str(f), str(dest))
+            moved += 1
+    if move_existing:
+        try:
+            from . import indexer, store
+            for doc in store.list_docs("literature"):
+                src = store.resolve_attachment(doc)
+                if src is None:
+                    continue
+                try:
+                    src.relative_to(old)
+                except ValueError:
+                    continue  # 不指向旧目录的附件（含外部绝对路径）不动
+                dest = target / src.name
+                if not dest.exists():
+                    continue
+                try:
+                    upd = store.update_doc(doc["id"], {"attachment": _attachment_rel(dest)})
+                    indexer.index_doc_path(str(upd.get("path") or ""))
+                    updated += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return {"ok": True, "pdf_dir": str(target), "moved": moved, "skipped": skipped, "updated": updated}
+
+def open_folder() -> dict[str, Any]:
+    """v260929 · 设置页：在系统文件管理器中打开 PDF 存放目录。"""
+    d = _pdf_dir()
+    if not d.is_dir():
+        raise FileNotFoundError(str(d))
+    if os.name == "nt":
+        os.startfile(str(d))  # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(d)])
+    else:
+        subprocess.Popen(["xdg-open", str(d)])
+    return {"ok": True, "pdf_dir": str(d)}
 
 
 def _cite_key_from(title: str, year: str, authors: str) -> str:
@@ -383,8 +496,9 @@ def lookup_metadata(identifier: str) -> dict[str, Any]:
 
 def pdf_path(paper_id: str) -> Path:
     item = get_item(paper_id)
-    p = (_root() / "PDF" / str(item.get("stored_filename") or "")).resolve()
-    if (_root() / "PDF").resolve() not in p.parents: raise ValueError("Invalid PDF path")
+    root = _pdf_dir().resolve()
+    p = (root / str(item.get("stored_filename") or "")).resolve()
+    if root not in p.parents: raise ValueError("Invalid PDF path")
     return p
 
 def annotation_path(paper_id: str) -> Path:

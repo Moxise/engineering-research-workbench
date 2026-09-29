@@ -248,6 +248,8 @@ class Handler(BaseHTTPRequestHandler):
                 (q.get("q") or [""])[0], (q.get("status") or [""])[0], (q.get("category") or [""])[0],
                 _q_int(q, "page", 1, 1, 1000000), _q_int(q, "page_size", 60, 10, 200),
             ))
+        if path == "/api/literature/storage":  # v260929 · 设置页：PDF 存放目录概况
+            return self.send_json(literature.storage_info())
         if path.startswith("/api/literature/") and path.endswith("/annotations"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
             page_raw = (q.get("page") or [""])[0]
@@ -361,6 +363,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(literature.rebuild_registry(str(payload.get("doc_id") or "")))
         if path == "/api/literature/lookup":  # v260929 · 自动填写：DOI/arXiv 编号联网抓取元数据
             return self.send_json(literature.lookup_metadata(str(payload.get("identifier") or "")))
+        if path == "/api/literature/storage":  # v260929 · 设置页：修改 PDF 存放目录（可迁移现有 PDF）
+            return self.send_json(literature.set_pdf_dir(
+                str(payload.get("pdf_dir") or ""), bool(payload.get("move_existing", True))))
+        if path == "/api/literature/open-folder":  # v260929 · 设置页：文件管理器打开 PDF 目录
+            return self.send_json(literature.open_folder())
         if path.startswith("/api/literature/") and path.endswith("/annotations"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
             return self.send_json(literature.save_annotation(paper_id, payload), 201)
