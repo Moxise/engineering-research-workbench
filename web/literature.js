@@ -491,17 +491,19 @@ function paintLiTags(tags){
  const add=q("#li-tag-add");
  if(add)add.onclick=()=>{if(window.ERWTagPicker)window.ERWTagPicker(liTags(),()=>[...new Set(S.items.flatMap(x=>x.tags||[]))],paintLiTags)};
 }
-function loadedAnns(){return [...(S.annotations||[])].sort((a,b)=>(+a.page-+b.page)||String(a.created_at||"").localeCompare(String(b.created_at||"")))}
+/* v260929g · 列表按编号排序：编号即创建（截图）顺序，跨页也按全局编号排列；缺号旧数据排末尾 */
+function loadedAnns(){return [...(S.annotations||[])].sort((a,b)=>((a.no||Number.MAX_SAFE_INTEGER)-(b.no||Number.MAX_SAFE_INTEGER))||String(a.created_at||"").localeCompare(String(b.created_at||"")))}
 function annList(){
  const root=q("#lit-side-body");if(!root||!q('[data-tab="annotations"]')?.classList.contains("active"))return;
- const rows=loadedAnns().filter(a=>!S.selectedAnn||a.id!==S.selectedAnn.id);
- let editor="";
- if(S.selectedAnn){
-  const a=annotationById(S.selectedAnn.id);
-  /* v260929f · 编辑卡片加「加入笔记」+「附带截图」勾选（仅 area 批注有已落盘截图时显示），标题带批注编号 #no */
-  if(a)editor='<section class="lit-ann-editor"><div class="lit-ann-editor-head"><strong>P.'+S.selectedAnn.page+(a.no?' · #'+a.no:'')+' · '+esc(a.type)+'</strong><button id="ann-editor-close">×</button></div>'+annotationExcerpt(a,false)+'<label>批注<textarea id="ann-comment" placeholder="为这个标记添加批注…">'+esc(a.comment||"")+'</textarea></label><div class="lit-ann-editor-actions"><button class="primary-btn" id="ann-comment-save">保存批注</button><button class="secondary-btn" id="ann-to-note" title="把批注摘录与意见写入笔记（条目正文）末尾'+(a.preview_path?'，可附带截图':'')+'">加入笔记</button>'+(a.preview_path?'<label class="lit-ann-shot-check" title="勾选后随批注内容一并写入笔记的 Markdown 图片引用"><input type="checkbox" id="ann-with-shot" checked> 附带截图</label>':'')+'</div></section>';
- }
- root.innerHTML=editor+'<div class="lit-ann-list">'+(rows.length?rows.map(a=>'<article class="lit-ann '+(S.selectedAnn?.id===a.id?"selected":"")+'" data-open-ann="'+a.id+'" data-page="'+a.page+'"><div><strong>P.'+a.page+(a.no?" · #"+a.no:"")+" · "+esc(a.type)+'</strong><button data-del="'+a.id+'" data-page="'+a.page+'">×</button></div>'+annotationExcerpt(a,true)+(a.comment?"<p>"+esc(a.comment)+"</p>":"")+"</article>").join(""):'<div class="lit-empty">当前已加载页面暂无批注</div>')+"</div>";
+ if(S.selectedAnn&&!annotationById(S.selectedAnn.id))S.selectedAnn=null;
+ const editId=S.selectedAnn?.id;
+ const rows=loadedAnns();
+ /* v260929g · 选中批注原地展开为编辑卡片（不抽到顶部，位置不随选中改变） */
+ const card=a=>{
+  if(a.id!==editId)return '<article class="lit-ann" data-open-ann="'+a.id+'" data-page="'+a.page+'"><div><strong>P.'+a.page+(a.no?" · #"+a.no:"")+" · "+esc(a.type)+'</strong><button data-del="'+a.id+'" data-page="'+a.page+'">×</button></div>'+annotationExcerpt(a,true)+(a.comment?"<p>"+esc(a.comment)+"</p>":"")+"</article>";
+  return '<section class="lit-ann lit-ann-editor"><div class="lit-ann-editor-head"><strong>P.'+a.page+(a.no?' · #'+a.no:'')+' · '+esc(a.type)+'</strong><button id="ann-editor-close" title="收起">×</button></div>'+annotationExcerpt(a,false)+'<label>批注<textarea id="ann-comment" placeholder="为这个标记添加批注…">'+esc(a.comment||"")+'</textarea></label><div class="lit-ann-editor-actions"><button class="primary-btn" id="ann-comment-save">保存批注</button><button class="secondary-btn" id="ann-to-note" title="把批注摘录与意见写入笔记（条目正文）末尾'+(a.preview_path?'，可附带截图':'')+'">加入笔记</button>'+(a.preview_path?'<label class="lit-ann-shot-check" title="勾选后随批注内容一并写入笔记的 Markdown 图片引用"><input type="checkbox" id="ann-with-shot" checked> 附带截图</label>':'')+'</div></section>';
+ };
+ root.innerHTML='<div class="lit-ann-list">'+(rows.length?rows.map(card).join(""):'<div class="lit-empty">当前已加载页面暂无批注</div>')+"</div>";
  if(q("#ann-comment-save"))q("#ann-comment-save").onclick=saveAnnotationComment;
  if(q("#ann-to-note"))q("#ann-to-note").onclick=annToNote; /* v260929f · 批注内容（可含截图）写入笔记 */
  if(q("#ann-editor-close"))q("#ann-editor-close").onclick=()=>{S.selectedAnn=null;annList()};
