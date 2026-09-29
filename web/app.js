@@ -666,12 +666,22 @@
     $$('[data-doc-id]').forEach(x=>x.classList.toggle('active',x.dataset.docId===id));
     renderDocEditor(doc);
   }
+  /* v260929 · 条目信息（填写一次即固定）可收起：收起后只留一行摘要，腾出正文撰写/阅读空间；状态记忆在 localStorage */
+  function metaCollapsed(){try{return localStorage.getItem('erwMetaCollapsed')==='1'}catch{return false}}
+  function metaSummary(doc){
+    const parts=String(doc.authors||'').split(/[;,，；]/).map(x=>x.trim()).filter(Boolean);
+    const authors=parts.length?parts.length>1?parts[0]+' 等':parts[0]:'';
+    return [doc.title,authors,doc.year?String(doc.year):'',doc.venue||''].filter(Boolean).join(' · ');
+  }
   function renderDocEditor(doc){
     const kind=doc.kind, special=kind==='literature';
     const dateField=kind==='milestone'?'due':(kind==='summary'||kind==='journal'?'record_date':kind==='literature'?'added_date':'');
     $('#doc-editor').className='card doc-editor';
     const tagsSpan=special||kind==='summary'?'span-4':(dateField?'span-2':'span-3');
-    $('#doc-editor').innerHTML=`<div class="form-grid">
+    const metaFold=metaCollapsed();
+    $('#doc-editor').innerHTML=`<div class="meta-block${metaFold?' collapsed':''}" id="meta-block">
+      <div class="meta-head"><span class="meta-head-title">条目信息</span><span class="meta-summary">${esc(metaSummary(doc))}</span><button type="button" class="ghost-btn meta-toggle" id="meta-toggle">${metaFold?'展开':'收起'}</button></div>
+      <div class="form-grid">
       <div class="field span-2"><label>标题</label><input id="f-title" value="${esc(doc.title)}"></div>
       <div class="field span-2"><div class="field-label-row"><label>项目</label><span class="field-help">默认为空；点击 ＋ 从已有项目中勾选，可同时关联多个项目。</span></div><div class="project-picker-row"><div class="project-chip-box" id="f-projects" data-projects="${esc(JSON.stringify(doc.projects||[]))}"></div><button type="button" class="secondary-btn project-add-btn" id="f-project-add" title="从已有项目中添加">＋</button></div></div>
       <div class="field"><label>状态</label><select id="f-status">${(state.statuses[kind]||[]).map(s=>`<option ${s===doc.status?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
@@ -681,10 +691,17 @@
       <div class="field ${tagsSpan}"><div class="field-label-row"><label>标签</label><span class="field-help">点击 ＋ 添加：可勾选已有标签或输入新标签。</span></div><div class="project-picker-row"><div class="project-chip-box" id="f-tags" data-tags="${esc(JSON.stringify(doc.tags||[]))}"></div><button type="button" class="secondary-btn project-add-btn" id="f-tag-add" title="添加标签">＋</button></div></div>
       <!-- v260924k · 置顶开关与分类标记同行：标签行右侧，不另占一行 -->
       <div class="field span-4"><div class="field-label-row"><label>分类标记</label><label class="pin-toggle" title="勾选后该条目固定显示在列表最前"><input id="f-pinned" type="checkbox" ${doc.pinned?'checked':''}>📌 置顶显示</label></div><div class="mark-chip-box" id="f-marks">${markChipsHtml(doc.kind_marks||[])}</div></div>
+      </div>
     </div>
     <div class="editor-wrap">${editorHtml(doc.body||'')}</div>
     <div class="editor-actions"><span class="row-meta">${esc(doc.path)} · 更新 ${fmtTime(doc.updated)}</span><div class="right"><button class="secondary-btn" id="doc-delete">删除</button><button class="primary-btn" id="doc-save">保存</button></div></div>`;
     wireEditor();
+    const metaBtn=$('#meta-toggle'); /* v260929 · 条目信息收起/展开：只切类名不动输入值，保存仍带全部字段 */
+    if(metaBtn)metaBtn.onclick=()=>{
+      const folded=$('#meta-block').classList.toggle('collapsed');
+      metaBtn.textContent=folded?'展开':'收起';
+      try{localStorage.setItem('erwMetaCollapsed',folded?'1':'0')}catch{}
+    };
     ['f-title','f-status','f-date','f-summary-type','f-pinned','f-authors','f-year','f-venue','f-doi','f-url','f-cite-key','f-bibtex'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('input',()=>state.dirty=true)}); /* v260924i · 含置顶开关脏标记 */
     const lookupBtn=$('#f-lookup-btn'); if(lookupBtn)lookupBtn.onclick=autoFillLiterature; /* v260929 · 自动填写按钮（文献编辑器） */
     paintEditorProjects(doc.projects||[]); $('#f-project-add').onclick=openEditorProjectPicker;
