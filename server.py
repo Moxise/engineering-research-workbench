@@ -357,8 +357,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(store.save_bundle(str(payload.get("filename") or "knowledge-bundle.md"), str(payload.get("content") or "")))
         if path == "/api/literature/export-bibtex":  # v260929 · 修复上游错位：此路由须在 POST 分发且先于 /api/literature/ 泛匹配，否则落入 update_item 报 404
             return self.send_json(indexer.export_bibtex(payload.get("ids") or []))
-        if path == "/api/literature/rebuild":  # v260929 · 真值归一：以文献 md 为准重建 library 关联/登记
-            return self.send_json(literature.rebuild_registry())
+        if path == "/api/literature/rebuild":  # v260929 · 真值归一：以文献 md 为准重建 library 关联/登记；doc_id 传入时仅处理该条目（徽章点击自动登记）
+            return self.send_json(literature.rebuild_registry(str(payload.get("doc_id") or "")))
         if path == "/api/literature/lookup":  # v260929 · 自动填写：DOI/arXiv 编号联网抓取元数据
             return self.send_json(literature.lookup_metadata(str(payload.get("identifier") or "")))
         if path.startswith("/api/literature/") and path.endswith("/annotations"):

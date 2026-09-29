@@ -583,10 +583,25 @@
     if(!openLiteratureWorkspace._back){openLiteratureWorkspace._back=true;window.addEventListener('erw-lit-back',()=>renderDocsPage('literature'))}
     state.selectedDoc=null; await window.ERWLiterature.start();
   }
+  /* v260929 · 附件入口统一：徽章点击一律跳 PDF 阅读区（原新窗口直开功能并入工作区）；
+     未登记的附件先自动单条登记（迁移入 Knowledge/Literature/PDF/）再重试，仍失败才提示 */
+  async function openAttachmentInWorkspace(d){
+    if(!window.ERWLiterature)throw new Error('PDF 阅读工作区未加载');
+    if(state.dirty)throw new Error('请先保存当前条目');
+    if(!d||!d.attachment)throw new Error('该条目未配置 PDF 附件');
+    try{await window.ERWLiterature.openByAttachment(d.attachment);return}
+    catch(e){
+      const r=await api('/api/literature/rebuild',{method:'POST',body:{doc_id:d.id}});
+      const att=r.attachment||d.attachment;
+      if(!att)throw new Error('附件文件不存在或无法登记到 PDF 工作区');
+      try{await window.ERWLiterature.openByAttachment(att);return}
+      catch(e2){throw new Error('附件文件不存在或无法登记到 PDF 工作区')}
+    }
+  }
   /* v260929 · 重建关联（真值归一）：以文献 md 条目为准补齐 PDF 工作区登记——
-     旧条目 attachment 指向的 PDF 会被复制入库并建立双向关联；幂等可重复执行 */
+     未登记的附件 PDF 迁入 Knowledge/Literature/PDF/ 统一存放并建立双向关联；幂等可重复执行 */
   async function rebuildLiteratureLinks(){
-    if(!confirm('将以文献条目为准重建 PDF 工作区关联：未登记的附件 PDF 会被复制到 Workspace/Knowledge/Literature/PDF/ 并建立关联。继续？'))return;
+    if(!confirm('将以文献条目为准重建 PDF 工作区关联：未登记的附件 PDF 会迁入 Workspace/Knowledge/Literature/PDF/ 统一存放（Workspace 内为移动，外部路径保留原件复制）并建立关联。继续？'))return;
     const r=await api('/api/literature/rebuild',{method:'POST',body:{}});
     toast(`重建完成：补关联 ${r.linked||0} 篇，新登记 ${r.registered||0} 篇，补建条目 ${r.ensured||0} 篇`);
     renderDocsPage('literature');
@@ -635,9 +650,9 @@
   }
   /* v260923 · 笔记卡片格式统一：状态/分类一行；时间与项目名同排，项目名过长固定宽度省略 */
   /* v260924i · 置顶条目卡片显示置顶徽章并加 pinned 类 */
-  function docItems(docs){return docs.length?docs.map(d=>{const projBadges=(d.projects||[]).map(p=>`<span class="badge accent proj-badge"><span class="proj-text">${esc(p)}</span></span>`).join('')||(d.project?`<span class="badge accent proj-badge"><span class="proj-text">${esc(d.project)}</span></span>`:'');const dateB=dateBadge(d);const projRow=(projBadges||dateB)?`<div class="doc-projects">${projBadges}${dateB}</div>`:'';const attB=d.attachment_exists?`<span class="badge att-badge" title="打开 PDF 附件">⧉ 附件</span>`:'';const pinB=d.pinned?`<span class="badge pin-badge" title="已置顶，优先显示在列表最前">📌 置顶</span>`:'';return `<article class="doc-item${d.pinned?' pinned':''}" data-doc-id="${d.id}"><div class="title">${esc(d.title)}</div><div class="excerpt">${esc(d.excerpt||'')}</div><div class="tags"><span class="badge">${esc(d.status||'')}</span>${attB}${pinB}${markBadges(d)}</div>${projRow}</article>`}).join(''):'<div class="empty" style="min-height:140px">暂无内容</div>'}
+  function docItems(docs){return docs.length?docs.map(d=>{const projBadges=(d.projects||[]).map(p=>`<span class="badge accent proj-badge"><span class="proj-text">${esc(p)}</span></span>`).join('')||(d.project?`<span class="badge accent proj-badge"><span class="proj-text">${esc(d.project)}</span></span>`:'');const dateB=dateBadge(d);const projRow=(projBadges||dateB)?`<div class="doc-projects">${projBadges}${dateB}</div>`:'';const attB=d.attachment_exists?`<span class="badge att-badge" title="在 PDF 阅读区打开附件">⧉ 附件</span>`:'';const pinB=d.pinned?`<span class="badge pin-badge" title="已置顶，优先显示在列表最前">📌 置顶</span>`:'';return `<article class="doc-item${d.pinned?' pinned':''}" data-doc-id="${d.id}"><div class="title">${esc(d.title)}</div><div class="excerpt">${esc(d.excerpt||'')}</div><div class="tags"><span class="badge">${esc(d.status||'')}</span>${attB}${pinB}${markBadges(d)}</div>${projRow}</article>`}).join(''):'<div class="empty" style="min-height:140px">暂无内容</div>'}
   function dateBadge(d){ const val=d.due||d.record_date||d.added_date; if(val)return `<span class="badge mono">${fmtDate(val)}</span>`; return d.updated?`<span class="badge mono" title="更新时间">更新 ${fmtDate(d.updated)}</span>`:''; }
-  function wireDocList(kind){ $$('[data-doc-id]').forEach(x=>x.onclick=async e=>{ /* v260929 · 附件徽章：已登记到 PDF 工作区的附件优先进工作区阅读（含批注/进度），未登记或失败退回新窗口直开 */ const att=e.target.closest('.att-badge'); if(att){const d=state.docs.find(v=>v.id===x.dataset.docId);if(window.ERWLiterature?.openByAttachment&&d&&d.attachment){if(state.dirty){toast('请先保存当前条目',true);return}try{await window.ERWLiterature.openByAttachment(d.attachment);return}catch(err){}}window.open('/api/docs/'+encodeURIComponent(x.dataset.docId)+'/attachment','_blank');return;} selectDoc(x.dataset.docId); }); }
+  function wireDocList(kind){ $$('[data-doc-id]').forEach(x=>x.onclick=e=>{ /* v260929 · 附件入口统一：徽章点击一律跳 PDF 阅读区（自动登记未入库附件），不再新窗口直开 */ const att=e.target.closest('.att-badge'); if(att){const d=state.docs.find(v=>v.id===x.dataset.docId);openAttachmentInWorkspace(d).catch(err=>toast(err.message||'附件打开失败',true));return;} selectDoc(x.dataset.docId); }); }
   function wireDocFilters(kind){ const run=debounce(async()=>{const q=$('#doc-search').value,status=$('#doc-status').value,project=$('#doc-project').value,mark=$('#doc-mark')?.value||'';const url=`/api/docs?kind=${kind}&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&project=${encodeURIComponent(project)}&mark=${encodeURIComponent(mark)}`;state.docs=await api(url);$('#doc-list').innerHTML=docItems(state.docs);wireDocList(kind);},180); $('#doc-search').oninput=run;$('#doc-status').onchange=run;$('#doc-project').onchange=run;if($('#doc-mark'))$('#doc-mark').onchange=run; }
   async function createAndSelect(kind){ const doc=await api('/api/docs',{method:'POST',body:{kind,title:`未命名${kindLabel(kind)}`}}); await renderDocsPage(kind); setTimeout(()=>selectDoc(doc.id),10); }
   function showEmptyEditor(kind){ $('#doc-editor').className='card doc-editor empty-editor'; $('#doc-editor').innerHTML=`<div class="empty"><div><div class="empty-symbol">${esc(kindLabel(kind).toUpperCase())}</div>选择一条${kindLabel(kind)}，或点击左侧 ＋ 新建</div></div>`; }

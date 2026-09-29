@@ -213,18 +213,22 @@ def _ensure_doc_entry(item: dict[str, Any]) -> str:
     return doc_id
 
 
-def rebuild_registry() -> dict[str, Any]:
+def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
     """v260929 · 真值归一重建（阶段 3）：以文献 md 条目为唯一真值修复 library.json，幂等可重复执行。
     a) md.attachment 尾段名与库内 stored_filename 匹配 → 回填 doc_id 双向关联（link）
-    b) md.attachment 指向有效 PDF 但库内未登记 → 复制 PDF 入 Knowledge/Literature/PDF/ 并登记
-       新条目（元数据取自 md frontmatter），md.attachment 同步更新为库内路径（register）
-    c) 库中 doc_id 为空的孤儿条目 → 经 _ensure_doc_entry 补建 md（ensure）
-    不删除任何现有数据；统计经 /api/literature/rebuild 返回。"""
+    b) md.attachment 指向有效 PDF 但库内未登记 → PDF 迁入 Knowledge/Literature/PDF/ 统一存放并登记
+       新条目（元数据取自 md frontmatter），md.attachment 同步更新为库内路径（register）；
+       Workspace 内的附件原地移动（合并存放空间、不留双份），Workspace 外绝对路径仅复制（不破坏外部文件）
+    c) 库中 doc_id 为空的孤儿条目 → 经 _ensure_doc_entry 补建 md（ensure，仅全量模式）
+    doc_id 传入时仅处理该条目（附件徽章点击的自动登记路径），返回值附处理后的 attachment。"""
     from . import store
     data = _load_registry()
     items = data.setdefault("items", [])
     stats = {"linked": 0, "registered": 0, "ensured": 0}
-    for doc in store.list_docs("literature"):
+    single = bool(doc_id)
+    docs = [d for d in store.list_docs("literature") if not single or d["id"] == doc_id]
+    result_att = ""
+    for doc in docs:
         att = str(doc.get("attachment") or "").strip()
         if not att:
             continue
@@ -234,6 +238,7 @@ def rebuild_registry() -> dict[str, Any]:
             if not hit.get("doc_id"):
                 hit["doc_id"] = doc["id"]
                 stats["linked"] += 1
+            result_att = att
             continue
         src = store.resolve_attachment(doc)
         if src is None:
@@ -242,7 +247,12 @@ def rebuild_registry() -> dict[str, Any]:
         safe = _safe_name(src.name)
         dest = _root() / "PDF" / f"{paper_id}-{safe}"
         if src.resolve() != dest.resolve():
-            shutil.copy2(str(src), str(dest))
+            in_ws = False  # v260929 · 合并存放空间：Workspace 内移动迁入，外部绝对路径复制保原件
+            try:
+                in_ws = src.resolve().is_relative_to(ensure_workspace().resolve())
+            except Exception:
+                pass
+            (shutil.move if in_ws else shutil.copy2)(str(src), str(dest))
         h = hashlib.sha256()
         with dest.open("rb") as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -267,6 +277,7 @@ def rebuild_registry() -> dict[str, Any]:
         })
         stats["registered"] += 1
         rel = f"Knowledge/Literature/PDF/{dest.name}"
+        result_att = rel  # 单条模式：登记后的库内路径，返回给前端重试跳转
         if att.replace("\\", "/") != rel:
             try:  # v260929 · attachment 更新走 store（indexer 白名单无此键），随后补刷该行索引
                 upd = store.update_doc(doc["id"], {"attachment": rel})
@@ -274,14 +285,17 @@ def rebuild_registry() -> dict[str, Any]:
                 indexer.index_doc_path(str(upd.get("path") or ""))
             except Exception:
                 pass
-    for x in list(items):
-        if not x.get("doc_id"):
-            did = _ensure_doc_entry(x)
-            if did:
-                x["doc_id"] = did
-                stats["ensured"] += 1
+    if not single:  # 孤儿补建仅全量模式执行（单条登记无需扫全库）
+        for x in list(items):
+            if not x.get("doc_id"):
+                did = _ensure_doc_entry(x)
+                if did:
+                    x["doc_id"] = did
+                    stats["ensured"] += 1
     _save_registry(data)
-    return {"ok": True, **stats}
+    out = {"ok": True, **stats}
+    if single: out["attachment"] = result_att
+    return out
 
 
 def _cite_key_from(title: str, year: str, authors: str) -> str:
