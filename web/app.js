@@ -1130,9 +1130,8 @@
     try{st=await api('/api/literature/storage')}catch(e){}
     const mb=((st.total_bytes||0)/1048576).toFixed(1);
     const llm=state.config?.app?.llm||{},as=llm.assist||{};
-    const presets=Array.isArray(llm.request_presets)?llm.request_presets:[];
-    const dp=String(llm.default_request_preset||(presets[0]?.id)||'default');
-    const dpr=presets.find(x=>x.id===dp)||{};
+    const presets=Array.isArray(llm.request_presets)&&llm.request_presets.length?llm.request_presets:[{id:'',label:'默认（不附加参数）'}];
+    const selPreset=as.request_preset&&presets.some(x=>x.id===as.request_preset)?as.request_preset:(presets[0]?.id||'');
     const tempOv=as.temperature_override==null?'':Number(as.temperature_override);
     p.innerHTML=`<div class="card-head"><div><div class="card-kicker">LITERATURE / PDF</div><h3>文献 PDF 附件</h3><p class="row-meta">PDF 附件统一存放在下方目录；阅读工作区、附件登记与重建关联都以此为基准。批注、笔记与索引仍保存在 Workspace 的 Knowledge/Literature 下，不受此路径影响。</p></div><span class="badge ${st.is_default?'':'accent'}">${st.is_default?'默认路径':'自定义路径'}</span></div>
     <div class="form-grid"><div class="field span-4"><label>当前 PDF 存放路径</label><input value="${esc(st.pdf_dir||'')}" readonly><span class="field-help">现有 PDF：${st.file_count||0} 个 · 共 ${mb} MB${st.is_default?' · 默认目录 Workspace/Knowledge/Literature/PDF':''}</span></div>
@@ -1142,7 +1141,7 @@
     <div class="section-title" style="margin-top:22px"><div><h3>AI 阅读助手</h3><p>控制 PDF 阅读区的选中文本 AI 处理（翻译 / 总结 / 整理 / 笔记润色 / 自定义指令）。模型接口沿用「Agent / LLM」中启用的配置，此处仅调整阅读场景的行为参数。</p></div><span class="badge ${as.enabled===false?'warn':'accent'}">${as.enabled===false?'已关闭':'已启用'}</span></div>
     <div class="form-grid">
     <div class="field"><label>启用 AI 阅读助手</label><select id="lit-ai-enabled"><option value="1" ${as.enabled!==false?'selected':''}>启用</option><option value="0" ${as.enabled===false?'selected':''}>关闭</option></select></div>
-    <div class="field span-2"><label>请求模式</label><select id="lit-ai-preset"><option value="" ${!as.request_preset?'selected':''}>跟随 Agent 默认（${esc(dpr.label||dp)}${dpr.model?' · '+esc(dpr.model):''}）</option>${presets.map(x=>`<option value="${esc(x.id)}" ${as.request_preset===x.id?'selected':''}>${esc(x.label||x.id)}${x.model?' · '+esc(x.model):''}</option>`).join('')}</select><span class="field-help">请求模式 = 一套模型 + 参数组合，在「Agent / LLM」中维护；选项后缀即为该模式的模型。「跟随 Agent 默认」即 Agent 会话当前使用的默认模式（括号内已注明具体模式与模型）。</span></div>
+    <div class="field span-2"><label>请求模式</label><select id="lit-ai-preset">${presets.map(x=>`<option value="${esc(x.id)}" ${selPreset===x.id?'selected':''}>${esc(x.label||x.id)}${x.model?' · '+esc(x.model):''}</option>`).join('')}</select><span class="field-help">请求模式 = 一套模型 + 参数组合，在「Agent / LLM」中维护；未另行选择时默认使用列表第一个请求模式。</span></div>
     <div class="field"><label>翻译目标语言</label><input id="lit-ai-lang" value="${esc(as.target_language||'中文')}" placeholder="中文"><span class="field-help">作用于工具栏「AI 翻译」。</span></div>
     <div class="field span-2"><label>模型覆盖（可选）</label><input id="lit-ai-model" value="${esc(as.model_override||'')}" placeholder="留空 = 使用所选请求模式的模型"><span class="field-help">填写模型 ID 后无视所选请求模式的模型，直接使用它（例如换用更快的模型做翻译）。</span></div>
     <div class="field"><label>Temperature 覆盖（可选）</label><input id="lit-ai-temp" type="number" min="0" max="2" step="0.1" value="${tempOv}" placeholder="留空 = 沿用请求模式"><span class="field-help">0–2；留空沿用所选请求模式的温度。</span></div>

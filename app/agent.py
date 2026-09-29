@@ -426,7 +426,9 @@ def assist(action: str, text: str, instruction: str = "") -> dict[str, Any]:
     style = str(st.get("style_instruction") or "").strip()
     if style:
         system_prompt += "\n\n附加要求：\n" + style
-    preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, str(st.get("request_preset") or ""))
+    presets = cfg.get("request_presets") if isinstance(cfg.get("request_presets"), list) else []  # v260929b · 阅读助手未指定请求模式时直接用第一个，不走 Agent 默认解析
+    first = presets[0] if presets and isinstance(presets[0], dict) else {}
+    preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, str(st.get("request_preset") or str(first.get("id") or "default")))
     model_override = str(st.get("model_override") or "").strip()  # v260929 · 阅读助手可无视所选请求模式，直接覆盖模型/温度/附加参数
     if model_override:
         preset_model = model_override
