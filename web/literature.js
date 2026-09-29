@@ -372,6 +372,28 @@ async function saveAnnotationComment(){
  S.selectedAnn=null;
  paint(page);annList();go(page,true);
 }
+/* v260929f · 批注加入笔记：摘录（blockquote）+ 意见，可勾选附带已落盘截图（Markdown 图片引用，Workspace 相对路径） */
+async function annToNote(){
+ const a=annotationById(S.selectedAnn?.id);if(!a)return;
+ const withShot=!!(q("#ann-with-shot")?.checked&&a.preview_path);
+ const comment=(q("#ann-comment")?.value||"").trim();
+ const text=String(a.text||"").trim();
+ if(!text&&!comment&&!withShot){toast("批注还没有内容：先填写批注意见或勾选截图",true);return}
+ const btn=q("#ann-to-note");if(btn){btn.disabled=true;btn.textContent="写入中…"}
+ try{
+  const d=await api("/api/literature/"+S.paper.id+"/note");
+  const cur=String(d.content||"");
+  const tag="P."+a.page+(a.no?" · #"+a.no:"");
+  let block="**批注 "+tag+"**\n";
+  if(text)block+="> "+text.replace(/\r?\n/g,"\n> ")+"\n";
+  if(withShot)block+="![批注 "+tag+" 截图]("+(a.preview_path||"")+")\n";
+  if(comment)block+=comment+"\n";
+  const next=cur.replace(/\s+$/,"")+(cur.trim()?"\n\n":"")+block;
+  await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:next})});
+  if(btn){btn.textContent="已写入 ✓";setTimeout(()=>btn&&(btn.textContent="加入笔记"),1200)}
+  loadList().catch(()=>{});
+ }catch(e){if(btn){btn.textContent="失败";setTimeout(()=>btn&&(btn.textContent="加入笔记"),1500)}toast(e?.message||String(e),true)}
+}
 function side(){const p=S.paper;q("#lit-side").innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button><button data-tab="ai" title="AI 翻译 / 总结 / 整理 / 笔记润色">AI</button></div><div id="lit-side-body"></div>';qa("[data-tab]").forEach(b=>b.onclick=()=>{if(b.dataset.tab!=="annotations")S.selectedAnn=null;qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});sideTab("info")}
 function sideTab(tab){
  const root=q("#lit-side-body"),p=S.paper;
@@ -476,15 +498,26 @@ function annList(){
  let editor="";
  if(S.selectedAnn){
   const a=annotationById(S.selectedAnn.id);
-  if(a)editor='<section class="lit-ann-editor"><div class="lit-ann-editor-head"><strong>P.'+S.selectedAnn.page+' · '+esc(a.type)+'</strong><button id="ann-editor-close">×</button></div>'+annotationExcerpt(a,false)+'<label>批注<textarea id="ann-comment" placeholder="为这个标记添加批注…">'+esc(a.comment||"")+'</textarea></label><button class="primary-btn" id="ann-comment-save">保存批注</button></section>';
+  /* v260929f · 编辑卡片加「加入笔记」+「附带截图」勾选（仅 area 批注有已落盘截图时显示），标题带批注编号 #no */
+  if(a)editor='<section class="lit-ann-editor"><div class="lit-ann-editor-head"><strong>P.'+S.selectedAnn.page+(a.no?' · #'+a.no:'')+' · '+esc(a.type)+'</strong><button id="ann-editor-close">×</button></div>'+annotationExcerpt(a,false)+'<label>批注<textarea id="ann-comment" placeholder="为这个标记添加批注…">'+esc(a.comment||"")+'</textarea></label><div class="lit-ann-editor-actions"><button class="primary-btn" id="ann-comment-save">保存批注</button><button class="secondary-btn" id="ann-to-note" title="把批注摘录与意见写入笔记（条目正文）末尾'+(a.preview_path?'，可附带截图':'')+'">加入笔记</button>'+(a.preview_path?'<label class="lit-ann-shot-check" title="勾选后随批注内容一并写入笔记的 Markdown 图片引用"><input type="checkbox" id="ann-with-shot" checked> 附带截图</label>':'')+'</div></section>';
  }
- root.innerHTML=editor+'<div class="lit-ann-list">'+(rows.length?rows.map(a=>'<article class="lit-ann '+(S.selectedAnn?.id===a.id?"selected":"")+'" data-open-ann="'+a.id+'" data-page="'+a.page+'"><div><strong>P.'+a.page+" · "+esc(a.type)+'</strong><button data-del="'+a.id+'" data-page="'+a.page+'">×</button></div>'+annotationExcerpt(a,true)+(a.comment?"<p>"+esc(a.comment)+"</p>":"")+"</article>").join(""):'<div class="lit-empty">当前已加载页面暂无批注</div>')+"</div>";
+ root.innerHTML=editor+'<div class="lit-ann-list">'+(rows.length?rows.map(a=>'<article class="lit-ann '+(S.selectedAnn?.id===a.id?"selected":"")+'" data-open-ann="'+a.id+'" data-page="'+a.page+'"><div><strong>P.'+a.page+(a.no?" · #"+a.no:"")+" · "+esc(a.type)+'</strong><button data-del="'+a.id+'" data-page="'+a.page+'">×</button></div>'+annotationExcerpt(a,true)+(a.comment?"<p>"+esc(a.comment)+"</p>":"")+"</article>").join(""):'<div class="lit-empty">当前已加载页面暂无批注</div>')+"</div>";
  if(q("#ann-comment-save"))q("#ann-comment-save").onclick=saveAnnotationComment;
+ if(q("#ann-to-note"))q("#ann-to-note").onclick=annToNote; /* v260929f · 批注内容（可含截图）写入笔记 */
  if(q("#ann-editor-close"))q("#ann-editor-close").onclick=()=>{S.selectedAnn=null;annList()};
  qa("[data-open-ann]").forEach(x=>x.onclick=e=>{if(e.target.closest("[data-del]"))return;jumpToAnnotation(+x.dataset.page,x.dataset.openAnn)});
  qa("[data-del]").forEach(b=>b.onclick=async()=>{const page=+b.dataset.page;await api("/api/literature/"+S.paper.id+"/annotations/"+b.dataset.del,{method:"DELETE"});removeAnnotationLocal(b.dataset.del,page);paint(page);if(S.selectedAnn?.id===b.dataset.del)S.selectedAnn=null;annList()});
 }
-async function note(){const root=q("#lit-side-body"),d=await api("/api/literature/"+S.paper.id+"/note");root.innerHTML='<textarea class="lit-note" id="lit-note" placeholder="Markdown 文献笔记…（与知识库条目正文同源，文献编辑器里看到的是同一份）">'+esc(d.content||"")+'</textarea><div class="lit-note-actions"><span>与知识库条目正文同源 · Ctrl+S 保存</span><span style="display:flex;gap:6px"><button type="button" class="secondary-btn" id="lit-note-ai" title="把当前笔记交给 AI 整理润色，结果在 AI 面板确认后写入">AI 整理</button><button class="primary-btn" id="lit-note-save">保存笔记</button></span></div>';q("#lit-note-save").onclick=saveNote;q("#lit-note-ai").onclick=()=>{const t=q("#lit-note").value.trim();if(!t){S.ai={...S.ai,text:"",result:"",error:"笔记为空：先写点内容，或回到 PDF 选中段落用「AI 整理」生成。",busy:false};switchTab("ai");aiPanel();return}S.ai={...S.ai,text:t,instruction:"",result:"",error:"",busy:false};switchTab("ai");runAssist("polish","")}}
+/* v260929f · 笔记插图：选本地图片 → 落盘笔记图片目录 → 光标处插入 Markdown 图片引用（路径口径与附件一致） */
+function insertAtCursor(ta,text){if(!ta)return;const s=ta.selectionStart??ta.value.length,e=ta.selectionEnd??s;ta.value=ta.value.slice(0,s)+text+ta.value.slice(e);const p=s+text.length;ta.focus();ta.setSelectionRange(p,p)}
+async function uploadNoteImage(file){
+ const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result));r.onerror=()=>rej(new Error("读取图片失败"));r.readAsDataURL(file)});
+ return api("/api/literature/note-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({paper_id:S.paper.id,data_url:dataUrl})});
+}
+async function note(){const root=q("#lit-side-body"),d=await api("/api/literature/"+S.paper.id+"/note");root.innerHTML='<textarea class="lit-note" id="lit-note" placeholder="Markdown 文献笔记…（与知识库条目正文同源，文献编辑器里看到的是同一份）">'+esc(d.content||"")+'</textarea><div class="lit-note-actions"><span>与知识库条目正文同源 · Ctrl+S 保存</span><span style="display:flex;gap:6px"><button type="button" class="secondary-btn" id="lit-note-img" title="上传图片到笔记图片目录，并在光标处插入 Markdown 图片引用">插入图片</button><input type="file" id="lit-note-img-file" accept="image/png,image/jpeg,image/webp" hidden><button type="button" class="secondary-btn" id="lit-note-ai" title="把当前笔记交给 AI 整理润色，结果在 AI 面板确认后写入">AI 整理</button><button class="primary-btn" id="lit-note-save">保存笔记</button></span></div>';q("#lit-note-save").onclick=saveNote;
+ const imgBtn=q("#lit-note-img"),imgFile=q("#lit-note-img-file");
+ if(imgBtn&&imgFile){imgBtn.onclick=()=>imgFile.click();imgFile.onchange=async()=>{const f=imgFile.files&&imgFile.files[0];imgFile.value="";if(!f)return;imgBtn.disabled=true;const old=imgBtn.textContent;imgBtn.textContent="上传中…";try{const r=await uploadNoteImage(f);insertAtCursor(q("#lit-note"),"!["+(r.filename||"图片")+"]("+(r.path||"")+")")}catch(e){toast(e?.message||String(e),true)}finally{imgBtn.disabled=false;imgBtn.textContent=old}}}
+ q("#lit-note-ai").onclick=()=>{const t=q("#lit-note").value.trim();if(!t){S.ai={...S.ai,text:"",result:"",error:"笔记为空：先写点内容，或回到 PDF 选中段落用「AI 整理」生成。",busy:false};switchTab("ai");aiPanel();return}S.ai={...S.ai,text:t,instruction:"",result:"",error:"",busy:false};switchTab("ai");runAssist("polish","")}}
 async function saveNote(){await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:q("#lit-note").value})});loadList().catch(()=>{}) /* v260929 · 保存后刷新左栏（摘要取自同一份正文） */}
 function throttle(fn,ms){let wait=false;return(...a)=>{if(wait)return;wait=true;fn(...a);setTimeout(()=>wait=false,ms)}}
 

@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/favicon.png?v=260923">
   <!-- v260924g · CSS 引用带版本参数，避免 WebView 缓存旧样式；本次随分页排版/滚动同步锁修复升级 -->
   <link rel="stylesheet" href="/styles.css?v=260929d"><!-- v260929d · .field 内复选框恢复原生小尺寸 + field-check-label 勾选行排版；上版：自定义 AI 动作编辑行样式 -->
-  <link rel="stylesheet" href="/literature.css?v=260929i"><!-- v260929i · AI 面板截图入口与待处理截图预览样式；上版：AI 助手面板样式 -->
+  <link rel="stylesheet" href="/literature.css?v=260929j"><!-- v260929j · 批注编辑卡片操作行（加入笔记 / 附带截图勾选）样式；上版：AI 面板截图入口与待处理截图预览样式 -->
   <link rel="stylesheet" href="/v260922-projects.css?v=260924g">
   <link rel="stylesheet" href="/v260922-compact-layout.css?v=260924g">
   <link rel="stylesheet" href="/v260922-overview-editor-tools.css?v=260924g">
@@ -100,8 +100,8 @@
   </div>
 
   <script defer src="/v260922-performance.js?v=260924g"></script><!-- v260924g · 分页文案/排版修复，版本参数防缓存 -->
-  <script defer src="/app.js?v=260929u"></script><!-- v260929u · 文献/PDF 设置：勾选行改 field-check-label、重建关联补可见说明；上版：ERWConfigSync 配置热同步出口 -->
-  <script defer src="/literature.js?v=260929n"></script><!-- v260929n · 框选完成后自动切到 AI 面板（多模态开启时），「用框选区域」按钮即时可见；上版：截图入口 -->
+  <script defer src="/app.js?v=260929v"></script><!-- v260929v · 文献/PDF 设置新增笔记图片存放目录（可自定义，仅影响后续上传）；上版：勾选行改 field-check-label、重建关联补可见说明 -->
+  <script defer src="/literature.js?v=260929o"></script><!-- v260929o · 批注编号 #no 展示 + 批注「加入笔记」（可附带截图）+ 笔记「插入图片」上传；上版：框选完成后自动切到 AI 面板 -->
   <script defer src="/v260922-projects.js"></script>
   <script defer src="/v260922-overview-editor-tools.js"></script>
   <script defer src="/v260922-graph-performance.js"></script>

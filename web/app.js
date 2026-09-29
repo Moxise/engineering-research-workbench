@@ -1145,7 +1145,7 @@
   /* v260929b · 自定义 AI 动作编辑行：名称 + 提示词 + 删除；id 藏在隐藏域，保存时保持稳定 */
   function litCaRow(x={}){return `<div class="lit-ca-row" data-ca-row><input type="hidden" data-ca-id value="${esc(x.id||'')}"><input class="search-input" data-ca-name value="${esc(x.name||'')}" placeholder="动作名称（如：提取公式）" style="max-width:200px"><textarea class="search-input" data-ca-prompt rows="2" style="min-height:52px" placeholder="提示词：写明任务要求与输出格式，如「提取选文中的全部公式，逐条给出 LaTeX 与一句说明」">${esc(x.prompt||'')}</textarea><button class="ghost-btn danger" type="button" data-ca-del>删除</button></div>`}
   async function renderLiteratureSettings(p){
-    let st={pdf_dir:'',is_default:true,file_count:0,total_bytes:0};
+    let st={pdf_dir:'',is_default:true,file_count:0,total_bytes:0,note_images_dir:'',note_images_is_default:true,note_images_count:0};
     try{st=await api('/api/literature/storage')}catch(e){}
     const mb=((st.total_bytes||0)/1048576).toFixed(1);
     const llm=state.config?.app?.llm||{},as=llm.assist||{};
@@ -1155,8 +1155,9 @@
     p.innerHTML=`<div class="card-head"><div><div class="card-kicker">LITERATURE / PDF</div><h3>文献 PDF 附件</h3><p class="row-meta">PDF 附件统一存放在下方目录；阅读工作区、附件登记与重建关联都以此为基准。批注、笔记与索引仍保存在 Workspace 的 Knowledge/Literature 下，不受此路径影响。</p></div><span class="badge ${st.is_default?'':'accent'}">${st.is_default?'默认路径':'自定义路径'}</span></div>
     <div class="form-grid"><div class="field span-4"><label>当前 PDF 存放路径</label><input value="${esc(st.pdf_dir||'')}" readonly><span class="field-help">现有 PDF：${st.file_count||0} 个 · 共 ${mb} MB${st.is_default?' · 默认目录 Workspace/Knowledge/Literature/PDF':''}</span></div>
     <div class="field span-4"><label>新的存放路径</label><input id="lit-pdf-dir" placeholder="例如 D:\\Papers\\PDF（绝对路径）或 Knowledge/Literature/PDF（相对 Workspace）"><span class="field-help">支持 Workspace 内相对路径或任意绝对路径；目录不存在会自动创建。留空保存 = 恢复默认目录。</span></div>
-    <div class="field span-4"><label class="field-check-label"><input type="checkbox" id="lit-pdf-move" checked> 保存时迁移现有 PDF 到新目录，并回写文献条目的附件指向</label><span class="field-help">按上方「新的存放路径」执行迁移；Workspace 内为移动，外部路径保留原件复制。</span></div></div>
-    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="primary-btn" id="lit-pdf-save">保存并应用</button><button class="secondary-btn" id="lit-pdf-open">打开 PDF 文件夹</button><button class="secondary-btn" id="lit-pdf-rebuild" title="以文献条目为准，补齐 PDF 工作区关联与登记">重建关联</button></div>
+    <div class="field span-4"><label class="field-check-label"><input type="checkbox" id="lit-pdf-move" checked> 保存时迁移现有 PDF 到新目录，并回写文献条目的附件指向</label><span class="field-help">按上方「新的存放路径」执行迁移；Workspace 内为移动，外部路径保留原件复制。</span></div>
+    <div class="field span-4"><label>笔记图片存放目录（批注截图入笔记 / 笔记插图）</label><input id="lit-noteimg-dir" value="${esc(st.note_images_dir||'')}" placeholder="例如 Knowledge/Literature/Images（相对 Workspace）或 D:\\Notes\\Images"><span class="field-help">阅读区「批注加入笔记」与笔记「插入图片」上传的图片统一存到这里；支持 Workspace 相对路径或任意绝对路径，仅影响之后上传的图片（现有 ${st.note_images_count||0} 张不迁移）。留空 = 默认 Workspace/Knowledge/Literature/Images。</span></div></div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="primary-btn" id="lit-pdf-save">保存并应用</button><button class="secondary-btn" id="lit-noteimg-save">保存图片目录</button><button class="secondary-btn" id="lit-pdf-open">打开 PDF 文件夹</button><button class="secondary-btn" id="lit-pdf-rebuild" title="以文献条目为准，补齐 PDF 工作区关联与登记">重建关联</button></div>
     <p class="field-help" style="margin-top:8px">重建关联：以文献条目的附件记录为准，把未登记的 PDF 迁入上方存放目录统一保管（Workspace 内为移动，外部路径保留原件复制），并补齐「条目 ↔ PDF」双向关联；幂等可重复执行，批注与笔记不受影响。</p>
     <div class="section-title" style="margin-top:22px"><div><h3>AI 阅读助手</h3><p>控制 PDF 阅读区的选中文本 AI 处理（翻译 / 总结 / 整理 / 笔记润色 / 自定义指令）。模型接口沿用「Agent / LLM」中启用的配置，此处仅调整阅读场景的行为参数。</p></div><span class="badge ${as.enabled===false?'warn':'accent'}">${as.enabled===false?'已关闭':'已启用'}</span></div>
     <div class="form-grid">
@@ -1178,6 +1179,13 @@
       try{
         const r=await api('/api/literature/storage',{method:'POST',body:{pdf_dir:dir,move_existing:move}});
         toast(`已保存：迁移 ${r.moved||0} 个 PDF（跳过 ${r.skipped||0}），更新 ${r.updated||0} 条附件指向`);
+        renderLiteratureSettings(p);
+      }catch(e){toast(e.message||'保存失败',true)}
+    };
+    $('#lit-noteimg-save').onclick=async()=>{ /* v260929f · 笔记图片目录单独保存，不动 PDF 目录 */
+      try{
+        const r=await api('/api/literature/storage',{method:'POST',body:{note_images_dir:$('#lit-noteimg-dir').value.trim()}});
+        toast(`笔记图片目录已保存：${r.note_images_dir||'默认目录'}`);
         renderLiteratureSettings(p);
       }catch(e){toast(e.message||'保存失败',true)}
     };

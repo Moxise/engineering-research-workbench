@@ -364,9 +364,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(literature.rebuild_registry(str(payload.get("doc_id") or "")))
         if path == "/api/literature/lookup":  # v260929 · 自动填写：DOI/arXiv 编号联网抓取元数据
             return self.send_json(literature.lookup_metadata(str(payload.get("identifier") or "")))
-        if path == "/api/literature/storage":  # v260929 · 设置页：修改 PDF 存放目录（可迁移现有 PDF）
-            return self.send_json(literature.set_pdf_dir(
-                str(payload.get("pdf_dir") or ""), bool(payload.get("move_existing", True))))
+        if path == "/api/literature/storage":  # v260929 · 设置页：修改 PDF 存放目录（可迁移现有 PDF）；v260929f · 支持笔记图片目录
+            if "note_images_dir" in payload and "pdf_dir" not in payload and "move_existing" not in payload:
+                return self.send_json(literature.set_note_images_dir(str(payload.get("note_images_dir") or "")))
+            out = literature.set_pdf_dir(str(payload.get("pdf_dir") or ""), bool(payload.get("move_existing", True)))
+            if "note_images_dir" in payload:
+                out.update(literature.set_note_images_dir(str(payload.get("note_images_dir") or "")))
+            return self.send_json(out)
+        if path == "/api/literature/note-image":  # v260929f · 笔记插图 / 批注截图入笔记：图片落盘到笔记图片目录
+            return self.send_json(literature.save_note_image(
+                str(payload.get("paper_id") or ""), str(payload.get("data_url") or "")), 201)
         if path == "/api/literature/open-folder":  # v260929 · 设置页：文件管理器打开 PDF 目录
             return self.send_json(literature.open_folder())
         if path.startswith("/api/literature/") and path.endswith("/annotations"):

@@ -42,6 +42,24 @@ def _pdf_dir() -> Path:
     p.mkdir(parents=True, exist_ok=True)
     return p
 
+def _configured_note_images_dir() -> str:
+    """v260929f · 设置项 app.literature.note_images_dir（空 = 默认 Knowledge/Literature/Images）。"""
+    try:
+        from . import config
+        return str((config.get_app().get("literature") or {}).get("note_images_dir") or "").strip()
+    except Exception:
+        return ""
+
+def _note_images_dir() -> Path:
+    """v260929f · 笔记图片存放目录（批注截图入笔记 / 笔记插图）：可在设置中修改。"""
+    raw = _configured_note_images_dir()
+    p = Path(raw) if raw else _root() / "Images"
+    if not p.is_absolute():
+        p = ensure_workspace() / p
+    p = p.resolve()
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
 def _attachment_rel(path: Path) -> str:
     """v260929 · 附件写回 md 的路径口径：Workspace 内相对路径（posix），外部绝对路径。"""
     path = path.resolve()
@@ -355,12 +373,18 @@ def storage_info() -> dict[str, Any]:
     """v260929 · 设置页：当前 PDF 存放目录与库内文件概况。"""
     d = _pdf_dir()
     files = [x for x in d.glob("*.pdf") if x.is_file()] if d.is_dir() else []
+    ni = _note_images_dir()
+    ni_files = [x for x in ni.iterdir() if x.is_file()] if ni.is_dir() else []
     return {
         "pdf_dir": str(d),
         "is_default": not _configured_pdf_dir(),
         "default_dir": str((_root() / "PDF").resolve()),
         "file_count": len(files),
         "total_bytes": sum(x.stat().st_size for x in files),
+        # v260929f · 笔记图片目录（批注截图入笔记 / 笔记插图共用）
+        "note_images_dir": str(ni),
+        "note_images_is_default": not _configured_note_images_dir(),
+        "note_images_count": len(ni_files),
     }
 
 def set_pdf_dir(new_dir: str, move_existing: bool = True) -> dict[str, Any]:
@@ -434,6 +458,53 @@ def open_folder() -> dict[str, Any]:
     else:
         subprocess.Popen(["xdg-open", str(d)])
     return {"ok": True, "pdf_dir": str(d)}
+
+def set_note_images_dir(new_dir: str) -> dict[str, Any]:
+    """v260929f · 设置页：修改笔记图片存放目录（app.literature.note_images_dir）。
+    仅影响之后上传的图片，不迁移既有文件。"""
+    from . import config
+    new_dir = str(new_dir or "").strip()
+    target = _root() / "Images"
+    if new_dir:
+        t = Path(new_dir)
+        if not t.is_absolute():
+            t = ensure_workspace() / t
+        t = t.resolve()
+        if t.exists() and not t.is_dir():
+            raise ValueError("目标路径已存在且不是文件夹")
+        target = t
+    app = config.get_app()
+    app.setdefault("literature", {})["note_images_dir"] = new_dir
+    config.save_app(app)
+    target.mkdir(parents=True, exist_ok=True)
+    return {"ok": True, "note_images_dir": str(target)}
+
+def save_note_image(paper_id: str, data_url: str) -> dict[str, Any]:
+    """v260929f · 笔记插图 / 批注截图入笔记：把 data_url 图片落盘到笔记图片目录。
+    文件名 {paper_id}-{时间戳}-{随机}，避免同名覆盖；返回路径口径与附件一致
+    （Workspace 内相对 posix 路径，外部绝对路径）。"""
+    paper_id = str(paper_id or "")
+    if paper_id:
+        get_item(paper_id)  # 校验文献存在；未关联条目也允许插图（paper_id 仅作命名前缀）
+    data_url = str(data_url or "")
+    m = re.match(r"^data:image/(webp|png|jpeg);base64,(.+)$", data_url, re.I | re.S)
+    if not m:
+        raise ValueError("仅支持 webp / png / jpeg 图片")
+    ext = {"jpeg": "jpg"}.get(m.group(1).lower(), m.group(1).lower())
+    try:
+        raw = base64.b64decode(m.group(2), validate=True)
+    except Exception as exc:
+        raise ValueError("图片数据无效") from exc
+    if not raw or len(raw) > 10 * 1024 * 1024:
+        raise ValueError("图片超过 10 MB 上限")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    name = f"{paper_id or 'note'}-{stamp}-{uuid.uuid4().hex[:4]}.{ext}"
+    target = _note_images_dir() / name
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_bytes(raw)
+    tmp.replace(target)
+    path = _attachment_rel(target)
+    return {"ok": True, "path": path, "filename": name, "in_workspace": not Path(path).is_absolute()}
 
 
 def _cite_key_from(title: str, year: str, authors: str) -> str:
@@ -580,8 +651,13 @@ def save_annotation(paper_id: str, annotation: dict[str, Any]) -> dict[str, Any]
     preview_data_url = str(annotation.get("preview_data_url") or "")
     if preview_data_url:
         preview_path = _save_preview_data_url(paper_id, ann_id, preview_data_url)
+    # v260929f · 批注编号：编辑保留原号；新建取当前最大号 +1（删除不回收，删空后从 1 重新开始）
+    no = existing.get("no")
+    if not isinstance(no, int) or no <= 0:
+        no = max((int(x.get("no") or 0) for x in rows), default=0) + 1
     row = {
         "id": ann_id,
+        "no": no,
         "page": max(1, int(annotation.get("page") or existing.get("page") or 1)),
         "type": typ,
         "rects": annotation.get("rects") if "rects" in annotation else existing.get("rects", []),
