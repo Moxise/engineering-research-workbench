@@ -374,6 +374,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/literature/note-image":  # v260929f · 笔记插图 / 批注截图入笔记：图片落盘到笔记图片目录
             return self.send_json(literature.save_note_image(
                 str(payload.get("paper_id") or ""), str(payload.get("data_url") or "")), 201)
+        if path == "/api/literature/note-image-copy":  # v260929w · 批注截图入笔记：把 Previews 缩略图复制到笔记图片目录
+            return self.send_json(literature.copy_preview_to_note_images(
+                str(payload.get("paper_id") or ""), str(payload.get("preview_path") or "")), 201)
         if path == "/api/literature/open-folder":  # v260929 · 设置页：文件管理器打开 PDF 目录
             return self.send_json(literature.open_folder())
         if path.startswith("/api/literature/") and path.endswith("/annotations"):

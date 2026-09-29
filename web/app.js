@@ -906,7 +906,9 @@
   function normalizePreviewPaths(html){
     return html
       .replace(/(src|href)="\.\.\/Attachments\//g, '$1="/workspace-file/Knowledge/Attachments/')
-      .replace(/(src|href)="\.\.\/\.\.\/Attachments\//g, '$1="/workspace-file/Knowledge/Attachments/');
+      .replace(/(src|href)="\.\.\/\.\.\/Attachments\//g, '$1="/workspace-file/Knowledge/Attachments/')
+      /* v260929w · Workspace 相对路径图片（批注截图 / 笔记插图 Knowledge/... 等）：img src 统一经 /workspace-file/ 服务；href 不动，避免干扰 wiki 内部相对链接 */
+      .replace(/src="(?!https?:|data:|\/|#)([^"]+)"/g,(m,p)=>'src="/workspace-file/'+p.replace(/^\.?\//,"")+'"');
   }
   function basicMarkdown(raw){
     // Offline-safe fallback. Full Marked is preferred when available.

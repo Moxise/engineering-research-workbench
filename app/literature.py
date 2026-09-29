@@ -507,6 +507,32 @@ def save_note_image(paper_id: str, data_url: str) -> dict[str, Any]:
     return {"ok": True, "path": path, "filename": name, "in_workspace": not Path(path).is_absolute()}
 
 
+def copy_preview_to_note_images(paper_id: str, preview_path: str) -> dict[str, Any]:
+    """v260929w · 批注截图入笔记：把批注缩略图复制到笔记图片目录（设置指定的位置）。
+    原 Previews 缩略图不动（删除批注时会清理它，笔记中的引用须独立存在）。"""
+    rel = str(preview_path or "").replace("\\", "/").strip("/")
+    if not rel:
+        raise ValueError("缺少批注截图路径")
+    ws = ensure_workspace().resolve()
+    src = (ws / rel).resolve()
+    previews = (_root() / "Previews").resolve()
+    if previews not in src.parents:
+        raise ValueError("仅支持复制批注截图（Previews 目录内）")
+    if not src.is_file():
+        raise FileNotFoundError("批注截图不存在")
+    if src.suffix.lower() not in (".webp", ".png", ".jpg", ".jpeg"):
+        raise ValueError("仅支持 webp / png / jpeg 图片")
+    paper_id = str(paper_id or "")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    name = f"{paper_id or 'note'}-{stamp}-{uuid.uuid4().hex[:4]}{src.suffix.lower()}"
+    target = _note_images_dir() / name
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_bytes(src.read_bytes())
+    tmp.replace(target)
+    path = _attachment_rel(target)
+    return {"ok": True, "path": path, "filename": name, "in_workspace": not Path(path).is_absolute()}
+
+
 def _cite_key_from(title: str, year: str, authors: str) -> str:
     """v260929 · 自动填写（阶段 4）：firstauthor 姓氏 + 年份生成 cite_key，缺姓氏时退化用题名缩写。"""
     first = str(authors or "").split(";")[0].strip()

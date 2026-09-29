@@ -381,12 +381,15 @@ async function annToNote(){
  if(!text&&!comment&&!withShot){toast("批注还没有内容：先填写批注意见或勾选截图",true);return}
  const btn=q("#ann-to-note");if(btn){btn.disabled=true;btn.textContent="写入中…"}
  try{
+  /* v260929w · 截图复制到笔记图片目录（设置指定的位置）：Previews 缩略图会随批注删除被清理，笔记引用须独立文件 */
+  let shotPath=String(a.preview_path||"");
+  if(withShot){try{const cp=await api("/api/literature/note-image-copy",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({paper_id:S.paper.id,preview_path:a.preview_path})});if(cp?.path)shotPath=cp.path}catch{}}
   const d=await api("/api/literature/"+S.paper.id+"/note");
   const cur=String(d.content||"");
   const tag="P."+a.page+(a.no?" · #"+a.no:"");
   let block="**批注 "+tag+"**\n";
   if(text)block+="> "+text.replace(/\r?\n/g,"\n> ")+"\n";
-  if(withShot)block+="![批注 "+tag+" 截图]("+(a.preview_path||"")+")\n";
+  if(withShot)block+="![批注 "+tag+" 截图]("+shotPath+")\n";
   if(comment)block+=comment+"\n";
   const next=cur.replace(/\s+$/,"")+(cur.trim()?"\n\n":"")+block;
   await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:next})});
