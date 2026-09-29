@@ -397,8 +397,8 @@ _MAX_ASSIST_CHARS = 24_000  # 默认输入上限，可经 设置→文献/PDF→
 
 def assist(action: str, text: str, instruction: str = "") -> dict[str, Any]:
     """v260929 · PDF 阅读区 AI 助手（无会话状态的一次性补全）：
-    复用 设置→Agent/LLM 的模型档案；行为参数（启用/请求模式/翻译目标语言/附加风格指令/输入上限）
-    来自 设置→文献/PDF→AI 阅读助手（config/app.json llm.assist）。"""
+    复用 设置→Agent/LLM 的模型档案；行为参数（启用/请求模式/翻译目标语言/附加风格指令/输入上限/
+    自定义动作）来自 设置→文献/PDF→AI 阅读助手（config/app.json llm.assist）。"""
     action = str(action or "").strip() or "custom"
     instruction = str(instruction or "").strip()
     text = str(text or "").strip()
@@ -414,7 +414,15 @@ def assist(action: str, text: str, instruction: str = "") -> dict[str, Any]:
         max_chars = _MAX_ASSIST_CHARS
     if len(text) > max_chars:
         text = text[:max_chars]
-    if action in _ASSIST_PROMPTS:
+    action_label = ""  # v260929b · 自定义动作的显示名（用于报错信息）
+    custom = next((x for x in (st.get("custom_actions") if isinstance(st.get("custom_actions"), list) else [])
+                   if isinstance(x, dict) and str(x.get("id") or "") == action), None)  # v260929b · 自定义阅读动作：id 匹配则用其提示词
+    if custom:
+        action_label = str(custom.get("name") or "自定义动作")
+        system_prompt = str(custom.get("prompt") or "").strip()
+        if not system_prompt:
+            raise ValueError(f"自定义动作「{action_label}」尚未配置提示词，可在 设置 → 文献 / PDF → AI 阅读助手 中补充")
+    elif action in _ASSIST_PROMPTS:
         system_prompt = _ASSIST_PROMPTS[action]
         if action == "translate":
             lang = str(st.get("target_language") or "中文").strip() or "中文"
@@ -449,7 +457,7 @@ def assist(action: str, text: str, instruction: str = "") -> dict[str, Any]:
         request_params = _deep_merge_request(request_params, extra, {"model", "messages", "stream"})
     user_text = text + (f"\n\n---\n指令：{instruction}" if instruction and action == "custom" else "")
     content, reasoning = _chat_completions(request_cfg, system_prompt, [], user_text, None, request_params)
-    return {"ok": True, "action": action, "content": content, "model": preset_model,
+    return {"ok": True, "action": action, "label": action_label, "content": content, "model": preset_model,
             "reasoning": reasoning if cfg.get("show_reasoning", True) else ""}
 
 

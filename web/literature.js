@@ -367,12 +367,12 @@ function sideTab(tab){
 function switchTab(tab){qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab===tab))}
 function aiFromSelection(action){if(!(S.pending?.kind==="text"&&S.pending?.text))return;switchTab("ai");runAssist(action,"")}
 const AI_LABELS={translate:"AI 翻译中…",summarize:"AI 总结中…",organize:"AI 整理中…",polish:"AI 润色笔记中…",custom:"AI 处理中…"};
-async function runAssist(action,instruction){
+async function runAssist(action,instruction,label){ /* v260929b · label：按钮文字，自定义动作据此显示「AI xxx中…」 */
  if(S.ai.busy)return;
  const fresh=S.pending?.kind==="text"?String(S.pending.text||""):"";
  const src=fresh||S.ai.text||"";
  if(!src){S.ai={...S.ai,text:"",result:"",busy:false,error:"没有可处理的文本：请先在 PDF 中选中一段文字，或在「笔记」页用 AI 整理已有笔记。"};aiPanel();return}
- S.ai={...S.ai,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):"",result:"",error:"",busy:true,busyLabel:AI_LABELS[action]||"AI 处理中…"};aiPanel();
+ S.ai={...S.ai,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):"",result:"",error:"",busy:true,busyLabel:AI_LABELS[action]||(label?"AI "+label+"中…":"AI 处理中…")};aiPanel();
  try{const d=await api("/api/agent/assist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):""})});S.ai={...S.ai,result:String(d.content||""),error:"",busy:false}}
  catch(e){S.ai={...S.ai,error:String(e?.message||e),result:"",busy:false}}
  aiPanel();
@@ -397,15 +397,16 @@ function mdLite(s){ /* 结果区轻量 Markdown 渲染：标题/列表/粗体/�
 }
 function aiPanel(){
  const root=q("#lit-side-body");if(!root)return;const a=S.ai;
+ const cas=window.ERWAssistCustomActions?window.ERWAssistCustomActions():[]; /* v260929b · 设置中维护的自定义阅读动作，与固定四动作并列 */
  root.innerHTML='<div class="lit-ai">'
  +'<div class="lit-ai-src"><span class="lit-ai-src-head">待处理内容</span><div class="lit-ai-src-text">'+(a.text?esc(a.text.slice(0,600))+(a.text.length>600?"…":""):'<i>暂无。在 PDF 中选中文字后点工具栏「AI 翻译 / 总结 / 整理」，或在「笔记」页点「AI 整理」。</i>')+'</div></div>'
- +'<div class="lit-ai-actions"><button type="button" class="secondary-btn" data-aia="translate">翻译</button><button type="button" class="secondary-btn" data-aia="summarize">总结</button><button type="button" class="secondary-btn" data-aia="organize">整理</button><button type="button" class="secondary-btn" data-aia="polish" title="处理当前待处理内容为润色后的笔记">润色</button></div>'
+ +'<div class="lit-ai-actions"><button type="button" class="secondary-btn" data-aia="translate">翻译</button><button type="button" class="secondary-btn" data-aia="summarize">总结</button><button type="button" class="secondary-btn" data-aia="organize">整理</button><button type="button" class="secondary-btn" data-aia="polish" title="处理当前待处理内容为润色后的笔记">润色</button>'+cas.map(x=>'<button type="button" class="secondary-btn" data-aia="'+esc(x.id)+'" title="'+esc(String(x.prompt||"").slice(0,100))+'">'+esc(x.name)+'</button>').join('')+'</div>'
  +'<div class="lit-ai-custom"><input id="lit-ai-instr" placeholder="自定义指令，如：解释这段公式推导…" value="'+esc(a.instruction||"")+'"><button type="button" class="primary-btn" id="lit-ai-run">运行</button></div>'
  +(a.busy?'<div class="lit-ai-result busy">'+esc(a.busyLabel||"AI 处理中…")+'</div>'
   :(a.result?'<div class="lit-ai-result">'+mdLite(a.result)+'</div><div class="lit-ai-foot"><button type="button" class="primary-btn" id="lit-ai-append" title="把 AI 结果追加到该文献笔记（条目正文）末尾">追加到笔记</button><button type="button" class="secondary-btn" id="lit-ai-replace" title="用 AI 结果整体替换该文献笔记（条目正文）">替换笔记</button><button type="button" class="secondary-btn" id="lit-ai-copy">复制</button></div>'
   :(a.error?'<div class="lit-ai-result err">'+esc(a.error)+'</div>':'')))
  +'</div>';
- qa("[data-aia]").forEach(b=>b.onclick=()=>runAssist(b.dataset.aia,""));
+ qa("[data-aia]").forEach(b=>b.onclick=()=>runAssist(b.dataset.aia,"",b.textContent)); /* v260929b · 传按钮文字作 label，固定四动作仍由 AI_LABELS 优先 */
  const run=q("#lit-ai-run");if(run)run.onclick=()=>{const v=q("#lit-ai-instr")?.value||"";S.ai.instruction=v;if(!v.trim()){S.ai={...S.ai,error:"请先输入自定义指令（如：解释这段公式推导）"};aiPanel();return}runAssist("custom",v)};
  const ap=q("#lit-ai-append");if(ap)ap.onclick=()=>noteApply("append");
  const rp=q("#lit-ai-replace");if(rp)rp.onclick=()=>noteApply("replace");

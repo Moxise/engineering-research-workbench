@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import uuid
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -276,6 +277,25 @@ def _normalize_secret(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _clean_custom_actions(actions: Any) -> list[dict[str, str]]:
+    """v260929b · 阅读助手自定义动作归一化：仅保留 id/name/prompt，去空去重，上限 12 个。"""
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in actions if isinstance(actions, list) else []:
+        if len(out) >= 12:
+            break
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()[:30]
+        prompt = str(item.get("prompt") or "").strip()
+        aid = str(item.get("id") or "").strip()[:40] or ("ca-" + uuid.uuid4().hex[:8])
+        if not name or not prompt or aid in seen:
+            continue
+        seen.add(aid)
+        out.append({"id": aid, "name": name, "prompt": prompt})
+    return out
+
+
 def _clean_assist(assist: Any) -> dict[str, Any]:
     """v260929 · AI 阅读助手设置归一化（save_app 与 reload_all 共用，防止 reload 洗掉 assist）。"""
     a = assist if isinstance(assist, dict) else {}
@@ -297,6 +317,7 @@ def _clean_assist(assist: Any) -> dict[str, Any]:
         "target_language": str(a.get("target_language") or "中文"),
         "style_instruction": str(a.get("style_instruction") or ""),
         "max_chars": max_chars,
+        "custom_actions": _clean_custom_actions(a.get("custom_actions")),  # v260929b · 自定义阅读动作
     }
 
 

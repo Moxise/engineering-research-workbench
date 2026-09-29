@@ -612,6 +612,8 @@
   /* v260929 · 分类标记 chips 暴露给 PDF 阅读工作区复用（html 渲染 + 自定义标记管理）；onChanged 供调用方重渲染自己的 chips 盒 */
   window.ERWMarkChips = {html:markChipsHtml, openManager:openMarkManager};
   window.ERWMarkList = allMarks; /* v260929 · 标记目录（含自定义）供阅读区筛选项等复用 */
+  /* v260929b · 阅读区 AI 助手自定义动作目录（设置 → 文献/PDF 维护），供 AI 面板渲染个性化按钮 */
+  window.ERWAssistCustomActions = () => { const a = state.config?.app?.llm?.assist; return Array.isArray(a?.custom_actions) ? a.custom_actions : []; };
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
   function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')+'<button type="button" class="mark-chip add-mark" id="f-mark-add" title="添加自定义标记">＋ 自定义</button>'}
   function wireMarkChips(){
@@ -1125,6 +1127,8 @@
     else {const ui=app.ui||{};const pins=new Set(ui.sidebar_pinned_groups||[]);p.innerHTML=`<div class="card-head"><div><div class="card-kicker">INTERFACE</div><h3>界面设置</h3></div></div><div class="form-grid cols-5"><div class="field"><label>默认主题</label><select id="ui-theme"><option value="light" ${ui.theme==='light'?'selected':''}>明亮</option><option value="dark" ${ui.theme==='dark'?'selected':''}>深色</option></select></div><div class="field"><label>里程碑默认视图</label><select id="ui-ms"><option value="timeline">时间轴</option><option value="3d" ${ui.milestone_default_view==='3d'?'selected':''}>3D 时间线</option><option value="docs" ${ui.milestone_default_view==='docs'?'selected':''}>文档</option></select></div><div class="field"><label>图谱默认视图</label><select id="ui-graph"><option value="2d">2D</option><option value="3d" ${ui.graph_default_view==='3d'?'selected':''}>3D 星图</option></select></div><div class="field"><label>动画</label><select id="ui-anim"><option value="1" ${ui.animations!==false?'selected':''}>启用</option><option value="0" ${ui.animations===false?'selected':''}>关闭</option></select></div><div class="field"><label>科研热力图月份</label><select id="ui-heatmap">${(()=>{const hm=Number(ui.heatmap_months||12);const cs=HEATMAP_MONTH_OPTIONS.includes(hm)?HEATMAP_MONTH_OPTIONS:[...HEATMAP_MONTH_OPTIONS,hm].sort((a,b)=>a-b);return cs.map(n=>`<option value="${n}" ${hm===n?'selected':''}>近 ${n} 个月</option>`).join('')})()}</select></div><div class="field span-4"><label>侧栏默认常驻展开</label><div class="check-grid">${NAV_GROUPS.map(g=>`<label><input type="checkbox" data-pin-default value="${g.id}" ${pins.has(g.id)?'checked':''}> ${g.label}</label>`).join('')}</div><span class="field-help">侧栏中仍可随时用菱形按钮单独固定；这里决定首次使用或重置后的默认状态。</span></div></div><div style="margin-top:14px"><button class="primary-btn" id="ui-save">保存界面设置</button> <button class="secondary-btn" id="ui-reset-sidebar">应用默认侧栏状态</button></div>`;$('#ui-save').onclick=async()=>{app.ui={...ui,theme:$('#ui-theme').value,milestone_default_view:$('#ui-ms').value,graph_default_view:$('#ui-graph').value,animations:$('#ui-anim').value==='1',heatmap_months:Math.max(1,Math.min(12,+$('#ui-heatmap').value||12)),sidebar_pinned_groups:$$('[data-pin-default]:checked').map(x=>x.value)};state.heatmapMonths=app.ui.heatmap_months;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));await api('/api/config/app',{method:'POST',body:app});state.config.app=app;applyTheme(app.ui.theme);toast('界面设置已保存')};$('#ui-reset-sidebar').onclick=()=>{state.sidebarPinned=new Set($$('[data-pin-default]:checked').map(x=>x.value));state.sidebarOpen=new Set([...state.sidebarPinned,'core']);saveSidebarState();renderSidebar();toast('已应用默认侧栏状态')};}
   }
   /* v260929 · 设置 · 文献 / PDF：PDF 存放路径查看/修改/迁移、打开文件夹、重建关联入口 + AI 阅读助手（启用/请求模式/目标语言/风格指令/输入上限） */
+  /* v260929b · 自定义 AI 动作编辑行：名称 + 提示词 + 删除；id 藏在隐藏域，保存时保持稳定 */
+  function litCaRow(x={}){return `<div class="lit-ca-row" data-ca-row><input type="hidden" data-ca-id value="${esc(x.id||'')}"><input class="search-input" data-ca-name value="${esc(x.name||'')}" placeholder="动作名称（如：提取公式）" style="max-width:200px"><textarea class="search-input" data-ca-prompt rows="2" style="min-height:52px" placeholder="提示词：写明任务要求与输出格式，如「提取选文中的全部公式，逐条给出 LaTeX 与一句说明」">${esc(x.prompt||'')}</textarea><button class="ghost-btn danger" type="button" data-ca-del>删除</button></div>`}
   async function renderLiteratureSettings(p){
     let st={pdf_dir:'',is_default:true,file_count:0,total_bytes:0};
     try{st=await api('/api/literature/storage')}catch(e){}
@@ -1149,6 +1153,8 @@
     <div class="field span-4"><label>附加请求参数 JSON（可选）</label><textarea id="lit-ai-extra" class="mono" style="min-height:70px">${esc(JSON.stringify(as.extra_params||{},null,0)==='{}'?'':JSON.stringify(as.extra_params,null,2))}</textarea><span class="field-help">合并进请求体的额外参数（JSON 对象），如 {"enable_thinking": false} 或 {"thinking_budget": 1024}；model / messages / stream 不可在此覆盖。</span></div>
     <div class="field span-4"><label>附加风格指令（可选）</label><textarea id="lit-ai-style" style="min-height:90px">${esc(as.style_instruction||'')}</textarea><span class="field-help">追加到所有 AI 动作的系统提示词末尾。如：输出保持简洁；翻译保留术语对照表；总结按「结论 / 依据 / 局限」分节。</span></div>
     </div>
+    <div class="section-title" style="margin-top:18px"><div><h3>自定义 AI 动作</h3><p>添加个性化阅读动作（最多 12 个）：填动作名称与提示词，保存后出现在 PDF 阅读区 AI 面板，选中文本一键执行。提示词写明任务要求与输出格式；模型 / 温度 / 附加参数沿用上方请求模式与覆盖设置。</p></div><button class="secondary-btn" id="lit-ca-add">＋ 添加动作</button></div>
+    <div id="lit-ca-list">${(Array.isArray(as.custom_actions)?as.custom_actions:[]).map(litCaRow).join('')}</div>
     <div style="margin-top:12px"><button class="primary-btn" id="lit-ai-save">保存 AI 助手设置</button></div>`;
     $('#lit-pdf-save').onclick=async()=>{
       const dir=$('#lit-pdf-dir').value.trim(),move=$('#lit-pdf-move').checked;
@@ -1165,12 +1171,15 @@
       if(rawExtra){try{extra=JSON.parse(rawExtra);if(!extra||typeof extra!=='object'||Array.isArray(extra))throw new Error('必须是 JSON 对象')}catch(e){toast('附加请求参数 JSON 无效：'+e.message,true);return}}
       const rawTemp=$('#lit-ai-temp').value.trim();
       const app=state.config.app,cur=app.llm||{};
-      cur.assist={enabled:$('#lit-ai-enabled').value==='1',request_preset:$('#lit-ai-preset').value,model_override:$('#lit-ai-model').value.trim(),temperature_override:rawTemp===''?null:Math.max(0,Math.min(2,+rawTemp||0)),extra_params:extra,target_language:$('#lit-ai-lang').value.trim()||'中文',style_instruction:$('#lit-ai-style').value.trim(),max_chars:Math.max(1000,Math.min(60000,+$('#lit-ai-max').value||24000))};
+      const cas=$$('#lit-ca-list [data-ca-row]').map(r=>({id:$('[data-ca-id]',r).value||('ca-'+Math.random().toString(36).slice(2,10)),name:$('[data-ca-name]',r).value.trim(),prompt:$('[data-ca-prompt]',r).value.trim()})).filter(x=>x.name&&x.prompt); /* v260929b · 自定义动作随保存写入 */
+      cur.assist={enabled:$('#lit-ai-enabled').value==='1',request_preset:$('#lit-ai-preset').value,model_override:$('#lit-ai-model').value.trim(),temperature_override:rawTemp===''?null:Math.max(0,Math.min(2,+rawTemp||0)),extra_params:extra,target_language:$('#lit-ai-lang').value.trim()||'中文',style_instruction:$('#lit-ai-style').value.trim(),max_chars:Math.max(1000,Math.min(60000,+$('#lit-ai-max').value||24000)),custom_actions:cas};
       app.llm=cur;
       const saved=await api('/api/config/app',{method:'POST',body:app});
       state.config.app=saved;toast('AI 阅读助手设置已保存');
       renderLiteratureSettings(p);
     };
+    const wireCa=()=>{$$('#lit-ca-list [data-ca-del]').forEach(b=>b.onclick=()=>b.closest('[data-ca-row]').remove())};wireCa(); /* v260929b · 自定义动作行增删 */
+    $('#lit-ca-add').onclick=()=>{const list=$('#lit-ca-list');if($$('#lit-ca-list [data-ca-row]').length>=12)return toast('自定义动作最多 12 个',true);list.insertAdjacentHTML('beforeend',litCaRow({id:'ca-'+Math.random().toString(36).slice(2,10)}));wireCa()};
     $('#lit-pdf-open').onclick=async()=>{try{await api('/api/literature/open-folder',{method:'POST',body:{}})}catch(e){toast(e.message||'打开失败',true)}};
     $('#lit-pdf-rebuild').onclick=rebuildLiteratureLinks;
   }

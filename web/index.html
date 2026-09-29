@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/favicon.png?v=260923">
   <link rel="apple-touch-icon" href="/favicon.png?v=260923">
   <!-- v260924g · CSS 引用带版本参数，避免 WebView 缓存旧样式；本次随分页排版/滚动同步锁修复升级 -->
-  <link rel="stylesheet" href="/styles.css?v=260929b"><!-- v260929b · 条目信息可收起（meta-block/meta-head）；含 v260929a 输入框+按钮同行 -->
+  <link rel="stylesheet" href="/styles.css?v=260929c"><!-- v260929c · 自定义 AI 动作编辑行样式（lit-ca-row）；上版：条目信息可收起 -->
   <link rel="stylesheet" href="/literature.css?v=260929h"><!-- v260929h · AI 助手面板样式（侧栏四 tab）；上版：信息栏 chips/标签盒换行 -->
   <link rel="stylesheet" href="/v260922-projects.css?v=260924g">
   <link rel="stylesheet" href="/v260922-compact-layout.css?v=260924g">
@@ -100,8 +100,8 @@
   </div>
 
   <script defer src="/v260922-performance.js?v=260924g"></script><!-- v260924g · 分页文案/排版修复，版本参数防缓存 -->
-  <script defer src="/app.js?v=260929q"></script><!-- v260929q · AI 阅读助手请求模式去掉「跟随 Agent 默认」，默认直接用第一个请求模式；上版：设置项透明化 + 三项覆盖 -->
-  <script defer src="/literature.js?v=260929k"></script><!-- v260929k · PDF 阅读区 AI 助手：选中翻译/总结/整理/自定义指令，结果追加或替换到文献笔记；上版：笔记与条目正文联动 -->
+  <script defer src="/app.js?v=260929r"></script><!-- v260929r · 设置 → 文献/PDF 新增自定义 AI 动作编辑器（名称+提示词，上限 12），经 ERWAssistCustomActions 供阅读区使用；上版：请求模式默认用第一个 -->
+  <script defer src="/literature.js?v=260929l"></script><!-- v260929l · AI 面板渲染自定义动作按钮（data-aia=动作 id），点击执行并把按钮文字作 busy 标签；上版：AI 助手四动作 -->
   <script defer src="/v260922-projects.js"></script>
   <script defer src="/v260922-overview-editor-tools.js"></script>
   <script defer src="/v260922-graph-performance.js"></script>

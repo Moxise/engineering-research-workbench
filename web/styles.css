@@ -38,6 +38,8 @@ button,input,textarea,select{font:inherit;color:inherit} button{cursor:pointer} 
 .field input,.field select{height:34px} /* v260923 · 输入框/下拉显式统一 34px，与 chip box、＋ 按钮等高 */
 /* v260929 · 输入框 + 按钮同行（文献编辑器「自动填写」）：输入占满剩余宽度，按钮保持自身尺寸不换行、与输入框等高 */
 .field-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center}
+.lit-ca-row{display:grid;grid-template-columns:200px minmax(0,1fr) auto;gap:8px;align-items:start;margin-bottom:8px} /* v260929b · 自定义 AI 动作编辑行 */
+.lit-ca-row [data-ca-name]{margin-top:2px}
 .field-input-row > .secondary-btn,.field-input-row > .primary-btn{min-height:34px;padding:0 16px;white-space:nowrap}
 html[data-density="compact"] .docs-layout .field-input-row > .secondary-btn{min-height:34px;padding:0 14px}
 .toolbar{display:flex;flex-wrap:wrap;gap:4px;padding:5px;border:1px solid var(--line);border-radius:8px 8px 0 0;background:var(--surface-2);flex:0 0 auto;align-items:center}.toolbar button{border:1px solid var(--line);background:var(--surface);border-radius:6px;min-width:28px;height:26px;box-sizing:border-box;line-height:24px}.toolbar .sep{width:1px;background:var(--line);margin:2px 2px;align-self:stretch}.editor-tabs{display:flex;gap:4px;margin-left:auto}.editor-tabs button.active{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--accent-soft)}
