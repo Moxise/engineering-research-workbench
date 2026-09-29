@@ -247,6 +247,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(literature.list_items(
                 (q.get("q") or [""])[0], (q.get("status") or [""])[0], (q.get("category") or [""])[0],
                 _q_int(q, "page", 1, 1, 1000000), _q_int(q, "page_size", 60, 10, 200),
+                (q.get("mark") or [""])[0],
             ))
         if path == "/api/literature/storage":  # v260929 · 设置页：PDF 存放目录概况
             return self.send_json(literature.storage_info())

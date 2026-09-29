@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/favicon.png?v=260923">
   <!-- v260924g · CSS 引用带版本参数，避免 WebView 缓存旧样式；本次随分页排版/滚动同步锁修复升级 -->
   <link rel="stylesheet" href="/styles.css?v=260924k"><!-- v260924k · 置顶开关并入分类标记行；含 v260924i 置顶徽章样式 -->
-  <link rel="stylesheet" href="/literature.css?v=260929f"><!-- v260929f · 阅读区信息栏「分类标记」chips 换行排版；上版：左栏列宽/内边距/密度对齐文献列表页 -->
+  <link rel="stylesheet" href="/literature.css?v=260929g"><!-- v260929g · 阅读区信息栏分类标记 chips 换行 + 标签 chip 盒换行；上版：左栏列宽/内边距/密度对齐文献列表页 -->
   <link rel="stylesheet" href="/v260922-projects.css?v=260924g">
   <link rel="stylesheet" href="/v260922-compact-layout.css?v=260924g">
   <link rel="stylesheet" href="/v260922-overview-editor-tools.css?v=260924g">
@@ -100,8 +100,8 @@
   </div>
 
   <script defer src="/v260922-performance.js?v=260924g"></script><!-- v260924g · 分页文案/排版修复，版本参数防缓存 -->
-  <script defer src="/app.js?v=260929j"></script><!-- v260929j · 暴露 ERWMarkChips（chips 渲染 + 自定义标记管理回调）；上版：暴露 ERWMarkBadges 给 PDF 阅读工作区复用 -->
-  <script defer src="/literature.js?v=260929g"></script><!-- v260929g · 阅读区信息栏补「分类标记」chips 并随保存写回 md；上版：左栏改用列表页容器类 + 面板头两行 -->
+  <script defer src="/app.js?v=260929k"></script><!-- v260929k · 标签选择器通用化（ERWTagPicker）+ 暴露 ERWMarkList；上版：暴露 ERWMarkChips -->
+  <script defer src="/literature.js?v=260929h"></script><!-- v260929h · 阅读区标签改为 chip 化选择器、去掉重复的「分类」字段（分类统一走分类标记）+ 分类筛选改按标记；上版：信息栏补分类标记 chips -->
   <script defer src="/v260922-projects.js"></script>
   <script defer src="/v260922-overview-editor-tools.js"></script>
   <script defer src="/v260922-graph-performance.js"></script>

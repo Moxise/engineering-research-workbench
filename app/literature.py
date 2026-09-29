@@ -76,7 +76,7 @@ def _safe_name(name: str) -> str:
     stem = re.sub(r"[^\w\-. ()\[\]]+", "_", Path(base).stem, flags=re.UNICODE).strip(" ._")[:120] or "paper"
     return stem + ".pdf"
 
-def list_items(query: str = "", status: str = "", category: str = "", page: int = 1, page_size: int = 60) -> dict[str, Any]:
+def list_items(query: str = "", status: str = "", category: str = "", page: int = 1, page_size: int = 60, mark: str = "") -> dict[str, Any]:
     rows = list(_load_registry().get("items") or [])
     _join_doc_meta_batch(rows)  # v260929 · 批量归一 md 真值后再过滤/排序，保证检索与展示口径一致
     q = str(query or "").strip().lower()
@@ -89,6 +89,8 @@ def list_items(query: str = "", status: str = "", category: str = "", page: int 
         rows = [x for x in rows if x.get("reading_status") == status]
     if category:
         rows = [x for x in rows if category in (x.get("categories") or [])]
+    if mark:  # v260929 · 分类标记筛选（与文献列表页口径一致：分类即 kind_marks）
+        rows = [x for x in rows if mark in (x.get("kind_marks") or [])]
     rows.sort(key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True)
     total = len(rows)
     page = max(1, int(page)); page_size = max(10, min(200, int(page_size)))

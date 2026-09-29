@@ -112,3 +112,4 @@ html[data-density="compact"] .lit-head-actions .ghost-btn{min-height:26px;paddin
 /* v260929 · 阅读区信息栏「分类标记」chips：右侧栏较窄，改为换行（编辑区仍为单行横向滚动） */
 .lit-info .lit-marks-label{margin-bottom:5px}
 .lit-info .mark-chip-box{flex-wrap:wrap;overflow:visible;min-height:0;gap:5px}
+.lit-info .project-chip-box{flex-wrap:wrap;overflow:visible;min-height:34px;height:auto;align-items:center}

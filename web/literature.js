@@ -3,7 +3,7 @@
 const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp=v=>Math.max(0,Math.min(1,v));
-const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,categories:[],selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[]};
+const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[]};
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
 async function ensurePdfJs(){
@@ -13,31 +13,31 @@ async function ensurePdfJs(){
  window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
 }
 /* v260929 · 阅读区列表条目统一为文献列表页风格（.doc-item 同构）：标题→摘要→徽章行→项目+日期
-   徽章行 = 阅读状态 + 收藏 + 分类 + 标记；附件徽章去掉（点击条目本身即打开 PDF，徽章冗余） */
+   徽章行 = 阅读状态 + 收藏 + 分类标记；附件徽章去掉（点击条目本身即打开 PDF，徽章冗余）
+   分类统一走「分类标记」（kind_marks），原 categories 徽章已移除（与标记重复） */
 function item(x){
  const act=S.paper?.id===x.id?" active":"";
- const cats=(x.categories||[]).slice(0,2).map(c=>'<span class="badge">'+esc(c)+"</span>").join("");
  const favB=x.favorite?'<span class="badge" title="已收藏">★</span>':"";
  const summ=x.excerpt?esc(x.excerpt):((x.authors||"")+(x.year?(" · "+x.year):""));
  const markB=window.ERWMarkBadges?window.ERWMarkBadges(x):"";
  const projBadges=(x.projects||[]).slice(0,1).map(p=>'<span class="badge accent proj-badge"><span class="proj-text">'+esc(p)+"</span></span>").join("");
  const dateB=x.updated_at?'<span class="badge mono">'+esc(String(x.updated_at).slice(0,10))+"</span>":"";
  const projRow=(projBadges||dateB)?'<div class="doc-projects">'+projBadges+dateB+"</div>":"";
- return '<article class="doc-item lit-item'+act+'" data-paper="'+esc(x.id)+'"><div class="title">'+esc(x.title)+'</div><div class="excerpt">'+summ+'</div><div class="tags"><span class="badge lit-status '+(x.reading_status==="已读"?"done":x.reading_status==="在读"?"reading":"")+'">'+esc(x.reading_status||"未读")+"</span>"+favB+cats+markB+"</div>"+projRow+"</article>";
+ return '<article class="doc-item lit-item'+act+'" data-paper="'+esc(x.id)+'"><div class="title">'+esc(x.title)+'</div><div class="excerpt">'+summ+'</div><div class="tags"><span class="badge lit-status '+(x.reading_status==="已读"?"done":x.reading_status==="在读"?"reading":"")+'">'+esc(x.reading_status||"未读")+"</span>"+favB+markB+"</div>"+projRow+"</article>";
 }
 
 async function loadList(){
- const d=await api("/api/literature?q="+encodeURIComponent(q("#lit-search")?.value||"")+"&status="+encodeURIComponent(q("#lit-status")?.value||"")+"&category="+encodeURIComponent(q("#lit-category")?.value||"")+"&page_size=100");
- S.items=d.items||[];S.categories=[...new Set(S.items.flatMap(x=>x.categories||[]))].sort();
+ const d=await api("/api/literature?q="+encodeURIComponent(q("#lit-search")?.value||"")+"&status="+encodeURIComponent(q("#lit-status")?.value||"")+"&mark="+encodeURIComponent(q("#lit-mark")?.value||"")+"&page_size=100");
+ S.items=d.items||[];
  q("#lit-list").innerHTML=S.items.length?S.items.map(item).join(""):'<div class="lit-empty">暂无文献<br>点击“上传 PDF”开始</div>';
- const c=q("#lit-category"),old=c.value;c.innerHTML='<option value="">全部分类</option>'+S.categories.map(x=>'<option '+(x===old?"selected":"")+'>'+esc(x)+"</option>").join("");
+ const c=q("#lit-mark"),old=c.value;c.innerHTML='<option value="">全部分类</option>'+(window.ERWMarkList?window.ERWMarkList():[]).map(k=>'<option value="'+esc(k.id)+'"'+(k.id===old?" selected":"")+">"+esc(k.icon)+" "+esc(k.label)+"</option>").join("");
  qa("[data-paper]").forEach(e=>e.onclick=()=>openPaper(e.dataset.paper));
 }
 function shell(){
- q("#main").innerHTML='<div class="lit-shell"><aside class="card doc-list-panel lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><div class="lit-head-actions"><button class="ghost-btn" id="lit-back">← 返回文献列表</button><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><div class="doc-filter"><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-category"><option value="">全部分类</option></select></div></div><div class="doc-list lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-copy" disabled title="Ctrl+C">复制</button><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
+ q("#main").innerHTML='<div class="lit-shell"><aside class="card doc-list-panel lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><div class="lit-head-actions"><button class="ghost-btn" id="lit-back">← 返回文献列表</button><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><div class="doc-filter"><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-mark"><option value="">全部分类</option></select></div></div><div class="doc-list lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-copy" disabled title="Ctrl+C">复制</button><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
  q("#lit-upload").onclick=()=>q("#lit-file").click();q("#lit-file").onchange=e=>upload(e.target.files?.[0]);
  q("#lit-back").onclick=()=>window.dispatchEvent(new Event("erw-lit-back")); /* v260929 · 返回文献列表：经事件通知 app.js 重新渲染列表页（hash 未变不触发路由） */
- let t;q("#lit-search").oninput=()=>{clearTimeout(t);t=setTimeout(loadList,160)};q("#lit-status").onchange=loadList;q("#lit-category").onchange=loadList;
+ let t;q("#lit-search").oninput=()=>{clearTimeout(t);t=setTimeout(loadList,160)};q("#lit-status").onchange=loadList;q("#lit-mark").onchange=loadList;
  qa("[data-ann]").forEach(b=>b.onclick=()=>commit(b.dataset.ann));q("#lit-copy").onclick=copyPendingText;q("#lit-area").onclick=toggleArea;q("#lit-undo").onclick=undo;q("#lit-zoom-in").onclick=()=>zoom(.15);q("#lit-zoom-out").onclick=()=>zoom(-.15);
 }
 async function upload(file){if(!file)return;try{const r=await fetch("/api/literature/import",{method:"POST",headers:{"Content-Type":"application/pdf","X-Filename":encodeURIComponent(file.name)},body:file});const d=await r.json();if(!r.ok)throw new Error(d.message||"上传失败");await loadList();await openPaper(d.id)}catch(e){alert(e.message)}finally{q("#lit-file").value=""}}
@@ -360,10 +360,10 @@ async function saveAnnotationComment(){
 function side(){const p=S.paper;q("#lit-side").innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button></div><div id="lit-side-body"></div>';qa("[data-tab]").forEach(b=>b.onclick=()=>{if(b.dataset.tab!=="annotations")S.selectedAnn=null;qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});sideTab("info")}
 function sideTab(tab){
  const root=q("#lit-side-body"),p=S.paper;
- if(tab==="info"){root.innerHTML='<div class="lit-info"><label>题名<input id="li-title" value="'+esc(p.title)+'"></label><label>作者<input id="li-authors" value="'+esc(p.authors||"")+'"></label><div class="lit-two"><label>年份<input id="li-year" value="'+esc(p.year||"")+'"></label><label>阅读状态<select id="li-status"><option '+(p.reading_status==="未读"?"selected":"")+'>未读</option><option '+(p.reading_status==="在读"?"selected":"")+'>在读</option><option '+(p.reading_status==="已读"?"selected":"")+'>已读</option></select></label></div><label>分类（逗号分隔）<input id="li-categories" value="'+esc((p.categories||[]).join(", "))+'"></label><label>标签（逗号分隔）<input id="li-tags" value="'+esc((p.tags||[]).join(", "))+'"></label><label class="lit-marks-label">分类标记</label><div class="mark-chip-box" id="li-marks"></div><label>期刊 / 会议<input id="li-venue" value="'+esc(p.venue||"")+'"></label><div class="lit-two"><label>DOI<input id="li-doi" value="'+esc(p.doi||"")+'"></label><label>Cite Key<input id="li-cite" value="'+esc(p.cite_key||"")+'"></label></div><label class="lit-favorite"><input type="checkbox" id="li-favorite" '+(p.favorite?"checked":"")+'> 收藏此文献</label><button class="primary-btn" id="li-save">保存信息</button></div>';q("#li-save").onclick=saveInfo;renderLiMarks()}
+ if(tab==="info"){root.innerHTML='<div class="lit-info"><label>题名<input id="li-title" value="'+esc(p.title)+'"></label><label>作者<input id="li-authors" value="'+esc(p.authors||"")+'"></label><div class="lit-two"><label>年份<input id="li-year" value="'+esc(p.year||"")+'"></label><label>阅读状态<select id="li-status"><option '+(p.reading_status==="未读"?"selected":"")+'>未读</option><option '+(p.reading_status==="在读"?"selected":"")+'>在读</option><option '+(p.reading_status==="已读"?"selected":"")+'>已读</option></select></label></div><label class="lit-marks-label">分类标记</label><div class="mark-chip-box" id="li-marks"></div><label class="lit-marks-label">标签</label><div class="project-picker-row"><div class="project-chip-box" id="li-tags"></div><button type="button" class="secondary-btn project-add-btn" id="li-tag-add" title="添加标签：可勾选已有或输入新标签">＋</button></div><label>期刊 / 会议<input id="li-venue" value="'+esc(p.venue||"")+'"></label><div class="lit-two"><label>DOI<input id="li-doi" value="'+esc(p.doi||"")+'"></label><label>Cite Key<input id="li-cite" value="'+esc(p.cite_key||"")+'"></label></div><label class="lit-favorite"><input type="checkbox" id="li-favorite" '+(p.favorite?"checked":"")+'> 收藏此文献</label><button class="primary-btn" id="li-save">保存信息</button></div>';q("#li-save").onclick=saveInfo;renderLiMarks();paintLiTags(p.tags||[])}
  else if(tab==="annotations")annList();else note();
 }
-async function saveInfo(){const p={title:q("#li-title").value,authors:q("#li-authors").value,year:q("#li-year").value,reading_status:q("#li-status").value,categories:q("#li-categories").value.split(",").map(x=>x.trim()).filter(Boolean),tags:q("#li-tags").value.split(",").map(x=>x.trim()).filter(Boolean),venue:q("#li-venue").value,doi:q("#li-doi").value,cite_key:q("#li-cite").value,favorite:q("#li-favorite").checked,kind_marks:qa("#li-marks .mark-chip.on").map(b=>b.dataset.mark)};S.paper=await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});await loadList()}
+async function saveInfo(){const p={title:q("#li-title").value,authors:q("#li-authors").value,year:q("#li-year").value,reading_status:q("#li-status").value,tags:liTags(),venue:q("#li-venue").value,doi:q("#li-doi").value,cite_key:q("#li-cite").value,favorite:q("#li-favorite").checked,kind_marks:qa("#li-marks .mark-chip.on").map(b=>b.dataset.mark)};S.paper=await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});await loadList()}
 /* v260929 · 阅读区信息栏「分类标记」chips：与编辑区同款渲染（复用 app.js 的 ERWMarkChips），保存时随 saveInfo 写回条目 md */
 function renderLiMarks(){
  const box=q("#li-marks"); if(!box||!window.ERWMarkChips)return;
@@ -372,7 +372,18 @@ function renderLiMarks(){
  box.innerHTML=window.ERWMarkChips.html([...new Set([...on,...saved])]);
  qa("#li-marks .mark-chip:not(.add-mark)").forEach(b=>b.onclick=()=>b.classList.toggle("on"));
  const add=q("#li-marks .mark-chip.add-mark");
- if(add)add.onclick=()=>window.ERWMarkChips.openManager(renderLiMarks);
+  if(add)add.onclick=()=>window.ERWMarkChips.openManager(renderLiMarks);
+}
+/* v260929 · 阅读区标签 chip 化：与文献编辑区同款（× 移除 + ＋ 弹窗勾选已有或新建），替换原逗号输入框 */
+function liTags(){const box=q("#li-tags");if(!box)return [];try{const v=JSON.parse(box.dataset.tags||"[]");return Array.isArray(v)?v:[]}catch{return []}}
+function paintLiTags(tags){
+ const box=q("#li-tags");if(!box)return;
+ const list=[...new Set((tags||[]).map(x=>String(x).trim()).filter(Boolean))];
+ box.dataset.tags=JSON.stringify(list);
+ box.innerHTML=list.length?list.map((t,i)=>'<span class="project-chip tag-chip">'+esc(t)+'<button type="button" data-tag-remove="'+i+'" title="移除标签">×</button></span>').join(""):'<span class="row-meta">暂无标签</span>';
+ qa("[data-tag-remove]",box).forEach(b=>b.onclick=()=>{const now=liTags();now.splice(+b.dataset.tagRemove,1);paintLiTags(now)});
+ const add=q("#li-tag-add");
+ if(add)add.onclick=()=>{if(window.ERWTagPicker)window.ERWTagPicker(liTags(),()=>[...new Set(S.items.flatMap(x=>x.tags||[]))],paintLiTags)};
 }
 function loadedAnns(){return [...(S.annotations||[])].sort((a,b)=>(+a.page-+b.page)||String(a.created_at||"").localeCompare(String(b.created_at||"")))}
 function annList(){

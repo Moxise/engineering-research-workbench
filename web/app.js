@@ -611,6 +611,7 @@
   window.ERWMarkBadges = markBadges;
   /* v260929 · 分类标记 chips 暴露给 PDF 阅读工作区复用（html 渲染 + 自定义标记管理）；onChanged 供调用方重渲染自己的 chips 盒 */
   window.ERWMarkChips = {html:markChipsHtml, openManager:openMarkManager};
+  window.ERWMarkList = allMarks; /* v260929 · 标记目录（含自定义）供阅读区筛选项等复用 */
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
   function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')+'<button type="button" class="mark-chip add-mark" id="f-mark-add" title="添加自定义标记">＋ 自定义</button>'}
   function wireMarkChips(){
@@ -705,10 +706,11 @@
   function paintEditorTags(tags){
     const box=$('#f-tags');if(!box)return;const list=[...new Set((tags||[]).map(x=>String(x).trim()).filter(Boolean))];box.dataset.tags=JSON.stringify(list);box.innerHTML=list.length?list.map((t,i)=>`<span class="project-chip tag-chip">${esc(t)}<button type="button" data-tag-remove="${i}" title="移除标签">×</button></span>`).join(''):'<span class="row-meta">暂无标签</span>';$$('[data-tag-remove]',box).forEach(b=>b.onclick=()=>{const now=editorTags();now.splice(+b.dataset.tagRemove,1);paintEditorTags(now);state.dirty=true});
   }
-  function openEditorTagPicker(){
-    const selected=new Set(editorTags());
+  /* v260929 · 标签选择器通用化（入参：当前标签 / 已有标签来源 / 应用回调），文献编辑区与 PDF 阅读区共用 */
+  function openTagPicker(current, known, onApply){
+    const selected=new Set(current||[]);
     let query=''; /* v260923 · 搜索与新建合并：输入即过滤，回车选中已有或创建新标签 */
-    const allKnown=()=>[...new Set(state.docs.flatMap(d=>d.tags||[]))];
+    const allKnown=()=>[...new Set(typeof known==='function'?known():(known||[]))];
     const renderList=()=>{
       const q=query.trim().toLowerCase();
       const known=allKnown().filter(t=>!selected.has(t)).filter(t=>!q||t.toLowerCase().includes(q)).sort((a,b)=>a.localeCompare(b,'zh'));
@@ -727,9 +729,11 @@
     $('#f-tag-query-add').onclick=commitQuery;
     $('#f-tag-query').oninput=e=>{query=e.target.value;renderList();};
     $('#f-tag-query').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();commitQuery();}};
-    $('#tag-pick-done').onclick=()=>{const list=$$('[data-tag-pick]:checked').map(x=>x.dataset.tagPick);paintEditorTags(list);state.dirty=true;closeModal()};
+    $('#tag-pick-done').onclick=()=>{const list=$$('[data-tag-pick]:checked').map(x=>x.dataset.tagPick);onApply(list);closeModal()};
     renderList();
   }
+  function openEditorTagPicker(){ openTagPicker(editorTags(), ()=>[...new Set(state.docs.flatMap(d=>d.tags||[]))], list=>{paintEditorTags(list);state.dirty=true}) }
+  window.ERWTagPicker = openTagPicker;
   function openEditorProjectPicker(){
     const selected=new Set(editorProjects());
     modal('添加已有项目',`<div class="row-meta" style="margin-bottom:10px">勾选要关联到当前条目的已有项目。项目本身请在概览“项目推进”或资源页创建。</div><div class="project-pick-list">${state.projects.length?state.projects.map(p=>`<label class="bundle-item"><input type="checkbox" data-project-pick="${esc(p)}" ${selected.has(p)?'checked':''}><span><strong>${esc(p)}</strong></span></label>`).join(''):'<div class="empty">暂无已有项目，请先新建项目。</div>'}</div>`,`<button class="secondary-btn" id="project-pick-new">＋ 新建项目</button><button class="secondary-btn" id="project-pick-cancel">取消</button><button class="primary-btn" id="project-pick-done">应用</button>`);
