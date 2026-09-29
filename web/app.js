@@ -627,6 +627,8 @@
   window.ERWAssistCustomActions = () => { const a = state.config?.app?.llm?.assist; return Array.isArray(a?.custom_actions) ? a.custom_actions : []; };
   /* v260929c · 多模态开关（设置 → Agent/LLM 维护），阅读区 AI 面板据此显示截图入口 */
   window.ERWVisionEnabled = () => state.config?.app?.llm?.vision_enabled === true;
+  /* v260929d · 配置热同步：Agent API 配置页（独立脚本）保存后回写 state.config.app，免刷新生效 */
+  window.ERWConfigSync = app => { if (state.config && app) state.config.app = app; };
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
   function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')+'<button type="button" class="mark-chip add-mark" id="f-mark-add" title="添加自定义标记">＋ 自定义</button>'}
   function wireMarkChips(){
