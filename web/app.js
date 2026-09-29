@@ -1131,6 +1131,9 @@
     const mb=((st.total_bytes||0)/1048576).toFixed(1);
     const llm=state.config?.app?.llm||{},as=llm.assist||{};
     const presets=Array.isArray(llm.request_presets)?llm.request_presets:[];
+    const dp=String(llm.default_request_preset||(presets[0]?.id)||'default');
+    const dpr=presets.find(x=>x.id===dp)||{};
+    const tempOv=as.temperature_override==null?'':Number(as.temperature_override);
     p.innerHTML=`<div class="card-head"><div><div class="card-kicker">LITERATURE / PDF</div><h3>文献 PDF 附件</h3><p class="row-meta">PDF 附件统一存放在下方目录；阅读工作区、附件登记与重建关联都以此为基准。批注、笔记与索引仍保存在 Workspace 的 Knowledge/Literature 下，不受此路径影响。</p></div><span class="badge ${st.is_default?'':'accent'}">${st.is_default?'默认路径':'自定义路径'}</span></div>
     <div class="form-grid"><div class="field span-4"><label>当前 PDF 存放路径</label><input value="${esc(st.pdf_dir||'')}" readonly><span class="field-help">现有 PDF：${st.file_count||0} 个 · 共 ${mb} MB${st.is_default?' · 默认目录 Workspace/Knowledge/Literature/PDF':''}</span></div>
     <div class="field span-4"><label>新的存放路径</label><input id="lit-pdf-dir" placeholder="例如 D:\\Papers\\PDF（绝对路径）或 Knowledge/Literature/PDF（相对 Workspace）"><span class="field-help">支持 Workspace 内相对路径或任意绝对路径；目录不存在会自动创建。留空保存 = 恢复默认目录。</span></div>
@@ -1139,9 +1142,12 @@
     <div class="section-title" style="margin-top:22px"><div><h3>AI 阅读助手</h3><p>控制 PDF 阅读区的选中文本 AI 处理（翻译 / 总结 / 整理 / 笔记润色 / 自定义指令）。模型接口沿用「Agent / LLM」中启用的配置，此处仅调整阅读场景的行为参数。</p></div><span class="badge ${as.enabled===false?'warn':'accent'}">${as.enabled===false?'已关闭':'已启用'}</span></div>
     <div class="form-grid">
     <div class="field"><label>启用 AI 阅读助手</label><select id="lit-ai-enabled"><option value="1" ${as.enabled!==false?'selected':''}>启用</option><option value="0" ${as.enabled===false?'selected':''}>关闭</option></select></div>
-    <div class="field"><label>请求模式</label><select id="lit-ai-preset"><option value="">跟随 Agent 默认</option>${presets.map(x=>`<option value="${esc(x.id)}" ${as.request_preset===x.id?'selected':''}>${esc(x.label||x.id)}</option>`).join('')}</select><span class="field-help">可为阅读助手单独选择请求模式（如更快的翻译模型）；模式本身在「Agent / LLM」中维护。</span></div>
+    <div class="field span-2"><label>请求模式</label><select id="lit-ai-preset"><option value="" ${!as.request_preset?'selected':''}>跟随 Agent 默认（${esc(dpr.label||dp)}${dpr.model?' · '+esc(dpr.model):''}）</option>${presets.map(x=>`<option value="${esc(x.id)}" ${as.request_preset===x.id?'selected':''}>${esc(x.label||x.id)}${x.model?' · '+esc(x.model):''}</option>`).join('')}</select><span class="field-help">请求模式 = 一套模型 + 参数组合，在「Agent / LLM」中维护；选项后缀即为该模式的模型。「跟随 Agent 默认」即 Agent 会话当前使用的默认模式（括号内已注明具体模式与模型）。</span></div>
     <div class="field"><label>翻译目标语言</label><input id="lit-ai-lang" value="${esc(as.target_language||'中文')}" placeholder="中文"><span class="field-help">作用于工具栏「AI 翻译」。</span></div>
+    <div class="field span-2"><label>模型覆盖（可选）</label><input id="lit-ai-model" value="${esc(as.model_override||'')}" placeholder="留空 = 使用所选请求模式的模型"><span class="field-help">填写模型 ID 后无视所选请求模式的模型，直接使用它（例如换用更快的模型做翻译）。</span></div>
+    <div class="field"><label>Temperature 覆盖（可选）</label><input id="lit-ai-temp" type="number" min="0" max="2" step="0.1" value="${tempOv}" placeholder="留空 = 沿用请求模式"><span class="field-help">0–2；留空沿用所选请求模式的温度。</span></div>
     <div class="field"><label>最大输入字符</label><input id="lit-ai-max" type="number" min="1000" max="60000" value="${Number(as.max_chars||24000)}"><span class="field-help">选中内容超出该长度会被截断（1000–60000）。</span></div>
+    <div class="field span-4"><label>附加请求参数 JSON（可选）</label><textarea id="lit-ai-extra" class="mono" style="min-height:70px">${esc(JSON.stringify(as.extra_params||{},null,0)==='{}'?'':JSON.stringify(as.extra_params,null,2))}</textarea><span class="field-help">合并进请求体的额外参数（JSON 对象），如 {"enable_thinking": false} 或 {"thinking_budget": 1024}；model / messages / stream 不可在此覆盖。</span></div>
     <div class="field span-4"><label>附加风格指令（可选）</label><textarea id="lit-ai-style" style="min-height:90px">${esc(as.style_instruction||'')}</textarea><span class="field-help">追加到所有 AI 动作的系统提示词末尾。如：输出保持简洁；翻译保留术语对照表；总结按「结论 / 依据 / 局限」分节。</span></div>
     </div>
     <div style="margin-top:12px"><button class="primary-btn" id="lit-ai-save">保存 AI 助手设置</button></div>`;
@@ -1155,8 +1161,12 @@
       }catch(e){toast(e.message||'保存失败',true)}
     };
     $('#lit-ai-save').onclick=async()=>{ /* v260929 · AI 阅读助手设置写入 app.llm.assist，随 /api/config/app 持久化 */
+      let extra={};
+      const rawExtra=$('#lit-ai-extra').value.trim();
+      if(rawExtra){try{extra=JSON.parse(rawExtra);if(!extra||typeof extra!=='object'||Array.isArray(extra))throw new Error('必须是 JSON 对象')}catch(e){toast('附加请求参数 JSON 无效：'+e.message,true);return}}
+      const rawTemp=$('#lit-ai-temp').value.trim();
       const app=state.config.app,cur=app.llm||{};
-      cur.assist={enabled:$('#lit-ai-enabled').value==='1',request_preset:$('#lit-ai-preset').value,target_language:$('#lit-ai-lang').value.trim()||'中文',style_instruction:$('#lit-ai-style').value.trim(),max_chars:Math.max(1000,Math.min(60000,+$('#lit-ai-max').value||24000))};
+      cur.assist={enabled:$('#lit-ai-enabled').value==='1',request_preset:$('#lit-ai-preset').value,model_override:$('#lit-ai-model').value.trim(),temperature_override:rawTemp===''?null:Math.max(0,Math.min(2,+rawTemp||0)),extra_params:extra,target_language:$('#lit-ai-lang').value.trim()||'中文',style_instruction:$('#lit-ai-style').value.trim(),max_chars:Math.max(1000,Math.min(60000,+$('#lit-ai-max').value||24000))};
       app.llm=cur;
       const saved=await api('/api/config/app',{method:'POST',body:app});
       state.config.app=saved;toast('AI 阅读助手设置已保存');

@@ -276,12 +276,37 @@ def _normalize_secret(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _clean_assist(assist: Any) -> dict[str, Any]:
+    """v260929 · AI 阅读助手设置归一化（save_app 与 reload_all 共用，防止 reload 洗掉 assist）。"""
+    a = assist if isinstance(assist, dict) else {}
+    try:
+        max_chars = max(1000, min(60000, int(a.get("max_chars") or 24000)))
+    except Exception:
+        max_chars = 24000
+    raw_temp = a.get("temperature_override")
+    try:
+        temp = float(raw_temp) if raw_temp is not None and str(raw_temp).strip() != "" else None
+    except Exception:
+        temp = None
+    return {
+        "enabled": a.get("enabled") is not False,
+        "request_preset": str(a.get("request_preset") or ""),
+        "model_override": str(a.get("model_override") or ""),
+        "temperature_override": temp,
+        "extra_params": a.get("extra_params") if isinstance(a.get("extra_params"), dict) else {},
+        "target_language": str(a.get("target_language") or "中文"),
+        "style_instruction": str(a.get("style_instruction") or ""),
+        "max_chars": max_chars,
+    }
+
+
 def _strip_legacy_llm_for_storage(app: dict[str, Any]) -> dict[str, Any]:
     out = deepcopy(app)
     old = out.get("llm") if isinstance(out.get("llm"), dict) else {}
     out["llm"] = {
         "enabled": old.get("enabled", False) is True,
         "system_prompt": str(old.get("system_prompt") or DEFAULT_SYSTEM_PROMPT),
+        "assist": _clean_assist(old.get("assist")),  # v260929 · 保留 AI 阅读助手设置
     }
     return _deep_merge(DEFAULT_APP_CONFIG, out)
 
@@ -433,20 +458,10 @@ def save_app(data: dict) -> dict:
         current_secret = deepcopy(_cache["secret"])
         secret = _merge_profiles_from_public(incoming_llm, current_secret)
         assist = incoming_llm.get("assist") if isinstance(incoming_llm.get("assist"), dict) else {}
-        try:
-            assist_max_chars = max(1000, min(60000, int(assist.get("max_chars") or 24000)))
-        except Exception:
-            assist_max_chars = 24000
         clean_llm = {
             "enabled": incoming_llm.get("enabled", False) is True,
             "system_prompt": str(incoming_llm.get("system_prompt") or DEFAULT_SYSTEM_PROMPT),
-            "assist": {  # v260929 · 阅读区 AI 助手设置：app.json 的 llm 下持久化（其余 llm 字段归 secret profiles，save 时会被清掉，故显式保留）
-                "enabled": assist.get("enabled") is not False,
-                "request_preset": str(assist.get("request_preset") or ""),
-                "target_language": str(assist.get("target_language") or "中文"),
-                "style_instruction": str(assist.get("style_instruction") or ""),
-                "max_chars": assist_max_chars,
-            },
+            "assist": _clean_assist(assist),  # v260929 · AI 阅读助手设置：app.json 的 llm 下持久化（其余 llm 字段归 secret profiles，save 时会被清掉，故显式保留）
         }
         incoming["llm"] = clean_llm
         merged = _deep_merge(DEFAULT_APP_CONFIG, incoming)

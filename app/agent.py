@@ -427,12 +427,24 @@ def assist(action: str, text: str, instruction: str = "") -> dict[str, Any]:
     if style:
         system_prompt += "\n\n附加要求：\n" + style
     preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, str(st.get("request_preset") or ""))
+    model_override = str(st.get("model_override") or "").strip()  # v260929 · 阅读助手可无视所选请求模式，直接覆盖模型/温度/附加参数
+    if model_override:
+        preset_model = model_override
     if not preset_model:
-        raise ValueError(f"请求模式 {preset_label} 尚未配置模型名称")
+        raise ValueError(f"请求模式 {preset_label} 尚未配置模型名称，可在 设置 → 文献/PDF → AI 阅读助手 的「模型覆盖」中填写")
     request_cfg = dict(cfg)
     request_cfg["model"] = preset_model
-    if preset_temperature is not None:
-        request_cfg["temperature"] = preset_temperature
+    resolved_temp = preset_temperature
+    if st.get("temperature_override") is not None:
+        try:
+            resolved_temp = float(st.get("temperature_override"))
+        except Exception:
+            pass
+    if resolved_temp is not None:
+        request_cfg["temperature"] = resolved_temp
+    extra = st.get("extra_params") if isinstance(st.get("extra_params"), dict) else {}
+    if extra:
+        request_params = _deep_merge_request(request_params, extra, {"model", "messages", "stream"})
     user_text = text + (f"\n\n---\n指令：{instruction}" if instruction and action == "custom" else "")
     content, reasoning = _chat_completions(request_cfg, system_prompt, [], user_text, None, request_params)
     return {"ok": True, "action": action, "content": content, "model": preset_model,
