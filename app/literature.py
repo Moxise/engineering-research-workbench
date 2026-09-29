@@ -227,8 +227,7 @@ def import_pdf(filename: str, source_path: Path, metadata: dict[str, Any] | None
         "created_at": now, "updated_at": now,
     }
     data = _load_registry(); data["items"].append(item); _save_registry(data)
-    note_path(paper_id).write_text(f"# {item['title']}\n\n", encoding="utf-8")
-    _ensure_doc_entry(item)  # v260929 · 数据互认：上传即同步创建 literature md 条目（真值载体）
+    _ensure_doc_entry(item)  # v260929 · 数据互认：上传即同步创建 literature md 条目（真值载体，正文即文献笔记）
     return item
 
 
@@ -619,11 +618,20 @@ def delete_annotation(paper_id: str, annotation_id: str) -> dict[str, Any]:
                 pass
     return {"ok": True}
 
+def _note_doc_id(paper_id: str) -> str:
+    """v260929 · 阅读区「笔记」的真值 = 该文献关联的知识条目 md（frontmatter 之后的正文），
+    与文献编辑器里的「文献笔记」正文同源，避免同一篇文献存在两份笔记。"""
+    doc_id = str(get_item(paper_id).get("doc_id") or "")
+    if not doc_id:
+        raise ValueError(f"文献条目不完整，缺少 doc_id 关联：{paper_id}")
+    return doc_id
+
 def get_note(paper_id: str) -> str:
-    get_item(paper_id); p = note_path(paper_id)
-    return p.read_text(encoding="utf-8") if p.exists() else ""
+    from . import store
+    return str(store.get_doc(_note_doc_id(paper_id)).get("body") or "")
 
 def save_note(paper_id: str, content: str) -> dict[str, Any]:
-    get_item(paper_id); p = note_path(paper_id)
-    tmp = p.with_suffix(".tmp"); tmp.write_text(str(content or ""), encoding="utf-8"); tmp.replace(p)
-    return {"ok": True, "path": str(p.relative_to(ensure_workspace())).replace("\\","/")}
+    from . import indexer
+    doc_id = _note_doc_id(paper_id)
+    indexer.update_doc(doc_id, {"body": str(content or "")})  # 经 indexer 写回 md 并刷新索引，文献编辑器读取同一份正文
+    return {"ok": True, "doc_id": doc_id}
