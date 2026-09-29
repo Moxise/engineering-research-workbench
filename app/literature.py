@@ -50,6 +50,7 @@ def _safe_name(name: str) -> str:
 
 def list_items(query: str = "", status: str = "", category: str = "", page: int = 1, page_size: int = 60) -> dict[str, Any]:
     rows = list(_load_registry().get("items") or [])
+    for r in rows: _join_doc_meta(r)  # v260929 · 先归一并 md 真值，再过滤/排序，保证检索与展示口径一致
     q = str(query or "").strip().lower()
     if q:
         rows = [x for x in rows if q in " ".join([
@@ -66,17 +67,44 @@ def list_items(query: str = "", status: str = "", category: str = "", page: int 
     start = (page - 1) * page_size
     return {"items": rows[start:start+page_size], "total": total, "page": page, "page_size": page_size}
 
+_DOC_META_KEYS = ("title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex")
+
+def _join_doc_meta(item: dict[str, Any]) -> dict[str, Any]:
+    """v260929 · 真值归一（阶段 3）：输出前用关联 md 条目的元数据覆盖 library 字段。
+    md 是唯一真值——用户在编辑器里改的题名/作者/DOI/BibTeX 即时生效于工作区展示与检索；
+    md 读取失败（条目已删/未建）时静默退回 library 自身值，保证工作区不因缺 md 而不可用。"""
+    doc_id = str(item.get("doc_id") or "")
+    if not doc_id:
+        return item
+    try:
+        from . import store
+        doc = store.get_doc(doc_id)
+        for key in _DOC_META_KEYS:
+            val = doc.get(key)
+            if val:
+                item[key] = val
+        if doc.get("tags"):
+            item["tags"] = doc["tags"]
+        if doc.get("projects"):
+            item["projects"] = doc["projects"]
+    except Exception:
+        pass
+    return item
+
 def get_item(paper_id: str) -> dict[str, Any]:
     for item in _load_registry().get("items") or []:
         if item.get("id") == paper_id:
-            return item
+            return _join_doc_meta(dict(item))
     raise FileNotFoundError(paper_id)
+
+_MD_SYNC_KEYS = {"title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex", "tags", "projects"}
 
 def update_item(paper_id: str, patch: dict[str, Any]) -> dict[str, Any]:
     data = _load_registry()
     allowed = {"title","authors","year","venue","doi","url","cite_key","bibtex","reading_status","categories","tags","projects","favorite","last_page","page_count"}
     for item in data.get("items") or []:
         if item.get("id") != paper_id: continue
+        md_patch: dict[str, Any] = {}
         for key in allowed:
             if key in patch:
                 value = patch[key]
@@ -84,9 +112,17 @@ def update_item(paper_id: str, patch: dict[str, Any]) -> dict[str, Any]:
                 if key in {"categories","tags","projects"}:
                     value = list(dict.fromkeys(str(v).strip() for v in (value or []) if str(v).strip()))
                 item[key] = value
+                if key in _MD_SYNC_KEYS: md_patch[key] = value  # v260929 · 元数据改动需同步回 md（真值）
         item["updated_at"] = datetime.now().isoformat(timespec="seconds")
         _save_registry(data)
-        return item
+        doc_id = str(item.get("doc_id") or "")
+        if doc_id and md_patch:  # v260929 · 工作区改元数据 → 经 indexer.update_doc 同步 md 并刷新索引，两处口径一致
+            try:
+                from . import indexer
+                indexer.update_doc(doc_id, md_patch)
+            except Exception:
+                pass
+        return _join_doc_meta(dict(item))
     raise FileNotFoundError(paper_id)
 
 def delete_item(paper_id: str) -> dict[str, Any]:
@@ -102,10 +138,10 @@ def delete_item(paper_id: str) -> dict[str, Any]:
     for p in (pdf, annotation_path(paper_id), note_path(paper_id), _root() / "Previews" / paper_id):
         if p.exists(): shutil.move(str(p), str(trash / f"{stamp}-{p.name}"))
     _save_registry(data)
-    if doc_id:  # v260929 · 联动：关联 md 条目一并移入 Trash，避免孤儿文献条目
+    if doc_id:  # v260929 · 联动：关联 md 条目经 indexer.delete_doc 一并移入 Trash 并清索引行，避免孤儿条目
         try:
-            from . import store
-            store.delete_doc(doc_id)
+            from . import indexer
+            indexer.delete_doc(doc_id)
         except Exception:
             pass
     return {"ok": True}
@@ -151,7 +187,7 @@ def _ensure_doc_entry(item: dict[str, Any]) -> str:
         return str(item["doc_id"])
     doc_id = ""
     try:
-        from . import store
+        from . import store, indexer
         doc = store.create_doc("literature", {
             "title": str(item.get("title") or item.get("filename") or "未命名文献"),
             "authors": item.get("authors") or "",
@@ -163,6 +199,10 @@ def _ensure_doc_entry(item: dict[str, Any]) -> str:
             "attachment": f"Knowledge/Literature/PDF/{item['stored_filename']}",
         })
         doc_id = str(doc["id"])
+        try:  # v260929 · 直写 md 须补刷 SQLite 索引，否则文献列表页（索引查询）看不到新条目
+            indexer.index_doc_path(str(doc.get("path") or ""))
+        except Exception:
+            pass
         data = _load_registry()
         for x in data.get("items") or []:
             if x.get("id") == item.get("id"):
@@ -171,6 +211,77 @@ def _ensure_doc_entry(item: dict[str, Any]) -> str:
     except Exception:
         doc_id = ""
     return doc_id
+
+
+def rebuild_registry() -> dict[str, Any]:
+    """v260929 · 真值归一重建（阶段 3）：以文献 md 条目为唯一真值修复 library.json，幂等可重复执行。
+    a) md.attachment 尾段名与库内 stored_filename 匹配 → 回填 doc_id 双向关联（link）
+    b) md.attachment 指向有效 PDF 但库内未登记 → 复制 PDF 入 Knowledge/Literature/PDF/ 并登记
+       新条目（元数据取自 md frontmatter），md.attachment 同步更新为库内路径（register）
+    c) 库中 doc_id 为空的孤儿条目 → 经 _ensure_doc_entry 补建 md（ensure）
+    不删除任何现有数据；统计经 /api/literature/rebuild 返回。"""
+    from . import store
+    data = _load_registry()
+    items = data.setdefault("items", [])
+    stats = {"linked": 0, "registered": 0, "ensured": 0}
+    for doc in store.list_docs("literature"):
+        att = str(doc.get("attachment") or "").strip()
+        if not att:
+            continue
+        name = att.replace("\\", "/").split("/")[-1]
+        hit = next((x for x in items if str(x.get("stored_filename") or "") == name), None)
+        if hit is not None:
+            if not hit.get("doc_id"):
+                hit["doc_id"] = doc["id"]
+                stats["linked"] += 1
+            continue
+        src = store.resolve_attachment(doc)
+        if src is None:
+            continue
+        paper_id = uuid.uuid4().hex
+        safe = _safe_name(src.name)
+        dest = _root() / "PDF" / f"{paper_id}-{safe}"
+        if src.resolve() != dest.resolve():
+            shutil.copy2(str(src), str(dest))
+        h = hashlib.sha256()
+        with dest.open("rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        now = datetime.now().isoformat(timespec="seconds")
+        try:
+            bibtex = str(store.get_doc(doc["id"]).get("bibtex") or "")
+        except Exception:
+            bibtex = ""
+        items.append({
+            "id": paper_id, "title": str(doc.get("title") or Path(safe).stem),
+            "authors": str(doc.get("authors") or ""), "year": str(doc.get("year") or ""),
+            "venue": str(doc.get("venue") or ""), "doi": str(doc.get("doi") or ""),
+            "url": str(doc.get("url") or ""), "cite_key": str(doc.get("cite_key") or ""),
+            "bibtex": bibtex, "reading_status": "未读",
+            "categories": [], "tags": list(doc.get("tags") or []),
+            "projects": list(doc.get("projects") or []), "favorite": False,
+            "filename": safe, "stored_filename": dest.name,
+            "size": dest.stat().st_size, "sha256": h.hexdigest(),
+            "last_page": 1, "page_count": 0, "doc_id": doc["id"],
+            "created_at": now, "updated_at": now,
+        })
+        stats["registered"] += 1
+        rel = f"Knowledge/Literature/PDF/{dest.name}"
+        if att.replace("\\", "/") != rel:
+            try:  # v260929 · attachment 更新走 store（indexer 白名单无此键），随后补刷该行索引
+                upd = store.update_doc(doc["id"], {"attachment": rel})
+                from . import indexer
+                indexer.index_doc_path(str(upd.get("path") or ""))
+            except Exception:
+                pass
+    for x in list(items):
+        if not x.get("doc_id"):
+            did = _ensure_doc_entry(x)
+            if did:
+                x["doc_id"] = did
+                stats["ensured"] += 1
+    _save_registry(data)
+    return {"ok": True, **stats}
 
 def pdf_path(paper_id: str) -> Path:
     item = get_item(paper_id)

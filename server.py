@@ -248,8 +248,6 @@ class Handler(BaseHTTPRequestHandler):
                 (q.get("q") or [""])[0], (q.get("status") or [""])[0], (q.get("category") or [""])[0],
                 _q_int(q, "page", 1, 1, 1000000), _q_int(q, "page_size", 60, 10, 200),
             ))
-        if path == "/api/literature/export-bibtex":
-            return self.send_json(indexer.export_bibtex(payload.get("ids") or []))
         if path.startswith("/api/literature/") and path.endswith("/annotations"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
             page_raw = (q.get("page") or [""])[0]
@@ -357,6 +355,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True, "content": content})
         if path == "/api/graph/bundle/save":
             return self.send_json(store.save_bundle(str(payload.get("filename") or "knowledge-bundle.md"), str(payload.get("content") or "")))
+        if path == "/api/literature/export-bibtex":  # v260929 · 修复上游错位：此路由须在 POST 分发且先于 /api/literature/ 泛匹配，否则落入 update_item 报 404
+            return self.send_json(indexer.export_bibtex(payload.get("ids") or []))
+        if path == "/api/literature/rebuild":  # v260929 · 真值归一：以文献 md 为准重建 library 关联/登记
+            return self.send_json(literature.rebuild_registry())
         if path.startswith("/api/literature/") and path.endswith("/annotations"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
             return self.send_json(literature.save_annotation(paper_id, payload), 201)
