@@ -632,6 +632,16 @@ def get_annotations(paper_id: str, page: int | None = None) -> list[dict[str, An
     if not p.exists(): return []
     try: rows = json.loads(p.read_text(encoding="utf-8"))
     except Exception: rows = []
+    # v260929f · 存量批注回填编号：缺 no 的按 created_at 顺序续接当前最大号，一次性写回
+    # （旧批注一打开阅读区即获得编号，无需逐条编辑；save_annotation 经此读取后 existing 即带号）
+    missing = [x for x in rows if not isinstance(x.get("no"), int) or int(x["no"]) <= 0]
+    if missing:
+        nxt = max((int(x.get("no") or 0) for x in rows), default=0) + 1
+        for x in sorted(missing, key=lambda x: str(x.get("created_at") or "")):
+            x["no"] = nxt; nxt += 1
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
     if page is not None: rows = [x for x in rows if int(x.get("page") or 0) == int(page)]
     return rows
 
