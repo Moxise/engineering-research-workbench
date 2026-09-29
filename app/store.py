@@ -268,6 +268,30 @@ def get_doc(doc_id: str) -> dict[str, Any]:
     raise FileNotFoundError(doc_id)
 
 
+def get_docs_by_ids(doc_ids) -> dict[str, dict[str, Any]]:
+    """v260929 · 批量按 id 取 doc：一次目录遍历按 stem 预筛、仅命中文件读盘（O(N) 次读取），
+    替代逐条 get_doc 的 O(N×M) 全库扫描；stem 未命中再按 get_doc 兜底（几乎不触发）。"""
+    id_set = {str(x) for x in (doc_ids or []) if str(x)}
+    out: dict[str, dict[str, Any]] = {}
+    if not id_set:
+        return out
+    hit: dict[str, tuple[str, Path]] = {}
+    for kind, path in _iter_docs():
+        if path.stem in id_set and path.stem not in hit:
+            hit[path.stem] = (kind, path)
+    for doc_id, (kind, path) in hit.items():
+        try:
+            out[doc_id] = _doc_from_path(kind, path, include_body=True)
+        except Exception:
+            pass
+    for doc_id in id_set - set(out):
+        try:
+            out[doc_id] = get_doc(doc_id)
+        except Exception:
+            pass
+    return out
+
+
 def resolve_attachment(meta: dict[str, Any]) -> Path | None:
     """v260923 · 解析文献 PDF 附件路径：绝对路径直接用，相对路径相对 Workspace。
     仅接受 .pdf 且文件真实存在，其余一律视为无附件。"""

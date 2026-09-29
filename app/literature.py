@@ -78,7 +78,7 @@ def _safe_name(name: str) -> str:
 
 def list_items(query: str = "", status: str = "", category: str = "", page: int = 1, page_size: int = 60) -> dict[str, Any]:
     rows = list(_load_registry().get("items") or [])
-    for r in rows: _join_doc_meta(r)  # v260929 · 先归一并 md 真值，再过滤/排序，保证检索与展示口径一致
+    _join_doc_meta_batch(rows)  # v260929 · 批量归一 md 真值后再过滤/排序，保证检索与展示口径一致
     q = str(query or "").strip().lower()
     if q:
         rows = [x for x in rows if q in " ".join([
@@ -97,6 +97,33 @@ def list_items(query: str = "", status: str = "", category: str = "", page: int 
 
 _DOC_META_KEYS = ("title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex")
 
+def _apply_doc_meta(item: dict[str, Any], doc: dict[str, Any]) -> None:
+    """v260929 · 用 md doc 的元数据覆盖 library 字段（真值归一的公共覆盖逻辑）。"""
+    for key in _DOC_META_KEYS:
+        val = doc.get(key)
+        if val:
+            item[key] = val
+    if doc.get("tags"):
+        item["tags"] = doc["tags"]
+    if doc.get("projects"):
+        item["projects"] = doc["projects"]
+
+def _join_doc_meta_batch(rows: list[dict[str, Any]]) -> None:
+    """v260929 · 列表批量归一：一次批量取 doc（每篇文献只读一次盘），替代逐条 get_doc 的
+    O(N×M) 全库扫描——此前文献多时进入 PDF 工作区加载极慢的根因。"""
+    ids = [str(r.get("doc_id") or "") for r in rows if r.get("doc_id")]
+    if not ids:
+        return
+    try:
+        from . import store
+        docs = store.get_docs_by_ids(ids)
+    except Exception:
+        return
+    for r in rows:
+        doc = docs.get(str(r.get("doc_id") or ""))
+        if doc:
+            _apply_doc_meta(r, doc)
+
 def _join_doc_meta(item: dict[str, Any]) -> dict[str, Any]:
     """v260929 · 真值归一（阶段 3）：输出前用关联 md 条目的元数据覆盖 library 字段。
     md 是唯一真值——用户在编辑器里改的题名/作者/DOI/BibTeX 即时生效于工作区展示与检索；
@@ -107,14 +134,7 @@ def _join_doc_meta(item: dict[str, Any]) -> dict[str, Any]:
     try:
         from . import store
         doc = store.get_doc(doc_id)
-        for key in _DOC_META_KEYS:
-            val = doc.get(key)
-            if val:
-                item[key] = val
-        if doc.get("tags"):
-            item["tags"] = doc["tags"]
-        if doc.get("projects"):
-            item["projects"] = doc["projects"]
+        _apply_doc_meta(item, doc)
     except Exception:
         pass
     return item

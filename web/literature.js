@@ -39,7 +39,7 @@ async function openPaper(id){
   api("/api/literature/"+enc+"/annotations")
  ]);
  S.paper=paper;S.annotations=Array.isArray(annotations)?annotations:[];
- q("#lit-reader-empty").hidden=true;q("#lit-reader-live").hidden=false;side();await loadList();
+ q("#lit-reader-empty").hidden=true;q("#lit-reader-live").hidden=false;side();loadList().catch(()=>{}) /* v260929 · 列表刷新仅更新徽章，不阻塞 PDF 加载 */;
  try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
  catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
