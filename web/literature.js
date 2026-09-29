@@ -12,17 +12,18 @@ async function ensurePdfJs(){
  if(!window.pdfjsLib)throw new Error("PDF.js 加载失败");
  window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
 }
-/* v260929 · 阅读区列表条目统一为文献列表页风格（.doc-item 同构）：标题→摘要→徽章行→项目+日期 */
+/* v260929 · 阅读区列表条目统一为文献列表页风格（.doc-item 同构）：标题→摘要→徽章行→项目+日期
+   徽章行 = 阅读状态 + 收藏 + 分类 + 标记；附件徽章去掉（点击条目本身即打开 PDF，徽章冗余） */
 function item(x){
  const act=S.paper?.id===x.id?" active":"";
- const attB=x.stored_filename?'<span class="badge att-badge" title="已登记 PDF 附件">⧉ 附件</span>':'';
  const cats=(x.categories||[]).slice(0,2).map(c=>'<span class="badge">'+esc(c)+"</span>").join("");
  const favB=x.favorite?'<span class="badge" title="已收藏">★</span>':"";
  const summ=x.excerpt?esc(x.excerpt):((x.authors||"")+(x.year?(" · "+x.year):""));
+ const markB=window.ERWMarkBadges?window.ERWMarkBadges(x):"";
  const projBadges=(x.projects||[]).slice(0,1).map(p=>'<span class="badge accent proj-badge"><span class="proj-text">'+esc(p)+"</span></span>").join("");
  const dateB=x.updated_at?'<span class="badge mono">'+esc(String(x.updated_at).slice(0,10))+"</span>":"";
  const projRow=(projBadges||dateB)?'<div class="doc-projects">'+projBadges+dateB+"</div>":"";
- return '<article class="doc-item lit-item'+act+'" data-paper="'+esc(x.id)+'"><div class="title">'+esc(x.title)+'</div><div class="excerpt">'+summ+'</div><div class="tags"><span class="badge lit-status '+(x.reading_status==="已读"?"done":x.reading_status==="在读"?"reading":"")+'">'+esc(x.reading_status||"未读")+"</span>"+attB+favB+cats+"</div>"+projRow+"</article>";
+ return '<article class="doc-item lit-item'+act+'" data-paper="'+esc(x.id)+'"><div class="title">'+esc(x.title)+'</div><div class="excerpt">'+summ+'</div><div class="tags"><span class="badge lit-status '+(x.reading_status==="已读"?"done":x.reading_status==="在读"?"reading":"")+'">'+esc(x.reading_status||"未读")+"</span>"+favB+cats+markB+"</div>"+projRow+"</article>";
 }
 
 async function loadList(){

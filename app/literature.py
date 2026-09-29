@@ -109,6 +109,8 @@ def _apply_doc_meta(item: dict[str, Any], doc: dict[str, Any]) -> None:
         item["projects"] = doc["projects"]
     if doc.get("excerpt"):  # v260929 · 摘要仅供列表展示（与文献列表页同源同款），不回写
         item["excerpt"] = doc["excerpt"]
+    if doc.get("kind_marks"):  # v260929 · 分类标记徽章（阅读区与列表页同源，取自 md 真值）
+        item["kind_marks"] = doc["kind_marks"]
 
 def _join_doc_meta_batch(rows: list[dict[str, Any]]) -> None:
     """v260929 · 列表批量归一：一次批量取 doc（每篇文献只读一次盘），替代逐条 get_doc 的
