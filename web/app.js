@@ -667,6 +667,7 @@
     <div class="editor-actions"><span class="row-meta">${esc(doc.path)} · 更新 ${fmtTime(doc.updated)}</span><div class="right"><button class="secondary-btn" id="doc-delete">删除</button><button class="primary-btn" id="doc-save">保存</button></div></div>`;
     wireEditor();
     ['f-title','f-status','f-date','f-summary-type','f-pinned','f-authors','f-year','f-venue','f-doi','f-url','f-cite-key','f-bibtex'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('input',()=>state.dirty=true)}); /* v260924i · 含置顶开关脏标记 */
+    const lookupBtn=$('#f-lookup-btn'); if(lookupBtn)lookupBtn.onclick=autoFillLiterature; /* v260929 · 自动填写按钮（文献编辑器） */
     paintEditorProjects(doc.projects||[]); $('#f-project-add').onclick=openEditorProjectPicker;
     paintEditorTags(doc.tags||[]); $('#f-tag-add').onclick=openEditorTagPicker;
     wireMarkChips();
@@ -719,7 +720,28 @@
     $('#project-pick-done').onclick=()=>{const list=$$('[data-project-pick]:checked').map(x=>x.dataset.projectPick);paintEditorProjects(list);state.dirty=true;closeModal()};
   }
 
-  function literatureFields(d){return `<div class="field span-2"><label>作者</label><input id="f-authors" value="${esc(d.authors||'')}"></div><div class="field"><label>年份</label><input id="f-year" value="${esc(d.year||'')}"></div><div class="field"><label>引用键 Cite Key</label><input id="f-cite-key" value="${esc(d.cite_key||'')}"></div><div class="field span-2"><label>期刊 / 会议</label><input id="f-venue" value="${esc(d.venue||'')}"></div><div class="field"><label>DOI</label><input id="f-doi" value="${esc(d.doi||'')}"></div><div class="field"><label>URL</label><input id="f-url" value="${esc(d.url||'')}"></div><div class="field span-2"><div class="field-label-row"><label>PDF 附件路径</label><span class="field-help">绝对路径或相对 Workspace 的路径，仅 .pdf；文件存在时列表会显示附件图标。</span></div><input id="f-attachment" value="${esc(d.attachment||'')}" placeholder="如 Knowledge/Attachments/xxx.pdf"></div><div class="field span-4"><label>BibTeX（会与正文中的 bibtex 代码块同步）</label><textarea id="f-bibtex" class="mono bibtex-input" placeholder="@article{...}">${esc(d.bibtex||'')}</textarea></div>`}
+  function literatureFields(d){return `<div class="field span-4"><div class="field-label-row"><label>自动填写</label><span class="field-help">粘贴 DOI 或 arXiv 编号联网抓取；直接粘贴一段 BibTeX 则本地解析回填。抓取/解析后请核对再保存。</span></div><div style="display:flex;gap:6px"><input id="f-lookup" placeholder="如 10.1109/TGRS.2023.1234567、2401.02345 或 @article{…}"><button type="button" class="secondary-btn" id="f-lookup-btn">填写</button></div></div><div class="field span-2"><label>作者</label><input id="f-authors" value="${esc(d.authors||'')}"></div><div class="field"><label>年份</label><input id="f-year" value="${esc(d.year||'')}"></div><div class="field"><label>引用键 Cite Key</label><input id="f-cite-key" value="${esc(d.cite_key||'')}"></div><div class="field span-2"><label>期刊 / 会议</label><input id="f-venue" value="${esc(d.venue||'')}"></div><div class="field"><label>DOI</label><input id="f-doi" value="${esc(d.doi||'')}"></div><div class="field"><label>URL</label><input id="f-url" value="${esc(d.url||'')}"></div><div class="field span-2"><div class="field-label-row"><label>PDF 附件路径</label><span class="field-help">绝对路径或相对 Workspace 的路径，仅 .pdf；文件存在时列表会显示附件图标。</span></div><input id="f-attachment" value="${esc(d.attachment||'')}" placeholder="如 Knowledge/Attachments/xxx.pdf"></div><div class="field span-4"><label>BibTeX（会与正文中的 bibtex 代码块同步）</label><textarea id="f-bibtex" class="mono bibtex-input" placeholder="@article{...}">${esc(d.bibtex||'')}</textarea></div>`}
+  /* v260929 · 自动填写（阶段 4）：DOI/arXiv 走后端 lookup（CrossRef/arXiv API），
+     BibTeX 文本则前端本地解析；回填仅覆盖非空字段，不动用户已填内容 */
+  function parseBibtexFields(bib){
+    const out={bibtex:bib.trim()};
+    const km=bib.match(/@\w+\s*\{\s*([^,\s]+)\s*,/); if(km)out.cite_key=km[1];
+    const grab=f=>{const m=bib.match(new RegExp(f+'\\s*=\\s*\\{((?:[^{}]|\\{[^{}]*\\})*)\\}','i'));return m?m[1].replace(/\s+/g,' ').trim():''};
+    out.title=grab('title'); out.authors=grab('author'); out.year=grab('year');
+    out.venue=grab('journal')||grab('booktitle')||grab('publisher'); out.doi=grab('doi'); out.url=grab('url');
+    return out;
+  }
+  async function autoFillLiterature(){
+    const raw=($('#f-lookup')?.value||'').trim();
+    if(!raw)return toast('请输入 DOI、arXiv 编号或一段 BibTeX',true);
+    let m=null;
+    if(raw.startsWith('@'))m=parseBibtexFields(raw);
+    if(!m){try{m=await api('/api/literature/lookup',{method:'POST',body:{identifier:raw}})}catch(e){return toast(e.message||e.error||'抓取失败',true)}}
+    const map={'f-title':m.title,'f-authors':m.authors,'f-year':m.year,'f-venue':m.venue,'f-doi':m.doi,'f-url':m.url,'f-cite-key':m.cite_key,'f-bibtex':m.bibtex};
+    let n=0; for(const [id,val] of Object.entries(map)){const el=$('#'+id);if(el&&val){el.value=val;n++}}
+    if(m.bibtex){const ta=$('#md-input');if(ta){const block='```bibtex\n'+m.bibtex+'\n```';ta.value=/```bibtex\s*\n[\s\S]*?```/i.test(ta.value)?ta.value.replace(/```bibtex\s*\n[\s\S]*?```/i,block):ta.value;debouncedPreview()}}
+    state.dirty=true; toast(n?('已回填 '+n+' 项，请核对后保存'):'未解析到可回填字段',!n);
+  }
   function editorHtml(body){return `<div class="toolbar">
     <button type="button" data-md="h1" title="一级标题">H1</button><button type="button" data-md="h2" title="二级标题">H2</button><button type="button" data-md="h3" title="三级标题">H3</button><span class="sep"></span>
     <button type="button" data-md="bold"><b>B</b></button><button type="button" data-md="italic"><i>I</i></button><button type="button" data-md="strike"><s>S</s></button><button type="button" data-md="inlinecode">&#96;</button><span class="sep"></span>

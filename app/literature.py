@@ -283,6 +283,90 @@ def rebuild_registry() -> dict[str, Any]:
     _save_registry(data)
     return {"ok": True, **stats}
 
+
+def _cite_key_from(title: str, year: str, authors: str) -> str:
+    """v260929 · 自动填写（阶段 4）：firstauthor 姓氏 + 年份生成 cite_key，缺姓氏时退化用题名缩写。"""
+    first = str(authors or "").split(";")[0].strip()
+    last = ""
+    for part in reversed(first.replace(",", " ").split()):
+        part = part.strip(".()")
+        if part and part.isalpha():
+            last = part
+            break
+    if not last:
+        last = "".join(ch for ch in str(title or "") if ch.isascii() and ch.isalpha())[:20]
+    key = re.sub(r"[^A-Za-z0-9]+", "", last).lower() + re.sub(r"\D", "", str(year or ""))
+    return key or "paper"
+
+
+def lookup_metadata(identifier: str) -> dict[str, Any]:
+    """v260929 · 自动填写（阶段 4）：识别 DOI / arXiv 编号并联网抓取元数据（CrossRef / arXiv API）。
+    仅用标准库；识别失败或网络不可达时抛 ValueError，给出可读信息由前端 toast 提示。
+    返回字段与文献条目表单一一对应：title/authors/year/venue/doi/url/cite_key。"""
+    import urllib.request
+    import urllib.parse
+    import xml.etree.ElementTree as ET
+
+    ident = str(identifier or "").strip()
+    if not ident:
+        raise ValueError("请输入 DOI 或 arXiv 编号")
+    if ident.lower().startswith("10.") or "doi.org/" in ident.lower() or "dx.doi.org/" in ident.lower():
+        doi = ident
+        for pfx in ("https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "http://dx.doi.org/", "doi:", "DOI:"):
+            if doi.lower().startswith(pfx.lower()):
+                doi = doi[len(pfx):]
+        doi = doi.strip()
+        url = "https://api.crossref.org/works/" + urllib.parse.quote(doi)
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        msg = data.get("message") or {}
+        raw_title = msg.get("title")
+        title = " ".join(raw_title).strip() if isinstance(raw_title, list) else str(raw_title or "").strip()
+        authors = "; ".join(
+            f"{a.get('given','')} {a.get('family','')}".strip()
+            for a in msg.get("author") or [] if isinstance(a, dict)
+        )
+        year = ""
+        for key in ("published-print", "published-online", "issued", "created"):
+            parts = (msg.get(key) or {}).get("date-parts") or []
+            if parts and parts[0] and parts[0][0]:
+                year = str(parts[0][0])
+                break
+        venue = ""
+        ct = msg.get("container-title")
+        if isinstance(ct, list) and ct:
+            venue = str(ct[0])
+        elif isinstance(ct, str) and ct:
+            venue = ct
+        return {
+            "title": title, "authors": authors, "year": year, "venue": venue,
+            "doi": doi, "url": str(msg.get("URL") or f"https://doi.org/{doi}"),
+            "cite_key": _cite_key_from(title, year, authors),
+        }
+    m = re.match(r"^(?:arxiv[:/]\s*|arxiv\.org/abs/)?(\d{4}\.\d{4,5})(?:v\d+)?$", ident, re.I)
+    if m:
+        aid = m.group(1)
+        with urllib.request.urlopen("https://export.arxiv.org/api/query?id_list=" + aid, timeout=10) as resp:
+            xml_text = resp.read().decode("utf-8")
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        root = ET.fromstring(xml_text)
+        entries = root.findall("a:entry", ns)
+        if not entries:
+            raise ValueError(f"arXiv 未找到编号 {aid}")
+        entry = entries[0]
+        title = re.sub(r"\s+", " ", entry.findtext("a:title", "", ns) or "").strip()
+        authors = "; ".join(
+            (a.findtext("a:name", "", ns) or "").strip() for a in entry.findall("a:author", ns)
+        )
+        pub = entry.findtext("a:published", "", ns) or ""
+        year = pub[:4] if pub[:4].isdigit() else ""
+        return {
+            "title": title, "authors": authors, "year": year, "venue": "arXiv",
+            "doi": "", "url": (entry.findtext("a:id", "", ns) or "").strip(),
+            "cite_key": _cite_key_from(title, year, authors),
+        }
+    raise ValueError("无法识别：请输入 DOI（10.… 开头）或 arXiv 编号（如 2401.02345）")
+
 def pdf_path(paper_id: str) -> Path:
     item = get_item(paper_id)
     p = (_root() / "PDF" / str(item.get("stored_filename") or "")).resolve()
