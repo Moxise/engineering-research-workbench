@@ -308,6 +308,10 @@ def _clean_assist(assist: Any) -> dict[str, Any]:
         temp = float(raw_temp) if raw_temp is not None and str(raw_temp).strip() != "" else None
     except Exception:
         temp = None
+    # v260929x · 预设动作提示词覆盖（translate/summarize/organize/polish），空 = 用内置默认；非法键丢弃
+    raw_prompts = a.get("prompts") if isinstance(a.get("prompts"), dict) else {}
+    prompts = {k: str(raw_prompts.get(k) or "").strip() for k in ("translate", "summarize", "organize", "polish")}
+    prompts = {k: v for k, v in prompts.items() if v}
     return {
         "enabled": a.get("enabled") is not False,
         "request_preset": str(a.get("request_preset") or ""),
@@ -318,6 +322,7 @@ def _clean_assist(assist: Any) -> dict[str, Any]:
         "style_instruction": str(a.get("style_instruction") or ""),
         "max_chars": max_chars,
         "custom_actions": _clean_custom_actions(a.get("custom_actions")),  # v260929b · 自定义阅读动作
+        "prompts": prompts,  # v260929x · 预设动作提示词覆盖
     }
 
 

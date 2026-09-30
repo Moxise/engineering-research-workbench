@@ -513,7 +513,9 @@ def assist(action: str, text: str, instruction: str = "", image: str = "") -> di
         if not system_prompt:
             raise ValueError(f"自定义动作「{action_label}」尚未配置提示词，可在 设置 → 文献 / PDF → AI 阅读助手 中补充")
     elif action in _ASSIST_PROMPTS:
-        system_prompt = _ASSIST_PROMPTS[action]
+        # v260929x · 预设动作提示词可覆盖（设置→文献/PDF→AI 阅读助手），留空用内置默认
+        overrides = st.get("prompts") if isinstance(st.get("prompts"), dict) else {}
+        system_prompt = str(overrides.get(action) or "").strip() or _ASSIST_PROMPTS[action]
         if action == "translate":
             lang = str(st.get("target_language") or "中文").strip() or "中文"
             system_prompt += f"\n目标语言：{lang}。"
