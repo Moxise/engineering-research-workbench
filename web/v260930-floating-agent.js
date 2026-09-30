@@ -690,7 +690,7 @@ function personaRow(p,i){
   </div>`;
 }
 function paintPersonaEditor(host){
-  host.innerHTML=`<div class="card-head" style="margin-top:18px"><div><div class="card-kicker">AI ASSISTANT PERSONAS</div><h3>AI 助手人设</h3><p class="row-meta">自定义悬浮球 AI 助手的角色：修改系统提示词、新增/删除人设、勾选工具白名单（检索/建档/写笔记）、设定写入模式与温度。悬浮球头部下拉即可切换，保存后立即生效。撰写笔记/日志等的统一约束见写作规范文档（Workspace/System/AI助手写作与建档规范.md，个人数据不入 git）。</p></div><div style="display:flex;gap:8px;flex-shrink:0"><button type="button" class="secondary-btn" id="pe-open-rules" title="在资源管理器中打开写作规范文档所在目录，编辑后重启工作台生效">打开写作规范</button><button type="button" class="secondary-btn" id="pe-add">＋ 新增人设</button></div></div>
+  host.innerHTML=`<div class="card-head" style="margin-top:18px;flex-wrap:wrap;row-gap:6px"><div style="min-width:0"><div class="card-kicker">AI ASSISTANT PERSONAS</div><h3>AI 助手人设</h3><p class="row-meta">自定义悬浮球 AI 助手的角色：修改系统提示词、新增/删除人设、勾选工具白名单（检索/建档/写笔记）、设定写入模式与温度。悬浮球头部下拉即可切换，保存后立即生效。撰写笔记/日志等的统一约束见写作规范文档（Workspace/System/AI助手写作与建档规范.md，个人数据不入 git）。</p></div><div style="display:flex;gap:8px;flex-shrink:0"><button type="button" class="secondary-btn" id="pe-open-rules" title="在资源管理器中打开写作规范文档所在目录，编辑后重启工作台生效">打开写作规范</button><button type="button" class="secondary-btn" id="pe-add">＋ 新增人设</button></div></div>
   <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">${PE.personas.map(personaRow).join("")}</div>
   <div style="margin-top:12px"><button type="button" class="primary-btn" id="pe-save">保存人设</button></div>`;
   q("#pe-open-rules").onclick=()=>{ /* v260930g5 · 跳转写作规范（个人工作区数据，经 /api/workspace/open 打开所在目录） */
