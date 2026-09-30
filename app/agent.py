@@ -364,7 +364,117 @@ def _reasoning_text(value: Any) -> str:
     return str(value).strip()
 
 
-def _post_chat(cfg: dict[str, Any], messages: list[dict[str, Any]], request_params: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delta) -> dict[str, Any]:
+    """v260930k · 方案 A 流式：stream=True 发送，逐行读 SSE 聚合为完整 message（与 _post_chat 返回同构）。
+    每收到一片 content delta 即回调 on_delta(text)；tool_calls 分片按 index 拼接。
+    超时语义变为「相邻两片之间 ≤tmo 秒」——模型持续吐 token 则永不整体超时，根治长回答超时。"""
+    payload = dict(payload)
+    payload["stream"] = True
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = _api_headers(str(cfg["api_key"]))
+    headers["Accept"] = "text/event-stream"
+
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    tool_calls: dict[int, dict[str, Any]] = {}
+
+    def _feed(line: str) -> None:
+        if not line.startswith("data:"):
+            return
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            return
+        try:
+            chunk = json.loads(data)
+        except Exception:
+            return
+        for ch in chunk.get("choices") or []:
+            delta = ch.get("delta") or {}
+            piece = delta.get("content")
+            if piece:
+                content_parts.append(piece)
+                on_delta(piece)
+            r = delta.get("reasoning_content")
+            if r:
+                reasoning_parts.append(r if isinstance(r, str) else _reasoning_text(r))
+            for tc in delta.get("tool_calls") or []:
+                idx = int(tc.get("index") or 0)
+                slot = tool_calls.setdefault(idx, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                if tc.get("id"):
+                    slot["id"] = str(tc["id"])
+                fn = tc.get("function") or {}
+                if fn.get("name"):
+                    slot["function"]["name"] += str(fn["name"])
+                if fn.get("arguments"):
+                    slot["function"]["arguments"] += str(fn["arguments"])
+
+    endpoint = _endpoint(str(cfg["base_url"]), "/chat/completions")
+    # v260930k · 直连池路径：与 _http_json 相同的 Keep-Alive 复用，但逐行读响应
+    if not urllib.request.getproxies().get("https"):
+        u = urlparse(endpoint)
+        host = u.hostname or ""
+        port = u.port or (443 if u.scheme == "https" else 80)
+        key = (u.scheme, host, port)
+        path = u.path + (("?" + u.query) if u.query else "")
+        for attempt in (1, 0):
+            conn, reused = _pool_get(key, tmo)
+            try:
+                conn.request("POST", path, body=body, headers=headers)
+                resp = conn.getresponse()
+                if resp.status >= 400:
+                    raw = resp.read().decode("utf-8", errors="replace")
+                    if resp.will_close:
+                        conn.close()
+                    else:
+                        _pool_put(key, conn)
+                    raise ValueError(_http_error_message(resp.status, raw))
+                while True:
+                    line = resp.readline()
+                    if not line:
+                        break
+                    _feed(line.decode("utf-8", errors="replace").rstrip("\r\n"))
+                if resp.will_close:
+                    conn.close()
+                else:
+                    _pool_put(key, conn)
+                break
+            except ValueError:
+                raise
+            except TimeoutError:
+                raise ValueError(f"LLM 流式响应中断（>{tmo}s 无新内容）") from None
+            except Exception as e:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                if not reused or attempt == 0:
+                    raise ValueError(f"无法连接 LLM API：{e}") from None
+    else:  # v260930k · 代理路径：urlopen 逐行读
+        req = Request(endpoint, data=body, method="POST", headers=headers)
+        try:
+            with urlopen(req, timeout=tmo) as resp:
+                for raw_line in resp:
+                    _feed(raw_line.decode("utf-8", errors="replace").rstrip("\r\n"))
+        except HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")[:2000]
+            try:
+                msg = json.loads(detail).get("error", {}).get("message") or detail
+            except Exception:
+                msg = detail
+            raise ValueError(f"LLM API HTTP {e.code}: {msg}") from None
+        except TimeoutError:
+            raise ValueError(f"LLM 流式响应中断（>{tmo}s 无新内容）") from None
+
+    message: dict[str, Any] = {"content": "".join(content_parts)}
+    if reasoning_parts:
+        message["reasoning_content"] = "".join(reasoning_parts)
+    calls = [tool_calls[i] for i in sorted(tool_calls)]
+    if calls:
+        message["tool_calls"] = calls
+    return message
+
+
+def _post_chat(cfg: dict[str, Any], messages: list[dict[str, Any]], request_params: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None, on_delta=None) -> dict[str, Any]:
     """v260930 · M1 底层补全请求：发送完整 messages，返回原始 assistant message（含 tool_calls）。
     tools 传入时走原生 function calling；端点不支持时由调用方降级文本协议。"""
     payload: dict[str, Any] = {"model": cfg["model"], "messages": messages, "stream": False}
@@ -376,7 +486,14 @@ def _post_chat(cfg: dict[str, Any], messages: list[dict[str, Any]], request_para
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
     payload = _deep_merge_request(payload, request_params or {}, {"model", "messages", "stream", "tools", "tool_choice"})
-    data = _http_json(_endpoint(str(cfg["base_url"]), "/chat/completions"), payload, str(cfg["api_key"]), int(cfg.get("timeout") or 120))
+    tmo = int(cfg.get("timeout") or 120)
+    if on_delta:  # v260930k · 方案 A：流式优先；端点拒绝流式（4xx）时降级非流式，行为与旧路径一致
+        try:
+            return _stream_chat(cfg, payload, tmo, on_delta)
+        except ValueError as e:
+            if not _STREAM_4XX_RE.search(str(e)):
+                raise
+    data = _http_json(_endpoint(str(cfg["base_url"]), "/chat/completions"), payload, str(cfg["api_key"]), tmo)
     choices = data.get("choices") or []
     if not choices:
         raise ValueError("模型返回中没有 choices")
@@ -431,6 +548,7 @@ def _chat_completions(cfg: dict[str, Any], system_prompt: str, history: list[dic
 _MAX_TOOL_STEPS = 8  # v260930 · M1 工具循环限步，防止模型空转刷调用
 _TOOL_JSON_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
 _FALLBACK_STATUS_RE = re.compile(r"LLM API HTTP 4(?:00|04|22)")
+_STREAM_4XX_RE = re.compile(r"LLM API HTTP 4\d\d")  # v260930k · 流式被端点拒绝（4xx）→ 降级非流式重试
 
 
 def _page_context(context: Any) -> str:
@@ -482,9 +600,10 @@ def _exec_tool_call(name: str, args_raw: Any, ctx: dict[str, Any]) -> dict[str, 
     return agent_tools.execute(name, args, ctx)
 
 
-def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[str, Any]], user_text: str, image_paths: list[str], request_params: dict[str, Any], ctx: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
+def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[str, Any]], user_text: str, image_paths: list[str], request_params: dict[str, Any], ctx: dict[str, Any], on_delta=None, on_round=None) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
     """v260930 · M1 工具调用循环：原生 function calling 优先，端点不支持时降级文本协议。
-    返回 (最终回答, 推理过程, 工具轨迹, 本轮产生的待确认草稿)。"""
+    返回 (最终回答, 推理过程, 工具轨迹, 本轮产生的待确认草稿)。
+    v260930k · on_delta/on_round 用于 SSE 流式转发：每轮请求前 on_round(i)，文本片段 on_delta(t)。"""
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     for m in history[-_MAX_HISTORY_MESSAGES:]:
         if m.get("role") in ("user", "assistant") and str(m.get("content") or "").strip():
@@ -512,8 +631,10 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
 
     # 阶段一：原生 function calling（端点报 4xx 工具不支持时整体转文本协议）
     try:
-        for _ in range(_MAX_TOOL_STEPS):
-            message = _post_chat(cfg, messages, request_params, tools=specs)
+        for step in range(_MAX_TOOL_STEPS):
+            if on_round:
+                on_round(step)  # v260930k · 新一轮 LLM 请求：前端清空临时缓冲，区分中途文本与最终回答
+            message = _post_chat(cfg, messages, request_params, tools=specs, on_delta=on_delta)
             calls = message.get("tool_calls") or []
             if not isinstance(calls, list) or not calls:
                 return _message_text(message), _message_reasoning(cfg, message), tool_trace, drafts
@@ -525,7 +646,9 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
                 _record(result, name, {} if not isinstance(fn.get("arguments"), dict) else fn.get("arguments"))
                 messages.append({"role": "tool", "tool_call_id": str(tc.get("id") or ""), "content": json.dumps(result, ensure_ascii=False)[:16000]})
         messages.append({"role": "user", "content": "工具调用步数已达上限，请直接基于已获得的信息作答，不要再调用工具。"})
-        message = _post_chat(cfg, messages, request_params)
+        if on_round:
+            on_round(_MAX_TOOL_STEPS)
+        message = _post_chat(cfg, messages, request_params, on_delta=on_delta)
         return _message_text(message), _message_reasoning(cfg, message), tool_trace, drafts
     except ValueError as e:
         if not _FALLBACK_STATUS_RE.search(str(e)):
@@ -538,8 +661,10 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
         if m.get("role") in ("user", "assistant") and str(m.get("content") or "").strip():
             messages.append({"role": m["role"], "content": str(m.get("content") or "")})
     messages.append({"role": "user", "content": user_text})
-    for _ in range(_MAX_TOOL_STEPS):
-        message = _post_chat(cfg, messages, request_params)
+    for step in range(_MAX_TOOL_STEPS):
+        if on_round:
+            on_round(step)
+        message = _post_chat(cfg, messages, request_params, on_delta=on_delta)
         text = _message_text(message)
         m = _TOOL_JSON_RE.search(text)
         if not m:
@@ -558,7 +683,7 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
     raise ValueError("工具调用步数已达上限（文本协议），请精简问题后重试")
 
 
-def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "", context: dict[str, Any] | None = None, persona_id: str = "") -> dict[str, Any]:
+def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "", context: dict[str, Any] | None = None, persona_id: str = "", on_delta=None, on_round=None) -> dict[str, Any]:
     text = str(text or "").strip()
     ref_ids = [str(x) for x in (ref_ids or []) if str(x).strip()]
     ctx_doc_id = str((context or {}).get("doc_id") or "").strip()
@@ -626,7 +751,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         "write_mode": write_mode,
         "tools": list(persona.get("tools") or []) if persona else list(agent_tools.TOOL_NAMES),  # v260930 · M3 人设工具白名单
     }
-    answer, reasoning, tool_trace, drafts = _run_with_tools(request_cfg, system_prompt, history, text, image_paths, request_params, ctx)
+    answer, reasoning, tool_trace, drafts = _run_with_tools(request_cfg, system_prompt, history, text, image_paths, request_params, ctx, on_delta=on_delta, on_round=on_round)
     assistant_msg = {
         "id": "msg-" + uuid.uuid4().hex[:10], "role": "assistant", "content": answer, "reasoning": reasoning,
         "created": _now(), "model": preset_model, "request_preset": preset_id, "request_preset_label": preset_label,

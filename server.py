@@ -78,6 +78,42 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_agent_stream(self, payload):  # v260930k · 方案 A：Agent 对话 SSE 流式端点。
+        """事件序列：round(新一轮 LLM 请求) → delta*(文本片段) → ... → done(完整响应,与旧 JSON 同构) / error。
+        长回答的等待被拆成「相邻片段之间 ≤timeout」，不再出现整段 120s 超时。"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        def emit(event: str, data) -> None:
+            try:
+                self.wfile.write(f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                raise  # v260930k · 客户端断开：让 send_message 中止写出（会话已落盘部分不受影响）
+
+        try:
+            result = agent.send_message(
+                str(payload.get("session_id") or ""), str(payload.get("message") or ""),
+                payload.get("refs") or [], payload.get("images") or [], str(payload.get("request_preset") or ""),
+                payload.get("context") if isinstance(payload.get("context"), dict) else None,
+                str(payload.get("persona_id") or ""),
+                on_delta=lambda t: emit("delta", {"text": t}),
+                on_round=lambda i: emit("round", {"i": i}),
+            )
+            emit("done", result)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass  # 客户端已断开：无需再写
+        except Exception as e:
+            try:
+                emit("error", {"message": str(e)})
+            except Exception:
+                pass
+
+
     def send_text(self, text, content_type="text/plain; charset=utf-8", status=200):
         body = text.encode("utf-8") if isinstance(text, str) else text
         self.send_response(status)
@@ -400,12 +436,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/agent/assets":
             return self.send_json(agent.save_image(str(payload.get("data_url") or ""), str(payload.get("name") or "image.png")))
         if path == "/api/agent/send":
-            return self.send_json(agent.send_message(
-                str(payload.get("session_id") or ""), str(payload.get("message") or ""),
-                payload.get("refs") or [], payload.get("images") or [], str(payload.get("request_preset") or ""),
-                payload.get("context") if isinstance(payload.get("context"), dict) else None,  # v260930 · M1 页面上下文（view/paper_id/page/selection/write_mode）
-                str(payload.get("persona_id") or ""),  # v260930 · M3 人设 id
-            ))
+            return self._send_agent_stream(payload)  # v260930k · 方案 A：SSE 流式转发（delta/round/done/error），前端逐字渲染，长回答不再整体超时
         if path.startswith("/api/agent/drafts/"):  # v260930 · M1 写工具草稿确认流：confirm 落盘 / reject 拒绝
             tail = path.split("/api/agent/drafts/", 1)[1]
             if tail.endswith("/confirm"):

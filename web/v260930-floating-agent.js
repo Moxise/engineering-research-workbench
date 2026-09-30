@@ -568,7 +568,7 @@ function msgHtml(m,idx){
   const body=m.__thinking
     ?'<div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>正在思考 / 调用工具…</div>'
     :`<div class="fab-body">${mdRender(m.content||"")}</div>`;
-  const cite=m.__thinking?"":`<button type="button" class="fab-msg-cite" data-cite="${idx}" title="引用此条消息：发送时把该条内容带给 AI">❝</button>`; /* v260930j · 消息级引用 */
+  const cite=(m.__thinking||m.__streaming)?"":`<button type="button" class="fab-msg-cite" data-cite="${idx}" title="引用此条消息：发送时把该条内容带给 AI">❝</button>`; /* v260930j · 消息级引用；v260930k 生成中不显示 */
   return `<article class="fab-msg ${m.role==="assistant"?"assistant":"user"}">
     <div class="fab-avatar">${who}</div>
     <div class="fab-bubble">
@@ -754,20 +754,55 @@ async function send(){
     S.messages.push({role:"user",content:text,images:imgPaths,quoteTitle:S.quote?.title||"",created:new Date().toISOString()}); /* v260930j · 本地气泡带引用标记 */
     S.images=[];paintAttach();
     input.value="";input.style.height="auto";
-    S.messages.push({role:"assistant",content:"",__thinking:true});
+    /* v260930k · 方案 A 流式：SSE 逐字渲染。round=新一轮 LLM 请求（清缓冲），delta=文本片段，done=完整响应（与旧 JSON 同构），error=失败 */
+    const streamMsg={role:"assistant",content:"",__thinking:true};
+    S.messages.push(streamMsg);
     renderMessages();
-    const r=await api("/api/agent/send",{method:"POST",body:{session_id:S.session,message:text,refs:[],images:imgPaths,request_preset:"",context:ctx,persona_id:S.personaId}});
+    const res=await fetch("/api/agent/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:S.session,message:text,refs:[],images:imgPaths,request_preset:"",context:ctx,persona_id:S.personaId})});
+    if(!res.ok||!res.body){let d={};try{d=await res.json()}catch{};throw new Error(d.message||d.error||("HTTP "+res.status))}
+    const reader=res.body.getReader(),dec=new TextDecoder("utf-8");
+    let buf="",doneData=null;
+    let rafPending=false;
+    const paintStream=()=>{ /* 轻量增量渲染：只重绘最后气泡正文，不做全量重渲染/MathJax */
+      if(rafPending)return;rafPending=true;
+      requestAnimationFrame(()=>{rafPending=false;const root=q("#fab-messages");const body=root?.querySelector(".fab-msg:last-child .fab-body");if(body&&root){body.innerHTML=mdRender(streamMsg.content);root.scrollTop=root.scrollHeight}});
+    };
+    const handle=(ev,dataStr)=>{
+      let data={};try{data=JSON.parse(dataStr)}catch{}
+      if(ev==="delta"){
+        if(streamMsg.__thinking){streamMsg.__thinking=false;streamMsg.__streaming=true;renderMessages()}
+        streamMsg.content+=data.text||"";
+        paintStream();
+      }else if(ev==="round"){ /* v260930k · 工具循环新一轮：中途文本废弃，缓冲清零 */
+        streamMsg.content="";streamMsg.__streaming=true;
+        const root=q("#fab-messages");const body=root?.querySelector(".fab-msg:last-child .fab-body");if(body)body.innerHTML='<div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>调用工具中…</div>';
+      }else if(ev==="error"){throw new Error(data.message||"生成失败")}
+      else if(ev==="done"){doneData=data}
+    };
+    let chunk;
+    while(true){
+      const rd=await reader.read();if(rd.done)break;chunk=rd.value;
+      buf+=dec.decode(chunk,{stream:true});
+      let idx;
+      while((idx=buf.indexOf("\n\n"))>=0){
+        const block=buf.slice(0,idx);buf=buf.slice(idx+2);
+        let ev="",dline="";
+        for(const line of block.split("\n")){if(line.startsWith("event:"))ev=line.slice(6).trim();else if(line.startsWith("data:"))dline+=line.slice(5).trim()}
+        if(ev)handle(ev,dline);
+      }
+    }
+    if(!doneData)throw new Error("连接中断，未收到完整响应");
     S.messages=S.messages.slice(0,-1);
-    S.messages.push(r.assistant);
+    S.messages.push(doneData.assistant);
     S.bubbleSel="";paintContext();updateBallBadge();
     renderMessages();
   }catch(e){
-    S.messages=S.messages.filter(m=>!m.__thinking);
+    S.messages=S.messages.filter(m=>!m.__thinking&&!m.__streaming); /* v260930k · 同时清理思考中/流式未定稿消息 */
     S.messages.push({role:"assistant",content:"请求失败："+e.message,created:new Date().toISOString()});
     renderMessages();
   }finally{
     S.sending=false;btn.disabled=false;btn.textContent="发送";
-    if(S.messages.at(-1)?.__thinking){S.messages=S.messages.filter(m=>!m.__thinking);renderMessages()}
+    if(S.messages.at(-1)?.__thinking||S.messages.at(-1)?.__streaming){S.messages=S.messages.filter(m=>!m.__thinking&&!m.__streaming);renderMessages()}
   }
 }
 
