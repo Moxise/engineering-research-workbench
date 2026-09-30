@@ -268,10 +268,21 @@ def _title_terms(title: str, kind: str) -> list[str]:
     return terms
 
 
+def _term_in_text(term: str, low_text: str) -> bool:
+    """v260930i · 英文纯字母词按整词匹配（SCR 不得命中 description），容忍简单词形变化
+    （filters/filtering/estimated 这类 s/es/ed/ing 后缀），中文/混合词保留子串。"""
+    tl = term.lower()
+    if tl.isascii() and tl.isalpha():
+        stem = tl[:-1] if tl.endswith("e") else tl  # estimate → estimated/estimates/estimating
+        return re.search(rf"(?<![a-z0-9]){re.escape(stem)}e?(?:s|es|ed|ing)?(?![a-z0-9])", low_text) is not None
+    return tl in low_text
+
+
 def match_related(page_text: str, limit: int = 8) -> list[dict[str, Any]]:
     """v260930d · M5 阅读中知识关联：把页面正文与全库条目的标题名称段/标签做文本匹配，
     返回本页出现过的知识条目（纯字符串匹配，不依赖 LLM）。命中按权重降序：
-    整名称段命中 > 长 token > 多 token；返回 hits 供前端高亮。"""
+    整名称段命中 > 长 token > 多 token；返回 hits 供前端高亮。
+    v260930i · 抗噪：英文整词匹配 + 最低相关门槛（整段命中必进；否则需 score≥4 或 ≥2 个独立命中）。"""
     text = str(page_text or "")
     if len(text.strip()) < 4:
         return []
@@ -290,12 +301,14 @@ def match_related(page_text: str, limit: int = 8) -> list[dict[str, Any]]:
                 candidates.append(t)
         hits: list[str] = []
         score = 0
+        full = False
         for i, term in enumerate(candidates):
             tl = term.lower()
-            if tl and tl in low:
+            if tl and _term_in_text(term, low):
                 hits.append(term)
                 # v260930d · 权重：整名称段命中强加权；标题 token 按词长；tags 命中为弱信号（半权）
                 if i == 0:
+                    full = True
                     score += 50 + len(term) // 2
                 elif i < n_title:
                     score += len(term)
@@ -305,6 +318,8 @@ def match_related(page_text: str, limit: int = 8) -> list[dict[str, Any]]:
             continue
         if len(hits) >= 2:
             score += 2
+        if not full and score < 4 and len(hits) < 2:  # v260930i · 单个弱命中不足以构成关联
+            continue
         scored[doc["id"]] = {
             "id": doc["id"], "title": doc.get("title"), "kind": kind,
             "kind_marks": doc.get("kind_marks") or [], "excerpt": doc.get("excerpt", ""),
