@@ -295,11 +295,13 @@ async function commit(action){
 function toggleArea(){
  S.area=!S.area;S.pending=null;paintPending();toolbar();
  qa(".lit-interaction-layer").forEach(el=>{el.onmousedown=S.area?areaStart:null});
+ if(!S.area&&S.areaResolver){const rs=S.areaResolver;S.areaResolver=null;rs("")} /* v260930n · 取消框选时释放悬浮球等待中的截图 promise，避免永久悬挂 */
 }
 function areaStart(e){
  const page=e.target.closest(".lit-page");if(!page||!S.area)return;e.preventDefault();const n=+page.dataset.page,pr=page.getBoundingClientRect(),a=[clamp((e.clientX-pr.left)/pr.width),clamp((e.clientY-pr.top)/pr.height)];
  const move=ev=>{const b=[clamp((ev.clientX-pr.left)/pr.width),clamp((ev.clientY-pr.top)/pr.height)];S.pending={page:n,text:"区域选块",kind:"area",rects:[[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]]};paintPending()};
  const up=()=>{document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);S.area=false;qa(".lit-interaction-layer").forEach(el=>el.onmousedown=null);toolbar();const rs=S.areaResolver;S.areaResolver=null;if(rs){rs(areaPreviewDataUrl(S.pending))}else{openAiTabForArea()}}; /* v260930e · 框选完成：外部接管（悬浮球截图）优先于阅读区 AI 面板联动 */
+ document.addEventListener("mousemove",move,true);document.addEventListener("mouseup",up,true); /* v260930n · 修复框选失效：move/up 此前定义后未挂载，拖动与松开无人监听，选区不出现 */
 }
 function openAiTabForArea(){ /* v260929d · 框选完成后联动：多模态开启时自动切到 AI 面板，「用框选区域」截图按钮立即出现 */
   const vis=window.ERWVisionEnabled?window.ERWVisionEnabled():false;if(!vis)return;
@@ -553,5 +555,5 @@ function pageText(n){ /* v260930c · M4 · 取渲染页缓存的文本几何拼�
  const r=S.pages.get(+n);if(!r||!Array.isArray(r.textItems))return "";
  return r.textItems.map(i=>i.text).join(" ").replace(/\s+/g," ").trim().slice(0,6000);
 }
-document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"&&q("#lit-note")){e.preventDefault();saveNote()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="c"&&S.pending?.kind==="text"&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();copyPendingText()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&S.paper&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();undo()}else if(e.key==="Escape"&&S.pending){S.pending=null;paintPending();toolbar()}});
+document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"&&q("#lit-note")){e.preventDefault();saveNote()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="c"&&S.pending?.kind==="text"&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();copyPendingText()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&S.paper&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();undo()}else if(e.key==="Escape"&&(S.pending||S.area)){S.pending=null;paintPending();if(S.area)toggleArea();else toolbar()} /* v260930n · Esc 退出框选态并释放悬挂 promise */});
 })();
