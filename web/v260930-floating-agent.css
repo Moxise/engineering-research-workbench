@@ -28,6 +28,10 @@
 }
 /* v260930b · 修复收起失效：上面 display:flex 会覆盖 UA 对 [hidden] 的 display:none，必须显式声明 */
 #erw-fab-panel[hidden]{display:none}
+/* v260930j3 · 面板头部=拖动把手（控件自身 cursor 不受影响），拖动中禁选中文本 */
+.fab-head{cursor:grab;user-select:none}
+.fab-head.dragging{cursor:grabbing}
+.fab-head.dragging *{cursor:grabbing!important}
 /* v260930g7 · 左上角拖拽手柄：调整面板宽高（锚定右下） */
 .fab-resize{position:absolute;top:0;left:0;width:18px;height:18px;cursor:nwse-resize;z-index:6;touch-action:none}
 .fab-resize::after{content:"";position:absolute;top:5px;left:5px;width:7px;height:7px;border-left:2px solid var(--line);border-top:2px solid var(--line);border-radius:2px}

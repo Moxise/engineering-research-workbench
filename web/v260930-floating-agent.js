@@ -126,6 +126,7 @@ function mount(){
   document.body.appendChild(bubble);
 
   initPanelResize(); /* v260930g7 · 左上角手柄拖拽调尺寸 */
+  initPanelDrag(); /* v260930j3 · 头部拖动移动面板（展开后不再固定右下角） */
   q("#fab-close").onclick=closePanel;
   q("#fab-persona").onchange=e=>switchPersona(e.target.value);
   /* v260930e · 历史回看：切换面板视图（对话 ⇄ 历史列表） */
@@ -337,6 +338,7 @@ async function openPanel(){
   S.open=true;const p=q("#erw-fab-panel");if(!p)return;
   p.hidden=false;q("#erw-fab-ball").style.display="none";
   applyPanelSize(); /* v260930g7 · 恢复上次手动调整的面板尺寸 */
+  applyPanelPos(); /* v260930j3 · 恢复上次拖动的面板位置 */
   paintContext();
   ensureRelated(); /* v260930d · M5 打开面板即匹配本页关联知识（异步，不阻塞对话） */
   syncDraftStatuses(); /* v260930g9f · 打开面板即校准草稿真实状态（面板外确认的草稿不再误显待确认） */
@@ -363,15 +365,51 @@ function applyPanelSize(){
     p.style.height=fabClamp(s.h,320,Math.min(900,innerHeight-110))+"px";
   }catch{}
 }
+/* ---------- v260930j3 · 面板移动：按住头部拖动（控件区除外），位置持久化 ---------- */
+const FAB_POS_KEY="fabPanelPos";
+function applyPanelPos(){
+  const p=q("#erw-fab-panel");if(!p)return;
+  try{
+    const s=JSON.parse(localStorage.getItem(FAB_POS_KEY)||"");
+    if(!s||!Number.isFinite(s.x)||!Number.isFinite(s.y))return;
+    p.style.left=fabClamp(s.x,8,Math.max(8,innerWidth-p.offsetWidth-8))+"px";
+    p.style.top=fabClamp(s.y,8,Math.max(8,innerHeight-p.offsetHeight-8))+"px";
+    p.style.right="auto";p.style.bottom="auto";
+  }catch{}
+}
+function initPanelDrag(){
+  const head=q("#erw-fab-panel .fab-head"),p=q("#erw-fab-panel");if(!head||!p)return;
+  head.addEventListener("pointerdown",e=>{
+    if(e.button!==0)return;
+    if(e.target.closest("button,select,input,label"))return; /* 人设/历史/新建/关闭等控件不触发拖动 */
+    e.preventDefault();
+    const r=p.getBoundingClientRect(),sx=e.clientX,sy=e.clientY,ox=r.left,oy=r.top;
+    p.style.left=r.left+"px";p.style.top=r.top+"px";p.style.right="auto";p.style.bottom="auto";
+    head.setPointerCapture(e.pointerId);head.classList.add("dragging");
+    const mv=ev=>{
+      p.style.left=fabClamp(ox+(ev.clientX-sx),8,Math.max(8,innerWidth-r.width-8))+"px";
+      p.style.top=fabClamp(oy+(ev.clientY-sy),8,Math.max(8,innerHeight-r.height-8))+"px";
+    };
+    const up=()=>{
+      head.removeEventListener("pointermove",mv);head.removeEventListener("pointerup",up);
+      head.classList.remove("dragging");
+      try{localStorage.setItem(FAB_POS_KEY,JSON.stringify({x:parseFloat(p.style.left),y:parseFloat(p.style.top)}))}catch{}
+    };
+    head.addEventListener("pointermove",mv);head.addEventListener("pointerup",up);
+  });
+}
 function initPanelResize(){
   const h=q("#fab-resize"),p=q("#erw-fab-panel");if(!h||!p)return;
   h.addEventListener("pointerdown",e=>{
     e.preventDefault();
     const sw=p.offsetWidth,sh=p.offsetHeight,sx=e.clientX,sy=e.clientY;
+    const hadLeft=p.style.left!=="",oleft=parseFloat(p.style.left)||0,otop=parseFloat(p.style.top)||0; /* v260930j3 · 移动过的面板 resize 时保持右下角不动 */
     h.setPointerCapture(e.pointerId);
     const mv=ev=>{
-      p.style.width=fabClamp(sw+(sx-ev.clientX),340,Math.min(760,innerWidth-40))+"px";
-      p.style.height=fabClamp(sh+(sy-ev.clientY),320,Math.min(900,innerHeight-110))+"px";
+      const nw=fabClamp(sw+(sx-ev.clientX),340,Math.min(760,innerWidth-40));
+      const nh=fabClamp(sh+(sy-ev.clientY),320,Math.min(900,innerHeight-110));
+      p.style.width=nw+"px";p.style.height=nh+"px";
+      if(hadLeft){p.style.left=oleft-(nw-sw)+"px";p.style.top=otop-(nh-sh)+"px"}
     };
     const up=()=>{
       h.removeEventListener("pointermove",mv);h.removeEventListener("pointerup",up);
