@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/favicon.png?v=260923">
   <link rel="apple-touch-icon" href="/favicon.png?v=260923">
   <!-- v260924g · CSS 引用带版本参数，避免 WebView 缓存旧样式；本次随分页排版/滚动同步锁修复升级 -->
-  <link rel="stylesheet" href="/styles.css?v=260929f"><!-- v260929f · 设置页导航 sticky 常量对齐紧凑布局（topbar 82/padding 16/34），修内容不足整页仍可拖动；上版：设置页分类导航 sticky 固定全高 -->
+  <link rel="stylesheet" href="/styles.css?v=260929g"><!-- v260929g · 设置页导航高度改用 JS 按 zoom 折算的视口高变量（--vh-px），修非 100% 缩放下滚动时栏目条被推走；上版：sticky 常量对齐紧凑布局口径 -->
   <link rel="stylesheet" href="/literature.css?v=260929j"><!-- v260929j · 批注编辑卡片操作行（加入笔记 / 附带截图勾选）样式；上版：AI 面板截图入口与待处理截图预览样式 -->
   <link rel="stylesheet" href="/v260922-projects.css?v=260924g">
   <link rel="stylesheet" href="/v260922-compact-layout.css?v=260924g">
@@ -100,7 +100,7 @@
   </div>
 
   <script defer src="/v260922-performance.js?v=260924g"></script><!-- v260924g · 分页文案/排版修复，版本参数防缓存 -->
-  <script defer src="/app.js?v=260929x"></script><!-- v260929x · AI 阅读助手预设动作（翻译/总结/整理/润色）提示词可按动作覆盖（留空用内置默认）；上版：条目预览图片路径通用化 -->
+  <script defer src="/app.js?v=260929y"></script><!-- v260929y · 根 zoom/resize 时同步折算视口尺寸 CSS 变量（--vw-px/--vh-px），配合设置页导航全高修复；上版：AI 阅读助手预设动作提示词可覆盖 -->
   <script defer src="/literature.js?v=260929q"></script><!-- v260929q · 批注加入笔记时截图复制到笔记图片目录（设置指定位置）；上版：批注列表按编号排序 + 选中批注原地展开编辑 -->
   <script defer src="/v260922-projects.js"></script>
   <script defer src="/v260922-overview-editor-tools.js"></script>

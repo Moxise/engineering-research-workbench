@@ -388,10 +388,21 @@
     if(state.config?.app){state.config.app.ui={...(state.config.app.ui||{}),heatmap_months:months}; try{await api('/api/config/app',{method:'POST',body:state.config.app});}catch(e){console.warn('heatmap preference save failed',e);}}
   }
 
+  function syncViewportVars(){
+    /* v260929g · Chrome 的 100vh/100vw 不随根元素 zoom 折算（恒等于设备像素视口尺寸），
+     * 应用内非 100% 缩放时依赖 100vh 的 sticky 全高布局会失配（设置页栏目条滚动时被推走）。
+     * 这里把按 zoom 折算后的 CSS 像素视口尺寸写入变量，styles.css 的 settings-nav 高度改用该变量。 */
+    const z=parseFloat(document.documentElement.style.zoom)||1;
+    const s=document.documentElement.style;
+    s.setProperty('--vw-px',(window.innerWidth/z)+'px');
+    s.setProperty('--vh-px',(window.innerHeight/z)+'px');
+  }
+
   function applyUiScale(pct){
     const v=Math.max(80,Math.min(125,Math.round(Number(pct)||100)));
     state.uiScale=v; localStorage.setItem('uiScale',String(v));
     document.documentElement.style.zoom=v===100?'':String(v/100);
+    syncViewportVars(); /* v260929g · zoom 变化后重算折算视口变量 */
     /* v260923s · 根元素 zoom 变化时 ResizeObserver 不触发（局部坐标系尺寸不变），
      * 必须手动重跑热力图适配，否则 one-screen 类与内联样式残留导致小屏卡片重叠。 */
     requestAnimationFrame(()=>requestAnimationFrame(()=>{ if(state.route==='overview') fitResearchHeatmap(); }));
@@ -1238,6 +1249,7 @@
     $('#zoom-btn').onclick=()=>$('#zoom-menu').classList.toggle('hidden');
     $$('[data-zoom]').forEach(b=>b.onclick=()=>{applyUiScale(b.dataset.zoom);$('#zoom-menu').classList.add('hidden')});
     applyUiScale(state.uiScale);
+    window.addEventListener('resize',syncViewportVars); /* v260929g · 窗口尺寸变化时同步折算视口变量 */
     /* v260922h · 密度默认紧凑型（并排一屏收纳）；手动切换后记忆用户选择 */
     $('#density-btn').onclick=()=>{const v=state.density==='cozy'?'compact':'cozy';localStorage.setItem('pageDensityManual','1');localStorage.setItem('pageDensity',v);applyDensity(v);fitResearchHeatmap();};
     const savedDensity=localStorage.getItem('pageDensity'), manualDensity=localStorage.getItem('pageDensityManual')==='1';
