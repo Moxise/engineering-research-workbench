@@ -141,7 +141,10 @@ function mount(){
     else{openPanel();toastInPanel("框选已取消或未截到区域",true)}
   };
   q("#fab-new").onclick=async()=>{try{const s=await api("/api/agent/sessions",{method:"POST",body:{}});S.session=s.id;S.messages=[];S.draftState={};S.view="chat";paintView();paintContext();toastInPanel("已新建对话")}catch(e){toastInPanel(e.message,true)}};
-  q("#fab-send").onclick=send;
+  q("#fab-send").onclick=()=>{ /* v260930l · 发送中再点=停止生成（abort 流式请求，后端随之中止） */
+    if(S.sending){S.abortCtl?.abort();return}
+    send();
+  };
   const input=q("#fab-input");
   input.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();send()}});
   input.addEventListener("input",()=>{input.style.height="auto";input.style.height=Math.min(120,input.scrollHeight)+"px"});
@@ -601,7 +604,8 @@ async function paintHistory(){
   try{
     const rows=await api("/api/agent/sessions");
     if(!rows.length){root.innerHTML='<div class="fab-empty">暂无历史对话</div>';return}
-    root.innerHTML=`<div class="fab-history-list">${rows.map(s=>`
+    const active=rows.filter(s=>!s.archived),archived=rows.filter(s=>s.archived); /* v260930n · 活跃/已归档分组 */
+    const row=(s)=>`
       <div class="fab-hist-row">
         <button type="button" class="fab-hist-item${s.id===S.session?" current":""}" data-hist="${esc(s.id)}">
           <span class="fab-hist-title">${esc(s.title||"新对话")}${s.id===S.session?' <i class="fab-hist-cur">当前</i>':""}</span>
@@ -609,13 +613,40 @@ async function paintHistory(){
           <span class="fab-hist-preview">${esc(s.preview||"")}</span>
         </button>
         <button type="button" class="fab-quote-btn" data-quote="${esc(s.id)}" data-quote-title="${esc(s.title||"历史对话")}" title="引用此对话：发送消息时把该对话内容作为参考带给 AI">❝</button>
-      </div>`).join("")}</div>`;
+        <button type="button" class="fab-hist-act" data-arch="${esc(s.id)}" data-flag="${s.archived?"0":"1"}" title="${s.archived?"取消归档，恢复到对话列表":"归档：从对话列表隐藏，可随时恢复"}">${s.archived?"📤":"📥"}</button><!-- v260930n -->
+        <button type="button" class="fab-hist-act danger" data-del="${esc(s.id)}" data-title="${esc(s.title||"新对话")}" title="删除此对话（移入 AgentChats/Trash/，可从文件系统找回）">🗑</button><!-- v260930n -->
+      </div>`;
+    const sec=(label,list)=>list.length?`<div class="fab-hist-sec">${label}</div>${list.map(row).join("")}`:""; /* v260930n · 分组标题 */
+    root.innerHTML=`<div class="fab-history-list">${sec("对话",active)}${sec("已归档",archived)}</div>`;
     qa("[data-hist]",root).forEach(b=>b.onclick=()=>{
       S.session=b.dataset.hist;S.messages=[];S.draftState={};S.relatedItems=[];S.view="chat";paintView();
       loadSession();paintContext();
       localStorage.setItem("fabAgentSession",S.session);
     });
     qa("[data-quote]",root).forEach(b=>b.onclick=()=>quoteSession(b.dataset.quote,b.dataset.quoteTitle));
+    qa("[data-arch]",root).forEach(b=>b.onclick=async()=>{ /* v260930n · 归档/取消归档 */
+      try{
+        await api("/api/agent/session/archive",{method:"POST",body:{id:b.dataset.arch,archived:b.dataset.flag==="1"}});
+        if(b.dataset.flag==="1")toastInPanel("已归档，可从「已归档」分组找回");
+        paintHistory();
+      }catch(e){toastInPanel(e.message,true)}
+    });
+    qa("[data-del]",root).forEach(b=>b.onclick=async()=>{ /* v260930n · 删除对话（后端移入 Trash，可从文件系统找回） */
+      if(!confirm(`删除对话「${b.dataset.title}」？\n会话文件将移入 AgentChats/Trash/，可从文件系统找回。`))return;
+      try{
+        await api("/api/agent/sessions/"+encodeURIComponent(b.dataset.del),{method:"DELETE"});
+        toastInPanel("已删除");
+        if(b.dataset.del===S.session){ /* 删除的是当前会话：切到最近活跃会话或空态 */
+          const rest=await api("/api/agent/sessions");
+          const next=rest.find(s=>!s.archived);
+          S.session=next?next.id:"";S.messages=[];S.draftState={};S.relatedItems=[];
+          if(S.session){await loadSession();localStorage.setItem("fabAgentSession",S.session)}
+          else{localStorage.removeItem("fabAgentSession")}
+          paintContext();
+        }
+        paintHistory();
+      }catch(e){toastInPanel(e.message,true)}
+    });
   }catch(e){root.innerHTML=`<div class="fab-empty">加载失败：${esc(e.message)}</div>`}
 }
 /* v260930j · 引用历史对话：取该会话最近 12 条消息拼为参考文本（≤3800 字），发送时随 context 注入 AI */
@@ -741,7 +772,8 @@ async function send(){
   const text=input.value.trim();
   if(!text&&!S.images.length)return;
   if(!window.ERWLLMReady?.()){toastInPanel("模型接口未启用：请先在 设置 → Agent / LLM 配置",true);return}
-  S.sending=true;const btn=q("#fab-send");btn.disabled=true;btn.textContent="…";
+  S.sending=true;const btn=q("#fab-send");btn.textContent="停止";btn.title="停止生成";btn.classList.add("stop"); /* v260930l · 发送中按钮变停止键 */
+  S.abortCtl=new AbortController(); /* v260930l */
   const {ctx}=contextChips();
   try{
     if(!S.session){const s=await api("/api/agent/sessions",{method:"POST",body:{}});S.session=s.id;localStorage.setItem("fabAgentSession",S.session)}
@@ -758,7 +790,7 @@ async function send(){
     const streamMsg={role:"assistant",content:"",__thinking:true};
     S.messages.push(streamMsg);
     renderMessages();
-    const res=await fetch("/api/agent/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:S.session,message:text,refs:[],images:imgPaths,request_preset:"",context:ctx,persona_id:S.personaId})});
+    const res=await fetch("/api/agent/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:S.session,message:text,refs:[],images:imgPaths,request_preset:"",context:ctx,persona_id:S.personaId}),signal:S.abortCtl.signal}); /* v260930l · 带 abort 信号 */
     if(!res.ok||!res.body){let d={};try{d=await res.json()}catch{};throw new Error(d.message||d.error||("HTTP "+res.status))}
     const reader=res.body.getReader(),dec=new TextDecoder("utf-8");
     let buf="",doneData=null;
@@ -767,6 +799,9 @@ async function send(){
       if(rafPending)return;rafPending=true;
       requestAnimationFrame(()=>{rafPending=false;const root=q("#fab-messages");const body=root?.querySelector(".fab-msg:last-child .fab-body");if(body&&root){body.innerHTML=mdRender(streamMsg.content);root.scrollTop=root.scrollHeight}});
     };
+    const paintStatus=(note)=>{ /* v260930l · 工具循环状态行：进度实时可见，不再像卡死 */
+      const root=q("#fab-messages");const body=root?.querySelector(".fab-msg:last-child .fab-body");if(body)body.innerHTML=`<div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>${note}</div>`;
+    };
     const handle=(ev,dataStr)=>{
       let data={};try{data=JSON.parse(dataStr)}catch{}
       if(ev==="delta"){
@@ -774,13 +809,18 @@ async function send(){
         streamMsg.content+=data.text||"";
         paintStream();
       }else if(ev==="round"){ /* v260930k · 工具循环新一轮：中途文本废弃，缓冲清零 */
-        streamMsg.content="";streamMsg.__streaming=true;
-        const root=q("#fab-messages");const body=root?.querySelector(".fab-msg:last-child .fab-body");if(body)body.innerHTML='<div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>调用工具中…</div>';
+        streamMsg.content="";streamMsg.__streaming=true;streamMsg.__round=(data.i|0)+1;
+        paintStatus(`第 ${streamMsg.__round} 轮 · 模型思考中…`);
+      }else if(ev==="tool"){ /* v260930l · 工具执行完成实时上报 */
+        streamMsg.__tools=streamMsg.__tools||[];
+        streamMsg.__tools.push({n:String(data.name||""),ok:!!data.ok,ms:data.ms|0});
+        paintStatus(`第 ${streamMsg.__round||1} 轮 · ${String(data.name||"工具")} ${data.ok?"✓":"✗"}（${data.ms|0}ms）· 累计 ${streamMsg.__tools.length} 次`);
       }else if(ev==="error"){throw new Error(data.message||"生成失败")}
       else if(ev==="done"){doneData=data}
     };
     let chunk;
     while(true){
+      if(doneData)break; /* v260930m · done 已到立即收尾：不等 EOF（keep-alive 下 EOF 可能永不到达，曾致按钮卡「停止」、草稿卡片不渲染） */
       const rd=await reader.read();if(rd.done)break;chunk=rd.value;
       buf+=dec.decode(chunk,{stream:true});
       let idx;
@@ -796,12 +836,14 @@ async function send(){
     S.messages.push(doneData.assistant);
     S.bubbleSel="";paintContext();updateBallBadge();
     renderMessages();
+    reader.cancel().catch(()=>{}); /* v260930m · 主动释放连接：done 后不再依赖服务器关闭 */
   }catch(e){
+    const aborted=e&&e.name==="AbortError"; /* v260930l · 用户主动停止 */
     S.messages=S.messages.filter(m=>!m.__thinking&&!m.__streaming); /* v260930k · 同时清理思考中/流式未定稿消息 */
-    S.messages.push({role:"assistant",content:"请求失败："+e.message,created:new Date().toISOString()});
+    S.messages.push({role:"assistant",content:aborted?"已停止生成。本轮任务可能已部分执行（以知识库草稿与会话记录为准），可继续追问或换个小任务分步做。":"请求失败："+e.message,created:new Date().toISOString()});
     renderMessages();
   }finally{
-    S.sending=false;btn.disabled=false;btn.textContent="发送";
+    S.sending=false;btn.textContent="发送";btn.title="";btn.classList.remove("stop");S.abortCtl=null; /* v260930l · 按钮恢复 */
     if(S.messages.at(-1)?.__thinking||S.messages.at(-1)?.__streaming){S.messages=S.messages.filter(m=>!m.__thinking&&!m.__streaming);renderMessages()}
   }
 }

@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import urllib.request
 import uuid
 from datetime import datetime
@@ -75,6 +76,7 @@ def list_sessions() -> list[dict[str, Any]]:
                 "updated": data.get("updated") or "",
                 "message_count": len(messages),
                 "preview": str(last)[:160],
+                "archived": bool(data.get("archived")),  # v260930n · 归档标记：前端按活跃/已归档分组展示
             })
     out.sort(key=lambda x: x.get("updated") or x.get("created") or "", reverse=True)
     return out
@@ -104,6 +106,14 @@ def rename_session(session_id: str, title: str) -> dict[str, Any]:
         data = get_session(session_id)
         data["title"] = (title or "新对话").strip()[:120]
         data["updated"] = _now()
+        _atomic_json(_session_path(session_id), data)
+        return data
+
+
+def archive_session(session_id: str, flag: bool) -> dict[str, Any]:  # v260930n · 归档/取消归档：只改 archived 标记，不动 updated（列表仍按最近更新排序）
+    with _LOCK:
+        data = get_session(session_id)
+        data["archived"] = bool(flag)
         _atomic_json(_session_path(session_id), data)
         return data
 
@@ -545,7 +555,8 @@ def _chat_completions(cfg: dict[str, Any], system_prompt: str, history: list[dic
     return _message_text(message), _message_reasoning(cfg, message)
 
 
-_MAX_TOOL_STEPS = 8  # v260930 · M1 工具循环限步，防止模型空转刷调用
+_MAX_TOOL_STEPS = 12  # v260930l · 8→12：批量建档（如一次建 6 条）单轮检索+创建+更新步数不够
+_TOOL_BUDGET_SECONDS = 480  # v260930l · 工具循环整体时间预算：超时强制收尾作答，不再无限等待
 _TOOL_JSON_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
 _FALLBACK_STATUS_RE = re.compile(r"LLM API HTTP 4(?:00|04|22)")
 _STREAM_4XX_RE = re.compile(r"LLM API HTTP 4\d\d")  # v260930k · 流式被端点拒绝（4xx）→ 降级非流式重试
@@ -600,10 +611,11 @@ def _exec_tool_call(name: str, args_raw: Any, ctx: dict[str, Any]) -> dict[str, 
     return agent_tools.execute(name, args, ctx)
 
 
-def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[str, Any]], user_text: str, image_paths: list[str], request_params: dict[str, Any], ctx: dict[str, Any], on_delta=None, on_round=None) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
+def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[str, Any]], user_text: str, image_paths: list[str], request_params: dict[str, Any], ctx: dict[str, Any], on_delta=None, on_round=None, on_tool=None) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
     """v260930 · M1 工具调用循环：原生 function calling 优先，端点不支持时降级文本协议。
     返回 (最终回答, 推理过程, 工具轨迹, 本轮产生的待确认草稿)。
-    v260930k · on_delta/on_round 用于 SSE 流式转发：每轮请求前 on_round(i)，文本片段 on_delta(t)。"""
+    v260930k · on_delta/on_round 用于 SSE 流式转发：每轮请求前 on_round(i)，文本片段 on_delta(t)。
+    v260930l · on_tool(name,result) 工具执行完实时上报；_TOOL_BUDGET_SECONDS 超时强制收尾，防长任务体感卡死。"""
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     for m in history[-_MAX_HISTORY_MESSAGES:]:
         if m.get("role") in ("user", "assistant") and str(m.get("content") or "").strip():
@@ -630,8 +642,11 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
         tool_trace.append(entry)
 
     # 阶段一：原生 function calling（端点报 4xx 工具不支持时整体转文本协议）
+    deadline = time.monotonic() + _TOOL_BUDGET_SECONDS  # v260930l · 循环整体预算
     try:
         for step in range(_MAX_TOOL_STEPS):
+            if time.monotonic() > deadline:
+                break  # v260930l · 超出预算：跳出循环走收尾作答
             if on_round:
                 on_round(step)  # v260930k · 新一轮 LLM 请求：前端清空临时缓冲，区分中途文本与最终回答
             message = _post_chat(cfg, messages, request_params, tools=specs, on_delta=on_delta)
@@ -643,9 +658,11 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
                 fn = (tc or {}).get("function") or {}
                 name = str(fn.get("name") or "")
                 result = _exec_tool_call(name, fn.get("arguments"), ctx)
+                if on_tool:
+                    on_tool(name, result)  # v260930l · 工具执行完实时上报
                 _record(result, name, {} if not isinstance(fn.get("arguments"), dict) else fn.get("arguments"))
                 messages.append({"role": "tool", "tool_call_id": str(tc.get("id") or ""), "content": json.dumps(result, ensure_ascii=False)[:16000]})
-        messages.append({"role": "user", "content": "工具调用步数已达上限，请直接基于已获得的信息作答，不要再调用工具。"})
+        messages.append({"role": "user", "content": "工具调用步数或时间已达上限，请直接基于已获得的信息作答，不要再调用工具。"})
         if on_round:
             on_round(_MAX_TOOL_STEPS)
         message = _post_chat(cfg, messages, request_params, on_delta=on_delta)
@@ -661,7 +678,10 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
         if m.get("role") in ("user", "assistant") and str(m.get("content") or "").strip():
             messages.append({"role": m["role"], "content": str(m.get("content") or "")})
     messages.append({"role": "user", "content": user_text})
+    deadline = time.monotonic() + _TOOL_BUDGET_SECONDS  # v260930l
     for step in range(_MAX_TOOL_STEPS):
+        if time.monotonic() > deadline:
+            break  # v260930l · 超出预算：停止循环，按上限作答
         if on_round:
             on_round(step)
         message = _post_chat(cfg, messages, request_params, on_delta=on_delta)
@@ -677,13 +697,15 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
             continue
         name = str(call.get("tool") or "")
         result = _exec_tool_call(name, call.get("args"), ctx)
+        if on_tool:
+            on_tool(name, result)  # v260930l
         _record(result, name, call.get("args") if isinstance(call.get("args"), dict) else {})
         messages.append({"role": "assistant", "content": text})
         messages.append({"role": "user", "content": "工具结果：\n```json\n" + json.dumps(result, ensure_ascii=False)[:16000] + "\n```\n请继续（可再次调用工具或给出最终回答）。"})
-    raise ValueError("工具调用步数已达上限（文本协议），请精简问题后重试")
+    raise ValueError("工具调用步数或时间已达上限（文本协议），请精简任务后重试")
 
 
-def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "", context: dict[str, Any] | None = None, persona_id: str = "", on_delta=None, on_round=None) -> dict[str, Any]:
+def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "", context: dict[str, Any] | None = None, persona_id: str = "", on_delta=None, on_round=None, on_tool=None) -> dict[str, Any]:
     text = str(text or "").strip()
     ref_ids = [str(x) for x in (ref_ids or []) if str(x).strip()]
     ctx_doc_id = str((context or {}).get("doc_id") or "").strip()
@@ -737,6 +759,8 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
     with _LOCK:
         session = get_session(session_id)
         session.setdefault("messages", []).append(user_msg)
+        if session.get("archived"):
+            session["archived"] = False  # v260930n · 归档会话收到新消息：自动回到活跃列表
         if session.get("title") in ("", "新对话"):
             session["title"] = (text or "图片分析")[:36]
         session["updated"] = _now()
@@ -751,7 +775,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         "write_mode": write_mode,
         "tools": list(persona.get("tools") or []) if persona else list(agent_tools.TOOL_NAMES),  # v260930 · M3 人设工具白名单
     }
-    answer, reasoning, tool_trace, drafts = _run_with_tools(request_cfg, system_prompt, history, text, image_paths, request_params, ctx, on_delta=on_delta, on_round=on_round)
+    answer, reasoning, tool_trace, drafts = _run_with_tools(request_cfg, system_prompt, history, text, image_paths, request_params, ctx, on_delta=on_delta, on_round=on_round, on_tool=on_tool)
     assistant_msg = {
         "id": "msg-" + uuid.uuid4().hex[:10], "role": "assistant", "content": answer, "reasoning": reasoning,
         "created": _now(), "model": preset_model, "request_preset": preset_id, "request_preset_label": preset_label,

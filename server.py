@@ -84,7 +84,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Connection", "keep-alive")
+        self.send_header("Connection", "close")  # v260930m · SSE 用短连接：done 后关闭，前端 EOF 立即到达（keep-alive 会让 read() 永久挂起、UI 卡「停止」）
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
@@ -103,8 +103,9 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("persona_id") or ""),
                 on_delta=lambda t: emit("delta", {"text": t}),
                 on_round=lambda i: emit("round", {"i": i}),
+                on_tool=lambda name, r: emit("tool", {"name": name, "ok": bool(r.get("ok")), "ms": r.get("tool_ms", 0), "pending": bool(r.get("pending")), "doc_id": r.get("doc_id") or ""}),  # v260930l · 工具进度实时可见
             )
-            emit("done", result)
+            emit("done", {"ok": True, "assistant": result.get("assistant")})  # v260930m · 负载瘦身：只回 assistant，不再附带全量 session（前端未用，300KB+ 单行 JSON）
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass  # 客户端已断开：无需再写
         except Exception as e:
@@ -433,6 +434,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(agent.create_session(str(payload.get("title") or "")), 201)
         if path == "/api/agent/session/rename":
             return self.send_json(agent.rename_session(str(payload.get("id") or ""), str(payload.get("title") or "")))
+        if path == "/api/agent/session/archive":  # v260930n · 会话归档/取消归档（删除复用已有 DELETE /api/agent/sessions/<id>，移入 Trash）
+            return self.send_json(agent.archive_session(str(payload.get("id") or ""), bool(payload.get("archived"))))
         if path == "/api/agent/assets":
             return self.send_json(agent.save_image(str(payload.get("data_url") or ""), str(payload.get("name") or "image.png")))
         if path == "/api/agent/send":
