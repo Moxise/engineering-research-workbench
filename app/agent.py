@@ -460,6 +460,9 @@ def _page_context(context: Any) -> str:
     page_text = str(context.get("page_text") or "").strip()
     if page_text:  # v260930 · M4 术语提取：文献当前页正文（前端 pdf.js 文本层采集），供提取专业名词
         parts.append("文献当前页正文（供术语提取与问答，勿向用户复述全文）：\n" + page_text[:6000] + ("…" if len(page_text) > 6000 else ""))
+    quote = str(context.get("quote_text") or "").strip()
+    if quote:  # v260930j · 引用历史对话：前端从被引用会话提取的消息文本，跨会话延续上下文
+        parts.append("用户引用的历史对话内容（供参考，回答时可引用；勿复述全文）：\n" + quote[:4000] + ("…" if len(quote) > 4000 else ""))
     if not parts:
         return ""
     return "\n\n当前页面上下文（lit_context / lit_note_write 不传 paper_id 时默认使用此文献）：\n" + "\n".join(f"- {p}" for p in parts)

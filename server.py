@@ -96,7 +96,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        q = parse_qs(parsed.query)
+        q = parse_qs(parsed.query, keep_blank_values=True)  # v260930i · 保留空值参数：/api/agent/drafts?status= 依赖空串表示「全量」，否则被解析为未传而回退 pending，导致重启后草稿已确认状态无法校准
         try:
             if path.startswith("/api/"):
                 return self.handle_api_get(path, q)

@@ -18,6 +18,7 @@ const S={
   relatedOpen:null,  /* v260930d · M5 展开的卡片下标 */
   images:[],         /* v260930e · 待发送截图（dataURL，发送时才上传落盘） */
   view:"chat",       /* v260930e · 面板视图：chat 对话 / history 历史回看 */
+  quote:null,        /* v260930j · 引用的历史对话 {id,title,text,count}，发送时随 context 注入，手动×移除 */
   relatedCollapsed:localStorage.getItem("fabRelatedCollapsed")==="1", /* v260930g8 · 关联知识区折叠态（持久化） */
 };
 
@@ -62,6 +63,7 @@ function buildContext(){
   if(docId)ctx.doc_id=docId;
   const sel=S.bubbleSel||domSelection()||(lit?.selection||"");
   if(sel)ctx.selection=sel;
+  if(S.quote)ctx.quote_text=S.quote.text; /* v260930j · 引用的历史对话随消息注入 */
   return ctx;
 }
 
@@ -94,6 +96,7 @@ function mount(){
     <div id="fab-related"></div><!-- v260930d · M5 本页关联知识 / 检索结果宿主 -->
     <div class="fab-messages" id="fab-messages"></div>
     <div class="fab-foot">
+      <div id="fab-quote"></div><!-- v260930j · 引用历史对话条 -->
       <div class="fab-attach" id="fab-attach"></div><!-- v260930e · 待发送截图预览 -->
       <div class="fab-foot-top">
         <div class="fab-shot-btns">
@@ -518,15 +521,21 @@ function msgImagesHtml(m){ /* v260930e · 消息附图：user 消息 images 为�
   if(!imgs.length)return "";
   return `<div class="fab-msg-imgs">${imgs.map(p=>`<img class="fab-msg-img" loading="lazy" alt="截图" src="${String(p).startsWith("data:")?esc(p):"/workspace-file/"+esc(p)}">`).join("")}</div>`;
 }
-function msgHtml(m){
+function msgQuoteHtml(m){ /* v260930j · 消息内引用标记（本地发送时带 quoteTitle，会话重载后消失） */
+  return m.quoteTitle?`<div class="fab-msg-quote">❝ 引用历史对话「${esc(m.quoteTitle)}」</div>`:"";
+}
+function msgHtml(m,idx){
   const who=m.role==="assistant"?"AI":"YOU";
   const meta=[m.persona_name?esc(m.persona_name):"",esc(m.model||""),m.request_preset_label?esc(m.request_preset_label):"",esc(fmtTime(m.created))].filter(Boolean).join(" · ");
   const body=m.__thinking
     ?'<div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>正在思考 / 调用工具…</div>'
     :`<div class="fab-body">${mdRender(m.content||"")}</div>`;
+  const cite=m.__thinking?"":`<button type="button" class="fab-msg-cite" data-cite="${idx}" title="引用此条消息：发送时把该条内容带给 AI">❝</button>`; /* v260930j · 消息级引用 */
   return `<article class="fab-msg ${m.role==="assistant"?"assistant":"user"}">
     <div class="fab-avatar">${who}</div>
     <div class="fab-bubble">
+      ${cite}
+      ${msgQuoteHtml(m)}
       ${msgImagesHtml(m)}
       ${body}
       ${m.__thinking?"":toolTraceHtml(m)+draftHtml(m)+quickActionsHtml(m)}
@@ -555,17 +564,54 @@ async function paintHistory(){
     const rows=await api("/api/agent/sessions");
     if(!rows.length){root.innerHTML='<div class="fab-empty">暂无历史对话</div>';return}
     root.innerHTML=`<div class="fab-history-list">${rows.map(s=>`
-      <button type="button" class="fab-hist-item${s.id===S.session?" current":""}" data-hist="${esc(s.id)}">
-        <span class="fab-hist-title">${esc(s.title||"新对话")}${s.id===S.session?' <i class="fab-hist-cur">当前</i>':""}</span>
-        <span class="fab-hist-meta">${esc((s.updated||s.created||"").replace("T"," ").slice(0,16))} · ${s.message_count||0} 条</span>
-        <span class="fab-hist-preview">${esc(s.preview||"")}</span>
-      </button>`).join("")}</div>`;
+      <div class="fab-hist-row">
+        <button type="button" class="fab-hist-item${s.id===S.session?" current":""}" data-hist="${esc(s.id)}">
+          <span class="fab-hist-title">${esc(s.title||"新对话")}${s.id===S.session?' <i class="fab-hist-cur">当前</i>':""}</span>
+          <span class="fab-hist-meta">${esc((s.updated||s.created||"").replace("T"," ").slice(0,16))} · ${s.message_count||0} 条</span>
+          <span class="fab-hist-preview">${esc(s.preview||"")}</span>
+        </button>
+        <button type="button" class="fab-quote-btn" data-quote="${esc(s.id)}" data-quote-title="${esc(s.title||"历史对话")}" title="引用此对话：发送消息时把该对话内容作为参考带给 AI">❝</button>
+      </div>`).join("")}</div>`;
     qa("[data-hist]",root).forEach(b=>b.onclick=()=>{
       S.session=b.dataset.hist;S.messages=[];S.draftState={};S.relatedItems=[];S.view="chat";paintView();
       loadSession();paintContext();
       localStorage.setItem("fabAgentSession",S.session);
     });
+    qa("[data-quote]",root).forEach(b=>b.onclick=()=>quoteSession(b.dataset.quote,b.dataset.quoteTitle));
   }catch(e){root.innerHTML=`<div class="fab-empty">加载失败：${esc(e.message)}</div>`}
+}
+/* v260930j · 引用历史对话：取该会话最近 12 条消息拼为参考文本（≤3800 字），发送时随 context 注入 AI */
+async function quoteSession(id,title){
+  try{
+    const s=await api("/api/agent/sessions/"+encodeURIComponent(id));
+    const msgs=(Array.isArray(s.messages)?s.messages:[]).slice(-12);
+    let text="",count=0;
+    for(const m of msgs){
+      const body=String(m.content||"").trim();
+      if(!body||m.role==="system")continue;
+      text+=(m.role==="user"?"用户":"AI")+"："+body.slice(0,600)+"\n\n";count++;
+      if(text.length>3800){text=text.slice(0,3800);break}
+    }
+    if(!count){toastInPanel("该会话没有可引用的内容",true);return}
+    S.quote={id,title:title||"历史对话",text,count};
+    paintQuoteBar();
+    toastInPanel(`已引用「${S.quote.title}」的 ${count} 条消息，下次发送时生效`);
+  }catch(e){toastInPanel(e.message,true)}
+}
+function paintQuoteBar(){
+  const root=q("#fab-quote");if(!root)return;
+  root.innerHTML=S.quote?`<div class="fab-quote-bar">❝ 引用「${esc(S.quote.title)}」· ${S.quote.count} 条 <button type="button" id="fab-quote-x" title="移除引用">×</button></div>`:"";
+  const x=q("#fab-quote-x");if(x)x.onclick=()=>{S.quote=null;paintQuoteBar()};
+}
+/* v260930j · 消息级引用：对话流里点气泡 ❝ 直接引用该条（跨会话有效，替代翻历史列表） */
+function quoteMessage(idx){
+  const m=S.messages[idx];
+  if(!m||!String(m.content||"").trim()){toastInPanel("该消息没有可引用的内容",true);return}
+  const who=m.role==="assistant"?"AI":"用户";
+  const brief=String(m.content||"").replace(/\s+/g," ").slice(0,16);
+  S.quote={id:"msg-"+idx,title:`${who}：${brief}…`,text:`${who}：${String(m.content).slice(0,900)}`,count:1};
+  paintQuoteBar();
+  toastInPanel("已引用该条消息，下次发送时生效");
 }
 function attachImage(dataUrl){ /* v260930e · 附加截图（≤4 张，dataURL 暂存，发送时才上传落盘） */
   if(!dataUrl)return;
@@ -581,7 +627,7 @@ function paintAttach(){
 function renderMessages(){
   const root=q("#fab-messages");if(!root)return;
   if(!S.messages.length)return renderEmpty();
-  root.innerHTML=S.messages.map(msgHtml).join("");
+  root.innerHTML=S.messages.map((m,i)=>msgHtml(m,i)).join("");
   root.scrollTop=root.scrollHeight;
   if(window.MathJax?.typesetPromise){try{MathJax.typesetPromise([root])}catch{}}
   wireMessageActions(root);
@@ -590,6 +636,7 @@ function wireMessageActions(root){
   qa("[data-draft-confirm]",root).forEach(b=>b.onclick=()=>resolveDraft(b.dataset.draftConfirm,true));
   qa("[data-draft-reject]",root).forEach(b=>b.onclick=()=>resolveDraft(b.dataset.draftReject,false));
   qa("[data-fab-quick]",root).forEach(b=>b.onclick=()=>quickAction(b.dataset.fabQuick));
+  qa("[data-cite]",root).forEach(b=>b.onclick=()=>quoteMessage(+b.dataset.cite)); /* v260930j · 消息级引用 */
   /* v260930c · M4 批量确认/拒绝：批量条在 draftHtml 内，取同一条消息下所有待确认草稿 id */
   qa("[data-draft-confirm-all],[data-draft-reject-all]",root).forEach(b=>b.onclick=()=>{
     const go=b.hasAttribute("data-draft-confirm-all");
@@ -666,7 +713,7 @@ async function send(){
       try{const r=await api("/api/agent/assets",{method:"POST",body:{data_url:d,name:"fab-shot.png"}});if(r.path)imgPaths.push(r.path)}
       catch(e){toastInPanel("截图上传失败："+e.message,true)}
     }
-    S.messages.push({role:"user",content:text,images:imgPaths,created:new Date().toISOString()});
+    S.messages.push({role:"user",content:text,images:imgPaths,quoteTitle:S.quote?.title||"",created:new Date().toISOString()}); /* v260930j · 本地气泡带引用标记 */
     S.images=[];paintAttach();
     input.value="";input.style.height="auto";
     S.messages.push({role:"assistant",content:"",__thinking:true});

@@ -98,7 +98,11 @@ button.fab-rel-cap:hover .fab-rel-chev{color:var(--accent)}
 .fab-msg .fab-avatar{width:26px;height:26px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff}
 .fab-msg.user .fab-avatar{background:var(--muted)}
 .fab-msg.assistant .fab-avatar{background:linear-gradient(135deg,var(--accent),var(--accent-2))}
-.fab-msg .fab-bubble{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
+.fab-msg .fab-bubble{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px;position:relative}
+/* v260930j · 消息级引用按钮：气泡右上角，悬停消息时浮现 */
+.fab-msg-cite{position:absolute;top:-4px;right:-4px;z-index:2;border:1px solid var(--line);background:var(--surface);border-radius:8px;width:24px;height:24px;line-height:1;cursor:pointer;font-size:12px;color:var(--muted);opacity:0;transition:opacity .12s;font-family:inherit;padding:0}
+.fab-msg:hover .fab-msg-cite,.fab-msg-cite:focus-visible{opacity:1}
+.fab-msg-cite:hover{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
 .fab-msg .fab-body{font-size:13px;line-height:1.62;color:var(--text);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;overflow-wrap:anywhere}
 /* v260930g9h · 长公式不再撑破气泡：MathJax 容器限宽并可横向滚动 */
 .fab-msg .fab-body mjx-container{max-width:100%!important;overflow-x:auto;overflow-y:hidden;padding-bottom:2px}
@@ -198,6 +202,14 @@ button.fab-rel-cap:hover .fab-rel-chev{color:var(--accent)}
 /* ---------- v260930e · 历史会话回看 ---------- */
 .fab-history-list{display:flex;flex-direction:column;gap:6px;padding:2px}
 .fab-hist-item{display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;cursor:pointer;font-family:inherit}
+/* v260930j · 历史对话引用：行布局 + 引用按钮 + 引用条 + 消息内引用标记 */
+.fab-hist-row{display:flex;align-items:stretch;gap:5px;width:100%}
+.fab-hist-row .fab-hist-item{flex:1;min-width:0}
+.fab-quote-btn{flex-shrink:0;align-self:center;border:1px solid var(--line);background:var(--surface);border-radius:8px;min-width:30px;padding:6px 0;cursor:pointer;font-size:13px;color:var(--muted);font-family:inherit}
+.fab-quote-btn:hover{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+.fab-quote-bar{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent-ink);background:var(--accent-soft);border:1px dashed color-mix(in srgb,var(--accent) 45%,var(--line));border-radius:8px;padding:5px 9px;margin-bottom:6px}
+.fab-quote-bar button{border:0;background:none;cursor:pointer;color:inherit;font-size:13px;padding:0 2px;font-family:inherit}
+.fab-msg-quote{font-size:11px;color:var(--accent-ink);background:var(--accent-soft);border-radius:7px;padding:3px 8px;align-self:flex-start}
 .fab-hist-item:hover{border-color:var(--accent);background:var(--accent-soft)}
 .fab-hist-item.current{border-color:var(--accent);background:var(--accent-soft)}
 .fab-hist-title{font-size:12.5px;font-weight:600;color:var(--text);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
