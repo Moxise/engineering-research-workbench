@@ -13,11 +13,12 @@ const S={
   draftState:{},     /* draft_id -> {status, result} 本地面板内状态 */
   personaId:localStorage.getItem("fabPersona")||(window.__FAB_DEFAULT_PERSONA__||"executor"), /* v260930g · 默认执行助手（含知识库写工具）；老用户尊重已存选择 */
   personas:null,     /* v260930 · M3 人设缓存（首次打开面板时拉取） */
-  relatedPage:-1,    /* v260930d · M5 已匹配页码（同页不重复请求） */
+  relatedCache:{},   /* v260930g9 · M5 关联匹配结果按文献缓存（paper_id → {page,items}）：每文献只匹配一次，切换/切回即时恢复 */
   relatedItems:[],   /* v260930d · M5 当前关联/检索条目缓存 */
   relatedOpen:null,  /* v260930d · M5 展开的卡片下标 */
   images:[],         /* v260930e · 待发送截图（dataURL，发送时才上传落盘） */
   view:"chat",       /* v260930e · 面板视图：chat 对话 / history 历史回看 */
+  relatedCollapsed:localStorage.getItem("fabRelatedCollapsed")==="1", /* v260930g8 · 关联知识区折叠态（持久化） */
 };
 
 async function api(url,opts={}){
@@ -78,6 +79,7 @@ function mount(){
   const panel=document.createElement("section");
   panel.id="erw-fab-panel";panel.hidden=true;
   panel.innerHTML=`
+    <div class="fab-resize" id="fab-resize" title="拖拽调整面板大小"></div><!-- v260930g7 · 左上角拖拽手柄（面板锚定右下） -->
     <div class="fab-head">
       <div class="fab-logo">◉</div>
       <div><strong>AI 助手</strong><div class="fab-sub">可检索知识库 · 建档 · 写文献笔记</div></div>
@@ -120,6 +122,7 @@ function mount(){
     <button type="button" data-fab-act="ask">问 AI…</button>`;
   document.body.appendChild(bubble);
 
+  initPanelResize(); /* v260930g7 · 左上角手柄拖拽调尺寸 */
   q("#fab-close").onclick=closePanel;
   q("#fab-persona").onchange=e=>switchPersona(e.target.value);
   /* v260930e · 历史回看：切换面板视图（对话 ⇄ 历史列表） */
@@ -143,7 +146,8 @@ function mount(){
   qa("[data-fab-act]",bubble).forEach(b=>b.onclick=()=>bubbleAct(b.dataset.fabAct));
   document.addEventListener("mousedown",onDocMouseDown,false);
   document.addEventListener("mouseup",onDocMouseUp,false);
-  window.addEventListener("hashchange",()=>{if(S.open)paintContext()});
+  window.addEventListener("hashchange",()=>{if(S.open){paintContext();ensureRelated()}}); /* v260930g9b · 切页同步刷新关联区：离开阅读工作区即清空，防止残留「没在阅读的文献」的关联 */
+  window.addEventListener("erw-lit-back",()=>{if(S.open)ensureRelated()}); /* v260930g9b · 返回文献列表同样清空（事件派发在 window；同 hash 不触发 hashchange） */
   document.addEventListener("erw-lit-page",()=>{ /* v260930d · M5 翻页刷新关联知识（literature.js track/go 派发） */
     paintContext();
     if(S.open)ensureRelated(true);
@@ -205,13 +209,17 @@ function toastInPanel(msg,isErr){
 const MARK_GLYPHS={architecture:"▤",method:"⚒",model:"⬡",principle:"∑",experiment:"⚗",data:"⊞",knowledge:"◈",synthesis:"◎"}; /* v260930d · 类别标记符号（对齐命名规范 kind_marks） */
 async function ensureRelated(force){
   const lit=litContext();
-  const page=lit?.page||0,text=lit?.page_text||"";
-  if(!force&&S.relatedPage===page)return; /* 同页不重复匹配 */
-  S.relatedPage=page;
   const root=q("#fab-related");if(!root)return;
-  if(!text){root.innerHTML="";return}
+  if(!lit||!lit.paper_id){root.innerHTML="";return} /* 非阅读页：清空 */
+  const page=lit.page||0,key=String(lit.paper_id),text=lit.page_text||"";
+  const cached=S.relatedCache[key];
+  if(!force&&cached&&cached.page===page){paintRelated(cached.items,{mode:"related"});return} /* v260930g9 · 同文献同页：缓存直显，切回文献即恢复 */
+  if(!text)return; /* v260930g9 · 正文未就绪：保留现有显示，等 erw-lit-page 事件再刷（修复切换文献时闪没） */
   try{
     const r=await api("/api/kb/related",{method:"POST",body:{page_text:text}});
+    const now=litContext();
+    if(!now||String(now.paper_id)!==key||(now.page||0)!==page)return; /* 竞态防护：已切走则丢弃过期结果 */
+    S.relatedCache[key]={page,items:r.items||[]}; /* 会话内每文献只匹配一次 */
     paintRelated(r.items||[],{mode:"related"});
   }catch{/* 匹配失败静默：不影响对话主功能 */}
 }
@@ -233,9 +241,28 @@ function paintRelated(items,{mode}={}){
   S.relatedItems=items||[];S.relatedMode=mode||"related";S.relatedOpen=null;
   if(!S.relatedItems.length){root.innerHTML="";return}
   const label=mode==="search"?"知识库检索结果":"本页关联知识";
-  root.innerHTML=`<div class="fab-related"><div class="fab-rel-cap">${label} <span class="fab-rel-count">${S.relatedItems.length}</span></div>
-    <div class="fab-rel-chips">${S.relatedItems.map((d,i)=>`<button type="button" class="fab-rel-chip" data-rel-idx="${i}" title="${esc(d.title)}">${esc((d.title||d.id).slice(0,14))}${(d.title||"").length>14?"…":""}</button>`).join("")}</div>
-    <div id="fab-rel-card-host"></div></div>`;
+  /* v260930g9d · 按条目类型分区：知识点（note）/ 来源文献（literature）常显，其余默认折叠——梳理知识不被日志杂音干扰 */
+  /* v260930g9e · 类型配色：知识点蓝 / 来源文献紫 / 其他灰——颜色即类型，扫一眼可分 */
+  const KIND_TONE={note:"note",literature:"lit"};
+  const chipHtml=(d,i)=>`<button type="button" class="fab-rel-chip${KIND_TONE[d.kind]?" fab-rel-chip-"+KIND_TONE[d.kind]:""}" data-rel-idx="${i}" title="${esc(d.title)}">${esc((d.title||d.id).slice(0,14))}${(d.title||"").length>14?"…":""}</button>`;
+  const groups=[["知识点","note",["note"]],["来源文献","lit",["literature"]],["其他","",["journal","idea","milestone","summary"]]];
+  const bodyHtml=groups.map(([label,tone,kinds],gi)=>{
+    const items=S.relatedItems.map((d,i)=>({d,i})).filter(x=>kinds.includes(x.d.kind||"note"));
+    if(!items.length)return "";
+    const fold=gi===2; /* 其他组默认折叠 */
+    return `<div class="fab-rel-group"><button type="button" class="fab-rel-gcap${tone?" fab-rel-gcap-"+tone:""}"${fold?' data-gtoggle="1"':""}>${tone?`<span class="fab-rel-dot"></span>`:""}${label} · ${items.length}${fold?'<span class="fab-rel-gchev">▸</span>':""}</button><div class="fab-rel-chips"${fold?" hidden":""}>${items.map(x=>chipHtml(x.d,x.i)).join("")}</div></div>`;
+  }).join("")||'<div class="fab-rel-empty">本页暂无关联条目</div>';
+  root.innerHTML=`<div class="fab-related"><button type="button" class="fab-rel-cap" id="fab-rel-toggle" title="${S.relatedCollapsed?"展开":"收起"}">${label} <span class="fab-rel-count">${S.relatedItems.length}</span><span class="fab-rel-chev">${S.relatedCollapsed?"▸":"▾"}</span></button>
+    <div id="fab-rel-body"${S.relatedCollapsed?" hidden":""}>
+    ${bodyHtml}
+    <div id="fab-rel-card-host"></div></div></div>`;
+  /* v260930g8 · 标题行点击折叠/展开，状态持久化 */
+  q("#fab-rel-toggle").onclick=()=>{
+    S.relatedCollapsed=!S.relatedCollapsed;
+    try{localStorage.setItem("fabRelatedCollapsed",S.relatedCollapsed?"1":"0")}catch{}
+    const b=q("#fab-rel-body");if(b)b.hidden=S.relatedCollapsed;
+    const c=q(".fab-rel-chev",root);if(c)c.textContent=S.relatedCollapsed?"▸":"▾";
+  };
   const host=q("#fab-rel-card-host");
   const show=i=>{
     S.relatedOpen=i;
@@ -248,6 +275,10 @@ function paintRelated(items,{mode}={}){
     };
   };
   qa("[data-rel-idx]",root).forEach(b=>b.onclick=()=>{const i=+b.dataset.relIdx;host.innerHTML=S.relatedOpen===i?"":(show(i),"")});
+  qa("[data-gtoggle]",root).forEach(b=>b.onclick=()=>{ /* v260930g9d · 「其他」组展开/收起 */
+    const chips=b.nextElementSibling;if(!chips)return;
+    chips.hidden=!chips.hidden;const ev=q(".fab-rel-gchev",b);if(ev)ev.textContent=chips.hidden?"▸":"▾";
+  });
   if(S.relatedItems.length===1)show(0); /* 单条命中直接展开 */
 }
 /* ---------- 人设（M3） ---------- */
@@ -302,8 +333,10 @@ function syncWriteToggle(){
 async function openPanel(){
   S.open=true;const p=q("#erw-fab-panel");if(!p)return;
   p.hidden=false;q("#erw-fab-ball").style.display="none";
+  applyPanelSize(); /* v260930g7 · 恢复上次手动调整的面板尺寸 */
   paintContext();
   ensureRelated(); /* v260930d · M5 打开面板即匹配本页关联知识（异步，不阻塞对话） */
+  syncDraftStatuses(); /* v260930g9f · 打开面板即校准草稿真实状态（面板外确认的草稿不再误显待确认） */
   await ensurePersonas();
   paintPersonaSelect();
   if(!S.session){restoreSession().then(()=>{if(!S.messages.length)renderEmpty()})}
@@ -314,6 +347,35 @@ function closePanel(){
   S.open=false;const p=q("#erw-fab-panel");if(p)p.hidden=true;
   const b=q("#erw-fab-ball");if(b)b.style.display="";
   hideBubble();
+}
+/* ---------- v260930g7 · 面板手动调尺寸：左上角手柄拖拽，宽高持久化 ---------- */
+const FAB_SIZE_KEY="fabPanelSize";
+const fabClamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+function applyPanelSize(){
+  const p=q("#erw-fab-panel");if(!p)return;
+  try{
+    const s=JSON.parse(localStorage.getItem(FAB_SIZE_KEY)||"");
+    if(!s||!s.w||!s.h)return;
+    p.style.width=fabClamp(s.w,340,Math.min(760,innerWidth-40))+"px";
+    p.style.height=fabClamp(s.h,320,Math.min(900,innerHeight-110))+"px";
+  }catch{}
+}
+function initPanelResize(){
+  const h=q("#fab-resize"),p=q("#erw-fab-panel");if(!h||!p)return;
+  h.addEventListener("pointerdown",e=>{
+    e.preventDefault();
+    const sw=p.offsetWidth,sh=p.offsetHeight,sx=e.clientX,sy=e.clientY;
+    h.setPointerCapture(e.pointerId);
+    const mv=ev=>{
+      p.style.width=fabClamp(sw+(sx-ev.clientX),340,Math.min(760,innerWidth-40))+"px";
+      p.style.height=fabClamp(sh+(sy-ev.clientY),320,Math.min(900,innerHeight-110))+"px";
+    };
+    const up=()=>{
+      h.removeEventListener("pointermove",mv);h.removeEventListener("pointerup",up);
+      try{localStorage.setItem(FAB_SIZE_KEY,JSON.stringify({w:p.offsetWidth,h:p.offsetHeight}))}catch{}
+    };
+    h.addEventListener("pointermove",mv);h.addEventListener("pointerup",up);
+  });
 }
 function contextChips(){
   const ctx=buildContext();
@@ -353,7 +415,24 @@ async function loadSession(){
     S.messages=Array.isArray(s.messages)?s.messages:[];
     localStorage.setItem("fabAgentSession",S.session);
     renderMessages();
+    syncDraftStatuses(); /* v260930g9f · 异步校准草稿真实状态（消息快照可能过期） */
   }catch(e){S.session=null;S.messages=[];renderEmpty()}
+}
+/* v260930g9f · 草稿状态校准：拉全量草稿（含已处理），用磁盘真实状态覆盖消息里的 pending 快照——
+   草稿在别处（知识库页批量确认/另一会话）被处理后，面板不再误显「待确认」 */
+async function syncDraftStatuses(){
+  try{
+    const list=await api("/api/agent/drafts?status=");
+    if(!Array.isArray(list))return;
+    const ids=new Set(S.messages.flatMap(m=>Array.isArray(m.drafts)?m.drafts.map(d=>d.draft_id):[]));
+    let changed=false;
+    for(const d of list){
+      if(!ids.has(d.id)||d.status==="pending")continue;
+      const cur=S.draftState[d.id];
+      if(!cur||cur.status!==d.status){S.draftState[d.id]={status:d.status,result:d.result||cur?.result};changed=true}
+    }
+    if(changed)renderMessages();
+  }catch{/* 校准失败静默：快照状态兜底 */}
 }
 
 /* ---------- 消息渲染 ---------- */
@@ -419,7 +498,7 @@ function draftHtml(m){
       <div class="fab-draft-title" title="${esc(title)}">${esc(title)}</div>
       <div class="fab-draft-note">写入尚不会生效，确认后落盘</div>
       <div class="fab-draft-actions">
-        <button type="button" class="go" data-draft-confirm="${esc(d.draft_id)}">✓ 确认写入</button>
+        <button type="button" class="go" data-draft-confirm="${esc(d.draft_id)}">✓ 确认</button>
         <button type="button" data-draft-reject="${esc(d.draft_id)}">✗ 拒绝</button>
       </div>
     </div>`;
@@ -527,7 +606,11 @@ async function resolveDrafts(ids,go){ /* v260930c · M4 · 批量逐个执行（
       const r=await api("/api/agent/drafts/"+encodeURIComponent(id)+(go?"/confirm":"/reject"),{method:"POST",body:{}});
       S.draftState[id]=go?{status:r.status==="confirmed"?"confirmed":"rejected",result:r.result}:{status:"rejected"};
       if(go&&r.status!=="confirmed")failed++;else done++;
-    }catch(e){failed++;S.draftState[id]={status:"rejected"}}
+    }catch(e){
+      failed++; /* v260930g9g · 「已处理（xxx）」视为已同步状态而非失败 */
+      const m=String(e.message||"").match(/已处理（([a-z]+)）/);
+      S.draftState[id]=m?{status:m[1]}:{status:"rejected"};
+    }
   }
   toastInPanel(go?(failed?`批量确认完成：${done} 成功 / ${failed} 失败`:`已确认 ${done} 篇草稿`):`已拒绝 ${ids.length} 篇草稿`);
   updateBallBadge();
@@ -544,7 +627,12 @@ async function resolveDraft(id,go){
     else toastInPanel(go?"已确认写入":"已拒绝草稿");
     updateBallBadge();
     renderMessages();
-  }catch(e){toastInPanel(e.message,true)}
+  }catch(e){
+    /* v260930g9g · 草稿已被别处处理（知识库页确认/另一面板）：从报错解析真实状态并同步，不再误报错误 */
+    const m=String(e.message||"").match(/已处理（([a-z]+)）/);
+    if(m){S.draftState[id]={status:m[1]};updateBallBadge();renderMessages();toastInPanel("该草稿已处理过，状态已同步");return}
+    toastInPanel(e.message,true);
+  }
 }
 function quickAction(kind){
   const input=q("#fab-input");if(!input)return;

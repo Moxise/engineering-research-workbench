@@ -138,7 +138,7 @@
   }
 
   async function navigate(route){
-    if (state.dirty && !confirm('当前 Markdown 有未保存修改，确定离开吗？')) return;
+    if (state.dirty && !confirm('当前 Markdown 有未保存修改，确定离开吗？')) return false; /* v260930g9c · 返回 false 供 ERWNav 等调用方感知取消 */
     state.dirty=false; state.route=route; location.hash=route; renderSidebar(); setHeader(route);
     if(state.heatmapObserver){try{state.heatmapObserver.disconnect();}catch{} state.heatmapObserver=null;}
     /* v260923u · 切页不再先清空主区为 LOADING：保留旧页面内容直到新页数据就绪后一次性替换，
@@ -156,12 +156,13 @@
       else if(route==='settings') await renderSettings();
       else if(KIND_ROUTE[route]) await renderDocsPage(KIND_ROUTE[route]);
       else await renderOverview();
-      if(seq!==state.navSeq) return;
+      if(seq!==state.navSeq) return false; /* v260930g9c · 已被更新导航取代：视为未完成 */
       animateMain();
     } catch(err){
-      if(seq!==state.navSeq) return;
+      if(seq!==state.navSeq) return false;
       console.error(err); $('#main').innerHTML=`<div class="card card-pad danger">加载失败：${esc(err.message)}</div>`; animateMain();
     }
+    return true; /* v260930g9c · 导航成功完成 */
   }
 
   function animateMain(){
@@ -643,7 +644,17 @@
   /* v260930 · M2 悬浮球助手：LLM 是否已启用（未启用时悬浮球发送前给出设置指引） */
   window.ERWLLMReady = () => state.config?.app?.llm?.enabled === true;
   /* v260930d · M5 阅读中知识关联：悬浮球/气泡跳转到指定知识条目（导航+选中跨脚本桥） */
-  window.ERWNav = { open: async (kind, id) => { await navigate(routeForKind(kind)); setTimeout(() => selectDoc(id), 30); } };
+  /* v260930g9c · 关联知识「打开条目」跳转：六类→对应路由并选中；literature 额外自动进 PDF 阅读工作区（引用跳文献即看原文） */
+  window.ERWNav = { open: async (kind, id) => {
+    const ok=await navigate(routeForKind(kind));
+    if(ok===false)return; /* 用户在未保存确认框点了取消：中止，不在旧页面执行 selectDoc */
+    setTimeout(()=>selectDoc(id),30);
+    if(kind==='literature'){ setTimeout(async()=>{
+      const doc=(state.docs||[]).find(x=>x.id===id);
+      if(!doc)return; /* 列表未含该条目（分页/过滤）则停在选中态 */
+      try{state.selectedDoc=doc;await openAttachmentInWorkspace(doc)}catch(e){toast(e.message,true)}
+    },80); }
+  } };
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
   function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')+'<button type="button" class="mark-chip add-mark" id="f-mark-add" title="添加自定义标记">＋ 自定义</button>'}
   function wireMarkChips(){

@@ -28,6 +28,10 @@
 }
 /* v260930b · 修复收起失效：上面 display:flex 会覆盖 UA 对 [hidden] 的 display:none，必须显式声明 */
 #erw-fab-panel[hidden]{display:none}
+/* v260930g7 · 左上角拖拽手柄：调整面板宽高（锚定右下） */
+.fab-resize{position:absolute;top:0;left:0;width:18px;height:18px;cursor:nwse-resize;z-index:6;touch-action:none}
+.fab-resize::after{content:"";position:absolute;top:5px;left:5px;width:7px;height:7px;border-left:2px solid var(--line);border-top:2px solid var(--line);border-radius:2px}
+.fab-resize:hover::after{border-color:var(--accent)}
 @keyframes erwFabIn{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion: reduce){#erw-fab-panel{animation:none}}
 
@@ -49,10 +53,30 @@
 /* v260930d · M5 本页关联知识 / 检索结果 */
 .fab-related{border-bottom:1px solid var(--line);padding:8px 12px 10px;background:color-mix(in srgb,var(--accent-soft) 35%,var(--surface))}
 .fab-rel-cap{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--accent-ink);margin-bottom:6px}
+button.fab-rel-cap{width:100%;background:none;border:none;padding:0;cursor:pointer;text-align:left;font:inherit} /* v260930g8 · 折叠开关 */
+button.fab-rel-cap:hover .fab-rel-chev{color:var(--accent)}
+.fab-rel-cap .fab-rel-chev{margin-left:auto;font-size:10px;color:var(--muted)}
 .fab-rel-cap .fab-rel-count{font-weight:600;font-size:10px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:0 6px}
 .fab-rel-chips{display:flex;flex-wrap:wrap;gap:5px}
+.fab-rel-group{margin:0 0 8px} /* v260930g9d · 关联条目按类型分区 */
+.fab-rel-group:last-of-type{margin-bottom:0}
+.fab-rel-gcap{display:flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:var(--ink-3);margin-bottom:4px;background:none;border:0;padding:0;cursor:default}
+.fab-rel-gcap[data-gtoggle]{cursor:pointer}
+.fab-rel-gcap[data-gtoggle]:hover{color:var(--accent-ink)}
+.fab-rel-gchev{font-size:9px}
+.fab-rel-empty{font-size:11px;color:var(--ink-3)}
 .fab-rel-chip{max-width:100%;font-size:11px;color:var(--text);background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 28%,var(--line));border-radius:8px;padding:3px 8px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fab-rel-chip:hover{border-color:var(--accent);background:var(--accent-soft)}
+/* v260930g9e · 类型配色：知识点蓝 / 来源文献紫 / 其他默认灰（置于基础样式后保证覆盖） */
+.fab-rel-gcap-note{color:#2563eb}
+.fab-rel-gcap-lit{color:#7c3aed}
+.fab-rel-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.fab-rel-gcap-note .fab-rel-dot{background:#2563eb}
+.fab-rel-gcap-lit .fab-rel-dot{background:#7c3aed}
+.fab-rel-chip-note,.fab-rel-chip-note:hover{color:#1d4ed8;background:rgba(37,99,235,.07);border-color:rgba(37,99,235,.38)}
+.fab-rel-chip-note:hover{background:rgba(37,99,235,.14);border-color:#2563eb}
+.fab-rel-chip-lit,.fab-rel-chip-lit:hover{color:#6d28d9;background:rgba(124,58,237,.07);border-color:rgba(124,58,237,.38)}
+.fab-rel-chip-lit:hover{background:rgba(124,58,237,.14);border-color:#7c3aed}
 .fab-rel-card{margin-top:7px;display:flex;flex-direction:column;gap:5px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .fab-rel-head{display:flex;align-items:center;gap:6px}
 .fab-rel-title{flex:1;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -76,6 +100,10 @@
 .fab-msg.assistant .fab-avatar{background:linear-gradient(135deg,var(--accent),var(--accent-2))}
 .fab-msg .fab-bubble{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
 .fab-msg .fab-body{font-size:13px;line-height:1.62;color:var(--text);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;overflow-wrap:anywhere}
+/* v260930g9h · 长公式不再撑破气泡：MathJax 容器限宽并可横向滚动 */
+.fab-msg .fab-body mjx-container{max-width:100%!important;overflow-x:auto;overflow-y:hidden;padding-bottom:2px}
+.fab-msg .fab-body mjx-container[display="true"]{display:block;margin:6px 0}
+.fab-msg .fab-body mjx-container svg{max-width:none}
 .fab-msg.user .fab-body{background:color-mix(in srgb,var(--accent-soft) 80%,var(--surface));border-color:color-mix(in srgb,var(--accent) 25%,var(--line))}
 .fab-body p{margin:0 0 6px}
 .fab-body p:last-child{margin-bottom:0}
