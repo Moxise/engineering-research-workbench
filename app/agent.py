@@ -558,6 +558,9 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
 def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "", context: dict[str, Any] | None = None, persona_id: str = "") -> dict[str, Any]:
     text = str(text or "").strip()
     ref_ids = [str(x) for x in (ref_ids or []) if str(x).strip()]
+    ctx_doc_id = str((context or {}).get("doc_id") or "").strip()
+    if ctx_doc_id and ctx_doc_id not in ref_ids:  # v260930i · 直接引用当前打开条目：doc_id 自动并入 ref_ids，注入标题+正文节选，AI 无需工具即可引用
+        ref_ids.append(ctx_doc_id)
     image_paths = [str(x) for x in (image_paths or []) if str(x).strip()][:6]
     if not text and not image_paths:
         raise ValueError("请输入消息或添加图片")

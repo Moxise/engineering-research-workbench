@@ -384,7 +384,7 @@ function contextChips(){
   const lit=litContext();
   if(lit){chips.push(`<span class="ctx-chip">◫ <b title="${esc(lit.title)}">${esc(lit.title||lit.paper_id)}</b> · P.${esc(lit.page||1)}</span>`);
     if(lit.page_text)chips.push(`<span class="ctx-chip" title="当前页正文已随消息附带，供术语提取与问答">▤ 本页正文 ${lit.page_text.length} 字</span>`);} /* v260930c · M4 */
-  if(ctx.doc_id)chips.push(`<span class="ctx-chip">▧ ${esc(ctx.doc_id)}</span>`);
+  if(ctx.doc_id)chips.push(`<span class="ctx-chip" title="已自动附带该条目标题与正文节选，AI 可直接引用">▧ ${esc(ctx.doc_id)} · 正文已附</span>`); /* v260930i · 直接引用当前条目 */
   if(ctx.selection)chips.push(`<span class="ctx-chip">❝ <b title="${esc(ctx.selection.slice(0,300))}">选中 ${ctx.selection.length} 字</b> <span class="ctx-x" id="fab-sel-clear" title="清除选中">×</span></span>`);
   return {ctx,chips};
 }
