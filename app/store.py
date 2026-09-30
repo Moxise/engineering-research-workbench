@@ -225,6 +225,97 @@ def _excerpt(body: str, limit: int = 180) -> str:
     return cleaned[:limit]
 
 
+_EN_STOPWORDS = {
+    "the", "a", "an", "in", "on", "of", "for", "and", "or", "to", "with", "by", "from", "as", "at",
+    "is", "are", "be", "been", "was", "were", "that", "this", "it", "its", "into", "than", "then",
+    "there", "here", "we", "our", "not", "can", "will", "would", "which", "when", "where", "how",
+    "what", "who", "their", "them", "these", "those", "over", "under", "between", "within",
+    "without", "through", "during", "before", "after", "based", "using", "via", "etc", "novel",
+}  # v260930d · M5 英文虚词停用表：文献标题拆词后大量介词/冠词会误命中页面文本
+
+
+def _title_terms(title: str, kind: str) -> list[str]:
+    """v260930d · M5 从条目标题提取匹配候选词：知识类取名称段（去掉 知识-<类别>- 前缀），
+    其他类去掉单段前缀。文献类论文原题只整题参与、不拆词——论文名单词（detection 等）
+    与页面文本撞词太常见，噪声远大于信号；整题命中仅发生在"页面正来自这篇文献"时，才是真相关。"""
+    t = str(title or "").strip()
+    if not t:
+        return []
+    name = t
+    if kind == "note" and t.startswith("知识-"):
+        parts = t.split("-")
+        if len(parts) >= 3:
+            name = "-".join(parts[2:])
+    else:
+        for prefix in ("总结-", "灵感-", "日志-", "里程碑-", "文献-", "知识-"):
+            if t.startswith(prefix):
+                name = t[len(prefix):]
+                break
+    name = name.strip()
+    if not name:
+        return []
+    terms = [name]
+    if kind != "literature":  # 非文献类才拆词补充短词候选
+        for w in re.split(r"[\s/、,，;；()（）]+", name):
+            w = w.strip()
+            lw = w.lower()
+            if lw in _EN_STOPWORDS:
+                continue
+            if re.fullmatch(r"[A-Za-z]+", w) and len(w) < 4 and not w.isupper():
+                continue  # 短英文介词/冠词排除；全大写缩写（SCR/CW）保留
+            if len(w) >= 2 and w not in terms:
+                terms.append(w)
+    return terms
+
+
+def match_related(page_text: str, limit: int = 8) -> list[dict[str, Any]]:
+    """v260930d · M5 阅读中知识关联：把页面正文与全库条目的标题名称段/标签做文本匹配，
+    返回本页出现过的知识条目（纯字符串匹配，不依赖 LLM）。命中按权重降序：
+    整名称段命中 > 长 token > 多 token；返回 hits 供前端高亮。"""
+    text = str(page_text or "")
+    if len(text.strip()) < 4:
+        return []
+    low = text.lower()
+    scored: dict[str, dict[str, Any]] = {}
+    for kind, path in _iter_docs():
+        try:
+            doc = _doc_from_path(kind, path, include_body=False)
+        except Exception:
+            continue
+        candidates: list[str] = _title_terms(doc.get("title"), kind)
+        n_title = len(candidates)
+        for tag in (doc.get("tags") or []):
+            t = str(tag).strip()
+            if len(t) >= 2 and t not in candidates:
+                candidates.append(t)
+        hits: list[str] = []
+        score = 0
+        for i, term in enumerate(candidates):
+            tl = term.lower()
+            if tl and tl in low:
+                hits.append(term)
+                # v260930d · 权重：整名称段命中强加权；标题 token 按词长；tags 命中为弱信号（半权）
+                if i == 0:
+                    score += 50 + len(term) // 2
+                elif i < n_title:
+                    score += len(term)
+                else:
+                    score += max(1, len(term) // 2)
+        if not hits:
+            continue
+        if len(hits) >= 2:
+            score += 2
+        scored[doc["id"]] = {
+            "id": doc["id"], "title": doc.get("title"), "kind": kind,
+            "kind_marks": doc.get("kind_marks") or [], "excerpt": doc.get("excerpt", ""),
+            "hits": hits[:4], "score": score,
+        }
+    out = sorted(scored.values(), key=lambda x: (-x["score"], x["kind"] != "note", str(x["title"])))  # v260930d · 同分时知识条目优先（M5 场景主体是术语解释）
+    for x in out:
+        x.pop("score", None)
+    return out[:max(1, min(int(limit or 8), 20))]
+
+
 def list_docs(kind: str | None = None, query: str = "", status: str = "", project: str = "", mark: str = "") -> list[dict[str, Any]]:
     kinds = [kind] if kind else None
     q = query.strip().lower()

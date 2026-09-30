@@ -1,0 +1,183 @@
+/* v260930 · M2 悬浮球全局助手：悬浮球 / 对话面板 / 划词气泡 / 草稿确认卡片
+   层级约定：气泡 180 < 悬浮球 185 < 面板 190 < toast 200 < modal，互不遮挡。 */
+
+#erw-fab-ball{
+  position:fixed;right:22px;bottom:22px;z-index:185;
+  width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:0;
+  background:linear-gradient(135deg,var(--accent) 0%,var(--accent-2) 100%);
+  color:#fff;font-size:20px;font-weight:700;line-height:1;
+  box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 45%,transparent);
+  transition:transform .16s ease,box-shadow .16s ease;
+  touch-action:none; /* v260930f · 拖拽移动：阻止触摸/指针手势被浏览器接管 */
+}
+#erw-fab-ball:hover{transform:translateY(-2px) scale(1.04);box-shadow:0 10px 24px color-mix(in srgb,var(--accent) 55%,transparent)}
+#erw-fab-ball:active{transform:scale(.97)}
+#erw-fab-ball.dragging{transform:none;transition:none;cursor:grabbing;opacity:.92}
+#erw-fab-ball .fab-pulse{position:absolute;inset:-4px;border-radius:50%;border:2px solid color-mix(in srgb,var(--accent) 40%,transparent);opacity:0;pointer-events:none}
+#erw-fab-ball.has-draft::after{content:"";position:absolute;top:1px;right:1px;width:11px;height:11px;border-radius:50%;background:#e76f51;border:2px solid var(--surface)}
+
+/* ---------- 对话面板 ---------- */
+#erw-fab-panel{
+  position:fixed;right:22px;bottom:22px;z-index:190;
+  width:min(420px,calc(100vw - 32px));height:min(660px,calc(100vh - 96px));
+  display:flex;flex-direction:column;overflow:hidden;
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 18px 48px rgba(10,32,36,.24);
+  animation:erwFabIn .18s ease;
+}
+/* v260930b · 修复收起失效：上面 display:flex 会覆盖 UA 对 [hidden] 的 display:none，必须显式声明 */
+#erw-fab-panel[hidden]{display:none}
+@keyframes erwFabIn{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){#erw-fab-panel{animation:none}}
+
+.fab-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface-2);flex-shrink:0}
+.fab-head .fab-logo{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.fab-head strong{font-size:13px;color:var(--text)}
+.fab-head .fab-sub{font-size:10px;color:var(--muted)}
+.fab-head-actions{margin-left:auto;display:flex;gap:6px}
+.fab-head-actions button{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:7px;padding:4px 8px;font-size:11px;cursor:pointer}
+.fab-head-actions button:hover{border-color:var(--accent);color:var(--accent-ink)}
+
+.fab-context{padding:7px 12px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--accent-soft) 55%,var(--surface));flex-shrink:0;display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap}
+.fab-context .ctx-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;font-size:11px;color:var(--accent-ink);background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:999px;padding:3px 9px}
+.fab-context .ctx-chip b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:250px}
+.fab-context .ctx-chip .ctx-x{cursor:pointer;color:var(--muted);font-size:12px;padding:0 1px}
+.fab-context .ctx-chip .ctx-x:hover{color:var(--danger,#b3392f)}
+.fab-context .ctx-empty{font-size:11px;color:var(--muted)}
+
+/* v260930d · M5 本页关联知识 / 检索结果 */
+.fab-related{border-bottom:1px solid var(--line);padding:8px 12px 10px;background:color-mix(in srgb,var(--accent-soft) 35%,var(--surface))}
+.fab-rel-cap{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--accent-ink);margin-bottom:6px}
+.fab-rel-cap .fab-rel-count{font-weight:600;font-size:10px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:0 6px}
+.fab-rel-chips{display:flex;flex-wrap:wrap;gap:5px}
+.fab-rel-chip{max-width:100%;font-size:11px;color:var(--text);background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 28%,var(--line));border-radius:8px;padding:3px 8px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fab-rel-chip:hover{border-color:var(--accent);background:var(--accent-soft)}
+.fab-rel-card{margin-top:7px;display:flex;flex-direction:column;gap:5px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.fab-rel-head{display:flex;align-items:center;gap:6px}
+.fab-rel-title{flex:1;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fab-rel-marks{font-size:11px;color:var(--accent-ink)}
+.fab-rel-hits{font-size:11px;color:var(--muted)}
+.fab-rel-hits mark{background:var(--accent-soft);color:var(--accent-ink);border-radius:4px;padding:0 3px;font-weight:600}
+.fab-rel-excerpt{font-size:11px;line-height:1.55;color:var(--muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.fab-rel-actions{display:flex;gap:6px}
+.fab-rel-actions button{flex:1;font-size:11px;padding:3px 8px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.fab-rel-actions .go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.fab-rel-actions .go:hover{background:var(--accent-2)}
+.fab-rel-actions button:hover{border-color:var(--accent)}
+
+.fab-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.fab-messages::-webkit-scrollbar{width:8px}
+.fab-messages::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}
+
+.fab-msg{display:flex;gap:8px;max-width:100%}
+.fab-msg .fab-avatar{width:26px;height:26px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff}
+.fab-msg.user .fab-avatar{background:var(--muted)}
+.fab-msg.assistant .fab-avatar{background:linear-gradient(135deg,var(--accent),var(--accent-2))}
+.fab-msg .fab-bubble{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
+.fab-msg .fab-body{font-size:13px;line-height:1.62;color:var(--text);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;overflow-wrap:anywhere}
+.fab-msg.user .fab-body{background:color-mix(in srgb,var(--accent-soft) 80%,var(--surface));border-color:color-mix(in srgb,var(--accent) 25%,var(--line))}
+.fab-body p{margin:0 0 6px}
+.fab-body p:last-child{margin-bottom:0}
+.fab-body ul{margin:4px 0;padding-left:18px}
+.fab-body h4{margin:6px 0 4px;font-size:13px}
+.fab-body code{font-size:12px;background:var(--surface-3);border-radius:4px;padding:1px 4px}
+.fab-body pre{margin:6px 0;background:var(--surface-3);border:1px solid var(--line);border-radius:8px;padding:8px 10px;overflow-x:auto}
+.fab-body pre code{background:none;padding:0}
+.fab-body table{border-collapse:collapse;font-size:12px;margin:6px 0}
+.fab-body th,.fab-body td{border:1px solid var(--line);padding:3px 7px}
+
+.fab-msg-meta{font-size:10px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.fab-tools{font-size:10px;color:var(--muted)}
+.fab-tools .fab-tools-list{display:inline-flex;gap:4px;flex-wrap:wrap}
+.fab-tools .ft{display:inline-block;background:var(--surface-3);border:1px solid var(--line);border-radius:999px;padding:1px 7px}
+.fab-tools .ft.ok{color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 30%,var(--line))}
+.fab-tools .ft.bad{color:var(--danger,#b3392f);border-color:color-mix(in srgb,var(--danger,#b3392f) 30%,var(--line))}
+
+/* 工具草稿确认卡片 */
+.fab-draft{border:1px solid color-mix(in srgb,#e9b44c 55%,var(--line));background:color-mix(in srgb,#e9b44c 10%,var(--surface));border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.fab-draft.done-ok{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:color-mix(in srgb,var(--accent-soft) 70%,var(--surface))}
+.fab-draft.done-no{border-color:var(--line);background:var(--surface-2);opacity:.75}
+.fab-draft .fab-draft-head{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text);flex-wrap:wrap}
+.fab-draft .fab-draft-head .dt-badge{font-size:10px;border-radius:999px;padding:1px 7px;line-height:1.5}
+.fab-draft .fab-draft-head .dt-badge.st{background:var(--surface);border:1px solid color-mix(in srgb,#e9b44c 60%,var(--line));color:#8a6d1c}
+.fab-draft.done-ok .dt-badge.st{border-color:color-mix(in srgb,var(--accent) 50%,var(--line));color:var(--accent-ink);background:var(--surface)}
+.fab-draft.done-no .dt-badge.st{border-color:var(--line);color:var(--muted);background:var(--surface)}
+.fab-draft .fab-draft-head .dt-badge.tool{background:transparent;border:1px dashed var(--line);color:var(--muted);font-family:ui-monospace,Consolas,monospace}
+/* v260930g2 · 标题独占一行，最多两行截断（原与长徽章同行被挤成一行） */
+.fab-draft .fab-draft-title{font-weight:600;font-size:12.5px;line-height:1.4;margin-top:1px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all}
+.fab-draft .fab-draft-note{font-size:10px;color:var(--muted)}
+.fab-draft .fab-draft-actions{display:flex;gap:6px}
+.fab-draft .fab-draft-actions button{border-radius:7px;border:1px solid var(--line);background:var(--surface);font-size:11px;padding:3px 10px;cursor:pointer;color:var(--text)}
+.fab-draft .fab-draft-actions .go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.fab-draft .fab-draft-actions .go:hover{background:var(--accent-2)}
+.fab-draft .fab-draft-actions button:hover{border-color:var(--accent)}
+.fab-draft .fab-draft-result{font-size:11px;color:var(--muted)}
+.fab-draft-batch{display:flex;align-items:center;gap:6px;margin-bottom:6px;padding:6px 10px;border:1px dashed color-mix(in srgb,#e9b44c 55%,var(--line));border-radius:10px;background:color-mix(in srgb,#e9b44c 5%,var(--surface))} /* v260930c · M4 术语批量建档操作条 */
+.fab-draft-batch .fab-draft-note{flex:1;font-size:11px;color:var(--muted)}
+.fab-draft-batch button{border-radius:7px;border:1px solid var(--line);background:var(--surface);font-size:11px;padding:3px 10px;cursor:pointer;color:var(--text)}
+.fab-draft-batch .go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.fab-draft-batch .go:hover{background:var(--accent-2)}
+.fab-draft-batch button:hover{border-color:var(--accent)}
+
+.fab-quick{display:flex;gap:5px;flex-wrap:wrap}
+.fab-quick button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:10px;border-radius:999px;padding:2px 9px;cursor:pointer}
+.fab-quick button:hover{border-color:var(--accent);color:var(--accent-ink)}
+
+.fab-empty{margin:auto;text-align:center;color:var(--muted);font-size:12px;line-height:1.9;padding:20px}
+.fab-thinking{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding:6px 2px}
+.fab-thinking .dots{display:inline-flex;gap:3px}
+.fab-thinking .dots i{width:5px;height:5px;border-radius:50%;background:var(--accent);animation:erwFabDot 1s infinite ease-in-out}
+.fab-thinking .dots i:nth-child(2){animation-delay:.15s}
+.fab-thinking .dots i:nth-child(3){animation-delay:.3s}
+@keyframes erwFabDot{0%,80%,100%{opacity:.25;transform:scale(.8)}40%{opacity:1;transform:scale(1.15)}}
+
+.fab-foot{border-top:1px solid var(--line);padding:8px 10px;background:var(--surface-2);flex-shrink:0;display:flex;flex-direction:column;gap:7px}
+.fab-foot-top{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.fab-write-toggle{display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
+.fab-write-toggle input{accent-color:var(--accent)}
+.fab-compose{display:flex;gap:7px;align-items:flex-end}
+.fab-compose textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font-size:13px;line-height:1.5;padding:8px 10px;max-height:120px;font-family:inherit;min-height:38px}
+.fab-compose textarea:focus{outline:none;border-color:var(--accent)}
+.fab-compose button{border:none;border-radius:9px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;padding:9px 14px;cursor:pointer;flex-shrink:0}
+.fab-compose button:hover{background:var(--accent-2)}
+.fab-compose button:disabled{opacity:.55;cursor:default}
+
+/* ---------- v260930e · 截图入口 / 附加预览 / 消息附图 ---------- */
+.fab-shot-btns{display:flex;gap:5px}
+.fab-shot-btns button{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:7px;padding:3px 8px;font-size:11px;cursor:pointer;white-space:nowrap}
+.fab-shot-btns button:hover{border-color:var(--accent);color:var(--accent-ink)}
+.fab-attach{display:flex;gap:6px;flex-wrap:wrap}
+.fab-attach-item{position:relative;display:inline-flex}
+.fab-attach-item img{width:52px;height:38px;object-fit:cover;border:1px solid var(--line);border-radius:6px;background:#fff}
+.fab-attach-x{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:var(--text);color:var(--surface);font-size:11px;line-height:16px;text-align:center;cursor:pointer;user-select:none;opacity:.85}
+.fab-attach-x:hover{opacity:1;background:#b3392f;color:#fff}
+.fab-msg-imgs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.fab-msg-img{max-width:180px;max-height:130px;object-fit:contain;border:1px solid var(--line);border-radius:8px;cursor:zoom-in;background:#fff}
+
+/* ---------- 划词气泡 ---------- */
+#erw-sel-bubble{
+  position:fixed;z-index:180;display:none;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 8px 22px rgba(10,32,36,.18);padding:4px;
+  gap:2px;
+}
+#erw-sel-bubble.show{display:inline-flex}
+#erw-sel-bubble button{border:none;background:none;color:var(--text);font-size:12px;padding:5px 10px;border-radius:7px;cursor:pointer;white-space:nowrap}
+#erw-sel-bubble button:hover{background:var(--accent-soft);color:var(--accent-ink)}
+#erw-sel-bubble button b{font-weight:600}
+
+/* ---------- v260930e · 历史会话回看 ---------- */
+.fab-history-list{display:flex;flex-direction:column;gap:6px;padding:2px}
+.fab-hist-item{display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;cursor:pointer;font-family:inherit}
+.fab-hist-item:hover{border-color:var(--accent);background:var(--accent-soft)}
+.fab-hist-item.current{border-color:var(--accent);background:var(--accent-soft)}
+.fab-hist-title{font-size:12.5px;font-weight:600;color:var(--text);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fab-hist-cur{font-style:normal;font-size:10px;color:var(--accent-ink);background:var(--accent-soft);border:1px solid var(--accent);border-radius:5px;padding:0 4px;margin-left:4px}
+.fab-hist-meta{font-size:10.5px;color:var(--muted)}
+.fab-hist-preview{font-size:11.5px;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fab-head-actions button.active{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+
+/* ---------- v260930g · 上下文条写入能力徽章 ---------- */
+.ctx-chip.fab-rw{cursor:default;flex-shrink:0}
+.ctx-chip.fab-rw.on{color:var(--accent-ink);border-color:var(--accent);background:var(--accent-soft)}

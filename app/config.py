@@ -19,6 +19,58 @@ LEGACY_SECRET_PATH = CONFIG_DIR / "secrets.json"
 LLM_SECRET_SCHEMA_VERSION = 2
 DEFAULT_SYSTEM_PROMPT = "你是一个严谨的科研助手。优先基于用户显式引用的研究资料回答，不确定时明确说明。"
 
+# ---------- v260930g4 · 统一写作与建档约束（AI 的「写作记忆」） ----------
+# 单一真相源：<Workspace>/System/AI助手写作与建档规范.md（工作台数据，随 ensure_workspace 解析——打包 exe 后亦正确；
+# 不放 .trae/rules/：那是 IDE Agent 的规则目录，且发布产物中不存在）。发送对话前由 agent.send_message 注入所有人设。
+# 文档缺失时使用下面的浓缩兜底版（两者内容须保持同步）。
+_WRITING_RULES_FALLBACK = """【AI 写作与建档约束（精简版，完整版见 Workspace/System/AI助手写作与建档规范.md）】
+1. 六类条目前缀：知识-/灵感-/日志-/里程碑-/总结-/文献-；知识类标题=知识-<类别词>-<名称>，类别词取 架构/方法/模型/原理/实验/数据集 之一。
+2. 命名：中拉丁之间半角空格；禁用《》[]；禁止跨族合写标题；实验类带全角编号（4.1）；日志/总结标题不写日期。
+3. 知识条目用五要素骨架：摘要/原理（含名词总览表）/公式/方法·使用原因/场景/失效模式与易错点/关联。
+4. 建档前必 kb_search 查重；kb_update_entry 的 body 是整体覆盖，不确定全文先 kb_read。
+5. 数值必须可追溯：写全数据集/划分/阈值参数/留档路径，禁止跨数据集混排指标。
+6. 交叉引用指向真实标题；检索不到就明说，不臆造条目、编号或结论。
+7. 正文中文，图内文字一律英文；ν 专指新息，量测噪声一律用 v。"""
+_WRITING_RULES_CACHE: str | None = None
+
+def writing_rules() -> str:
+    global _WRITING_RULES_CACHE
+    if _WRITING_RULES_CACHE is None:
+        try:
+            from .workspace import ensure_workspace  # 延迟导入：workspace 依赖 config，顶层导入会循环
+            path = ensure_workspace() / "System" / "AI助手写作与建档规范.md"
+            _WRITING_RULES_CACHE = path.read_text(encoding="utf-8-sig")
+        except Exception:
+            _WRITING_RULES_CACHE = _WRITING_RULES_FALLBACK
+    return _WRITING_RULES_CACHE
+
+
+# v260930 · M4 术语建档员系统提示词：浓缩 .trae/rules/名词拆解建档标准流程.md 的核心纪律
+ARCHIVIST_PROMPT = """你是科研工作台的术语建档员，负责把文献中的专业名词拆解为规范的知识库条目。严格按以下流程工作：
+
+一、术语提取与分族
+- 从页面上下文提供的文献正文（当前页文本/选中文本）中提取专业名词，优先提取反复出现、有明确定义或属于方法/模型/坐标系/度量体系的术语。
+- 先分族再建档：判断哪些词属于同族——能用同一套公式与同一种失效模式讲完的名词合为一篇；不同族必须拆开，禁止跨族合写。
+- 忽略常识词（如"实验""算法"本身）、仅出现一次且无展开的普通词。
+
+二、类别词判定（每篇有且仅有一个）
+按知识用途六选一：机理/口径/度量→原理；可复现做法与策略→方法；分层与接口契约→架构；可建模/可训练对象→模型；一次性实验记录→实验；数据集本身→数据集。
+
+三、命名规范（校验不通过会被拒写）
+- 标题格式：知识-<类别>-<名称>；名称段保留原有语义，不重复类别词，禁止「A 与 B」跨族合写。
+- 中文与拉丁字母/数字间保留半角空格（如「GEO 高度」「WCS 星图」）；不用书名号与方括号。
+- 示例：知识-原理-信杂比 SCR、知识-方法-星点质心提取、知识-模型-CW 相对运动。
+
+四、正文五要素骨架（顺序固定）
+每篇正文依次含：## 摘要 / ## 正文（### 一、原理 含名词总览表 / ### 公式 / ### 方法·使用原因 / ### 场景 / ### 失效模式与易错点）/ ## 关联。
+- 原文信息不得丢失：公式、数值、符号口径照录；文献没讲的要素写"文献未展开"，不得编造。
+- 关联段指向真实存在的标题（可用 kb_search 核实），本批次内的新建条目可互相引用。
+
+五、建档纪律
+- 每篇建档前必须 kb_search 查重：命中同题条目则改用 kb_update_entry 增补（append 模式），不重复建档。
+- 逐篇调用 kb_create_entry 生成草稿，等待用户确认。
+- 结束时输出术语清单表：| 术语 | 类别 | 条目标题 | 去向（新建/增补/跳过）|，并说明跳过原因。"""
+
 DEFAULT_APP_CONFIG = {
     "app_name": "科研工作台",
     "subtitle": "Engineering Research Workspace",
@@ -326,6 +378,63 @@ def _clean_assist(assist: Any) -> dict[str, Any]:
     }
 
 
+def _clean_personas(personas: Any) -> list[dict[str, Any]]:
+    """v260930 · M3 Agent 人设归一化：id/name/system_prompt/tools/write_mode/request_preset/temperature。
+    内置 reader/executor 不可删除、始终存在；用户对内置人设的编辑（提示词/白名单/写模式）优先于内置默认；
+    自定义人设跟在后面。tools 白名单按 agent_tools.TOOL_NAMES 过滤。"""
+    from . import agent_tools
+    valid_tools = set(agent_tools.TOOL_NAMES)
+    builtin_defaults = {
+        "reader": {"name": "阅读助手", "system_prompt": "你是严谨的科研阅读助手。回答优先基于知识库检索结果与用户提供的文献上下文；擅长解释概念、总结要点、对比方法。你不修改任何知识库内容，检索不到时明确说明。", "tools": ["kb_search", "kb_read", "lit_context"], "write_mode": "confirm"},
+        "executor": {"name": "执行助手", "system_prompt": "你是科研工作台的执行助手。用户交代任务后主动检索知识库、查重、生成条目/笔记草稿并等待确认；写知识条目前必须遵守命名规范（知识-<类别>-<名称>），命中同名条目改为增补。完成后简洁汇报做了什么、产出了哪些草稿。", "tools": list(agent_tools.TOOL_NAMES), "write_mode": "confirm"},
+        "archivist": {"name": "术语建档员", "system_prompt": ARCHIVIST_PROMPT, "tools": list(agent_tools.TOOL_NAMES), "write_mode": "confirm"},
+    }
+
+    def _clean(pid: str, item: dict[str, Any], is_builtin: bool) -> dict[str, Any]:
+        tools = [str(t) for t in (item.get("tools") if isinstance(item.get("tools"), list) else []) if str(t) in valid_tools]
+        if not tools:
+            tools = list(builtin_defaults[pid]["tools"]) if pid in builtin_defaults else ["kb_search", "kb_read", "lit_context"]  # 空白名单回退安全默认
+        temp = item.get("temperature")
+        try:
+            temp = float(temp) if temp is not None and str(temp).strip() != "" else None
+        except Exception:
+            temp = None
+        return {
+            "id": pid,
+            "name": str(item.get("name") or builtin_defaults.get(pid, {}).get("name") or pid).strip()[:30],
+            "builtin": is_builtin,
+            "system_prompt": str(item.get("system_prompt") or builtin_defaults.get(pid, {}).get("system_prompt") or "").strip(),
+            "tools": tools,
+            "write_mode": "direct" if str(item.get("write_mode") or "").strip() == "direct" else "confirm",
+            "request_preset": str(item.get("request_preset") or "").strip(),
+            "temperature": temp,
+        }
+
+    by_id: dict[str, dict[str, Any]] = {}
+    for item in (personas if isinstance(personas, list) else []):
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("id") or "").strip()[:40]
+        if not pid:
+            continue
+        by_id[pid] = _clean(pid, item, pid in builtin_defaults)
+    out: list[dict[str, Any]] = []
+    for pid, default in builtin_defaults.items():  # 内置在前（缺失则补默认），保证 personas[0] 回退稳定
+        out.append(by_id.pop(pid) if pid in by_id else _clean(pid, {**default, "id": pid}, True))
+    out.extend(by_id.values())  # 自定义人设按用户顺序追加
+    return out
+
+
+def resolve_persona(persona_id: str) -> dict[str, Any]:
+    """按 id 取人设；不存在时回退第一个人设（阅读助手）。返回带 tools/write_mode 的完整档案。"""
+    personas = _clean_personas(get_app().get("llm", {}).get("personas"))
+    wanted = str(persona_id or "").strip()
+    for p in personas:
+        if p["id"] == wanted:
+            return p
+    return personas[0]
+
+
 def _strip_legacy_llm_for_storage(app: dict[str, Any]) -> dict[str, Any]:
     out = deepcopy(app)
     old = out.get("llm") if isinstance(out.get("llm"), dict) else {}
@@ -334,6 +443,7 @@ def _strip_legacy_llm_for_storage(app: dict[str, Any]) -> dict[str, Any]:
         "system_prompt": str(old.get("system_prompt") or DEFAULT_SYSTEM_PROMPT),
         "assist": _clean_assist(old.get("assist")),  # v260929 · 保留 AI 阅读助手设置
         "vision_enabled": old.get("vision_enabled", False) is True,  # v260929c · 多模态开关
+        "personas": _clean_personas(old.get("personas")),  # v260930 · M3 人设档案
     }
     return _deep_merge(DEFAULT_APP_CONFIG, out)
 
@@ -491,6 +601,7 @@ def save_app(data: dict) -> dict:
             "system_prompt": str(incoming_llm.get("system_prompt") or DEFAULT_SYSTEM_PROMPT),
             "assist": _clean_assist(assist),  # v260929 · AI 阅读助手设置：app.json 的 llm 下持久化（其余 llm 字段归 secret profiles，save 时会被清掉，故显式保留）
             "vision_enabled": incoming_llm.get("vision_enabled", False) is True,  # v260929c · 多模态开关：阅读区 AI 助手可发送截图
+            "personas": _clean_personas(incoming_llm.get("personas")),  # v260930 · M3 人设档案：随 app.json 持久化，否则 save 时被清掉导致回退默认 confirm
         }
         incoming["llm"] = clean_llm
         merged = _deep_merge(DEFAULT_APP_CONFIG, incoming)

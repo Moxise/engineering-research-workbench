@@ -640,6 +640,10 @@
   window.ERWVisionEnabled = () => state.config?.app?.llm?.vision_enabled === true;
   /* v260929d · 配置热同步：Agent API 配置页（独立脚本）保存后回写 state.config.app，免刷新生效 */
   window.ERWConfigSync = app => { if (state.config && app) state.config.app = app; };
+  /* v260930 · M2 悬浮球助手：LLM 是否已启用（未启用时悬浮球发送前给出设置指引） */
+  window.ERWLLMReady = () => state.config?.app?.llm?.enabled === true;
+  /* v260930d · M5 阅读中知识关联：悬浮球/气泡跳转到指定知识条目（导航+选中跨脚本桥） */
+  window.ERWNav = { open: async (kind, id) => { await navigate(routeForKind(kind)); setTimeout(() => selectDoc(id), 30); } };
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
   function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')+'<button type="button" class="mark-chip add-mark" id="f-mark-add" title="添加自定义标记">＋ 自定义</button>'}
   function wireMarkChips(){
@@ -691,6 +695,7 @@
   async function selectDoc(id){
     if(state.dirty && !confirm('当前 Markdown 有未保存修改，确定切换吗？'))return;
     state.dirty=false; const doc=await api('/api/docs/'+encodeURIComponent(id)); state.selectedDoc=doc;
+    window.ERWCurrentDoc=doc.id; /* v260930 · M2 悬浮球上下文桥：当前打开条目 id */
     $$('[data-doc-id]').forEach(x=>x.classList.toggle('active',x.dataset.docId===id));
     renderDocEditor(doc);
   }

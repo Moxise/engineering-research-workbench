@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/v260922-graph-performance.css?v=260924g">
   <link rel="stylesheet" href="/v260922-agent-profiles.css?v=260929d">
   <link rel="stylesheet" href="/v260922-layout-bugfixes.css?v=260924g">
+  <link rel="stylesheet" href="/v260930-floating-agent.css?v=260930g2"><!-- v260930g2 · 草稿卡片重排：徽章行+标题独占两行截断；上版：写入能力徽章 -->
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
   <script>
     window.MathJax = {
@@ -100,13 +101,14 @@
   </div>
 
   <script defer src="/v260922-performance.js?v=260924g"></script><!-- v260924g · 分页文案/排版修复，版本参数防缓存 -->
-  <script defer src="/app.js?v=260929y"></script><!-- v260929y · 根 zoom/resize 时同步折算视口尺寸 CSS 变量（--vw-px/--vh-px），配合设置页导航全高修复；上版：AI 阅读助手预设动作提示词可覆盖 -->
-  <script defer src="/literature.js?v=260929q"></script><!-- v260929q · 批注加入笔记时截图复制到笔记图片目录（设置指定位置）；上版：批注列表按编号排序 + 选中批注原地展开编辑 -->
+  <script defer src="/app.js?v=260930d"></script><!-- v260930d · M5 ERWNav 跳转桥（悬浮球/气泡打开知识条目）；上版：根 zoom/resize 同步视口变量 -->
+  <script defer src="/literature.js?v=260930e"></script><!-- v260930e · ERWCapture 桥（截当前页/框选截图，供悬浮球附图）；上版：M5 翻页派发 erw-lit-page 事件 -->
   <script defer src="/v260922-projects.js"></script>
   <script defer src="/v260922-overview-editor-tools.js"></script>
   <script defer src="/v260922-graph-performance.js?v=260929w"></script>
   <script defer src="/v260922-overview-graph.js"></script>
-  <script defer src="/v260922-agent-profiles.js?v=260929d"></script><!-- v260929d · 请求模式行可折叠（默认收起，新增自动展开）；上版：保存后经 ERWConfigSync 回写主应用配置 -->
+  <script defer src="/v260922-agent-profiles.js?v=260930g3"></script><!-- v260930g3 · 设置页顶部「AI 助手人设」锚点入口 + 统一提示词与人设提示词区分说明；上版：请求模式行可折叠 -->
+  <script defer src="/v260930-floating-agent.js?v=260930g5"></script><!-- v260930g5 · 人设卡片加「打开写作规范」跳转按钮（个人工作区数据）；上版：人设编辑器标题改「AI 助手人设」 -->
   <script defer src="/v260922-layout-bugfixes.js"></script>
 </body>
 </html>

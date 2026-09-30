@@ -54,7 +54,7 @@ async function openPaper(id){
  try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
  catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
-function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.annotations=[];S.ai={text:"",image:"",result:"",error:"",busy:false,instruction:""}}
+function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.areaResolver=null;S.annotations=[];S.ai={text:"",image:"",result:"",error:"",busy:false,instruction:""}} /* v260930e · areaResolver 一并复位 */
 function annotationsForPage(page){return (S.annotations||[]).filter(a=>+a.page===+page)}
 function annotationById(id){return (S.annotations||[]).find(a=>a.id===id)||null}
 function upsertAnnotation(a){
@@ -299,7 +299,7 @@ function toggleArea(){
 function areaStart(e){
  const page=e.target.closest(".lit-page");if(!page||!S.area)return;e.preventDefault();const n=+page.dataset.page,pr=page.getBoundingClientRect(),a=[clamp((e.clientX-pr.left)/pr.width),clamp((e.clientY-pr.top)/pr.height)];
  const move=ev=>{const b=[clamp((ev.clientX-pr.left)/pr.width),clamp((ev.clientY-pr.top)/pr.height)];S.pending={page:n,text:"区域选块",kind:"area",rects:[[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]]};paintPending()};
- const up=()=>{document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);S.area=false;qa(".lit-interaction-layer").forEach(el=>el.onmousedown=null);toolbar();openAiTabForArea()};document.addEventListener("mousemove",move,true);document.addEventListener("mouseup",up,true);
+ const up=()=>{document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);S.area=false;qa(".lit-interaction-layer").forEach(el=>el.onmousedown=null);toolbar();const rs=S.areaResolver;S.areaResolver=null;if(rs){rs(areaPreviewDataUrl(S.pending))}else{openAiTabForArea()}}; /* v260930e · 框选完成：外部接管（悬浮球截图）优先于阅读区 AI 面板联动 */
 }
 function openAiTabForArea(){ /* v260929d · 框选完成后联动：多模态开启时自动切到 AI 面板，「用框选区域」截图按钮立即出现 */
   const vis=window.ERWVisionEnabled?window.ERWVisionEnabled():false;if(!vis)return;
@@ -338,12 +338,13 @@ function handlePageAnnotationClick(n,e){
   }
  }
 }
-function track(){const sc=q("#lit-scroll"),y=sc.getBoundingClientRect().top+70;let best=1,d=Infinity;S.pages.forEach((r,n)=>{const z=Math.abs(r.el.getBoundingClientRect().top-y);if(z<d){d=z;best=n}});if(best===S.current)return;S.current=best;toolbar();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)}
+function track(){const sc=q("#lit-scroll"),y=sc.getBoundingClientRect().top+70;let best=1,d=Infinity;S.pages.forEach((r,n)=>{const z=Math.abs(r.el.getBoundingClientRect().top-y);if(z<d){d=z;best=n}});if(best===S.current)return;S.current=best;toolbar();dispatchPage();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)} /* v260930d · M5 翻页派发事件供悬浮球刷新关联知识 */
 async function savePos(page){if(!S.paper||!S.pdf)return;const st=S.paper.reading_status==="未读"?"在读":S.paper.reading_status;S.paper.last_page=page;S.paper.reading_status=st;try{await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({last_page:page,page_count:S.pdf.numPages,reading_status:st})})}catch{}}
+function dispatchPage(){document.dispatchEvent(new CustomEvent("erw-lit-page",{detail:{page:S.current}}))} /* v260930d · M5 翻页事件 */
 function go(n,smooth=true){
  const rec=S.pages.get(n),sc=q("#lit-scroll");if(!rec||!sc)return;
  const top=Math.max(0,rec.el.offsetTop-8);
- sc.scrollTo({top,behavior:smooth?"smooth":"auto"});S.current=n;toolbar();
+ sc.scrollTo({top,behavior:smooth?"smooth":"auto"});S.current=n;toolbar();dispatchPage();
 }
 async function zoom(delta){if(!S.pdf)return;const keep=S.current;S.scale=Math.max(.65,Math.min(2.4,S.scale+delta));S.generation++;S.observer?.disconnect();await build();requestAnimationFrame(()=>go(keep,false))}
 function toolbar(){if(!S.pdf)return;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});qa("[data-ai]").forEach(b=>{b.disabled=!(S.pending?.kind==="text"&&S.pending?.text);b.classList.toggle("ready",!!(S.pending?.kind==="text"&&S.pending?.text))});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;const cp=q("#lit-copy");if(cp)cp.disabled=!(S.pending?.kind==="text"&&S.pending?.text)}
@@ -537,6 +538,20 @@ async function openByAttachment(att){
  if(!hit)throw new Error("该附件未登记到 PDF 工作区");
  await start();await openPaper(hit.id);
 }
-window.ERWLiterature={start,openByAttachment};
+window.ERWLiterature={start,openByAttachment,context:()=>({paper_id:S.paper?.id||"",title:S.paper?.title||"",page:S.current||1,selection:S.pending?.kind==="text"?String(S.pending.text||""):"",page_text:pageText(S.current||1)})}; /* v260930 · M2 悬浮球上下文桥：当前文献/页码/PDF 选中文本；v260930c · M4 增加当前页文本层正文（术语提取输入） */
+/* v260930e · 悬浮球截图桥：page()=截当前整页；area()=进入框选模式，resolve 框选区域截图（外部接管联动） */
+window.ERWCapture={
+ page:()=>S.pdf?pageDataUrl():"",
+ area:()=>new Promise(res=>{
+   if(!S.pdf||!q(".lit-shell")){res("");return}
+   S.areaResolver=res;
+   if(!S.area)toggleArea();
+ }),
+};
+
+function pageText(n){ /* v260930c · M4 · 取渲染页缓存的文本几何拼正文：textItems 为内容流顺序，术语提取够用；未渲染页返回空 */
+ const r=S.pages.get(+n);if(!r||!Array.isArray(r.textItems))return "";
+ return r.textItems.map(i=>i.text).join(" ").replace(/\s+/g," ").trim().slice(0,6000);
+}
 document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"&&q("#lit-note")){e.preventDefault();saveNote()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="c"&&S.pending?.kind==="text"&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();copyPendingText()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&S.paper&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();undo()}else if(e.key==="Escape"&&S.pending){S.pending=null;paintPending();toolbar()}});
 })();

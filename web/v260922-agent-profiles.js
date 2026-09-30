@@ -25,12 +25,16 @@
   }
   function paintManagerShell(panel){
     const s=managerState;
-    panel.innerHTML=`<div class="card-head"><div><div class="card-kicker">OPENAI COMPATIBLE PROFILES</div><h3>Agent API 配置</h3><p class="row-meta">多套配置保存在本地 config/secret.json；系统提示词统一保存在 app.json。只使用 OpenAI-compatible Chat Completions。</p></div></div>
+    panel.innerHTML=`<div class="card-head"><div><div class="card-kicker">OPENAI COMPATIBLE PROFILES</div><h3>Agent API 配置</h3><p class="row-meta">多套配置保存在本地 config/secret.json；系统提示词统一保存在 app.json。只使用 OpenAI-compatible Chat Completions。</p></div><button class="secondary-btn" id="goto-personas" title="跳转到 AI 助手人设编辑器（修改提示词 / 新增人设 / 工具权限）">AI 助手人设 ↓</button></div>
     <div class="agent-profile-settings"><aside class="agent-profile-list"><div class="agent-profile-list-head"><h4>配置列表</h4><button class="primary-btn" id="profile-add">＋</button></div><div class="agent-profile-items" id="profile-items"></div></aside><section class="agent-profile-editor" id="profile-editor"></section></div>
-    <div class="field" style="margin-top:14px"><label>统一系统提示词</label><textarea id="global-system-prompt" style="min-height:120px">${esc(s.llm.system_prompt||'')}</textarea></div>
+    <div class="field" style="margin-top:14px"><label>统一系统提示词</label><textarea id="global-system-prompt" style="min-height:120px">${esc(s.llm.system_prompt||'')}</textarea><p class="row-meta">对所有模型请求生效的全局提示词；悬浮球 AI 助手的角色化提示词（阅读助手 / 执行助手 / 术语建档员等）在下方「AI 助手人设」卡片中单独配置。</p></div>
     <div class="agent-settings-footer"><div class="left"><label class="badge"><input type="checkbox" id="agent-enabled" ${s.llm.enabled?'checked':''}> 启用 Agent</label><label class="badge"><input type="checkbox" id="llm-vision-global" ${s.llm.vision_enabled?'checked':''}> 多模态 / 截图识别</label><span class="row-meta">开启后阅读区 AI 面板可用「截取当前页 / 框选区域」代替选中文本；需模型支持图片输入（如 qwen-vl / gpt-4o 系列）。</span></div><button class="primary-btn" id="profile-save-all">保存全部配置</button></div>`;
     $('#profile-add').onclick=()=>{const id='profile-'+Date.now();s.profiles.push({id,name:'未命名配置',base_url:'https://api.openai.com/v1',has_api_key:false,timeout:120,max_output_tokens:0,temperature:null,show_reasoning:true,default_request_preset:'default',request_presets:[{id:'default',label:'默认',model:'',temperature:null,params:{}}]});s.selectedId=id;paintProfileList();paintProfileEditor()};
+    $('#goto-personas').onclick=()=>$('#erw-persona-host')?.scrollIntoView({behavior:'smooth',block:'start'}); /* v260930g2 · 跳转 AI 助手人设编辑器 */
     $('#profile-save-all').onclick=saveAllProfiles;paintProfileList();
+    /* v260930 · M3 人设编辑器宿主：渲染完本面板后挂宿主节点并广播事件，由 v260930-floating-agent.js 填充（保存 API 配置会整页重渲染，事件随之重发，编辑器自动重建） */
+    panel.insertAdjacentHTML('beforeend','<div id="erw-persona-host"></div>');
+    document.dispatchEvent(new CustomEvent('erw-llm-settings-rendered'));
   }
   function paintProfileList(){
     const s=managerState,root=$('#profile-items');if(!root)return;root.innerHTML=s.profiles.map(p=>`<button class="agent-profile-item ${p.id===s.selectedId?'active':''}" data-profile-id="${esc(p.id)}"><span class="profile-state"><span class="profile-dot ${p.id===s.activeId?'on':''}"></span><strong>${esc(p.name||'未命名配置')}</strong></span><small>${esc(p.base_url||'')} · ${(p.request_presets||[]).length} 模式</small></button>`).join('');$$('[data-profile-id]',root).forEach(b=>b.onclick=()=>{captureEditor();s.selectedId=b.dataset.profileId;paintProfileList();paintProfileEditor()})

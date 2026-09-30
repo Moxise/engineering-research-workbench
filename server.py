@@ -19,6 +19,7 @@ from app import todos
 from app import weather
 from app import workspace
 from app import agent
+from app import agent_tools  # v260930 · M1 Agent 工具调用层
 from app import projects
 from app import indexer
 from app.paths import ASSET_ROOT, DATA_ROOT
@@ -269,6 +270,10 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/agent/sessions/"):
             session_id = unquote(path.split("/api/agent/sessions/", 1)[1])
             return self.send_json(agent.get_session(session_id))
+        if path == "/api/agent/tools":  # v260930 · M1 工具清单：前端人设编辑器/悬浮球按白名单展示
+            return self.send_json(agent_tools.list_tool_meta())
+        if path == "/api/agent/drafts":  # v260930 · M1 待确认草稿列表（默认 pending，?status= 全量）
+            return self.send_json(agent_tools.list_drafts(str((q.get("status") or ["pending"])[0])))
         return self.send_json({"error": "not_found"}, 404)
 
     def handle_api_post(self, path, payload):
@@ -398,7 +403,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(agent.send_message(
                 str(payload.get("session_id") or ""), str(payload.get("message") or ""),
                 payload.get("refs") or [], payload.get("images") or [], str(payload.get("request_preset") or ""),
+                payload.get("context") if isinstance(payload.get("context"), dict) else None,  # v260930 · M1 页面上下文（view/paper_id/page/selection/write_mode）
+                str(payload.get("persona_id") or ""),  # v260930 · M3 人设 id
             ))
+        if path.startswith("/api/agent/drafts/"):  # v260930 · M1 写工具草稿确认流：confirm 落盘 / reject 拒绝
+            tail = path.split("/api/agent/drafts/", 1)[1]
+            if tail.endswith("/confirm"):
+                return self.send_json(agent_tools.confirm_draft(tail[: -len("/confirm")]))
+            if tail.endswith("/reject"):
+                return self.send_json(agent_tools.reject_draft(tail[: -len("/reject")]))
+            raise FileNotFoundError(path)
         if path == "/api/agent/assist":  # v260929 · PDF 阅读区 AI 助手：选中内容的翻译/总结/整理/笔记润色/自定义；v260929c · image 截图多模态
             return self.send_json(agent.assist(
                 str(payload.get("action") or ""), str(payload.get("text") or ""),
@@ -406,6 +420,8 @@ class Handler(BaseHTTPRequestHandler):
             ))
         if path == "/api/agent/test":
             return self.send_json(agent.test_connection())
+        if path == "/api/kb/related":  # v260930d · M5 阅读中知识关联：页面正文匹配知识库条目（纯文本匹配，零 LLM 依赖）
+            return self.send_json({"items": store.match_related(str(payload.get("page_text") or ""))})
         if path == "/api/todos":
             normalized = indexer.normalize_project_payload(payload)
             item = todos.create(normalized)

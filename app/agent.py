@@ -17,7 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from . import config, store, activity
+from . import config, store, activity, agent_tools
 from .workspace import ensure_workspace
 
 _LOCK = threading.RLock()
@@ -364,6 +364,46 @@ def _reasoning_text(value: Any) -> str:
     return str(value).strip()
 
 
+def _post_chat(cfg: dict[str, Any], messages: list[dict[str, Any]], request_params: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """v260930 · M1 底层补全请求：发送完整 messages，返回原始 assistant message（含 tool_calls）。
+    tools 传入时走原生 function calling；端点不支持时由调用方降级文本协议。"""
+    payload: dict[str, Any] = {"model": cfg["model"], "messages": messages, "stream": False}
+    if cfg.get("temperature") is not None:
+        payload["temperature"] = float(cfg.get("temperature"))
+    if int(cfg.get("max_output_tokens") or 0) > 0:
+        payload["max_tokens"] = int(cfg["max_output_tokens"])
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    payload = _deep_merge_request(payload, request_params or {}, {"model", "messages", "stream", "tools", "tool_choice"})
+    data = _http_json(_endpoint(str(cfg["base_url"]), "/chat/completions"), payload, str(cfg["api_key"]), int(cfg.get("timeout") or 120))
+    choices = data.get("choices") or []
+    if not choices:
+        raise ValueError("模型返回中没有 choices")
+    message = choices[0].get("message", {}) or {}
+    if not isinstance(message, dict):
+        raise ValueError("模型返回的 message 结构异常")
+    return message
+
+
+def _message_text(message: dict[str, Any]) -> str:
+    content = message.get("content", "")
+    if isinstance(content, list):
+        content = "\n".join(str(x.get("text") or "") for x in content if isinstance(x, dict))
+    return str(content or "").strip()
+
+
+def _message_reasoning(cfg: dict[str, Any], message: dict[str, Any]) -> str:
+    if not cfg.get("show_reasoning", True):
+        return ""
+    for key in ("reasoning_content", "reasoning", "thinking", "analysis"):
+        if message.get(key) is not None:
+            reasoning = _reasoning_text(message.get(key))
+            if reasoning:
+                return reasoning
+    return ""
+
+
 def _chat_completions(cfg: dict[str, Any], system_prompt: str, history: list[dict[str, Any]], user_text: str, image_paths: list[str], request_params: dict[str, Any] | None = None, image_data_urls: list[str] | None = None) -> tuple[str, str]:
     messages: list[dict[str, Any]] = []
     if system_prompt:
@@ -384,31 +424,138 @@ def _chat_completions(cfg: dict[str, Any], system_prompt: str, history: list[dic
         messages.append({"role": "user", "content": content})
     else:
         messages.append({"role": "user", "content": user_text})
-    payload: dict[str, Any] = {"model": cfg["model"], "messages": messages, "stream": False}
-    if cfg.get("temperature") is not None:
-        payload["temperature"] = float(cfg.get("temperature"))
-    if int(cfg.get("max_output_tokens") or 0) > 0:
-        payload["max_tokens"] = int(cfg["max_output_tokens"])
-    payload = _deep_merge_request(payload, request_params or {}, {"model", "messages", "stream"})
-    data = _http_json(_endpoint(str(cfg["base_url"]), "/chat/completions"), payload, str(cfg["api_key"]), int(cfg.get("timeout") or 120))
-    choices = data.get("choices") or []
-    if not choices:
-        raise ValueError("模型返回中没有 choices")
-    message = choices[0].get("message", {}) or {}
-    content = message.get("content", "")
-    if isinstance(content, list):
-        content = "\n".join(str(x.get("text") or "") for x in content if isinstance(x, dict))
-    reasoning = ""
-    if cfg.get("show_reasoning", True):
-        for key in ("reasoning_content", "reasoning", "thinking", "analysis"):
-            if message.get(key) is not None:
-                reasoning = _reasoning_text(message.get(key))
-                if reasoning:
-                    break
-    return str(content or "").strip(), reasoning
+    message = _post_chat(cfg, messages, request_params)
+    return _message_text(message), _message_reasoning(cfg, message)
 
 
-def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "") -> dict[str, Any]:
+_MAX_TOOL_STEPS = 8  # v260930 · M1 工具循环限步，防止模型空转刷调用
+_TOOL_JSON_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
+_FALLBACK_STATUS_RE = re.compile(r"LLM API HTTP 4(?:00|04|22)")
+
+
+def _page_context(context: Any) -> str:
+    """v260930 · M1 页面上下文注入：把前端传来的「你在哪/选中了什么」写进系统提示词，
+    工具层同享该上下文（lit_context/lit_note_write 缺省 paper_id 时取它）。"""
+    if not isinstance(context, dict):
+        return ""
+    parts: list[str] = []
+    paper_id = str(context.get("paper_id") or "").strip()
+    page = context.get("page")
+    doc_id = str(context.get("doc_id") or "").strip()
+    view = str(context.get("view") or "").strip()
+    selection = str(context.get("selection") or "").strip()
+    if paper_id:
+        try:
+            from . import literature
+            item = literature.get_item(paper_id)
+            parts.append(f"正在阅读文献《{item.get('title')}》（paper_id={paper_id}" + (f"，第 {page} 页" if page else "") + "）")
+        except Exception:
+            parts.append(f"正在阅读文献（paper_id={paper_id}）")
+    elif view:
+        parts.append(f"当前页面：{view}" + (f"，第 {page} 页" if page else ""))
+    if doc_id:
+        parts.append(f"当前打开的知识条目：doc_id={doc_id}")
+    if selection:
+        parts.append("用户当前选中的内容：\n" + selection[:4000] + ("…" if len(selection) > 4000 else ""))
+    page_text = str(context.get("page_text") or "").strip()
+    if page_text:  # v260930 · M4 术语提取：文献当前页正文（前端 pdf.js 文本层采集），供提取专业名词
+        parts.append("文献当前页正文（供术语提取与问答，勿向用户复述全文）：\n" + page_text[:6000] + ("…" if len(page_text) > 6000 else ""))
+    if not parts:
+        return ""
+    return "\n\n当前页面上下文（lit_context / lit_note_write 不传 paper_id 时默认使用此文献）：\n" + "\n".join(f"- {p}" for p in parts)
+
+
+def _exec_tool_call(name: str, args_raw: Any, ctx: dict[str, Any]) -> dict[str, Any]:
+    """执行单个工具调用：参数解析失败也转 ok=False 结果，交回模型自修正。"""
+    if isinstance(args_raw, str):
+        try:
+            args = json.loads(args_raw) if args_raw.strip() else {}
+        except Exception:
+            return {"ok": False, "error": f"工具参数不是合法 JSON：{args_raw[:200]}"}
+    elif isinstance(args_raw, dict):
+        args = args_raw
+    else:
+        args = {}
+    return agent_tools.execute(name, args, ctx)
+
+
+def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[str, Any]], user_text: str, image_paths: list[str], request_params: dict[str, Any], ctx: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """v260930 · M1 工具调用循环：原生 function calling 优先，端点不支持时降级文本协议。
+    返回 (最终回答, 推理过程, 工具轨迹, 本轮产生的待确认草稿)。"""
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+    for m in history[-_MAX_HISTORY_MESSAGES:]:
+        if m.get("role") in ("user", "assistant") and str(m.get("content") or "").strip():
+            messages.append({"role": m["role"], "content": str(m.get("content") or "")})
+    img_urls = [_image_data_url(p) for p in (image_paths or [])[:6]]
+    if img_urls:
+        content: list[dict[str, Any]] = [{"type": "text", "text": user_text or "请分析这些图片。"}] + [{"type": "image_url", "image_url": {"url": u}} for u in img_urls]
+        messages.append({"role": "user", "content": content})
+    else:
+        messages.append({"role": "user", "content": user_text})
+
+    tool_trace: list[dict[str, Any]] = []
+    drafts: list[dict[str, Any]] = []
+    allowed = [t for t in (ctx.get("tools") or agent_tools.TOOL_NAMES) if t in agent_tools.TOOL_NAMES] or list(agent_tools.TOOL_NAMES)
+    specs = agent_tools.openai_specs(allowed)
+
+    def _record(result: dict[str, Any], name: str, args: dict[str, Any]) -> None:
+        entry = {"tool": name, "ok": bool(result.get("ok")), "ms": result.get("tool_ms", 0)}
+        if result.get("pending") and result.get("draft_id"):
+            entry["draft_id"] = result["draft_id"]
+            drafts.append({"draft_id": result["draft_id"], "tool": name, "summary": (result.get("draft") or {}).get("title") or (result.get("draft") or {}).get("doc_id") or name})
+        if result.get("doc_id"):  # v260930 · M3 直写成功时记录落盘条目 id，便于前端展示与追溯
+            entry["doc_id"] = result["doc_id"]
+        tool_trace.append(entry)
+
+    # 阶段一：原生 function calling（端点报 4xx 工具不支持时整体转文本协议）
+    try:
+        for _ in range(_MAX_TOOL_STEPS):
+            message = _post_chat(cfg, messages, request_params, tools=specs)
+            calls = message.get("tool_calls") or []
+            if not isinstance(calls, list) or not calls:
+                return _message_text(message), _message_reasoning(cfg, message), tool_trace, drafts
+            messages.append({"role": "assistant", "content": _message_text(message) or None, "tool_calls": calls})
+            for tc in calls:
+                fn = (tc or {}).get("function") or {}
+                name = str(fn.get("name") or "")
+                result = _exec_tool_call(name, fn.get("arguments"), ctx)
+                _record(result, name, {} if not isinstance(fn.get("arguments"), dict) else fn.get("arguments"))
+                messages.append({"role": "tool", "tool_call_id": str(tc.get("id") or ""), "content": json.dumps(result, ensure_ascii=False)[:16000]})
+        messages.append({"role": "user", "content": "工具调用步数已达上限，请直接基于已获得的信息作答，不要再调用工具。"})
+        message = _post_chat(cfg, messages, request_params)
+        return _message_text(message), _message_reasoning(cfg, message), tool_trace, drafts
+    except ValueError as e:
+        if not _FALLBACK_STATUS_RE.search(str(e)):
+            raise
+
+    # 阶段二：文本协议兜底（同一循环内逐轮解析 ```json {"tool":...}``` 块）
+    messages = [dict(messages[0])]  # 重建：system 换成带文本协议说明的版本
+    messages[0]["content"] = system_prompt + "\n\n" + agent_tools.text_protocol_prompt(allowed)
+    for m in history[-_MAX_HISTORY_MESSAGES:]:
+        if m.get("role") in ("user", "assistant") and str(m.get("content") or "").strip():
+            messages.append({"role": m["role"], "content": str(m.get("content") or "")})
+    messages.append({"role": "user", "content": user_text})
+    for _ in range(_MAX_TOOL_STEPS):
+        message = _post_chat(cfg, messages, request_params)
+        text = _message_text(message)
+        m = _TOOL_JSON_RE.search(text)
+        if not m:
+            return text, _message_reasoning(cfg, message), tool_trace, drafts
+        try:
+            call = json.loads(m.group(1))
+        except Exception:
+            messages.append({"role": "assistant", "content": text})
+            messages.append({"role": "user", "content": "上一个工具调用块不是合法 JSON，请重新按格式调用，或直接给出最终回答。"})
+            continue
+        name = str(call.get("tool") or "")
+        result = _exec_tool_call(name, call.get("args"), ctx)
+        _record(result, name, call.get("args") if isinstance(call.get("args"), dict) else {})
+        messages.append({"role": "assistant", "content": text})
+        messages.append({"role": "user", "content": "工具结果：\n```json\n" + json.dumps(result, ensure_ascii=False)[:16000] + "\n```\n请继续（可再次调用工具或给出最终回答）。"})
+    raise ValueError("工具调用步数已达上限（文本协议），请精简问题后重试")
+
+
+def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "", context: dict[str, Any] | None = None, persona_id: str = "") -> dict[str, Any]:
     text = str(text or "").strip()
     ref_ids = [str(x) for x in (ref_ids or []) if str(x).strip()]
     image_paths = [str(x) for x in (image_paths or []) if str(x).strip()][:6]
@@ -432,19 +579,30 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
             session_id = session["id"]
         messages = session.get("messages") if isinstance(session.get("messages"), list) else []
         history = list(messages)
-    context, refs = _reference_context(ref_ids)
-    system_prompt = str(cfg.get("system_prompt") or config.DEFAULT_SYSTEM_PROMPT).strip()
-    if context:
-        system_prompt += "\n\n以下是用户手动引用的本地研究资料。仅将其作为上下文，不要声称看到了未提供的资料：\n\n" + context
-    preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, request_preset)
+    ref_context, refs = _reference_context(ref_ids)
+    # v260930 · M3 人设：系统提示词/工具白名单/写模式由人设决定；未传 persona_id 时沿用 llm.system_prompt + 全量工具（向下兼容）
+    persona: dict[str, Any] | None = None
+    if str(persona_id or "").strip():
+        persona = config.resolve_persona(str(persona_id))
+        system_prompt = str(persona.get("system_prompt") or config.DEFAULT_SYSTEM_PROMPT).strip()
+    else:
+        system_prompt = str(cfg.get("system_prompt") or config.DEFAULT_SYSTEM_PROMPT).strip()
+    system_prompt = config.writing_rules() + "\n\n" + system_prompt  # v260930g4 · 统一写作与建档约束注入所有人设（单一真相源 Workspace/System/AI助手写作与建档规范.md）
+    if ref_context:
+        system_prompt += "\n\n以下是用户手动引用的本地研究资料。仅将其作为上下文，不要声称看到了未提供的资料：\n\n" + ref_context
+    system_prompt += _page_context(context)  # v260930 · M1 页面上下文注入
+    preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, request_preset or (str(persona.get("request_preset") or "") if persona else ""))
     if not preset_model:
         raise ValueError(f"请求模式 {preset_label} 尚未配置模型名称")
     request_cfg = dict(cfg)
     request_cfg["model"] = preset_model
+    persona_temp = persona.get("temperature") if persona else None  # v260930 · M3 人设可覆盖温度（请求模式未给温度时生效）
     if preset_temperature is not None:
         request_cfg["temperature"] = preset_temperature
+    elif persona_temp is not None:
+        request_cfg["temperature"] = persona_temp
     now = _now()
-    user_msg = {"id": "msg-" + uuid.uuid4().hex[:10], "role": "user", "content": text, "created": now, "refs": refs, "images": image_paths, "request_preset": preset_id, "request_preset_label": preset_label, "profile_id": cfg.get("id"), "profile_name": cfg.get("name")}
+    user_msg = {"id": "msg-" + uuid.uuid4().hex[:10], "role": "user", "content": text, "created": now, "refs": refs, "images": image_paths, "request_preset": preset_id, "request_preset_label": preset_label, "profile_id": cfg.get("id"), "profile_name": cfg.get("name"), "persona_id": (persona or {}).get("id", ""), "persona_name": (persona or {}).get("name", "")}
     with _LOCK:
         session = get_session(session_id)
         session.setdefault("messages", []).append(user_msg)
@@ -452,11 +610,23 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
             session["title"] = (text or "图片分析")[:36]
         session["updated"] = _now()
         _atomic_json(_session_path(session_id), session)
-    answer, reasoning = _chat_completions(request_cfg, system_prompt, history, text, image_paths, request_params)
+    # v260930 · M1/M3 工具上下文：confirm（默认）写工具只出草稿；人设 write_mode 与页面 write_mode 取交集（更严格者胜）
+    page_ctx = context if isinstance(context, dict) else {}
+    persona_mode = str(persona.get("write_mode") or "confirm") if persona else "confirm"
+    page_mode = str(page_ctx.get("write_mode") or "").strip()
+    write_mode = "direct" if persona_mode == "direct" and page_mode == "direct" else "confirm"
+    ctx = {
+        "paper_id": str(page_ctx.get("paper_id") or "").strip(),
+        "write_mode": write_mode,
+        "tools": list(persona.get("tools") or []) if persona else list(agent_tools.TOOL_NAMES),  # v260930 · M3 人设工具白名单
+    }
+    answer, reasoning, tool_trace, drafts = _run_with_tools(request_cfg, system_prompt, history, text, image_paths, request_params, ctx)
     assistant_msg = {
         "id": "msg-" + uuid.uuid4().hex[:10], "role": "assistant", "content": answer, "reasoning": reasoning,
         "created": _now(), "model": preset_model, "request_preset": preset_id, "request_preset_label": preset_label,
         "profile_id": cfg.get("id"), "profile_name": cfg.get("name"),
+        "persona_id": (persona or {}).get("id", ""), "persona_name": (persona or {}).get("name", ""),  # v260930 · M3 回复标记人设
+        "tool_trace": tool_trace, "drafts": drafts,  # v260930 · M1 工具轨迹与本轮待确认草稿（前端可展示）
     }
     with _LOCK:
         session = get_session(session_id)
