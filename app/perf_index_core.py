@@ -142,14 +142,11 @@ def _index_path_conn(conn: sqlite3.Connection, kind: str, path: Path) -> str:
         [(doc_id, mark) for mark in marks],
     )
     conn.execute("DELETE FROM document_links WHERE doc_id=?", (doc_id,))
-    links = []
-    for token in store.WIKILINK_RE.findall(body):
-        token = str(token).strip()
-        if token and token not in links:
-            links.append(token)
+    # v261008.2 · (token, role)：关系类型由「关联」段小标题或行内标签推导（见 store.iter_body_links）
+    links = store.iter_body_links(body)
     conn.executemany(
-        "INSERT OR IGNORE INTO document_links(doc_id,token) VALUES(?,?)",
-        [(doc_id, token) for token in links],
+        "INSERT OR IGNORE INTO document_links(doc_id,token,role) VALUES(?,?,?)",
+        [(doc_id, token, role) for token, role in links],
     )
     conn.execute("DELETE FROM documents_fts WHERE doc_id=?", (doc_id,))
     conn.execute(
@@ -185,14 +182,23 @@ def _rebuild_graph_edges(conn: sqlite3.Connection) -> None:
         key = str(row["title"] or "").strip().casefold()
         if key and key not in by_title:
             by_title[key] = str(row["id"])
-    for row in conn.execute("SELECT doc_id,token FROM document_links"):
+    for row in conn.execute("SELECT doc_id,token,role FROM document_links"):
         source = str(row["doc_id"])
         token = str(row["token"] or "").strip()
+        role = str(row["role"] or "").strip() or store.RELATION_GENERIC
         target = token if token in by_id else by_title.get(token.casefold())
-        if target and target != source:
+        if not target or target == source:
+            continue
+        # 类型化边（依据知识 / 使用数据 / 引用文献 / 同系列 / 环节链 / 产出汇总）
+        conn.execute(
+            "INSERT OR IGNORE INTO graph_edges(source,target,relation) VALUES(?,?,?)",
+            (source, target, role),
+        )
+        # 兼容通用边：只认 `wikilink` 的旧消费方（含前端默认筛选）继续可用
+        if role != store.RELATION_GENERIC:
             conn.execute(
                 "INSERT OR IGNORE INTO graph_edges(source,target,relation) VALUES(?,?,?)",
-                (source, target, "wikilink"),
+                (source, target, store.RELATION_GENERIC),
             )
 
 
@@ -319,10 +325,12 @@ def sync(force: bool = False) -> dict[str, Any]:
             }
             seen: set[str] = set()
             changed_docs = 0
+            skipped: list[str] = []
             for kind, path in _doc_paths():
                 try:
                     st = path.stat()
-                except OSError:
+                except OSError as exc:
+                    skipped.append(f"{kind}:{path.name}: {type(exc).__name__}: {exc}")
                     continue
                 rel = _relative(path)
                 seen.add(rel)
@@ -331,7 +339,9 @@ def sync(force: bool = False) -> dict[str, Any]:
                     try:
                         _index_path_conn(conn, kind, path)
                         changed_docs += 1
-                    except (OSError, UnicodeError):
+                    except (OSError, UnicodeError) as exc:
+                        # v261008.2 · 不再静默丢弃：跳过的文件必须能在索引状态里看到
+                        skipped.append(f"{kind}:{rel}: {type(exc).__name__}: {exc}")
                         continue
             removed = 0
             for rel, (doc_id, _, _) in existing.items():
@@ -350,7 +360,10 @@ def sync(force: bool = False) -> dict[str, Any]:
             )
             conn.commit()
         db._LAST_SYNC_MONO = time.monotonic()
-    return status(sync_first=False)
+    state = status(sync_first=False)
+    if isinstance(state, dict) and skipped:
+        state["skipped"] = skipped
+    return state
 
 
 def index_doc_path(path_value: str | Path) -> dict[str, Any]:

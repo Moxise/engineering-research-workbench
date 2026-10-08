@@ -227,11 +227,13 @@ class Handler(BaseHTTPRequestHandler):
             status = (q.get("status") or [""])[0]
             project = (q.get("project") or [""])[0]
             mark = (q.get("mark") or [""])[0]
+            tag = (q.get("tag") or [""])[0]
+            unowned = (q.get("unowned") or ["0"])[0] == "1"
             page = _q_int(q, "page", 1, 1, 1_000_000)
             page_size = _q_int(q, "page_size", indexer.DEFAULT_PAGE_SIZE, 1, indexer.MAX_PAGE_SIZE)
             paged = (q.get("paged") or ["0"])[0] == "1"
             return self.send_json(indexer.list_docs(
-                kind, query, status, project, mark,
+                kind, query, status, project, mark, tag=tag, unowned=unowned,
                 page=page, page_size=page_size, paged=paged,
             ))
         # v260923 · 文献 PDF 附件下载：/api/docs/<id>/attachment，路径须置于 /api/docs/ 泛匹配之前

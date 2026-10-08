@@ -1221,10 +1221,15 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 │  └─ rss.json
 │
 ├─ docs/
-│  └─ ARCHITECTURE.md
+│  ├─ ARCHITECTURE.md
+│  └─ KNOWLEDGE_RELATIONS.md
 │
 ├─ tools/
-│  └─ self_check.py
+│  ├─ self_check.py
+│  ├─ kb_tree.py
+│  ├─ kb_smoke.py
+│  ├─ kb_migrate_experiments.py
+│  └─ scratch_clean.py
 │
 ├─ web/
 │  ├─ app.js
@@ -1239,6 +1244,35 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 ├─ run.sh
 └─ server.py
 ```
+
+### 知识库结构（七类条目 + 关系层）
+
+知识库按 **七类** kind 分目录落盘（`Workspace/Knowledge/<KindDir>/<id>.md`，扁平存放，不建子目录）：
+
+| kind | 目录 | 前缀 | 说明 |
+| --- | --- | --- | --- |
+| `idea` `journal` `note` `milestone` `summary` `literature` | `Knowledge/{Ideas,Journals,Notes,Milestones,Summaries,Literature}` | 详见 `kb_constraints` | 原有六类 |
+| `experiment` | `Knowledge/Experiments` | `实验-` | **v261008.2 新增**：一次实验一条，独立状态机（计划 / 进行中 / 完成 / 受阻 / 已归档）与实验专用骨架；原先混在 `note` 里的「实验」类别词已废弃 |
+
+**关系层**：正文「关联」小节的小标题决定关系类型，索引据此生成**类型化边**（无需新增 frontmatter 字段）：
+
+| 「关联」段小标题 | 关系类型 | 回答什么问题 |
+| --- | --- | --- |
+| `### 依据的知识` | `uses-knowledge` | 这个实验/结论用了哪些知识 |
+| `### 用到的数据` | `uses-data` | 用到了哪些数据集与产物 |
+| `### 引用文献` | `cites` | 依据或对照了哪些文献 |
+| `### 同系列实验` | `series` | 哪些实验属于同一系列 |
+| `### 上一环节` / `### 下一环节` | `chain-prev` / `chain-next` | 实验链条的前后顺序 |
+| `### 产出与汇总` | `produces` | 归集到哪张总结 / 里程碑 |
+
+历史条目的行内写法（如 `- 方法条目：[[知识-方法-…]]`）同样会被识别成对应类型，**存量条目无需改写**；未命中的链接记为通用 `wikilink`。跨项目通用的基础知识：`projects` 留空 + 标签 `通用基础`，列表页选「未归属项目（通用基础）」即可集中阅读，其在各项目的使用情况仍可从图谱看到。
+
+生成与迁移工具：
+
+- `tools/kb_tree.py` → 知识树 / 交叉使用清单 / 实验依赖视图 / 通用基础清单，输出到 `Workspace/Knowledge/Exports/KnowledgeTree/`；
+- `tools/kb_migrate_experiments.py` → `知识-实验-…`（旧）迁移为 `实验-…`（`--dry-run` 预览 / `--apply` 执行，幂等）；
+- `tools/kb_smoke.py` → 结构与关系层冒烟测试（只读：关系解析、命名规则、归属归一化、关系边、七类条目、工具与约束渲染、迁移幂等）；
+- 完整底层口径（数据库与接口变更、迁移记录、已知陷阱）见 [docs/KNOWLEDGE_RELATIONS.md](docs/KNOWLEDGE_RELATIONS.md)。
 
 ### 操作临时数据 `.scratch/`
 

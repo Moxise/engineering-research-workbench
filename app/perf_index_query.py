@@ -36,6 +36,8 @@ def list_docs(
     status: str = "",
     project: str = "",
     mark: str = "",
+    tag: str = "",
+    unowned: bool = False,
     *,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
@@ -57,6 +59,15 @@ def list_docs(
     if mark:
         where.append("EXISTS (SELECT 1 FROM document_marks dm WHERE dm.doc_id=d.id AND dm.mark=?)")
         params.append(mark)
+    # v261008.2 · 标签筛选（此前只能靠全文搜索命中）与「未归属项目（通用基础）」筛选
+    if tag:
+        where.append("EXISTS (SELECT 1 FROM document_tags dt WHERE dt.doc_id=d.id AND dt.tag=?)")
+        params.append(tag)
+    if unowned:
+        where.append(
+            "NOT EXISTS (SELECT 1 FROM document_projects dp WHERE dp.doc_id=d.id "
+            "AND (dp.project_name<>'' OR dp.project_id<>''))"
+        )
     extra, extra_params = _fts_clause(query)
     sql_where = " AND ".join(where) + extra
     params.extend(extra_params)

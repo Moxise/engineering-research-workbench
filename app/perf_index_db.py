@@ -10,7 +10,7 @@ from typing import Any
 
 from . import workspace
 
-SCHEMA_VERSION=2  # v260923 · documents 表新增 attachment 列（文献 PDF 附件）
+SCHEMA_VERSION=3  # v261008.2 · document_links 增加 role 列（「关联」段推导出的关系类型）
 WORKSPACE_SCHEMA_VERSION=3
 SYNC_INTERVAL_SECONDS=30.0
 DEFAULT_PAGE_SIZE=50
@@ -170,7 +170,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS document_links (
             doc_id TEXT NOT NULL,
             token TEXT NOT NULL,
-            PRIMARY KEY(doc_id, token),
+            role TEXT NOT NULL DEFAULT 'wikilink',
+            PRIMARY KEY(doc_id, token, role),
             FOREIGN KEY(doc_id) REFERENCES documents(id) ON DELETE CASCADE
         );
 
@@ -220,6 +221,18 @@ def _init_db(conn: sqlite3.Connection) -> None:
     cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(documents)")}
     if "attachment" not in cols:
         conn.execute("ALTER TABLE documents ADD COLUMN attachment TEXT NOT NULL DEFAULT ''")
+        upgraded = True
+
+    # v261008.2 · 旧库的 document_links 无 role 列：该表是纯派生数据，直接重建后回填
+    link_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(document_links)")}
+    if "role" not in link_cols:
+        conn.execute("DROP TABLE IF EXISTS document_links")
+        conn.execute(
+            "CREATE TABLE document_links ("
+            "doc_id TEXT NOT NULL, token TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'wikilink', "
+            "PRIMARY KEY(doc_id, token, role), "
+            "FOREIGN KEY(doc_id) REFERENCES documents(id) ON DELETE CASCADE)"
+        )
         upgraded = True
 
     fts_exists = conn.execute(
