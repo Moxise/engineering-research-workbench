@@ -1,5 +1,23 @@
 # Changelog
 
+## v261008.2
+
+### 知识库数据结构升级：实验独立成类 + 类型化关系层（底层变更，需重启生效）
+
+- **实验升格为第七类 `experiment`**（`app/store.py`、`app/workspace.py`、`mcp/constraints.py`、`mcp/naming.py`、`mcp/tools_knowledge.py`、`web/app.js`）：目录 `Knowledge/Experiments`、前缀 `实验-`、状态机 计划/进行中/完成/受阻/已归档、日期字段 `record_date`、实验专用正文骨架（摘要/目标与假设/配置与参数/数据与口径/结果/结论与失效模式/留档路径/关联）。原先作为 `note` 类别词的「实验」**废弃**：`mcp/naming.py` 新增 **T020 error** 并在提示里给出迁移出路，T017 编号校验改按 `kind == "experiment"` 判定。前端新增「实验」导航/路由/状态机，图谱节点类别、`KIND_ROUTE`/`routeByKind`/`PAGE_META` 同步。
+- **新增 `kb_change_kind` 工具与 `store.change_kind()`**（结构性迁移的唯一合法途径）：`id`/`created` 不变，目录随动、标题前缀改写、首个 H1 同步、状态映射、`kind_marks` 补齐，可选重写全库交叉引用；默认返回迁移计划，`dry_run=false` 才落盘。通用 `kb_update_entry` 仍然拒绝改 `kind`（`IMMUTABLE_FIELDS` 未变）。
+- **关系层：关联段小标题 → 类型化边**（`app/store.py` 的 `RELATION_SECTIONS` / `RELATION_LABELS` / `iter_body_links()`，`app/perf_index_core.py`）。关系类型：`uses-knowledge`（依据的知识）、`uses-data`（用到的数据）、`cites`（引用文献）、`series`（同系列实验）、`chain-prev`/`chain-next`（上一/下一环节）、`produces`（产出与汇总），未命中一律退化为通用 `wikilink`。**不新增 frontmatter 字段**；历史条目沿用行内标签写法（`- 方法条目：[[…]]`）即被识别，存量内容无需改写。`graph_edges` 对类型化边**双写**通用 `wikilink` 边，保证只认旧类型的消费方（含前端默认筛选）不受影响。
+- **索引结构变更**（`app/perf_index_db.py`）：`SCHEMA_VERSION` 2 → **3**；`document_links` 主键由 `(doc_id, token)` 扩为 `(doc_id, token, role)`，旧库检测缺列后整表重建（纯派生数据）并强制全量重索引；`_rebuild_graph_edges()` 按 role 建边。同步修掉一处**静默失败**：`sync()` 原先把 `OSError`/`UnicodeError` 直接 `continue`，条目会"凭空消失"而无任何提示，现在返回结果带 `skipped` 列表。
+- **通用基础知识归属**（`app/perf_index_query.py`、`mcp/bridge.py`、`mcp/tools_knowledge.py`、`server.py`、`web/app.js`）：`kb_list_entries` 与 `GET /api/docs` 新增 `tag`（标签精确筛选，此前只能靠全文搜索命中）与 `unowned`（只看未归属项目）两个过滤维；列表页新增标签筛选项、「未归属项目（通用基础）」与「仅未归属」。约定：跨项目通用知识 `projects` 留空 + 标签 `通用基础`，不建伪项目（避免污染项目仪表盘/里程碑/待办）。
+- **新增 `tools/kb_tree.py`**：只读派生索引生成四张视图 —— 知识树（按类别词分层、按"被几个实验交叉使用"分档）、交叉使用清单（同一知识被 ≥N 个实验共用）、实验依赖视图（依据知识/用到的数据/同系列/环节链/产出）、通用基础清单、实验链条与系列；支持 `--section` / `--min-shared` / `--out`，默认输出到 `Workspace/Knowledge/Exports/KnowledgeTree/`。
+- **新增 `tools/kb_migrate_experiments.py` 并已执行迁移**：25 条 `知识-实验-…`（note）→ `实验-…`（kind=experiment），`id` 不变、状态按 稳定→完成 / 草稿→计划 / 整理中→进行中 映射、补 ⚗ 标记，全库**改写 139 处**按旧标题写的 WikiLink；并给 DUST 在轨链路（4.5–4.8b，5 条）与 GEO 多对一制导（4 条）两条实验线补 `### 同系列实验` 互指关系。复核：194 条（note 85 / experiment 25 / literature 67 / journal 6 / idea 4 / summary 4 / milestone 3），命名体检零 error。
+- **关系实测**（迁移+重建后）：`uses-knowledge` 47、`produces` 6、`chain-prev` 4、`chain-next` 3、`series` 两条系列、`wikilink` 236（保底）、`tag` 1140、`project` 195；`知识-方法-WCS 星图定姿与坏帧判据` 被 7 个实验交叉使用，`知识-方法-受控归因诊断`/`帧间稳像与链式配准` 各 4 个 —— 即"哪些实验交叉使用同一知识"已可直接查出。
+- **关系层内容补录（同批次，证据驱动，不发明引用）**：① 建 5 条数据集条目（`知识-数据集-DUST 在轨实测（SET 1 / SET 2）`/`NUAA-SIRST`/`IRSTD-1K`/`NUDT-SIRST`/`SIRST-v2（已退出评测口径）`），把实验反复点名却从未建档的数据集变成可引用对象（未确证的数字不写，标"待补"）；② 按"该实验正文自己点名了某数据集"补 `### 用到的数据` → `uses-data` 25 条边（DUST 10 / NUAA-SIRST 7 / IRSTD-1K 3 / NUDT-SIRST 3 / SIRST-v2 2）；③ 把正文里**以纯文本形式完整出现**的文献题名补成 `### 引用文献` 链接 → `cites` 50 条边、26 个条目获得引用小节；④ 17 条教科书级通用方法（亚像素质心五法、Top-Hat/LCM/SR/IPI、CKF/SCKF/EIF/IF、LQDG/Stackelberg/Minimax）清空项目归属并打 `通用基础` 标签。补录后：199 条（note 90 / experiment 25 / literature 67 / journal 6 / idea 4 / summary 4 / milestone 3），关系边 `uses-knowledge` 52 / `uses-data` 25 / `cites` 50 / `series` 32 / `produces` 7 / `chain-prev` 4 / `chain-next` 3 / `wikilink` 325（保底），未归属条目 23 条。补录脚本一处教训：同批次多次改同一个「关联」段时必须**改前重读磁盘正文**，否则后一步会用旧快照覆盖前一步（本批次踩到并已修正重放）。
+- **修复 `_normalize_projects()` 的幽灵归属**（`app/store.py`）：该函数原先只同步 `projects`/`project`，清空归属时残留的 `project_id`/`project_ids` 会让索引（`document_projects` 同时看名字与 id）仍按项目计入——即"清不掉的归属"。现改为名字清空时同步清 id。
+- **新增 `tools/kb_smoke.py` 冒烟测试**（只读、可重复）：覆盖关系解析（小标题/行内标签/小节继承/兜底类型）、命名规则（experiment 前缀与编号、旧类别词 T020、缺编号 T017）、归属归一化、关系边与 `document_links.role`、无幽灵归属、七类条目齐备、通用基础标签与未归属可查、`kb_tree` 五张视图可生成、约束主题渲染、实验迁移幂等。当前 **全部通过**。
+- **文档**：新增 `docs/KNOWLEDGE_RELATIONS.md`（对象层 / 关系层 / 索引与接口变更 / 迁移记录 / 内容补录 / 通用知识口径 / 论文引用层预留 / 已知陷阱）；`README.md` 增加「知识库结构（七类条目 + 关系层）」小节并更新开发目录；`kb_constraints` 新增 `topic=relations`，`kinds` 主题变七类矩阵，`schema`/`marks`/`playbook` 文案同步（`实验-` 建档、通用基础归属、`kb_change_kind` 红线）。
+- 注意：本次只改源码，`ResearchWorkbench.exe` **未重新打包**；`VERSION` 升至 `v261008.2`。工作台 exe 与 MCP 服务是长驻进程，需**重启**后才加载新结构与新工具；重启前旧进程若刷新索引会按旧口径重建（派生数据，重启后自动恢复）。
+
 ## v261008.1
 
 ### Agent 接入 OpenCode Go（代理 / 直连）与火山方舟 Agent Plan

@@ -22,11 +22,20 @@
   const savedFocusMinutes = storedInt('focusMinutes', 25, 1, 240);
   const savedBreakMinutes = storedInt('breakMinutes', 5, 1, 120);
 
+  /* v261008.2 · 关系层：类型化关系（由「关联」段小标题推导）+ 标签/项目两种结构关系 */
+  const GRAPH_RELATION_LABELS = [
+    ['uses-knowledge','依据知识'], ['uses-data','使用数据'], ['cites','引用文献'], ['series','同系列'],
+    ['chain-prev','上一环节'], ['chain-next','下一环节'], ['produces','产出汇总'],
+    ['wikilink','显式引用'], ['tag','标签关联'], ['project','项目归属']
+  ];
+  const GRAPH_RELATION_IDS = GRAPH_RELATION_LABELS.map(x=>x[0]);
+
   const state = {
     config: null, statuses: {}, projects: [], route: 'overview', docs: [], selectedDoc: null,
     editorMode: 'split', milestoneView: 'timeline', graphView: '2d', graph: null, graphSelected: null, graphPreviewSeq: 0, previewSeq: 0,
-    graphKinds: new Set(storedArray('graphKinds', ['idea','journal','note','milestone','summary','literature','project','tag'])),
-    graphRelations: new Set(storedArray('graphRelations', ['wikilink','tag','project'])),
+    graphKinds: new Set(storedArray('graphKinds', ['idea','journal','note','experiment','milestone','summary','literature','project','tag'])),
+    graphRelations: new Set(storedArray('graphRelations', GRAPH_RELATION_IDS)),
+    tagOptions: [],
     agentSession: null, agentRefs: [], agentImages: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false,
     heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact', /* v260922h · 默认紧凑型（并排一屏收纳） */
     focus: {mode:'专注', focusMinutes:savedFocusMinutes, breakMinutes:savedBreakMinutes, seconds:savedFocusMinutes*60, total:savedFocusMinutes*60, timer:null, running:false},
@@ -41,6 +50,7 @@
     ]},
     {id:'research', label:'研究 · 知识', defaultCollapsed:true, items:[
       ['research-overview','总览','◇'], ['ideas','灵感','✦'], ['journals','研究日志','▤'], ['notes','笔记','▧'],
+      ['experiments','实验','⚗'],
       ['milestones','里程碑','⚑'], ['summaries','工作总结','▣'], ['literature','文献','◫'], ['graph','知识图谱','⌬']
     ]},
     {id:'resources', label:'资源', items:[['folders','文件夹','▱']]},
@@ -50,13 +60,13 @@
   const PAGE_META = {
     overview:['CORE WORK','概览'], todos:['CORE WORK','待办'], focus:['CORE WORK','专注'], agent:['CORE WORK','科研 Agent'], news:['CORE WORK','资讯'],
     'research-overview':['RESEARCH KNOWLEDGE','研究 · 知识总览'], ideas:['RESEARCH KNOWLEDGE','灵感'], journals:['RESEARCH KNOWLEDGE','研究日志'],
-    notes:['RESEARCH KNOWLEDGE','笔记'], milestones:['RESEARCH KNOWLEDGE','里程碑'], summaries:['RESEARCH KNOWLEDGE','工作总结'],
+    notes:['RESEARCH KNOWLEDGE','笔记'], experiments:['RESEARCH KNOWLEDGE','实验'], milestones:['RESEARCH KNOWLEDGE','里程碑'], summaries:['RESEARCH KNOWLEDGE','工作总结'],
     literature:['RESEARCH KNOWLEDGE','文献'], graph:['RESEARCH KNOWLEDGE','知识图谱'], folders:['RESOURCES','文件夹'], settings:['SYSTEM','设置'],
     billing:['SYSTEM','用量统计'] /* v261008 · 用量计费仪表盘 */
   };
 
-  const KIND_ROUTE = {ideas:'idea', journals:'journal', notes:'note', milestones:'milestone', summaries:'summary', literature:'literature'};
-  const KIND_LABEL = {idea:'灵感', journal:'研究日志', note:'笔记', milestone:'里程碑', summary:'工作总结', literature:'文献'};
+  const KIND_ROUTE = {ideas:'idea', journals:'journal', notes:'note', experiments:'experiment', milestones:'milestone', summaries:'summary', literature:'literature'};
+  const KIND_LABEL = {idea:'灵感', journal:'研究日志', note:'笔记', experiment:'实验', milestone:'里程碑', summary:'工作总结', literature:'文献'};
 
   /* v260923 · 内置分类标记 + 自定义标记（localStorage 持久化） */
   const KIND_MARKS=[
@@ -632,6 +642,8 @@
     /* v260929 · 文献页保留原有列表/编辑器（BibTeX 同步、自动 cite_key、元数据表单均在此），
        PDF 阅读工作区不整体接管，改由列表页头部按钮进入（openLiteratureWorkspace），两套 UI 共存 */
     const [docs,projects] = await Promise.all([api('/api/docs?kind='+encodeURIComponent(kind)), api('/api/projects')]); state.docs=docs; state.projects=projects; state.selectedDoc=null;
+    /* v261008.2 · 标签筛选下拉的候选项：累积本会话已见到的全部标签 */
+    state.tagOptions=[...new Set([...(state.tagOptions||[]), ...docs.flatMap(d=>d.tags||[])])].sort((a,b)=>a.localeCompare(b,'zh'));
     if(kind==='milestone') return renderMilestoneShell(docs,projects);
     $('#main').innerHTML=docsShell(kind,docs,projects);
     wireDocList(kind); wireDocFilters(kind); $('#new-doc').onclick=()=>createAndSelect(kind);
@@ -668,7 +680,7 @@
     toast(`重建完成：补关联 ${r.linked||0} 篇，新登记 ${r.registered||0} 篇，补建条目 ${r.ensured||0} 篇`);
     if(state.route==='settings')renderSettings();else renderDocsPage('literature');
   }
-  function docsShell(kind,docs,projects){return `<div class="docs-layout"><aside class="card doc-list-panel"><div class="doc-filter"><div style="display:flex;gap:6px"><input class="search-input" id="doc-search" placeholder="搜索标题、正文、标签、项目、分类…"><button class="secondary-btn" id="new-doc">＋</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><select class="search-input" id="doc-status"><option value="">全部状态</option>${(state.statuses[kind]||[]).map(s=>`<option>${esc(s)}</option>`).join('')}</select><select class="search-input" id="doc-project"><option value="">全部项目</option>${projects.map(p=>`<option>${esc(p)}</option>`).join('')}</select><select class="search-input" id="doc-mark" style="grid-column:span 2"><option value="">全部分类</option>${allMarks().map(k=>`<option value="${esc(k.id)}">${esc(k.icon)} ${esc(k.label)}</option>`).join('')}</select></div>${kind==='literature'?'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="secondary-btn" id="export-bib">批量导出 BibTeX</button><button class="secondary-btn" id="open-lit-workspace">PDF 阅读工作区</button></div>':''}</div><div class="doc-list" id="doc-list">${docItems(docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"></section></div>`}
+  function docsShell(kind,docs,projects){return `<div class="docs-layout"><aside class="card doc-list-panel"><div class="doc-filter"><div style="display:flex;gap:6px"><input class="search-input" id="doc-search" placeholder="搜索标题、正文、标签、项目、分类…"><button class="secondary-btn" id="new-doc">＋</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><select class="search-input" id="doc-status"><option value="">全部状态</option>${(state.statuses[kind]||[]).map(s=>`<option>${esc(s)}</option>`).join('')}</select><select class="search-input" id="doc-project"><option value="">全部项目</option><option value="__unowned__">未归属项目（通用基础）</option>${projects.map(p=>`<option>${esc(p)}</option>`).join('')}</select><select class="search-input" id="doc-mark" style="grid-column:span 2"><option value="">全部分类</option>${allMarks().map(k=>`<option value="${esc(k.id)}">${esc(k.icon)} ${esc(k.label)}</option>`).join('')}</select><div style="grid-column:span 2;display:flex;gap:6px;align-items:center"><input class="search-input" id="doc-tag" list="doc-tag-list" placeholder="按标签精确筛选（可输入）"><label class="row-meta" style="display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" id="doc-unowned">仅未归属</label></div><datalist id="doc-tag-list">${(state.tagOptions||[]).map(t=>`<option value="${esc(t)}"></option>`).join('')}</datalist></div>${kind==='literature'?'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="secondary-btn" id="export-bib">批量导出 BibTeX</button><button class="secondary-btn" id="open-lit-workspace">PDF 阅读工作区</button></div>':''}</div><div class="doc-list" id="doc-list">${docItems(docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"></section></div>`}
   function markBadges(d){return (d.kind_marks||[]).slice(0,4).map(id=>{const c=allMarks().find(k=>k.id===id);if(!c)return '';const col=esc(c.color);return `<span class="badge mark-badge" style="color:${col};border-color:${col};background:${col}1a">${esc(c.icon)} ${esc(c.label)}</span>`}).join('')}
   /* v260929 · 暴露给 PDF 阅读工作区复用同一套标记徽章渲染，避免标记目录二次维护 */
   window.ERWMarkBadges = markBadges;
@@ -740,7 +752,7 @@
   function docItems(docs){return docs.length?docs.map(d=>{const projBadges=(d.projects||[]).map(p=>`<span class="badge accent proj-badge"><span class="proj-text">${esc(p)}</span></span>`).join('')||(d.project?`<span class="badge accent proj-badge"><span class="proj-text">${esc(d.project)}</span></span>`:'');const dateB=dateBadge(d);const projRow=(projBadges||dateB)?`<div class="doc-projects">${projBadges}${dateB}</div>`:'';const attB=d.attachment_exists?`<span class="badge att-badge" title="在 PDF 阅读区打开附件">⧉ 附件</span>`:'';const pinB=d.pinned?`<span class="badge pin-badge" title="已置顶，优先显示在列表最前">📌 置顶</span>`:'';return `<article class="doc-item${d.pinned?' pinned':''}" data-doc-id="${d.id}"><div class="title">${esc(d.title)}</div><div class="excerpt">${esc(d.excerpt||'')}</div><div class="tags"><span class="badge">${esc(d.status||'')}</span>${attB}${pinB}${markBadges(d)}</div>${projRow}</article>`}).join(''):'<div class="empty" style="min-height:140px">暂无内容</div>'}
   function dateBadge(d){ const val=d.due||d.record_date||d.added_date; if(val)return `<span class="badge mono">${fmtDate(val)}</span>`; return d.updated?`<span class="badge mono" title="更新时间">更新 ${fmtDate(d.updated)}</span>`:''; }
   function wireDocList(kind){ $$('[data-doc-id]').forEach(x=>x.onclick=e=>{ /* v260929 · 附件入口统一：徽章点击一律跳 PDF 阅读区（自动登记未入库附件），不再新窗口直开 */ const att=e.target.closest('.att-badge'); if(att){const d=state.docs.find(v=>v.id===x.dataset.docId);openAttachmentInWorkspace(d).catch(err=>toast(err.message||'附件打开失败',true));return;} selectDoc(x.dataset.docId); }); }
-  function wireDocFilters(kind){ const run=debounce(async()=>{const q=$('#doc-search').value,status=$('#doc-status').value,project=$('#doc-project').value,mark=$('#doc-mark')?.value||'';const url=`/api/docs?kind=${kind}&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&project=${encodeURIComponent(project)}&mark=${encodeURIComponent(mark)}`;state.docs=await api(url);$('#doc-list').innerHTML=docItems(state.docs);wireDocList(kind);},180); $('#doc-search').oninput=run;$('#doc-status').onchange=run;$('#doc-project').onchange=run;if($('#doc-mark'))$('#doc-mark').onchange=run; }
+  function wireDocFilters(kind){ const run=debounce(async()=>{const q=$('#doc-search').value,status=$('#doc-status').value;const projectRaw=$('#doc-project').value;const project=projectRaw==='__unowned__'?'':projectRaw;const unowned=projectRaw==='__unowned__'||($('#doc-unowned')?.checked||false);const mark=$('#doc-mark')?.value||'';const tag=$('#doc-tag')?.value.trim()||'';const url=`/api/docs?kind=${kind}&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&project=${encodeURIComponent(project)}&mark=${encodeURIComponent(mark)}&tag=${encodeURIComponent(tag)}&unowned=${unowned?'1':'0'}`;state.docs=await api(url);$('#doc-list').innerHTML=docItems(state.docs);wireDocList(kind);},180); $('#doc-search').oninput=run;$('#doc-status').onchange=run;$('#doc-project').onchange=run;if($('#doc-mark'))$('#doc-mark').onchange=run;if($('#doc-tag'))$('#doc-tag').oninput=run;if($('#doc-unowned'))$('#doc-unowned').onchange=run; }
   async function createAndSelect(kind){ const doc=await api('/api/docs',{method:'POST',body:{kind,title:`未命名${kindLabel(kind)}`}}); await renderDocsPage(kind); setTimeout(()=>selectDoc(doc.id),10); }
   function showEmptyEditor(kind){ $('#doc-editor').className='card doc-editor empty-editor'; $('#doc-editor').innerHTML=`<div class="empty"><div><div class="empty-symbol">${esc(kindLabel(kind).toUpperCase())}</div>选择一条${kindLabel(kind)}，或点击左侧 ＋ 新建</div></div>`; }
   async function selectDoc(id){
@@ -1074,7 +1086,7 @@
   async function saveCurrentDoc(doc,dateField){ const projects=editorProjects(); const body={title:$('#f-title').value.trim(),project:projects[0]||'',projects,status:$('#f-status').value,tags:editorTags(),kind_marks:$$('#f-marks .mark-chip.on').map(b=>b.dataset.mark),body:$('#md-input').value,pinned:!!($('#f-pinned')&&$('#f-pinned').checked)}; if(dateField)body[dateField]=$('#f-date').value||today(); if(doc.kind==='summary')body.summary_type=$('#f-summary-type').value; if(doc.kind==='literature'){Object.assign(body,{authors:$('#f-authors').value,year:$('#f-year').value,venue:$('#f-venue').value,doi:$('#f-doi').value,url:$('#f-url').value,cite_key:$('#f-cite-key').value,attachment:$('#f-attachment')?.value.trim()||'',bibtex:$('#f-bibtex').value,added_date:$('#f-date').value||today()});} const saved=await api('/api/docs/'+doc.id,{method:'POST',body});state.dirty=false;toast('已保存 Markdown');state.selectedDoc=saved; await refreshListAfterSave(doc.kind,saved.id); }
   async function refreshListAfterSave(kind,id){ state.docs=await api('/api/docs?kind='+kind);const list=$('#doc-list');if(list){list.innerHTML=docItems(state.docs);wireDocList(kind);$$('[data-doc-id]').forEach(x=>x.classList.toggle('active',x.dataset.docId===id));} }
   async function deleteCurrentDoc(doc){ if(!confirm(`删除“${doc.title}”？文件会移入 Workspace/System/Trash。`))return;await api('/api/docs/'+doc.id,{method:'DELETE'});toast('已移入回收目录');state.dirty=false;renderDocsPage(doc.kind); }
-  function routeForKind(k){ return {idea:'ideas',journal:'journals',note:'notes',milestone:'milestones',summary:'summaries',literature:'literature'}[k]||'notes'}
+  function routeForKind(k){ return {idea:'ideas',journal:'journals',note:'notes',experiment:'experiments',milestone:'milestones',summary:'summaries',literature:'literature'}[k]||'notes'}
   async function exportBibtex(){
     const docs=await api('/api/docs?kind=literature');
     modal('批量导出 BibTeX',`<div class="row-meta" style="margin-bottom:10px">默认全选；可取消不需要导出的文献。</div><div class="bundle-list">${docs.map(d=>`<label class="bundle-item"><input type="checkbox" class="bib-select" value="${d.id}" checked><span class="badge">文献</span><span><strong>${esc(d.title)}</strong><br><span class="row-meta">${esc(d.authors||'')} · ${esc(d.year||'')} · ${esc(d.venue||'')}</span></span></label>`).join('')||'<div class="empty">暂无文献</div>'}</div>`,`<button class="secondary-btn" id="bib-cancel">取消</button><button class="primary-btn" id="bib-export-run">导出所选</button>`);
@@ -1128,8 +1140,10 @@
   }
 
   async function renderGraphPage(){ const g=await api('/api/graph');state.graph=g;
-    const filterKinds=[['idea','灵感'],['journal','研究日志'],['note','笔记'],['milestone','里程碑'],['summary','工作总结'],['literature','文献'],['tag','标签'],['project','项目']];
-    const relationKinds=[['wikilink','显式引用'],['tag','标签关联'],['project','项目归属']];
+    const filterKinds=[['idea','灵感'],['journal','研究日志'],['note','笔记'],['experiment','实验'],['milestone','里程碑'],['summary','工作总结'],['literature','文献'],['tag','标签'],['project','项目']];
+    const relationKinds=GRAPH_RELATION_LABELS;
+    /* v261008.2 · 新增类型化关系后，老浏览器里保存的关系集合自动补齐一次，避免类型化边默认看不见 */
+    if(localStorage.getItem('graphRelationsV2')!=='1'){ relationKinds.forEach(([k])=>state.graphRelations.add(k)); localStorage.setItem('graphRelations',JSON.stringify([...state.graphRelations])); localStorage.setItem('graphRelationsV2','1'); }
     $('#main').innerHTML=`<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">RELATION MAP</div><h3>知识图谱</h3></div><div class="graph-view-tools"><div class="view-tabs"><button data-gview="2d" class="${state.graphView==='2d'?'active':''}">2D</button><button data-gview="3d" class="${state.graphView==='3d'?'active':''}">3D 星图</button></div><button class="secondary-btn" id="graph-fit" type="button">⤢ 全览</button></div></div>
       <div class="graph-wrap" id="graph-wrap"><div class="graph-canvas-wrap"><canvas class="graph-canvas" id="graph-canvas"></canvas><div class="graph-canvas-help">空白处拖动平移 · 3D 下 Alt/右键拖动旋转 · Ctrl+滚轮缩放</div></div><section class="card graph-preview hidden" id="graph-preview"><div class="preview-pane-head"><div><div class="card-kicker">MARKDOWN PREVIEW</div><h3 id="graph-preview-title">节点预览</h3></div><button class="ghost-btn" id="graph-preview-close" type="button">关闭</button></div><div class="preview-pane-meta" id="graph-preview-meta"></div><div class="md-preview graph-preview-body" id="graph-preview-body"></div></section><aside class="card graph-side"><h3 id="graph-node-title">选择节点</h3><div class="graph-node-info" id="graph-node-info">点击任意节点后，将高亮相邻节点与关系边。点击画布空白处可取消高亮。</div><div style="margin-top:12px"><button class="primary-btn" id="graph-bundle" disabled>整理关联 Markdown</button></div><div class="graph-filter"><strong>显示节点类别</strong><div class="graph-filter-grid">${filterKinds.map(([k,label])=>`<label><input type="checkbox" data-graph-kind="${k}" ${state.graphKinds.has(k)?'checked':''}> ${label}</label>`).join('')}</div><div class="graph-filter-actions"><button class="ghost-btn" id="graph-filter-all">全选</button><button class="ghost-btn" id="graph-filter-docs">仅知识条目</button></div></div><div class="graph-filter"><strong>关系来源</strong><div class="graph-filter-grid">${relationKinds.map(([k,label])=>`<label><input type="checkbox" data-graph-relation="${k}" ${state.graphRelations.has(k)?'checked':''}> ${label}</label>`).join('')}</div><div class="row-meta">隐藏“标签”或“项目”节点时，对应关系边也会立即从图谱和导出结果中移除。</div></div></aside></div>
     </div>`;

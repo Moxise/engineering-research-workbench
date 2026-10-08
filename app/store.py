@@ -23,6 +23,7 @@ BUILTIN_KIND_DIR = {
     "milestone": "Knowledge/Milestones",
     "summary": "Knowledge/Summaries",
     "literature": "Knowledge/Literature",
+    "experiment": "Knowledge/Experiments",
 }
 
 BUILTIN_KIND_LABEL = {
@@ -32,6 +33,7 @@ BUILTIN_KIND_LABEL = {
     "milestone": "里程碑",
     "summary": "工作总结",
     "literature": "文献",
+    "experiment": "实验",
 }
 
 BUILTIN_STATUSES = {
@@ -41,6 +43,7 @@ BUILTIN_STATUSES = {
     "milestone": ["计划", "进行中", "受阻", "完成"],
     "summary": ["草稿", "已定稿", "已归档"],
     "literature": ["待阅读", "阅读中", "已精读", "已归档"],
+    "experiment": ["计划", "进行中", "完成", "受阻", "已归档"],
 }
 
 def kind_dir_map() -> dict[str, str]:
@@ -63,9 +66,120 @@ DATE_FIELDS = {
     "milestone": "due",
     "summary": "record_date",
     "literature": "added_date",
+    "experiment": "record_date",
 }
 
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
+
+# ---------------------------------------------------------------- 关联段 → 关系类型
+# 「关联」段的小标题（H3）与行内标签（`- 标签：`）共同决定 WikiLink 的关系类型；
+# 未命中任何映射的链接退化为通用 `wikilink`，历史条目无需改动即可获得类型化边。
+RELATION_GENERIC = "wikilink"
+
+RELATION_SECTIONS = {
+    "依据的知识": "uses-knowledge",
+    "用到的知识": "uses-knowledge",
+    "用到的数据": "uses-data",
+    "引用文献": "cites",
+    "同系列实验": "series",
+    "上一环节": "chain-prev",
+    "下一环节": "chain-next",
+    "产出与汇总": "produces",
+}
+
+RELATION_LABELS = {
+    "方法条目": "uses-knowledge",
+    "原理条目": "uses-knowledge",
+    "模型条目": "uses-knowledge",
+    "架构条目": "uses-knowledge",
+    "知识条目": "uses-knowledge",
+    "依据的知识": "uses-knowledge",
+    "用到的知识": "uses-knowledge",
+    "依据": "uses-knowledge",
+    "参照": "uses-knowledge",
+    "数据": "uses-data",
+    "数据集": "uses-data",
+    "用到的数据": "uses-data",
+    "文献": "cites",
+    "引用文献": "cites",
+    "引用": "cites",
+    "同系列": "series",
+    "同系列实验": "series",
+    "系列": "series",
+    "上一环节": "chain-prev",
+    "上一步": "chain-prev",
+    "前置": "chain-prev",
+    "下一环节": "chain-next",
+    "下一步": "chain-next",
+    "后续": "chain-next",
+    "产出": "produces",
+    "产出与汇总": "produces",
+    "汇总": "produces",
+    "全链汇总": "produces",
+    "报告": "produces",
+}
+
+#: 关系类型 → 显示名（前端图谱筛选、导出与文档共用同一份口径）
+RELATION_LABELS_DISPLAY = [
+    ("uses-knowledge", "依据知识"),
+    ("uses-data", "使用数据"),
+    ("cites", "引用文献"),
+    ("series", "同系列"),
+    ("chain-prev", "上一环节"),
+    ("chain-next", "下一环节"),
+    ("produces", "产出汇总"),
+    ("wikilink", "显式引用"),
+]
+
+_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$")
+
+
+def _inline_label_role(line: str) -> str:
+    """行内 `- 标签：内容` 的标签映射（历史条目多用这种写法）。"""
+    text = line.lstrip("-*•· \t").strip()
+    if not text:
+        return ""
+    for sep in ("：", ":"):
+        if sep in text:
+            label = text.split(sep, 1)[0].strip().strip("*").strip()
+            role = RELATION_LABELS.get(label)
+            if role:
+                return role
+            break
+    return ""
+
+
+def iter_body_links(body: str) -> list[tuple[str, str]]:
+    """解析正文，返回 ``[(token, role)]``；role 由所属小标题或行内标签决定。
+
+    - 小标题命中 ``RELATION_SECTIONS`` → 该小节内所有链接用该关系类型；
+    - 行内标签命中 ``RELATION_LABELS`` → 覆盖所属小节的关系类型；
+    - 都不命中 → ``wikilink``（通用显式引用）。
+    """
+    out: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    section_role = RELATION_GENERIC
+    for raw in (body or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        heading = _HEADING_RE.match(line)
+        if heading:
+            section_role = RELATION_SECTIONS.get(heading.group(1).strip(), RELATION_GENERIC)
+            continue
+        if "[[" not in line:
+            continue
+        role = _inline_label_role(line) or section_role
+        for token in WIKILINK_RE.findall(line):
+            token = str(token).strip()
+            if not token:
+                continue
+            item = (token, role)
+            if item not in seen:
+                seen.add(item)
+                out.append(item)
+    return out
+
 BIBTEX_BLOCK_RE = re.compile(r"```bibtex\s*\n(.*?)```", re.S | re.I)
 _LOCK = threading.RLock()
 
@@ -168,6 +282,11 @@ def _normalize_projects(meta: dict[str, Any]) -> dict[str, Any]:
             seen.add(value); dedup.append(value)
     meta["projects"] = dedup
     meta["project"] = dedup[0] if dedup else ""
+    # v261008.2 · 归属清空时同步清掉镜像的 id 字段，否则索引仍会按项目归属计入
+    # （`document_projects` 同时看 project_name 与 project_id，只清名字会留下幽灵归属）
+    if not dedup:
+        meta["project_id"] = ""
+        meta["project_ids"] = []
     return meta
 
 
@@ -443,6 +562,21 @@ def _make_default_body(kind: str, title: str, payload: dict[str, Any]) -> str:
             "## 与当前研究的关系\n\n\n"
             "## 摘录与批注\n\n"
         )
+    if kind == "experiment":
+        return (
+            f"# {title}\n\n"
+            "## 摘要\n\n\n"
+            "## 目标与假设\n\n\n"
+            "## 配置与参数\n\n\n"
+            "## 数据与口径\n\n\n"
+            "## 结果\n\n\n"
+            "## 结论与失效模式\n\n\n"
+            "## 留档路径\n\n\n"
+            "## 关联\n\n"
+            "### 依据的知识\n\n\n"
+            "### 用到的数据\n\n\n"
+            "### 同系列实验\n\n\n"
+        )
     return f"# {title}\n\n## 要点\n\n\n## 正文\n\n\n## 关联\n\n"
 
 
@@ -516,6 +650,65 @@ def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         _atomic_write(path, _frontmatter_dump(meta) + body.rstrip() + "\n")
     activity.record("doc_update", ref=doc_id, kind=kind, title=str(meta.get("title") or doc_id), project=str(meta.get("project") or ""))
     return _doc_from_path(kind, path, include_body=True)
+
+
+def _sync_h1(body: str, title: str) -> str:
+    """把正文首个 H1 改为给定标题（``title``/H1 必须一致）。"""
+    lines = (body or "").splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("# "):
+            lines[i] = f"# {title}"
+            return "\n".join(lines)
+    return f"# {title}\n\n" + (body or "").lstrip("\n")
+
+
+def change_kind(
+    doc_id: str,
+    new_kind: str,
+    new_title: str = "",
+    *,
+    status: str = "",
+    kind_marks: list[str] | None = None,
+) -> dict[str, Any]:
+    """v261008.2 · 把条目改挂到另一类 kind（目录随动、H1 同步）。
+
+    结构性迁移专用：`id` 与 `created` 保持不变，仅 `kind`/`title`/`status`/`updated` 等变化；
+    跨条目引用由调用方（工具层/迁移脚本）用 `naming.rewrite_references` 同步。
+    """
+    if new_kind not in kind_dir_map():
+        raise ValueError(f"Invalid kind: {new_kind}")
+    doc = get_doc(doc_id)
+    old_kind = str(doc.get("kind") or "")
+    if old_kind == new_kind:
+        raise ValueError(f"条目已是 {new_kind} 类型")
+    src = ensure_workspace() / doc["path"]
+    meta, body = _frontmatter_parse(src.read_text(encoding="utf-8"))
+    title = str(new_title or meta.get("title") or doc_id).strip()
+    meta["kind"] = new_kind
+    meta["title"] = title
+    meta["updated"] = _now()
+    allowed = kind_statuses(new_kind)
+    if status and (not allowed or status in allowed):
+        meta["status"] = status
+    elif allowed and str(meta.get("status") or "") not in allowed:
+        meta["status"] = allowed[0]
+    if kind_marks is not None:
+        merged = [str(m).strip() for m in kind_marks if str(m).strip()]
+        if merged:
+            meta["kind_marks"] = merged
+    date_field = DATE_FIELDS.get(new_kind)
+    if date_field and not meta.get(date_field):
+        meta[date_field] = _today()
+    body = _sync_h1(body, title)
+    dst = _kind_path(new_kind) / src.name
+    with _LOCK:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(dst, _frontmatter_dump(meta) + body.rstrip() + "\n")
+        if dst.resolve() != src.resolve():
+            src.unlink()
+    activity.record("doc_update", ref=doc_id, kind=new_kind, title=title,
+                    project=str(meta.get("project") or ""))
+    return _doc_from_path(new_kind, dst, include_body=True)
 
 
 def delete_doc(doc_id: str) -> dict:
