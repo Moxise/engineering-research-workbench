@@ -128,3 +128,26 @@ arXiv 来源支持 RSS → 官方 Atom API 自动回退。若全源失败：
 ## v260921.1 UI interaction notes
 
 Knowledge Graph keeps Markdown as the source of truth. The canvas now maintains per-view camera state (pan/zoom/rotation), and selecting a node opens a read-only Markdown preview without creating duplicate storage. Milestone 3D preview follows the same pattern. Runtime/server parameters remain in `config/app.json` but are now editable through the Settings UI.
+
+
+## Agent Provider 接入（v261008 · OpenCode Go / 火山方舟 Agent Plan）
+
+Agent 只依赖一种协议——OpenAI-compatible **Chat Completions**，所以「接入一个服务」= 往 `config/secret.json` 的 `profiles` 里加一套档案。设置页「Agent API 配置」与本次接入同源：读写都走 `POST /api/config/app` → `config.save_app` → `_merge_profiles_from_public`（按 profile id 保留原 Key，新增档案才带 Key 落盘）。
+
+| 档案 id | 名称 | base_url | 默认模型 |
+| --- | --- | --- | --- |
+| `profile-legacy` | Qianwen3.8-Flash（原有） | `https://maas.qianwenaiapi.com/compatible-mode/v1` | `qwen3.8-flash` |
+| `profile-opencode-go` | OpenCode Go · 本地代理 | `http://127.0.0.1:9355/zen/go/v1` | `deepseek-v4.1-flash` |
+| `profile-ark-agent-plan` | 火山方舟 · Agent Plan | `https://ark.cn-beijing.volces.com/api/plan/v3` | `deepseek-v4.1-flash` |
+
+- OpenCode Go 一套依赖本机 `D:\Project\opencode-go-proxy-for-trae.py` 反代理（监听 `127.0.0.1:9355`）在跑，由代理注入 `x-opencode-session / x-opencode-request / x-opencode-client / x-opencode-project` 四个头；工作台侧填真实模型名即可（`proxy-` 前缀也会被代理剥掉，两种写法都通）。
+- 火山方舟必须用 **Agent Plan 专属网关** `/api/plan/v3`：通用网关 `/api/v3` 与 Coding Plan 网关 `/api/coding/v3` 都会 401（`The API key or AK/SK in the request is missing or invalid`）。
+- 切换方式：Agent 页顶部「API 配置」下拉，或设置页「Agent API 配置」→「设为当前配置」。两套新配置**未改变**原有激活项（仍是 `profile-legacy`）。
+
+### 接入实测结论（2026-10-08）
+
+- 两家均支持：Chat Completions 非流式、SSE 流式（`agent._stream_chat`）、原生 function calling（`agent._run_with_tools`，工具循环实测命中知识库）、`reasoning_content` 回传（前端「模型思考过程」可折叠展示）。
+- **关思考参数**：两家都认 `{"thinking": {"type": "disabled"}}`（实测 `reasoning_content` 归零），故各带一个「· 无思考」请求模式；`reasoning_effort=low` 与 `enable_thinking=false` 在两家的实测中均被忽略。
+- **`GET /models` 兼容性**：opencode 代理正常转发 `/models`（含 Trae 用的 `hertz` UA）；方舟 Agent Plan 返回 **404**。`app/agent.py` `test_connection()` 因此增加回退分支（v261008）：仅当 /models 报 404/405/501 时，用默认请求模式的模型发一次 16-token 对话探针，返回 `choices` 即判定连通（响应带 `probe=chat_completions`）；401/429/5xx 仍原样抛错保留诊断信息。
+- **Cloudflare UA 边界**：opencode.ai 按 UA 拦访问，`Python-urllib/*` 默认 UA 触发 Cloudflare 1010；工作台 `_api_headers` 自带的 `Workbench/260922.3` 与代理注入的 `opencode/1.18.29 cli` 都放行。**改 `_api_headers` 的 UA 时需重新实测这条链路。**
+- 打包提醒：`app/agent.py` 属源码改动，**必须重跑 `build_client.bat` 才对 exe 生效**；只改 `config/secret.json` 档案则热生效（设置页保存或 `POST /api/system/reload`）。

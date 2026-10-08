@@ -320,6 +320,18 @@ Agent 是工作台中的本地会话层，用于把外部 LLM 与本地研究资
 - 显示模型请求等待状态与耗时；
 - 可选显示兼容接口返回的 reasoning 内容。
 
+### 已接入的模型服务
+
+设置 → Agent / LLM 的「Agent API 配置」可保存多套 OpenAI-compatible 配置（只存本机 `config/secret.json`，已被 `.gitignore` 排除）：
+
+| 配置 | Base URL | 默认模型 |
+| --- | --- | --- |
+| Qianwen3.8-Flash | `https://maas.qianwenaiapi.com/compatible-mode/v1` | `qwen3.8-flash` |
+| OpenCode Go · 本地代理 | `http://127.0.0.1:9355/zen/go/v1` | `deepseek-v4.1-flash` |
+| 火山方舟 · Agent Plan | `https://ark.cn-beijing.volces.com/api/plan/v3` | `deepseek-v4.1-flash` |
+
+每套配置可带多个请求模式（模型 / 思考开关 / 温度 / 附加参数），在对话框里逐轮切换；切换整套配置用 Agent 页顶部的「API 配置」下拉，或在设置页中「设为当前配置」。OpenCode Go 一套依赖本机的 opencode-go 反代理在 `127.0.0.1:9355` 运行。
+
 ### 手动引用本地知识
 
 Agent 不会默认把整个 Workspace 发给模型。

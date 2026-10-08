@@ -738,7 +738,7 @@
       </div>
     </div>
     <div class="editor-wrap">${editorHtml(doc.body||'')}</div>
-    <div class="editor-actions"><span class="row-meta">${esc(doc.path)} · 更新 ${fmtTime(doc.updated)}</span><div class="right"><button class="secondary-btn" id="doc-delete">删除</button><button class="primary-btn" id="doc-save">保存</button></div></div>`;
+    <div class="editor-actions"><span class="row-meta">${esc(doc.path)} · 更新 ${fmtTime(doc.updated)}</span><div class="right"><button class="secondary-btn" id="doc-open-file" title="在外部编辑器中打开该 Markdown 原文件">↗ 打开原文件</button><button class="secondary-btn" id="doc-delete">删除</button><button class="primary-btn" id="doc-save">保存</button></div></div>`;
     wireEditor();
     const metaBtn=$('#meta-toggle'); /* v260929 · 条目信息收起/展开：只切类名不动输入值，保存仍带全部字段 */
     if(metaBtn)metaBtn.onclick=()=>{
@@ -752,7 +752,18 @@
     paintEditorTags(doc.tags||[]); $('#f-tag-add').onclick=openEditorTagPicker;
     wireMarkChips();
     $('#doc-save').onclick=()=>saveCurrentDoc(doc,dateField); $('#doc-delete').onclick=()=>deleteCurrentDoc(doc);
+    $('#doc-open-file').onclick=()=>openSourceFile(doc);
     renderMarkdownPreview();
+  }
+  /* v261008 · 打开原文件：选择外部编辑器（VS Code / Typora）打开该条目的 Markdown 原文件（服务端按编辑器解析可执行文件） */
+  function openSourceFile(doc){
+    const editors=[{id:'vscode',label:'VS Code'},{id:'typora',label:'Typora'}];
+    modal('打开原文件',`<div class="row-meta" style="margin-bottom:10px">选择编辑器打开该条目的 Markdown 原文件：<br><code>${esc(doc.path)}</code></div><div style="display:flex;gap:8px;flex-wrap:wrap">${editors.map(e=>`<button type="button" class="secondary-btn" data-editor="${e.id}">${e.label}</button>`).join('')}</div>`);
+    $$('#modal-body [data-editor]').forEach(b=>b.onclick=async()=>{
+      closeModal();
+      try{ await api('/api/workspace/open-with',{method:'POST',body:{path:doc.path,editor:b.dataset.editor}}); toast('已用 '+b.textContent+' 打开原文件'); }
+      catch(err){ toast(err.message||'打开失败',true); }
+    });
   }
   function editorProjects(){
     const box=$('#f-projects');if(!box)return [];try{const v=JSON.parse(box.dataset.projects||'[]');return Array.isArray(v)?v:[]}catch{return []}

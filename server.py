@@ -376,6 +376,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"legacy": legacy, "projects": project_migration, "index": index_state})
         if path == "/api/workspace/open":
             return self.send_json(workspace.open_path(str(payload.get("path") or "")))
+        if path == "/api/workspace/open-with":  # v261008 · 笔记页「打开原文件」：选择 VS Code / Typora 打开 md
+            return self.send_json(workspace.open_file_with(
+                str(payload.get("path") or ""), str(payload.get("editor") or "")))
         if path == "/api/docs":
             normalized = indexer.normalize_project_payload(payload)
             doc = store.create_doc(str(normalized.get("kind") or "note"), normalized)

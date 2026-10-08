@@ -880,10 +880,42 @@ def assist(action: str, text: str, instruction: str = "", image: str = "") -> di
             "reasoning": reasoning if cfg.get("show_reasoning", True) else ""}
 
 
+_MODELS_UNSUPPORTED_RE = re.compile(r"LLM API HTTP (?:404|405|501)\b")  # v261008 · 网关不提供 GET /models 的信号
+
+
 def test_connection() -> dict[str, Any]:
+    """连通性探针：优先 GET /models 列出模型。
+
+    v261008 · 部分 OpenAI 兼容网关（如火山方舟 Agent Plan 的 /api/plan/v3）不提供 /models，
+    返回 404 会让「能用但测不通」；此时退化为一次最小 Chat Completions 探针（默认请求模式的模型，
+    16 tokens），返回 choices 即视为连通。其余错误（401/429/5xx 等）仍原样抛出，保留诊断信息。
+    """
     cfg = _llm_cfg()
+    timeout = min(int(cfg.get("timeout") or 30), 45)
     url = _endpoint(str(cfg["base_url"]), "/models")
-    data = _http_json(url, None, str(cfg["api_key"]), min(int(cfg.get("timeout") or 30), 45), method="GET")
+    try:
+        data = _http_json(url, None, str(cfg["api_key"]), timeout, method="GET")
+    except ValueError as e:
+        if not _MODELS_UNSUPPORTED_RE.search(str(e)):
+            raise
+        _preset_id, preset_label, model, _preset_temp, params = _request_preset(cfg, "")
+        if not model:
+            raise ValueError(f"{e}；且默认请求模式 {preset_label} 未配置模型名，无法用对话探针替代") from None
+        payload = _deep_merge_request(
+            {"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 16, "stream": False},
+            params,
+            {"model", "messages", "stream"},
+        )
+        data = _http_json(_endpoint(str(cfg["base_url"]), "/chat/completions"), payload, str(cfg["api_key"]), max(timeout, 60))
+        if not (isinstance(data, dict) and data.get("choices")):
+            raise ValueError("对话探针没有返回 choices，网关可能不是 OpenAI 兼容的 Chat Completions") from None
+        return {
+            "ok": True,
+            "models": [model],
+            "message": f"连接成功（网关不提供 GET /models，已用对话探针验证 {model}）",
+            "profile": cfg.get("name") or "",
+            "probe": "chat_completions",
+        }
     models = data.get("data") if isinstance(data, dict) else []
     names = [str(x.get("id")) for x in (models or []) if isinstance(x, dict) and x.get("id")][:12]
-    return {"ok": True, "models": names, "message": "连接成功", "profile": cfg.get("name") or ""}
+    return {"ok": True, "models": names, "message": "连接成功", "profile": cfg.get("name") or "", "probe": "models"}

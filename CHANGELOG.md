@@ -1,5 +1,16 @@
 # Changelog
 
+## v261008.1
+
+### Agent 接入 OpenCode Go 与火山方舟 Agent Plan
+
+- 新增两套 Agent API 配置（`config/secret.json` 的 `profiles`，经 `POST /api/config/app` 写入，与设置页「保存全部配置」同一条路径）：`profile-opencode-go`（本机 `127.0.0.1:9355` 上的 opencode-go 反代理，`base_url=http://127.0.0.1:9355/zen/go/v1`）与 `profile-ark-agent-plan`（`base_url=https://ark.cn-beijing.volces.com/api/plan/v3`，方舟 **Agent Plan 专属网关**）。既有 `profile-legacy`（Qianwen3.8-Flash）保持为激活配置，两套新配置按需切换（Agent 页顶部「API 配置」下拉 / 设置页「设为当前配置」）。
+- 请求模式：每套先给 6 个，默认 `deepseek-v4.1-flash`，另含「· 无思考」（`{"thinking":{"type":"disabled"}}`）、`deepseek-v4-pro`、`glm-5.3`、`doubao-seed-2.1-pro`、`kimi-k3`、`qwen3.8-flash`、`deepseek-v4-flash-vision-exp` 等，均按服务商实际可得模型逐个实测返回 200；超时给到 300s（推理模型长回答 + 阅读区 AI 助手非流式路径）。
+- `app/agent.py` `test_connection()` 修复「能用但测不通」：方舟 Agent Plan 不提供 `GET /models`（404），新增回退分支——仅当 /models 报 404/405/501 时，用默认请求模式的模型发一次 16-token 对话探针，返回 `choices` 即判定连通（响应 `probe=chat_completions`、`message` 说明已改用探针）；401/429/5xx 仍原样抛错保留诊断信息。
+- 接入验证走工作台自身代码路径（非另写探针）：`test_connection()` + `assist()` 真实补全 + `_post_chat(on_delta=…)` SSE 流式 + `_run_with_tools()` 原生 function calling 工具循环，三套配置全绿；两家的 `reasoning_content` 均能回传并进入「模型思考过程」。
+- 踩坑记录两则：①方舟 Agent Plan 网关是 `/api/plan/v3`，误用通用网关 `/api/v3` 或 Coding Plan 网关 `/api/coding/v3` 一律 401；②opencode.ai 侧按 UA 拦访问，`Python-urllib/*` 默认 UA 触发 Cloudflare 1010，工作台自带的 `Workbench/260922.3` 放行——日后改 `_api_headers` 的 UA 需重新实测。
+- 架构与实测结论记入 `docs/ARCHITECTURE.md`「Agent Provider 接入（v261008）」；`VERSION` 升至 `v261008.1`，`ResearchWorkbench.exe` 已按 `build_client.bat` 重新打包。
+
 ## v260929.1
 
 ### 文献 PDF 工作区合并（四阶段方案落地）
