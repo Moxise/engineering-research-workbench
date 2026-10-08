@@ -31,6 +31,9 @@
 !app/**/*.py
 !tools/**/*.py
 
+# 清理入口的一键包装（双击即用），其余 .bat 仍不发布
+!tools/scratch_clean.bat
+
 !web/**/*.js
 !web/**/*.html
 !web/**/*.css
@@ -54,5 +57,11 @@ Workspace/
 .update_backups/
 build/
 
-_verify_*.py
-_verify_out.txt
+# 操作临时数据空间（本地专用：永不提交、不入同步、7 天保留自动清理）
+# 细则见 .scratch/README.md；清理入口 tools/scratch_clean.py
+/.scratch/
+
+# 临时产物基名约定（无前导斜杠 → 任意目录生效，堵住 web/**/*.html 之类放行规则）
+_verify_*
+_preview_*
+_timing_*

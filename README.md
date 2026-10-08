@@ -328,9 +328,10 @@ Agent 是工作台中的本地会话层，用于把外部 LLM 与本地研究资
 | --- | --- | --- |
 | Qianwen3.8-Flash | `https://maas.qianwenaiapi.com/compatible-mode/v1` | `qwen3.8-flash` |
 | OpenCode Go · 本地代理 | `http://127.0.0.1:9355/zen/go/v1` | `deepseek-v4.1-flash` |
+| OpenCode Go · 直连 Zen | `https://opencode.ai/zen/go/v1` | `deepseek-v4.1-flash` |
 | 火山方舟 · Agent Plan | `https://ark.cn-beijing.volces.com/api/plan/v3` | `deepseek-v4.1-flash` |
 
-每套配置可带多个请求模式（模型 / 思考开关 / 温度 / 附加参数），在对话框里逐轮切换；切换整套配置用 Agent 页顶部的「API 配置」下拉，或在设置页中「设为当前配置」。OpenCode Go 一套依赖本机的 opencode-go 反代理在 `127.0.0.1:9355` 运行。
+每套配置可带多个请求模式（模型 / 思考开关 / 温度 / 附加参数），在对话框里逐轮切换；切换整套配置用 Agent 页顶部的「API 配置」下拉，或在设置页中「设为当前配置」。两套 OpenCode Go 分别是「走本机反代理」与「直连 `opencode.ai`」；直连一套靠配置里的**自定义请求头**满足上游的 `x-opencode-session` 要求（设置页「Agent API 配置」里可直接编辑 JSON）。
 
 ### 手动引用本地知识
 
@@ -1231,12 +1232,23 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 │  └─ styles.css
 │
 ├─ Workspace/
+├─ .scratch/          # 操作临时数据：仅本地，不入库，7 天自动清理
 ├─ CHANGELOG.md
 ├─ VERSION
 ├─ run.bat
 ├─ run.sh
 └─ server.py
 ```
+
+### 操作临时数据 `.scratch/`
+
+`server.py` 启动时会初始化 `.scratch/` 作为专属的本地操作临时空间，并按保留期清理过期文件：
+
+- **不入库**：`.gitignore` 白名单模式下显式声明 `/.scratch/`；`_verify_*` / `_preview_*` / `_timing_*` 三类临时产物在任意目录都不入库。
+- **不入同步**：Syncthing 只同步 `Workspace/`（该目录下有 `.stfolder`），`.scratch/` 不会被带到其他机器。
+- **自动清理**：默认保留 7 天（按文件 mtime 判定），骨架目录与 `.scratch/README.md` 永不删除；可用环境变量 `ERW_SCRATCH_RETENTION_DAYS` 覆盖保留期。
+- **一键清理**：双击 `tools\scratch_clean.bat`；`python tools/scratch_clean.py --dry-run` 预览，`--status` 查看占用。
+- 目录约定（`tmp/ verify/ preview/ logs/`）与注意事项见 `.scratch/README.md`。
 
 ---
 

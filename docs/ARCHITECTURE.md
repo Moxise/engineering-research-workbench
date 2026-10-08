@@ -75,6 +75,7 @@ status: 整理中
 - `app/kb_naming.py`：条目标题 error/warn 双级校验（规则见 `.trae/rules/知识库条目命名规范.md`），error 拒写。
 - `/api/agent/send` 新增 `context` 参数：`{view, paper_id, page, doc_id, selection, write_mode}`，由前端悬浮球采集（`web/v260930-floating-agent.js`），`app/agent.py` `_page_context` 注入系统提示词。
 - 悬浮球（M2）：全局常驻 `#erw-fab-ball`，面板带上下文条 / 工具轨迹 / 草稿确认卡片 / 划词气泡；文献上下文经 `window.ERWLiterature.context()` 桥，LLM 就绪探针 `window.ERWLLMReady`。
+- v261008b · **工具轨迹可视化**：`_run_with_tools` 返回第 5 项 `timing`（`total_ms` / `llm_ms` / `tool_ms` / `rounds` / `tool_calls` / `protocol` / `timeline`，段级 `t0/t1` 相对本轮起点），挂到 assistant 消息随 SSE `done` 回传；前端渲染为「汇总一行 + 与耗时成比例的堆叠时间条 + 可折叠过程明细」（`window.ERWFabTimeline` 暴露给 Agent 页复用，样式在 `web/v260930-floating-agent.css` 的 `.fab-tl*`），流式期间另有一条实时条随 `round`/`tool` 事件推进。旧会话无 `timing` 时按 `tool_trace` 的 `ms` 顺序兜底。
 
 ## Agent 人设系统（v260930 · M3）
 
@@ -138,16 +139,36 @@ Agent 只依赖一种协议——OpenAI-compatible **Chat Completions**，所以
 | --- | --- | --- | --- |
 | `profile-legacy` | Qianwen3.8-Flash（原有） | `https://maas.qianwenaiapi.com/compatible-mode/v1` | `qwen3.8-flash` |
 | `profile-opencode-go` | OpenCode Go · 本地代理 | `http://127.0.0.1:9355/zen/go/v1` | `deepseek-v4.1-flash` |
+| `profile-opencode-go-direct` | OpenCode Go · 直连 Zen | `https://opencode.ai/zen/go/v1` | `deepseek-v4.1-flash` |
 | `profile-ark-agent-plan` | 火山方舟 · Agent Plan | `https://ark.cn-beijing.volces.com/api/plan/v3` | `deepseek-v4.1-flash` |
 
-- OpenCode Go 一套依赖本机 `D:\Project\opencode-go-proxy-for-trae.py` 反代理（监听 `127.0.0.1:9355`）在跑，由代理注入 `x-opencode-session / x-opencode-request / x-opencode-client / x-opencode-project` 四个头；工作台侧填真实模型名即可（`proxy-` 前缀也会被代理剥掉，两种写法都通）。
+- **代理一套**（`profile-opencode-go`）依赖本机 `D:\Project\opencode-go-proxy-for-trae.py` 反代理（监听 `127.0.0.1:9355`）在跑，由代理注入 `x-opencode-session / x-opencode-request / x-opencode-client / x-opencode-project` 四个头；工作台侧填真实模型名即可（`proxy-` 前缀也会被代理剥掉，两种写法都通）。
+- **直连一套**（`profile-opencode-go-direct`）不经任何本地进程，直接打 `opencode.ai`。上游要求 `x-opencode-session`（缺它返回 400 `Request is missing x-opencode-session and cannot be routed efficiently`），故新增**档案级自定义请求头**能力承载：`profiles[].headers` 经 `config._clean_headers()` 白名单化（头名须 RFC 7230 token、值禁 CR/LF、单值 ≤512 字符、最多 20 条），由 `agent._api_headers(api_key, extra)` 合并进所有请求路径——普通补全、SSE 流式、`/models` 探针、对话探针都带。实测**只有 session 是硬要求**，`x-opencode-request/client/project` 可省（保留是为了与官方 CLI 同形）；`Content-Type` 与 `Authorization` 由工作台接管、自定义头覆盖不了，`User-Agent` 允许改写。设置页「Agent API 配置」已加「自定义请求头（JSON）」输入框。
 - 火山方舟必须用 **Agent Plan 专属网关** `/api/plan/v3`：通用网关 `/api/v3` 与 Coding Plan 网关 `/api/coding/v3` 都会 401（`The API key or AK/SK in the request is missing or invalid`）。
-- 切换方式：Agent 页顶部「API 配置」下拉，或设置页「Agent API 配置」→「设为当前配置」。两套新配置**未改变**原有激活项（仍是 `profile-legacy`）。
+- 切换方式：Agent 页顶部「API 配置」下拉，或设置页「Agent API 配置」→「设为当前配置」。
+- ⚠️ 旧版 exe（v260924.1 及更早）的 `_normalize_profile` 不认识 `headers`：在旧版里点「保存全部配置」会把直连档案的请求头**静默抹掉**。直连配置需配 v261008.1 及以后的 exe（或开发模式）使用。
 
 ### 接入实测结论（2026-10-08）
 
-- 两家均支持：Chat Completions 非流式、SSE 流式（`agent._stream_chat`）、原生 function calling（`agent._run_with_tools`，工具循环实测命中知识库）、`reasoning_content` 回传（前端「模型思考过程」可折叠展示）。
-- **关思考参数**：两家都认 `{"thinking": {"type": "disabled"}}`（实测 `reasoning_content` 归零），故各带一个「· 无思考」请求模式；`reasoning_effort=low` 与 `enable_thinking=false` 在两家的实测中均被忽略。
-- **`GET /models` 兼容性**：opencode 代理正常转发 `/models`（含 Trae 用的 `hertz` UA）；方舟 Agent Plan 返回 **404**。`app/agent.py` `test_connection()` 因此增加回退分支（v261008）：仅当 /models 报 404/405/501 时，用默认请求模式的模型发一次 16-token 对话探针，返回 `choices` 即判定连通（响应带 `probe=chat_completions`）；401/429/5xx 仍原样抛错保留诊断信息。
-- **Cloudflare UA 边界**：opencode.ai 按 UA 拦访问，`Python-urllib/*` 默认 UA 触发 Cloudflare 1010；工作台 `_api_headers` 自带的 `Workbench/260922.3` 与代理注入的 `opencode/1.18.29 cli` 都放行。**改 `_api_headers` 的 UA 时需重新实测这条链路。**
-- 打包提醒：`app/agent.py` 属源码改动，**必须重跑 `build_client.bat` 才对 exe 生效**；只改 `config/secret.json` 档案则热生效（设置页保存或 `POST /api/system/reload`）。
+- 三家均支持：Chat Completions 非流式、SSE 流式（`agent._stream_chat`）、原生 function calling（`agent._run_with_tools`，工具循环实测命中知识库）、`reasoning_content` 回传（前端「模型思考过程」可折叠展示）。
+- **关思考参数**：三家都认 `{"thinking": {"type": "disabled"}}`（实测 `reasoning_content` 归零），故各带一个「· 无思考」请求模式；`reasoning_effort=low` 与 `enable_thinking=false` 在实测中均被忽略。
+- **`GET /models` 兼容性**：opencode 代理转发与 `opencode.ai` 直连都正常返回模型列表；方舟 Agent Plan 返回 **404**。`app/agent.py` `test_connection()` 因此增加回退分支（v261008）：仅当 /models 报 404/405/501 时，用默认请求模式的模型发一次 16-token 对话探针，返回 `choices` 即判定连通（响应带 `probe=chat_completions`）；401/429/5xx 仍原样抛错保留诊断信息。
+- **Cloudflare UA 边界**：opencode.ai 按 UA 拦访问，`Python-urllib/*` 默认 UA 触发 Cloudflare 1010；工作台 `_api_headers` 自带的 `Workbench/260922.3`（直连与经代理都实测放行）与代理注入的 `opencode/1.18.29 cli` 都可用。**改 `_api_headers` 的 UA 时需重新实测这条链路**，必要时用档案 `headers` 覆盖 `User-Agent` 绕过。
+- 打包提醒：`app/agent.py`、`app/config.py`、`web/` 属源码改动，**必须重跑 `build_client.bat` 才对 exe 生效**；只改 `config/secret.json` 档案则热生效（设置页保存或 `POST /api/system/reload`）。v261008.1 已重打包（2026-10-08 12:11）。
+- ⚠️ **换版时的「次生窗口劫持」**：`client.py` 绑定 8765 失败时会探测既有实例，若其 `/api/health` 健康就只开一个次生窗口挂上去（单服务多窗口设计）。因此若上一个版本（或开发模式的 `python server.py`）仍占着 8765，双击新 exe **不会**让新代码生效，`workbench.log` 会留下 `bind failed (WinError 10048) … opening a secondary window`。换版务必先结束旧进程再启动新 exe，并用 `GET /api/config` 是否返回 `headers` 字段确认运行中的是新版 `config.py`。
+
+
+## 用量计费（v261008 · v261008b 升级口径）
+
+数据流：`app/agent.py` 三处挂钩采量 → `app/billing.py` 算价落账 → `/api/billing/*` → `web/v261008-billing.js` 三页签仪表盘。
+
+- **采量点**：`_stream_chat` 末帧 usage（SSE 主路径）、`_post_chat` 非流式 usage、`cfg["_billing"]` 上下文（会话 + 请求模式 + source=chat/assist）决定归属；连通性探针无上下文，自动不计费。
+- **落盘**：`Workspace/System/billing/prices.json`（单价表 + `plans` 计费方式）、`ledger.jsonl`（逐条追加，**只增不改**）。
+- **计费方式**（`prices.plans.<profile_id>.mode`）：`token`（默认，按单价表）/ `subscription`（订阅套餐：只记用量，金额列不适用，不再报「缺单价」）/ `free`。
+- **单价键优先级**：`<profile_id>/<model>` → `<profile_id>`（该档案兜底价）→ `<model>`（支持 `*` 通配）→ 大小写无关。同一模型在不同 Provider 价格不同时，用档案限定键区分。
+- **计价口径**：`cost = miss_in/1e6*input + out/1e6*output + cache_read/1e6*cache_hit + cache_write/1e6*cache_write`，其中 `miss_in = prompt_tokens - cache_read - cache_write`；未命中单价的 token 模式调用记 0 且标 `priced=false`（绝不伪造金额）。
+- **缓存命中率**：总览/按会话/按模型都给出 `cache_hit_rate`——长上下文 Agent 的主要成本变量（本地实测 72.5%：输入 1,078,568 中 781,952 命中，计费输入仅 296,616）。
+- **兼容老账本**：早期记录没有 `billing_mode`，读取时按当前 `plans` 推导（`_view()`），文件本身不改写；`usage_missing` 记录用于「网关未返回 usage」的调用，保证次数口径一致。
+- **币种与汇率**：单价条目可带 `currency`（默认取表头 `currency`，直接粘贴官方人民币标价就写 `CNY`），价格表顶层 `fx` 语义为「1 USD = N 该币种」（预置 CNY≈7.1，参考值、可改）；`convert_cost()` 统一折算，缺汇率的条目标 `fx_missing` 且等价记 0（不猜数）。
+- **等价标价**（v261008b）：订阅/免费档案实付口径不适用，但仍按同一份单价表（官方标价）折算 `equiv_usd`，`summary()` 另给 `subscription_equiv_usd`；页面以「等价标价合计」卡片与各表「等价标价」列呈现，并明示为参考而非实付。老账本读取时用当前单价表补算等价标价，但 token 模式写入时冻结的 `cost_usd` 不改（历史实付口径不追溯）。
+- **已预置标价来源**：DeepSeek 官方 [模型 & 价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)（2026-10-08）——`deepseek-v4.1-flash` / `deepseek-flash` 空闲时段 输入 1 元、缓存命中 0.02 元、输出 4 元 / 百万 tokens，高峰时段 ×2；其余条目沿用 dsh-cost-meter 参考价，需按实际账单核对。

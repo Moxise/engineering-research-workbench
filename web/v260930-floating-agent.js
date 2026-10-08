@@ -359,13 +359,18 @@ function closePanel(){
 /* ---------- v260930g7 · 面板手动调尺寸：左上角手柄拖拽，宽高持久化 ---------- */
 const FAB_SIZE_KEY="fabPanelSize";
 const fabClamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+/* v261008b · 尺寸上下限随视口走：窗口很窄时上限会低于原下限，必须先夹住上限再夹值，否则面板顶出视口 */
+const fabMaxW=()=>Math.max(280,Math.min(760,innerWidth-40));
+const fabMaxH=()=>Math.max(260,Math.min(900,innerHeight-110));
+const fabMinW=()=>Math.min(300,fabMaxW());
+const fabMinH=()=>Math.min(280,fabMaxH());
 function applyPanelSize(){
   const p=q("#erw-fab-panel");if(!p)return;
   try{
     const s=JSON.parse(localStorage.getItem(FAB_SIZE_KEY)||"");
     if(!s||!s.w||!s.h)return;
-    p.style.width=fabClamp(s.w,340,Math.min(760,innerWidth-40))+"px";
-    p.style.height=fabClamp(s.h,320,Math.min(900,innerHeight-110))+"px";
+    p.style.width=fabClamp(s.w,fabMinW(),fabMaxW())+"px";
+    p.style.height=fabClamp(s.h,fabMinH(),fabMaxH())+"px";
   }catch{}
 }
 /* ---------- v260930j3 · 面板移动：按住头部拖动（控件区除外），位置持久化 ---------- */
@@ -380,8 +385,29 @@ function applyPanelPos(){
     p.style.right="auto";p.style.bottom="auto";
   }catch{}
 }
-function initPanelDrag(){
-  const head=q("#erw-fab-panel .fab-head"),p=q("#erw-fab-panel");if(!head||!p)return;
+/* v261008b · 窗口缩放自适应：尺寸/位置只在「恢复」和「拖拽」时钳制过，窗口变小后不会重算，
+   于是面板会顶出视口、内容被裁。这里在 resize 时按当前视口重新钳制面板与悬浮球。 */
+let fabReflowTimer=null;
+function reflowPanel(){
+  const p=q("#erw-fab-panel");
+  if(p&&!p.hidden){
+    applyPanelSize();
+    if(p.style.left!==""){ /* 只有被移动过的面板才需要重算位置（默认锚定右下，CSS 自己管） */
+      const w=p.offsetWidth||0,h=p.offsetHeight||0;
+      p.style.left=fabClamp(parseFloat(p.style.left)||0,8,Math.max(8,innerWidth-w-8))+"px";
+      p.style.top=fabClamp(parseFloat(p.style.top)||0,8,Math.max(8,innerHeight-h-8))+"px";
+      try{localStorage.setItem(FAB_POS_KEY,JSON.stringify({x:parseFloat(p.style.left),y:parseFloat(p.style.top)}))}catch{}
+    }
+  }
+  const ball=q("#erw-fab-ball");
+  if(ball&&ball.style.left){
+    const [x,y]=clampBallPos(parseFloat(ball.style.left)||0,parseFloat(ball.style.top)||0);
+    ball.style.left=x+"px";ball.style.top=y+"px";
+  }
+}
+window.addEventListener("resize",()=>{clearTimeout(fabReflowTimer);fabReflowTimer=setTimeout(reflowPanel,120)});
+
+function initPanelDrag(){  const head=q("#erw-fab-panel .fab-head"),p=q("#erw-fab-panel");if(!head||!p)return;
   head.addEventListener("pointerdown",e=>{
     if(e.button!==0)return;
     if(e.target.closest("button,select,input,label"))return; /* 人设/历史/新建/关闭等控件不触发拖动 */
@@ -409,8 +435,8 @@ function initPanelResize(){
     const hadLeft=p.style.left!=="",oleft=parseFloat(p.style.left)||0,otop=parseFloat(p.style.top)||0; /* v260930j3 · 移动过的面板 resize 时保持右下角不动 */
     h.setPointerCapture(e.pointerId);
     const mv=ev=>{
-      const nw=fabClamp(sw+(sx-ev.clientX),340,Math.min(760,innerWidth-40));
-      const nh=fabClamp(sh+(sy-ev.clientY),320,Math.min(900,innerHeight-110));
+      const nw=fabClamp(sw+(sx-ev.clientX),fabMinW(),fabMaxW());
+      const nh=fabClamp(sh+(sy-ev.clientY),fabMinH(),fabMaxH());
       p.style.width=nw+"px";p.style.height=nh+"px";
       if(hadLeft){p.style.left=oleft-(nw-sw)+"px";p.style.top=otop-(nh-sh)+"px"}
     };
@@ -480,12 +506,17 @@ async function syncDraftStatuses(){
 }
 
 /* ---------- 消息渲染 ---------- */
+/* v261008b · 把过宽块级元素（表格）包进滚动容器：表格保持自身布局（不逐字换行），
+   超宽时在气泡内横向滚动，而不是把面板撑破（.fab-messages 已 overflow-x:hidden）。 */
+function wrapWideBlocks(html){
+  return String(html||"").replace(/<table[\s\S]*?<\/table>/gi,(m)=>`<div class="fab-tbl">${m}</div>`);
+}
 function mdRender(raw){
   /* 轻量 Markdown → 安全 HTML（先转义再拼标签；marked/DOMPurify 可用时走完整渲染） */
   if(window.marked&&window.DOMPurify){
     try{
       const html=window.marked.parse(String(raw||""),{gfm:true});
-      return window.DOMPurify.sanitize(html,{ADD_TAGS:["mjx-container"]});
+      return wrapWideBlocks(window.DOMPurify.sanitize(html,{ADD_TAGS:["mjx-container"]})); /* v261008b · 表格套气泡内滚动容器 */
     }catch{/* 落回轻量渲染 */}
   }
   const lines=String(raw||"").split(/\r?\n/);let out="",inList=false,inCode=false;
@@ -505,48 +536,163 @@ function mdRender(raw){
   if(inList)out+="</ul>";if(inCode)out+="</code></pre>";
   return out;
 }
-function toolTraceHtml(m){
-  const trace=m.tool_trace;
-  if(!Array.isArray(trace)||!trace.length)return "";
-  const items=trace.map(t=>{
-    const st=S.draftState[t.draft_id]?.status;
-    const cls=st==="confirmed"?"ok":st==="rejected"?"bad":(t.ok?"ok":"bad");
-    const mark=st==="confirmed"?" ✓已确认":st==="rejected"?" ✗已拒绝":"";
-    return `<span class="ft ${cls}" title="${esc(t.tool)} · ${t.ms||0}ms${t.draft_id?" · "+esc(t.draft_id):""}">${esc(t.tool)}${t.ms?" "+t.ms+"ms":""}${mark}</span>`;
-  }).join("");
-  return `<div class="fab-tools">工具 <span class="fab-tools-list">${items}</span></div>`;
+/* ---------- v261008b · 工具时间条：把「逐条 chip 流水账」换成与真实耗时成比例的堆叠条 ---------- */
+function fmtDur(ms){
+  ms=Math.max(0,Math.round(Number(ms)||0));
+  if(ms<1000)return ms+"ms";
+  if(ms<60000)return (ms/1000).toFixed(ms<10000?1:0)+"s";
+  const m=Math.floor(ms/60000),s=Math.round(ms%60000/1000);
+  return m+"m"+String(s).padStart(2,"0")+"s";
 }
-function draftHtml(m){
-  const drafts=m.drafts;
-  if(!Array.isArray(drafts)||!drafts.length)return "";
-  const pend=drafts.filter(d=>(S.draftState[d.draft_id]||{status:"pending"}).status==="pending");
-  const batch=pend.length>=2?`<div class="fab-draft-batch"><!-- v260930c · M4 术语批量建档：≥2 篇待确认时提供整批操作 -->
-      <span class="fab-draft-note">${pend.length} 篇待确认</span>
-      <button type="button" class="go" data-draft-confirm-all="1">✓ 全部确认</button>
-      <button type="button" data-draft-reject-all="1">✗ 全部拒绝</button>
-    </div>`:"";
-  return batch+drafts.map(d=>{
-    const st=S.draftState[d.draft_id]||{status:"pending"};
-    const title=d.summary||d.draft_id;
-    if(st.status==="confirmed"){
-      const r=st.result||{};
-      return `<div class="fab-draft done-ok" data-draft="${esc(d.draft_id)}">
-        <div class="fab-draft-head"><span class="dt-badge st">已确认</span><span class="dt-badge tool">${esc(d.tool)}</span></div>
-        <div class="fab-draft-title" title="${esc(title)}">${esc(title)}</div>
-        <div class="fab-draft-result">${r.ok?`已写入：${esc(r.doc_id||r.title||"完成")}`:esc(r.error||"执行结果未知")}</div>
-      </div>`;
-    }
-    if(st.status==="rejected")return `<div class="fab-draft done-no" data-draft="${esc(d.draft_id)}"><div class="fab-draft-head"><span class="dt-badge st">已拒绝</span><span class="dt-badge tool">${esc(d.tool)}</span></div><div class="fab-draft-title" title="${esc(title)}">${esc(title)}</div></div>`;
-    return `<div class="fab-draft" data-draft="${esc(d.draft_id)}">
-      <div class="fab-draft-head"><span class="dt-badge st">待确认</span><span class="dt-badge tool">${esc(d.tool)}</span></div>
-      <div class="fab-draft-title" title="${esc(title)}">${esc(title)}</div>
-      <div class="fab-draft-note">写入尚不会生效，确认后落盘</div>
-      <div class="fab-draft-actions">
-        <button type="button" class="go" data-draft-confirm="${esc(d.draft_id)}">✓ 确认</button>
-        <button type="button" data-draft-reject="${esc(d.draft_id)}">✗ 拒绝</button>
-      </div>
-    </div>`;
+function timelineOf(m){
+  const tl=m&&m.timing&&m.timing.timeline;
+  if(Array.isArray(tl)&&tl.length)return tl.filter(s=>s&&(s.kind==="llm"||s.kind==="tool"));
+  /* 兜底：没有服务端时间轴（老会话）时，按 tool_trace 的 ms 顺序拼一条，只是没有思考段 */
+  const trace=Array.isArray(m&&m.tool_trace)?m.tool_trace:[];
+  let t=0;
+  return trace.map(x=>{const ms=Math.max(0,x.ms|0);const seg={kind:"tool",name:x.tool,ok:!!x.ok,t0:t,t1:t+ms,ms};t=seg.t1;return seg});
+}
+/* v261008b · 每个工具一种颜色：按本消息内「首次出现顺序」取色，保证同一条时间条里各工具颜色互不相同 */
+const TL_PALETTE=["#3b82f6","#10b981","#f59e0b","#8b5cf6","#06b6d4","#ec4899","#84cc16","#f97316"];
+const TL_LLM_COLOR="color-mix(in srgb,var(--muted) 45%,transparent)";
+const TL_FAIL_COLOR="var(--danger,#b3392f)";
+function tlColorMap(segs){
+  const map=new Map();let i=0;
+  for(const s of (segs||[])){
+    if(!s||s.kind!=="tool")continue;
+    const name=s.name||"工具";
+    if(!map.has(name))map.set(name,TL_PALETTE[i++%TL_PALETTE.length]);
+  }
+  return map;
+}
+function tlSegColor(s,colors){
+  if(s.kind==="llm")return TL_LLM_COLOR;
+  if(s.ok===false)return TL_FAIL_COLOR; /* 失败仍用红色，语义优先于配色区分 */
+  return (colors&&colors.get(s.name||"工具"))||"var(--accent)";
+}
+function tlBarHtml(segs,total,extra,colors){
+  const list=(Array.isArray(segs)?segs:[]).filter(s=>s&&(s.kind==="llm"||s.kind==="tool"));
+  if(!list.length)return "";
+  const cmap=colors||tlColorMap(list);
+  const end=Math.max(Number(total)||0,...list.map(s=>Number(s.t1)||0),1);
+  const minW=end*0.004; /* 极短片段也留 0.4% 宽度，避免视觉上消失 */
+  return `<div class="fab-tl-bar${extra?" "+extra:""}">`+list.map(s=>{
+    const ms=Math.max(0,(Number(s.t1)||0)-(Number(s.t0)||0));
+    const isLlm=s.kind==="llm";
+    const cls=isLlm?"llm":"tool";
+    const tip=isLlm?`思考 · 第 ${s.round||1} 轮 · ${fmtDur(ms)}`:`${s.name||"工具"} · ${fmtDur(ms)}${s.ok===false?" · 失败":""}`;
+    return `<i class="fab-tl-seg ${cls}" style="flex:${Math.max(minW,ms).toFixed(1)} 1 0;background:${tlSegColor(s,cmap)}" title="${esc(tip)}"></i>`;
+  }).join("")+`</div>`;
+}
+/* 图例：思考（灰）+ 每个工具（同色）+ 失败（红），各带次数与累计耗时 */
+function tlLegendHtml(segs,colors){
+  const list=(Array.isArray(segs)?segs:[]).filter(s=>s&&(s.kind==="llm"||s.kind==="tool"));
+  if(!list.length)return "";
+  const cmap=colors||tlColorMap(list);
+  const llm=list.filter(s=>s.kind==="llm");
+  const items=[];
+  if(llm.length){
+    const ms=llm.reduce((a,s)=>a+Math.max(0,(Number(s.t1)||0)-(Number(s.t0)||0)),0);
+    items.push(`<span class="lg" title="模型思考累计 ${fmtDur(ms)}"><i style="background:${TL_LLM_COLOR}"></i>思考<span class="c">${llm.length} 轮</span><span class="t">${fmtDur(ms)}</span></span>`);
+  }
+  const order=[],agg=new Map();
+  for(const s of list){
+    if(s.kind!=="tool")continue;
+    const name=s.name||"工具";
+    if(!agg.has(name)){agg.set(name,{n:0,ms:0,bad:0});order.push(name)}
+    const a=agg.get(name);a.n++;a.ms+=Math.max(0,(Number(s.t1)||0)-(Number(s.t0)||0));if(s.ok===false)a.bad++;
+  }
+  for(const name of order){
+    const a=agg.get(name);
+    items.push(`<span class="lg${a.bad?" bad":""}" title="${esc(name)}：${a.n} 次，累计 ${fmtDur(a.ms)}${a.bad?`，失败 ${a.bad} 次`:""}"><i style="background:${cmap.get(name)||"var(--accent)"}"></i><span class="nm">${esc(name)}</span><span class="c">×${a.n}</span><span class="t">${fmtDur(a.ms)}</span>${a.bad?`<span class="c bad">✗${a.bad}</span>`:""}</span>`);
+  }
+  return `<div class="fab-tl-legend">${items.join("")}</div>`;
+}
+function liveSegs(m){ /* 流式中的时间轴：未闭合段以当前时刻收尾，画成动态增长的条 */
+  const now=Date.now()-(m.__t0||Date.now());
+  return (m.__tl||[]).map(s=>({kind:s.kind,name:s.name,ok:s.ok,round:s.round,t0:s.t0,t1:s.t1==null?now:s.t1}));
+}
+function liveStatusHtml(m){
+  if(!(m.__tl&&m.__tl.length&&(m.__thinking||m.__streaming)))return "";
+  return `<div class="fab-tl-live"><div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>${esc(m.__note||"正在思考 / 调用工具…")}</div>${tlBarHtml(liveSegs(m),Date.now()-(m.__t0||Date.now()),"live")}</div>`;
+}
+function toolTraceHtml(m){
+  const trace=Array.isArray(m.tool_trace)?m.tool_trace:[];
+  const segs=timelineOf(m);
+  if(!trace.length&&!segs.length)return "";
+  const timing=m.timing||{};
+  const end=Number(timing.total_ms)||(segs.length?Number(segs[segs.length-1].t1)||0:0);
+  const toolMs=timing.tool_ms!=null?Number(timing.tool_ms):segs.filter(s=>s.kind==="tool").reduce((a,s)=>a+Math.max(0,(Number(s.t1)||0)-(Number(s.t0)||0)),0);
+  const rounds=Number(timing.rounds)||segs.filter(s=>s.kind==="llm").length;
+  const calls=Number(timing.tool_calls)||trace.length||segs.filter(s=>s.kind==="tool").length;
+  const llmMs=timing.llm_ms!=null?Number(timing.llm_ms):segs.filter(s=>s.kind==="llm").reduce((a,s)=>a+Math.max(0,(Number(s.t1)||0)-(Number(s.t0)||0)),0);
+  const pct=end?Math.round(toolMs/end*100):0;
+  const hasTiming=!!(m.timing&&Array.isArray(m.timing.timeline)&&m.timing.timeline.length); /* v261008b · 老会话只有 tool_trace：不谎报 0 轮 / 0ms 思考 */
+  const sum=hasTiming
+    ?`<span class="fab-tl-total">⏱ ${fmtDur(end)}</span><span>总耗时</span><span class="sep">·</span><span>${rounds} 轮</span><span class="sep">·</span><span title="模型思考累计耗时">思考 ${fmtDur(llmMs)}</span><span class="sep">·</span><span title="工具累计 ${fmtDur(toolMs)}，占总耗时 ${pct}%">工具 ${fmtDur(toolMs)} · ${calls} 次</span>`
+    :`<span class="fab-tl-total">⏱ ${fmtDur(end)}</span><span>工具耗时合计</span><span class="sep">·</span><span>${calls} 次调用</span><span class="sep">·</span><span title="该消息产生于计时功能上线前，服务端未记录思考段与轮次">旧记录</span>`;
+  const colors=tlColorMap(segs);
+  let ti=0;
+  const rows=segs.map(s=>{
+    const ms=Math.max(0,(Number(s.t1)||0)-(Number(s.t0)||0));
+    if(s.kind==="llm")return `<div class="fab-tl-row"><span class="k llm">思考</span><span class="n">第 ${s.round||1} 轮</span><span class="d">${fmtDur(ms)}</span></div>`;
+    const t=trace[ti++]||{};
+    const st=S.draftState[t.draft_id]?.status;
+    const mark=st==="confirmed"?"✓ 已确认":st==="rejected"?"✗ 已拒绝":(s.ok===false?"✗ 失败":"");
+    return `<div class="fab-tl-row"><span class="k tool${s.ok===false?" bad":""}"><i class="dot" style="background:${tlSegColor(s,colors)}"></i>${esc(s.name||t.tool||"工具")}</span><span class="n">${mark}</span><span class="d">${fmtDur(ms)}</span></div>`;
   }).join("");
+  return `<div class="fab-tl">
+    <div class="fab-tl-sum">${sum}</div>
+    ${tlBarHtml(segs,end,"",colors)}
+    ${tlLegendHtml(segs,colors)}
+    <details class="fab-tl-detail"><summary>过程明细（${segs.length} 段）</summary>
+      <div class="fab-tl-list">${rows}</div>
+    </details>
+  </div>`;
+}
+/* v261008b · 草稿输出紧凑化：待确认＝紧凑行（标题 + 行内确认/拒绝，≥2 篇给整批操作条）；
+   已处理＝折成一行汇总（✓ 已确认 N / ✗ 已拒绝 M），明细收进 <details> 默认收起。
+   注意：data-draft-confirm / -reject / -confirm-all / -reject-all 四个钩子必须保留——批量确认靠
+   msgEl.querySelectorAll("[data-draft-confirm]") 收集 id（见 wireDrafts）。 */
+function draftHtml(m,stateMap){
+  const drafts=Array.isArray(m.drafts)?m.drafts:[];
+  if(!drafts.length)return "";
+  const stOf=(d)=>(stateMap||S.draftState)[d.draft_id]||{status:"pending"};
+  const pend=drafts.filter(d=>stOf(d).status==="pending");
+  const done=drafts.filter(d=>stOf(d).status!=="pending");
+  const okN=done.filter(d=>stOf(d).status==="confirmed").length,noN=done.length-okN;
+  const parts=[];
+  if(pend.length){
+    parts.push(`<div class="fab-drafts">
+      <div class="fab-drafts-head"><span class="hd">◔ ${pend.length} 篇待确认</span>${pend.length>=2?`
+        <button type="button" class="go" data-draft-confirm-all="1">✓ 全部确认</button>
+        <button type="button" data-draft-reject-all="1">✗ 全部拒绝</button>`:""}</div>
+      ${pend.map(d=>`<div class="fab-drow" data-draft="${esc(d.draft_id)}">
+        <span class="dt-badge tool">${esc(d.tool)}</span>
+        <span class="fab-drow-title" title="${esc(d.summary||d.draft_id)}">${esc(d.summary||d.draft_id)}</span>
+        <span class="fab-drow-acts">
+          <button type="button" class="go" data-draft-confirm="${esc(d.draft_id)}" title="确认并落盘">✓ 确认</button>
+          <button type="button" data-draft-reject="${esc(d.draft_id)}" title="拒绝，不写入">✗ 拒绝</button>
+        </span>
+      </div>`).join("")}
+      <div class="fab-drafts-note">草稿尚未落盘，确认后才写入知识库</div>
+    </div>`);
+  }
+  if(done.length){
+    parts.push(`<div class="fab-drafts done"><details>
+      <summary><span class="hd ok">✓ 已确认 ${okN}</span>${noN?`<span class="hd no">✗ 已拒绝 ${noN}</span>`:""}<span class="fab-drafts-note">共 ${done.length} 篇 · 点击展开明细</span></summary>
+      <div class="fab-dlist">${done.map(d=>{
+        const st=stOf(d),r=st.result||{},ok=st.status==="confirmed";
+        const dest=ok?(r.doc_id||r.title||"已完成"):"—";
+        return `<div class="fab-drow done ${ok?"ok":"no"}" data-draft="${esc(d.draft_id)}">
+          <span class="dt-badge st ${ok?"ok":"no"}">${ok?"已确认":"已拒绝"}</span>
+          <span class="dt-badge tool">${esc(d.tool)}</span>
+          <span class="fab-drow-title" title="${esc(d.summary||d.draft_id)}">${esc(d.summary||d.draft_id)}</span>
+          <span class="fab-drow-id" title="${esc(dest)}">${esc(dest)}</span>
+        </div>`}).join("")}</div>
+    </details></div>`);
+  }
+  return parts.join("");
 }
 function quickActionsHtml(m){
   if(m.role!=="assistant")return "";
@@ -565,11 +711,23 @@ function msgImagesHtml(m){ /* v260930e · 消息附图：user 消息 images 为�
 function msgQuoteHtml(m){ /* v260930j · 消息内引用标记（本地发送时带 quoteTitle，会话重载后消失） */
   return m.quoteTitle?`<div class="fab-msg-quote">❝ 引用历史对话「${esc(m.quoteTitle)}」</div>`:"";
 }
+/* v261008b · 元信息去重：请求模式标签通常自带模型名（如「DeepSeek V4.1 Flash（默认）」、
+   「DeepSeek V4.1 Flash · 无思考」），再并排显示 model 字段就成了同一件事报两遍。
+   归一化后标签已含模型名 → 只留标签；标签与模型确实不同（如自定义标签）→ 两者都留。 */
+function metaParts(m){
+  const persona=String(m.persona_name||"").trim();
+  const model=String(m.model||"").trim();
+  const mode=String(m.request_preset_label||"").trim();
+  const norm=(s)=>s.toLowerCase().replace(/[\s._\-（）()·/、]/g,"");
+  const modelShown=!!model&&!(mode&&norm(mode).includes(norm(model)));
+  return [persona,modelShown?model:"",mode].filter(Boolean);
+}
 function msgHtml(m,idx){
   const who=m.role==="assistant"?"AI":"YOU";
-  const meta=[m.persona_name?esc(m.persona_name):"",esc(m.model||""),m.request_preset_label?esc(m.request_preset_label):"",esc(fmtTime(m.created))].filter(Boolean).join(" · ");
+  const meta=[...metaParts(m).map(esc),esc(fmtTime(m.created))].filter(Boolean).join(" · ");
+  const live=liveStatusHtml(m);
   const body=m.__thinking
-    ?'<div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>正在思考 / 调用工具…</div>'
+    ?(live?"":'<div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>正在思考 / 调用工具…</div>')
     :`<div class="fab-body">${mdRender(m.content||"")}</div>`;
   const cite=(m.__thinking||m.__streaming)?"":`<button type="button" class="fab-msg-cite" data-cite="${idx}" title="引用此条消息：发送时把该条内容带给 AI">❝</button>`; /* v260930j · 消息级引用；v260930k 生成中不显示 */
   return `<article class="fab-msg ${m.role==="assistant"?"assistant":"user"}">
@@ -578,6 +736,7 @@ function msgHtml(m,idx){
       ${cite}
       ${msgQuoteHtml(m)}
       ${msgImagesHtml(m)}
+      ${live}
       ${body}
       ${m.__thinking?"":toolTraceHtml(m)+draftHtml(m)+quickActionsHtml(m)}
       <div class="fab-msg-meta">${meta}</div>
@@ -787,7 +946,7 @@ async function send(){
     S.images=[];paintAttach();
     input.value="";input.style.height="auto";
     /* v260930k · 方案 A 流式：SSE 逐字渲染。round=新一轮 LLM 请求（清缓冲），delta=文本片段，done=完整响应（与旧 JSON 同构），error=失败 */
-    const streamMsg={role:"assistant",content:"",__thinking:true};
+    const streamMsg={role:"assistant",content:"",__thinking:true,__t0:Date.now(),__tl:[]}; /* v261008b · 实时时间条状态 */
     S.messages.push(streamMsg);
     renderMessages();
     const res=await fetch("/api/agent/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:S.session,message:text,refs:[],images:imgPaths,request_preset:"",context:ctx,persona_id:S.personaId}),signal:S.abortCtl.signal}); /* v260930l · 带 abort 信号 */
@@ -799,22 +958,31 @@ async function send(){
       if(rafPending)return;rafPending=true;
       requestAnimationFrame(()=>{rafPending=false;const root=q("#fab-messages");const body=root?.querySelector(".fab-msg:last-child .fab-body");if(body&&root){body.innerHTML=mdRender(streamMsg.content);root.scrollTop=root.scrollHeight}});
     };
-    const paintStatus=(note)=>{ /* v260930l · 工具循环状态行：进度实时可见，不再像卡死 */
-      const root=q("#fab-messages");const body=root?.querySelector(".fab-msg:last-child .fab-body");if(body)body.innerHTML=`<div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>${note}</div>`;
+    const nowMs=()=>Date.now()-streamMsg.__t0;
+    const closeSeg=(seg)=>{if(seg&&seg.t1==null)seg.t1=nowMs()};
+    const openLlm=()=>{const tl=streamMsg.__tl=streamMsg.__tl||[];const last=tl[tl.length-1];if(!last||last.kind!=="llm"||last.t1!=null)tl.push({kind:"llm",t0:nowMs(),t1:null,round:streamMsg.__round||1})};
+    const paintStatus=(note)=>{ /* v261008b · 状态行 + 实时时间条：状态驱动渲染，重绘不丢进度（原实现改 DOM，首帧 delta 重绘即丢） */
+      streamMsg.__note=note;renderMessages();
     };
     const handle=(ev,dataStr)=>{
       let data={};try{data=JSON.parse(dataStr)}catch{}
       if(ev==="delta"){
         if(streamMsg.__thinking){streamMsg.__thinking=false;streamMsg.__streaming=true;renderMessages()}
+        openLlm(); /* v261008b · 首个 delta 前若还没开思考段（极少数时序）也补上 */
         streamMsg.content+=data.text||"";
         paintStream();
       }else if(ev==="round"){ /* v260930k · 工具循环新一轮：中途文本废弃，缓冲清零 */
         streamMsg.content="";streamMsg.__streaming=true;streamMsg.__round=(data.i|0)+1;
+        closeSeg((streamMsg.__tl||[])[(streamMsg.__tl||[]).length-1]); /* v261008b · 收上一段 */
+        openLlm();
         paintStatus(`第 ${streamMsg.__round} 轮 · 模型思考中…`);
       }else if(ev==="tool"){ /* v260930l · 工具执行完成实时上报 */
         streamMsg.__tools=streamMsg.__tools||[];
         streamMsg.__tools.push({n:String(data.name||""),ok:!!data.ok,ms:data.ms|0});
-        paintStatus(`第 ${streamMsg.__round||1} 轮 · ${String(data.name||"工具")} ${data.ok?"✓":"✗"}（${data.ms|0}ms）· 累计 ${streamMsg.__tools.length} 次`);
+        const ms=Math.max(0,data.ms|0),t1=nowMs();const tl=streamMsg.__tl=streamMsg.__tl||[]; /* v261008b · 工具段：按上报耗时回推起点 */
+        closeSeg(tl[tl.length-1]);
+        tl.push({kind:"tool",name:String(data.name||""),ok:!!data.ok,ms,t0:Math.max(0,t1-ms),t1});
+        paintStatus(`第 ${streamMsg.__round||1} 轮 · ${String(data.name||"工具")} ${data.ok?"✓":"✗"}（${ms}ms）· 累计 ${streamMsg.__tools.length} 次`);
       }else if(ev==="error"){throw new Error(data.message||"生成失败")}
       else if(ev==="done"){doneData=data}
     };
@@ -847,6 +1015,8 @@ async function send(){
     if(S.messages.at(-1)?.__thinking||S.messages.at(-1)?.__streaming){S.messages=S.messages.filter(m=>!m.__thinking&&!m.__streaming);renderMessages()}
   }
 }
+
+window.ERWFabTimeline={html:toolTraceHtml,bar:tlBarHtml,fmtDur,live:liveStatusHtml,drafts:draftHtml,metaParts:metaParts,render:mdRender}; /* v261008b · 供 Agent 页（app.js）复用同一套渲染，避免两处实现漂移 */
 
 /* ---------- 划词气泡 ---------- */
 function onDocMouseDown(e){

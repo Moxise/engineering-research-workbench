@@ -443,3 +443,41 @@ html[data-density="cozy"] .quick-capture-card{padding:20px 22px}
 .heatmap-card.is-narrow .card-head p{display:none}
 .heatmap-card.is-narrow .heatmap-head-tools{flex:1 1 100%;justify-content:space-between}
 
+/* ---------- v261008c/d · Agent 对话排版：统一栅格 + 宽屏居中阅读列 + 消息内表格 ----------
+   背景：①消息锁死 max-width:920px 且助手气泡左对齐，1828px 宽屏下右侧空出 600+px；
+         ②`.agent-message.user{align-self:flex-end}` 把「YOU 头像 + 气泡」整体推到右边，
+           于是 YOU 与 AI 的**开头不在同一条竖线上**（头像 x 相差数百像素），整列没有秩序；
+         ③`.agent-message-body{overflow-wrap:anywhere}` 会把表格单元格里的英文逐字断开（literat/ure）。
+   原则：无论 YOU 还是 AI，**头像列固定在同一条左侧竖线上**（开头对齐），只有气泡分居左右；
+         整条会话（消息列 + 引用条 + 输入框）共用一条居中阅读列；表格保持自身列宽、超宽在气泡内横滚。 */
+.agent-chat{--agent-col-inner:1080px;--agent-gutter:36px}
+/* 整页只有一条对齐轴：聊天头、消息栅格、引用条、输入框共用 --agent-col-inner 的左右边缘 */
+.agent-chat-head{width:100%;max-width:var(--agent-col-inner);margin-inline:auto}
+.agent-messages{padding:14px max(6px,calc((100% - var(--agent-col-inner))/2)) 10px}
+.agent-context-strip,.agent-composer{margin-inline:max(6px,calc((100% - var(--agent-col-inner))/2))}
+/* 统一栅格：两角色的 article 同宽、同起点，头像永远占第一列（开头对齐的关键） */
+.agent-message{display:grid;grid-template-columns:var(--agent-gutter) minmax(0,1fr);gap:10px;align-items:start;
+  width:100%;max-width:var(--agent-col-inner);margin-inline:auto}
+.agent-message.user,.agent-message.assistant{align-self:stretch;width:100%}
+.agent-message .agent-avatar{grid-column:1}
+/* 气泡：两角色**一律左对齐**——都从「头像右侧」同一条线起笔，开头完全对齐；
+   AI 占满内容列（承载表格/时间条），YOU 贴合文字（短消息不被拉成空框），角色靠头像与底色区分。
+   若想让 YOU 气泡也占满整列，把下面 width 改成 100% 即可。 */
+.agent-message.assistant .agent-bubble{grid-column:2;justify-self:start;width:100%;max-width:100%}
+.agent-message.user .agent-bubble{grid-column:2;justify-self:start;width:-moz-fit-content;width:fit-content;max-width:100%}
+.agent-message-body{font-size:13px;line-height:1.72;overflow-wrap:break-word;word-break:normal}
+/* 消息内表格：渲染时已套 .fab-tbl 滚动容器（app.js renderMarkdownInto），这里只补齐表格自身样式 */
+.agent-message-body .fab-tbl{max-width:100%;overflow-x:auto;margin:8px 0}
+.agent-message-body table{border-collapse:collapse;font-size:12px;margin:0;width:max-content;max-width:none}
+.agent-message-body th,.agent-message-body td{border:1px solid var(--line);padding:4px 9px;vertical-align:top;overflow-wrap:break-word;word-break:normal}
+.agent-message-body th{background:var(--surface-3);font-weight:600;white-space:nowrap}
+.agent-message-body pre{max-width:100%;overflow-x:auto}
+.agent-message-body img{max-width:100%;height:auto}
+.agent-message-body>*:first-child{margin-top:0}
+.agent-message-body>*:last-child{margin-bottom:0}
+@media(max-width:1100px){
+  .agent-chat-head{max-width:none}
+  .agent-messages{padding:14px 8px 10px}
+  .agent-context-strip,.agent-composer{margin-inline:0}
+}
+

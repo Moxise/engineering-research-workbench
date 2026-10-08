@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import uuid
 from copy import deepcopy
@@ -217,6 +218,30 @@ def _normalize_preset(item: Any, fallback_model: str = "", index: int = 0) -> di
     }
 
 
+def _clean_headers(value: Any) -> dict[str, str]:
+    """v261008 · 档案级自定义请求头（`profiles[].headers`）。
+
+    部分 OpenAI 兼容网关要求额外请求头才肯路由——典型是 opencode.ai Zen Go：缺 `x-opencode-session`
+    直接返回 400 `Request is missing x-opencode-session and cannot be routed efficiently`。
+    这里做白名单化：头名须是 RFC 7230 token、值不含 CR/LF（防头注入）、长度设上限、最多 20 条。
+    返回值恒为 dict（可为空），保证前端 round-trip 时字段不丢。
+    """
+    out: dict[str, str] = {}
+    for key, val in (value if isinstance(value, dict) else {}).items():
+        name = str(key or "").strip()
+        text = str(val if val is not None else "").strip()
+        if not name or not text or len(name) > 64 or len(text) > 512:
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9!#$%&'*+\-.^_`|~]+", name):
+            continue
+        if "\r" in text or "\n" in text:
+            continue
+        out[name] = text
+        if len(out) >= 20:
+            break
+    return out
+
+
 def _normalize_profile(item: Any, index: int = 0, existing_key: str = "") -> dict[str, Any]:
     raw = item if isinstance(item, dict) else {}
     profile_id = _safe_profile_id(raw.get("id"), f"profile-{index + 1}")
@@ -243,6 +268,7 @@ def _normalize_profile(item: Any, index: int = 0, existing_key: str = "") -> dic
         "name": str(raw.get("name") or raw.get("provider_label") or "未命名配置").strip()[:120] or "未命名配置",
         "base_url": str(raw.get("base_url") or "https://api.openai.com/v1").strip(),
         "api_key": key_value,
+        "headers": _clean_headers(raw.get("headers")),  # v261008 · 档案级自定义请求头（随档案存 config/secret.json）
         "timeout": max(5, min(600, int(raw.get("timeout") or 120))),
         "max_output_tokens": max(0, int(raw.get("max_output_tokens") or raw.get("max_tokens") or 0)),
         "temperature": _number_or_none(raw.get("temperature")),

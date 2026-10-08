@@ -130,6 +130,40 @@ button.fab-rel-cap:hover .fab-rel-chev{color:var(--accent)}
 .fab-tools .ft.ok{color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 30%,var(--line))}
 .fab-tools .ft.bad{color:var(--danger,#b3392f);border-color:color-mix(in srgb,var(--danger,#b3392f) 30%,var(--line))}
 
+/* ---------- v261008b · 工具时间条（悬浮球与 Agent 页共用同一套类名） ---------- */
+.fab-tl{display:flex;flex-direction:column;gap:5px;font-size:10px;color:var(--muted);margin-top:2px}
+.fab-tl-sum{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.fab-tl-sum .fab-tl-total{color:var(--text);font-weight:600}
+.fab-tl-sum .sep{opacity:.45}
+.fab-tl-bar{display:flex;height:9px;border-radius:5px;overflow:hidden;background:var(--surface-3);border:1px solid var(--line)}
+.fab-tl-bar.live{height:6px;opacity:.92}
+.fab-tl-seg{display:block;min-width:1px}
+.fab-tl-seg.llm{background:color-mix(in srgb,var(--muted) 42%,transparent)}
+.fab-tl-seg.tool.ok{background:var(--accent)}
+.fab-tl-seg.tool.bad{background:var(--danger,#b3392f)}
+.fab-tl-bar:hover .fab-tl-seg{opacity:.55}
+.fab-tl-bar .fab-tl-seg:hover{opacity:1}
+/* v261008b · 图例：颜色 ↔ 工具，含思考合计与每工具次数/累计耗时 */
+.fab-tl-legend{display:flex;flex-wrap:wrap;gap:3px 11px;font-size:10px;color:var(--muted);margin-top:1px}
+.fab-tl-legend .lg{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.fab-tl-legend .lg i{width:8px;height:8px;border-radius:2px;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.10)}
+.fab-tl-legend .lg .c{opacity:.75}
+.fab-tl-legend .lg .c.bad{color:var(--danger,#b3392f);opacity:1}
+.fab-tl-legend .lg .t{color:var(--text);font-variant-numeric:tabular-nums}
+.fab-tl-detail>summary{cursor:pointer;color:var(--muted);list-style:none}
+.fab-tl-detail>summary::-webkit-details-marker{display:none}
+.fab-tl-detail>summary::before{content:"▸ ";opacity:.6}
+.fab-tl-detail[open]>summary::before{content:"▾ "}
+.fab-tl-list{margin:5px 0 2px;display:flex;flex-direction:column;gap:2px;max-height:190px;overflow:auto}
+.fab-tl-row{display:flex;align-items:center;gap:6px;line-height:1.5}
+.fab-tl-row .k{flex:0 0 108px;display:flex;align-items:center;gap:5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fab-tl-row .k .dot{width:7px;height:7px;border-radius:2px;flex-shrink:0}
+.fab-tl-row .k.llm{color:var(--muted)}
+.fab-tl-row .k.bad{color:var(--danger,#b3392f)}
+.fab-tl-row .n{flex:1;color:var(--muted)}
+.fab-tl-row .d{font-variant-numeric:tabular-nums;color:var(--text)}
+.fab-tl-live{display:flex;flex-direction:column;gap:5px;margin-bottom:2px}
+
 /* 工具草稿确认卡片 */
 .fab-draft{border:1px solid color-mix(in srgb,#e9b44c 55%,var(--line));background:color-mix(in srgb,#e9b44c 10%,var(--surface));border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
 .fab-draft.done-ok{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:color-mix(in srgb,var(--accent-soft) 70%,var(--surface))}
@@ -155,6 +189,39 @@ button.fab-rel-cap:hover .fab-rel-chev{color:var(--accent)}
 .fab-draft-batch .go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 .fab-draft-batch .go:hover{background:var(--accent-2)}
 .fab-draft-batch button:hover{border-color:var(--accent)}
+
+/* ---------- v261008b · 草稿输出紧凑化（替代上面的逐张卡片；旧类保留供回退） ---------- */
+.fab-drafts{display:flex;flex-direction:column;gap:4px;margin-top:2px}
+.fab-drafts-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--text)}
+.fab-drafts-head .hd{font-weight:600}
+.fab-drafts-head button{border-radius:7px;border:1px solid var(--line);background:var(--surface);font-size:11px;padding:2px 9px;cursor:pointer}
+.fab-drafts-head button.go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.fab-drafts-head button:hover{border-color:var(--accent)}
+.fab-drafts-note{font-size:10px;color:var(--muted)}
+.fab-drow{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;border:1px solid color-mix(in srgb,#e9b44c 45%,var(--line));background:color-mix(in srgb,#e9b44c 8%,var(--surface));border-radius:9px;padding:6px 9px}
+.fab-drow .dt-badge{display:inline-flex;align-items:center;font-size:10px;border-radius:999px;padding:1px 7px;line-height:1.5}
+.fab-drow .dt-badge.tool{background:transparent;border:1px dashed var(--line);color:var(--muted)}
+.fab-drow .fab-drow-title{flex:1 1 auto;min-width:55%;font-weight:600;font-size:12.5px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.fab-drow .fab-drow-acts{flex:1 1 100%;display:flex;justify-content:flex-end;gap:6px}
+.fab-drow .fab-drow-acts button{border-radius:7px;border:1px solid var(--line);background:var(--surface);font-size:11px;padding:2px 10px;cursor:pointer}
+.fab-drow .fab-drow-acts button.go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.fab-drow .fab-drow-acts button:hover{border-color:var(--accent)}
+/* 已处理：一行汇总 + 折叠明细 */
+.fab-drafts.done>details>summary{display:flex;align-items:center;gap:6px;flex-wrap:wrap;cursor:pointer;list-style:none}
+.fab-drafts.done>details>summary::-webkit-details-marker{display:none}
+.fab-drafts.done>details>summary::before{content:"▸";font-size:10px;color:var(--muted)}
+.fab-drafts.done>details[open]>summary::before{content:"▾"}
+.fab-drafts.done .hd.ok{color:var(--accent-ink);font-weight:600}
+.fab-drafts.done .hd.no{color:var(--danger,#b3392f);font-weight:600}
+.fab-dlist{display:flex;flex-direction:column;gap:2px;max-height:210px;overflow:auto;margin-top:4px}
+.fab-drow.done{flex-wrap:wrap;border-color:var(--line);background:var(--surface-2);border-radius:7px;padding:3px 8px;gap:2px 6px}
+.fab-drow.done.no{opacity:.7}
+.fab-drow.done .dt-badge{flex:0 0 auto;white-space:nowrap}
+.fab-drow.done .fab-drow-title{flex:1 1 60px;min-width:0;font-weight:500;font-size:11.5px;white-space:nowrap;text-overflow:ellipsis;display:block;-webkit-line-clamp:unset;overflow:hidden}
+/* doc_id 另起一行：窄面板里徽标 + 长 id 会把标题挤成 0 宽（实测 298px 可用宽度下 138+171 已超） */
+.fab-drow.done .fab-drow-id{flex:1 1 100%;min-width:0;max-width:none;color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fab-drow.done .dt-badge.st.ok{border:1px solid color-mix(in srgb,var(--accent) 50%,var(--line));color:var(--accent-ink);background:var(--accent-soft)}
+.fab-drow.done .dt-badge.st.no{border:1px solid var(--line);color:var(--muted);background:var(--surface)}
 
 .fab-quick{display:flex;gap:5px;flex-wrap:wrap}
 .fab-quick button{border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:10px;border-radius:999px;padding:2px 9px;cursor:pointer}
@@ -230,3 +297,29 @@ button.fab-rel-cap:hover .fab-rel-chev{color:var(--accent)}
 /* ---------- v260930g · 上下文条写入能力徽章 ---------- */
 .ctx-chip.fab-rw{cursor:default;flex-shrink:0}
 .ctx-chip.fab-rw.on{color:var(--accent-ink);border-color:var(--accent);background:var(--accent-soft)}
+
+/* ---------- v261008b · 面板自适应：内容一律不得撑破面板 ----------
+   背景：表格 / 长 doc_id / 长英文标题会把 .fab-messages 撑出横向滚动（面板右侧被裁）。
+   原则：容器 min-width:0（flex 子项默认 min-width:auto 不肯收缩），长串断行，
+   表格与代码块改为「气泡内横向滚动」而不是把面板撑大。 */
+.fab-messages{overflow-x:hidden}
+.fab-msg{min-width:0}
+.fab-msg .fab-bubble{min-width:0;max-width:100%}
+.fab-msg .fab-body{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+.fab-body .fab-tbl{max-width:100%;overflow-x:auto;margin:6px 0}
+.fab-body .fab-tbl>table{margin:0;width:max-content;max-width:none}
+.fab-body pre{max-width:100%}
+.fab-body img{max-width:100%;height:auto}
+.fab-body a{overflow-wrap:anywhere}
+.fab-context{min-width:0}
+.fab-context .ctx-chip{min-width:0}
+.fab-context .ctx-chip b{max-width:min(250px,52vw)}
+.fab-rel-title,.fab-rel-excerpt,.fab-rel-chip{min-width:0}
+.fab-tl,.fab-tl-sum,.fab-tl-legend,.fab-drafts,.fab-drafts-head{min-width:0;max-width:100%}
+.fab-tl-legend .lg{max-width:100%}
+.fab-tl-legend .nm{overflow:hidden;text-overflow:ellipsis;max-width:34vw}
+.fab-tl-row .n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fab-drow{min-width:0}
+.fab-drow .fab-drow-title,.fab-drow.done .fab-drow-title{min-width:0}
+.fab-quick{min-width:0;flex-wrap:wrap}
+.fab-msg-meta{min-width:0;overflow-wrap:anywhere}
