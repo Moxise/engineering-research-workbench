@@ -159,6 +159,17 @@ def main(argv: list[str] | None = None) -> int:
                 if seams:
                     notes.append(f"插件 {pid} 面板依赖的内核接缝：{seams}")
 
+        # manifest 声明的 mcp_tools 必须真的在入口里注册（否则清单在说谎，工具永远不出现）
+        declared = [str(t) for t in (cand.manifest or {}).get("mcp_tools") or []]
+        if declared:
+            entry_src = (Path(cand.dir) / entry).read_text(encoding="utf-8")
+            missing = [t for t in declared if f'"{t}"' not in entry_src and f"'{t}'" not in entry_src]
+            if missing:
+                fails.append(f"插件 {pid} 的 manifest 声明了工具 {missing}，但入口文件里找不到对应注册"
+                             "（声明了却不可用 = I10 反例）")
+            else:
+                notes.append(f"插件 {pid} 声明的 {len(declared)} 个工具都能在入口里找到注册")
+
     real = R.report(workspace=None, core_version=(ROOT / "VERSION").read_text(encoding="utf-8").strip())
     notes.append(f"当前 plugins/ 实况：发现 {len(real['plugins'])} 个，可用 {real['available']}，"
                  f"blocked {real['blocked']}，rejected {real['rejected']}，冲突 {real['conflict']}")

@@ -650,7 +650,8 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
 
     tool_trace: list[dict[str, Any]] = []
     drafts: list[dict[str, Any]] = []
-    allowed = [t for t in (ctx.get("tools") or agent_tools.TOOL_NAMES) if t in agent_tools.TOOL_NAMES] or list(agent_tools.TOOL_NAMES)
+    all_tools = agent_tools.all_tool_names()   # v261009 · 含已启用插件注册的工具（§8 ②）
+    allowed = [t for t in (ctx.get("tools") or all_tools) if t in all_tools] or list(all_tools)
     specs = agent_tools.openai_specs(allowed)
 
     # ---------- v261008b · 计时：时间轴 + 汇总 ----------
@@ -844,7 +845,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
     ctx = {
         "paper_id": str(page_ctx.get("paper_id") or "").strip(),
         "write_mode": write_mode,
-        "tools": list(persona.get("tools") or []) if persona else list(agent_tools.TOOL_NAMES),  # v260930 · M3 人设工具白名单
+        "tools": list(persona.get("tools") or []) if persona else list(agent_tools.all_tool_names()),  # v260930 · M3 人设工具白名单（v261009 起含插件工具）
     }
     request_cfg["_billing"] = {  # v261008 · 计费归属：会话 + 请求模式（探针类调用无此上下文，自动不计费）
         "session_id": session_id,

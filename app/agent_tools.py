@@ -316,17 +316,56 @@ _TOOL_META: dict[str, dict[str, Any]] = {
 }
 
 
+def _plugin_tool(name: str):
+    """按对外名取插件工具（未加载/未启用时返回 None）。"""
+    from core.plugins import runtime as plugin_runtime
+
+    return plugin_runtime.tools().get(str(name or "").strip())
+
+
+def plugin_tool_meta() -> dict[str, dict[str, Any]]:
+    """已启用插件注册的工具（v261009 · §8 ②）：`{对外名: {description, params, write}}`。
+
+    插件未启用/未加载时返回空表 —— 也就是「未启用则工具不出现」（I10 的反面：
+    不允许出现「注册了却不可用」的入口）。
+    """
+    from core.plugins import runtime as plugin_runtime
+
+    out: dict[str, dict[str, Any]] = {}
+    for name, spec in plugin_runtime.tool_specs().items():
+        out[name] = {
+            "description": str(spec.get("description") or f"插件工具 {name}"),
+            "params": spec.get("parameters") if isinstance(spec.get("parameters"), dict) else {"type": "object", "properties": {}},
+            "write": bool(spec.get("write")),
+            "plugin": plugin_runtime.plugin_of(name),
+        }
+    return out
+
+
+def all_tool_meta() -> dict[str, dict[str, Any]]:
+    """内核工具 + 插件工具的统一视图（顺序：内核在前，插件按加载顺序）。"""
+    merged = dict(_TOOL_META)
+    merged.update(plugin_tool_meta())
+    return merged
+
+
+def all_tool_names() -> tuple[str, ...]:
+    return tuple(all_tool_meta())
+
+
 def openai_specs(allowed: list[str] | tuple[str, ...] | None = None) -> list[dict[str, Any]]:
-    names = [n for n in (allowed or TOOL_NAMES) if n in _TOOL_META]
-    return [{"type": "function", "function": {"name": n, "description": _TOOL_META[n]["description"], "parameters": _TOOL_META[n]["params"]}} for n in names]
+    meta = all_tool_meta()
+    names = [n for n in (allowed or all_tool_names()) if n in meta]
+    return [{"type": "function", "function": {"name": n, "description": meta[n]["description"], "parameters": meta[n]["params"]}} for n in names]
 
 
 def text_protocol_prompt(allowed: list[str] | tuple[str, ...] | None = None) -> str:
     """文本协议兜底：端点不支持 function calling 时，让模型用固定 JSON 块调用工具。"""
-    names = [n for n in (allowed or TOOL_NAMES) if n in _TOOL_META]
+    meta = all_tool_meta()
+    names = [n for n in (allowed or all_tool_names()) if n in meta]
     lines = ["你可以调用以下工具（当接口不支持原生函数调用时使用文本协议）："]
     for n in names:
-        lines.append(f"- {n}: {_TOOL_META[n]['description']}")
+        lines.append(f"- {n}: {meta[n]['description']}")
     lines.append(
         "\n需要调用工具时，只输出一个 JSON 代码块，格式：\n"
         "```json\n{\"tool\": \"工具名\", \"args\": {参数对象}}\n```\n"
@@ -336,12 +375,16 @@ def text_protocol_prompt(allowed: list[str] | tuple[str, ...] | None = None) -> 
 
 
 def is_write_tool(name: str) -> bool:
-    return bool(_TOOL_META.get(name, {}).get("write"))
+    return bool(all_tool_meta().get(name, {}).get("write"))
 
 
 def list_tool_meta() -> list[dict[str, Any]]:
     """GET /api/agent/tools · 工具元信息清单（供前端展示与人设白名单编辑）。"""
-    return [{"name": n, "description": m["description"], "params": m["params"], "write": m["write"]} for n, m in _TOOL_META.items()]
+    return [
+        {"name": n, "description": m["description"], "params": m["params"], "write": m["write"],
+         **({"plugin": m["plugin"]} if m.get("plugin") else {})}
+        for n, m in all_tool_meta().items()
+    ]
 
 
 def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -354,7 +397,24 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
         ctx["write_mode"] = "confirm"
     impl = _TOOL_IMPL.get(name)
     if impl is None:
-        return {"ok": False, "error": f"未知工具 {name}，可用：{'、'.join(TOOL_NAMES)}"}
+        # v261009 · §8 ②：插件工具（p_<id>__<tool>）走插件注册的 handler，异常同样只影响本次调用
+        plugin_tool = _plugin_tool(name)
+        if plugin_tool is not None:
+            allowed = ctx.get("tools")
+            if isinstance(allowed, (list, tuple)) and allowed and name not in allowed:
+                return {"ok": False, "error": f"当前人设未授权工具 {name}，可用：{'、'.join(str(t) for t in allowed)}"}
+            t0 = time.time()
+            try:
+                result = plugin_tool.handler(args, ctx) or {}
+            except Exception as e:
+                return {"ok": False, "error": f"插件工具失败（{plugin_tool.plugin_id}）：{type(e).__name__}: {e}"}
+            if not isinstance(result, dict):
+                result = {"result": result}
+            result.setdefault("ok", True)
+            result["plugin"] = plugin_tool.plugin_id
+            result["tool_ms"] = int((time.time() - t0) * 1000)
+            return result
+        return {"ok": False, "error": f"未知工具 {name}，可用：{'、'.join(all_tool_names())}"}
     allowed = ctx.get("tools")
     if isinstance(allowed, (list, tuple)) and allowed and name not in allowed:  # v260930 · M3 人设白名单：不在名单内直接拒绝
         return {"ok": False, "error": f"当前人设未授权工具 {name}，可用：{'、'.join(str(t) for t in allowed)}"}

@@ -579,8 +579,9 @@ class Handler(BaseHTTPRequestHandler):
         handler 抛异常时返回 500 **只影响该次请求**，错误信息带插件 id（I4）。
         """
         from core.plugins import loader as plugin_loader
+        from core.plugins import runtime as plugin_runtime
 
-        result = PLUGINS.get("result")
+        result = plugin_runtime.current()
         if result is None:
             return self.send_json({"error": "not_ready", "message": "插件尚未加载"}, 503)
         status, payload = plugin_loader.dispatch(result, method, path, q, body)

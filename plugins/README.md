@@ -30,8 +30,10 @@ python tools/plugin_check.py           # 隔离体检：依赖方向单向、内
 6. 插件只经 `core_api` 与内核交互，**不得 import `core.*` 私有模块，也不得 import 别的插件的私有模块**；
 7. 核心绝不依赖任何插件：零插件时工作台必须完整可跑（不变量 I1）。
 
-> 当前阶段：内核侧的**发现 / 校验 / 依赖解析 / 执行（`register(ctx)`）**都已可用，
-> 前端面板管线（`GET /api/plugins` + `/plugins-file/<id>/<rel>` + 面板自登记 `ERWPanels`）也已可用。
+> 当前阶段：内核侧的**发现 / 校验 / 依赖解析 / 执行（`register(ctx)`）**、前端面板管线
+> （`GET /api/plugins` + `/plugins-file/<id>/<rel>` + 面板自登记 `ERWPanels`）、以及
+> **插件 MCP 工具接入内置 Agent**（`p_<id>__<tool>`）都已可用。
 > 仓库里已有两个真插件：`focus`（专注计时，纯前端）与 `rss`（科研资讯，含后端路由与自带样式）。
-> **尚未实现**：插件 MCP 工具的运行期接线（`p_<id>__<tool>` 目前只在加载结果里收集）、
-> 后台任务（`ctx.jobs`）、事件订阅（`ctx.events`）、`settings_schema` 通用表单、topbar 组件槽位。
+> **尚未实现**：插件**写**工具（声明 `write: true` 会被明确拒绝——写路径要走内核的草稿确认流，
+> 那条链路还没有插件分支）、MCP stdio 服务侧的插件工具、后台任务（`ctx.jobs`）、
+> 事件订阅（`ctx.events`）、`settings_schema` 通用表单、topbar 组件槽位。

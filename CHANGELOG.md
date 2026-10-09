@@ -93,7 +93,13 @@
   - **内核删除**：`app/rss.py`、`/api/rss`、`/api/config/rss`、`config.py` 的 `DEFAULT_RSS_CONFIG`/`get_rss`/`save_rss` 与 `get_all()` 里的 `rss`、`app.js` 的导航项/`PAGE_META.news`/路由分支/`renderNews`/设置页资讯源 tab/`sourceRow`+`wireSourceRows`、`styles.css` 的 news-*/rss-*/source-row 规则、`server.py` 的 rss 导入与 `clear_cache` 调用。`tools/self_check.py` 的 RSS 解析测试改为按路径加载插件后端（覆盖不丢）。
   - **端到端验收**（`.scratch/tmp/verify_rss_plugin.py`，17 项全通过）：`/api/plugins` 同时下发 focus 与 rss（含面板与样式 URL）· 面板脚本与插件样式均被请求 · 宿主 `loaded=['focus','rss']` 且 failures 为空 · **侧栏 17 项与顺序逐项不变**（资讯仍在 Agent 之后）· `#news` 由插件渲染且**插件样式生效**（`.news-grid` computed `display:grid`）· 资讯源设置内联可用且**9 个源已迁移** · 插件路由 `feed`/`config` 可用（离线也 200 + 源状态）· **内核 `/api/rss` 已 404** · 内核 Python 已无任何 rss 痕迹 · 全程 0 console error / 0 失败请求。
   - **有意变化（PLUGIN_SPEC §11.2 显式声明）**：资讯源设置从「设置页的一个 tab」移到「资讯页内联」——插件拥有自己的 UI，内核不再知道「资讯源」这个概念；接口从 `/api/rss`、`/api/config/rss` 变为 `/api/plugins/rss/*`。
-- **未做**：天气搬成插件（topbar 组件尚无扩展点，需先加 `slots`）、插件 MCP 工具的运行期接线（`p_<id>__*` 仍只在加载结果里收集）、`A2 剩余`、`A9 剩余`（8 个 `MutationObserver` 合并）、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
+- **§8 ②：插件 MCP 工具接入内置 Agent**（此前 `ctx.mcp` 注册的工具只在加载结果里收集，从未进入 Agent 工具面）：
+  - 新增 [`core/plugins/runtime.py`](core/plugins/runtime.py)：进程级持有当前 `LoadResult`，外部只读 `current()` / `tools()` / `tool_specs()` / `route_map()` / `summary()`；唯一写入点是 `loader.load()`（避免各处持副本或反向依赖 `server.py`）。
+  - `loader.load()` 结束时登记到 runtime；**声明 `write: true` 的插件工具被明确拒绝注册**并给出原因 —— 插件写工具要走内核的草稿确认流，那条链路还没有插件分支，**不半接**以免留下「绕过确认直接落盘」的口子。
+  - `app/agent_tools.py` 的工具面全面动态化：新增 `plugin_tool_meta` / `all_tool_meta` / `all_tool_names`，`openai_specs` / `text_protocol_prompt` / `is_write_tool` / `list_tool_meta` 改为读统一视图；`execute()` 未命中内核工具时查插件工具（`handler(args, ctx)`），异常只影响该次调用，返回值带 `plugin` 字段，人设白名单同样生效。`app/agent.py` 与 `app/config.py` 的白名单过滤改用 `all_tool_names()`（人设可勾选插件工具）。`server.py` 的插件路由分发改读 `runtime.current()`（与工具面同一份状态）。
+  - `plugin_check` 新增不变量：**manifest 声明的 `mcp_tools` 必须真的在入口里注册**（声明了却不可用 = I10 反例）。
+  - **验收**（`.scratch/tmp/verify_plugin_tools.py`，17 项全通过）：未加载时插件工具不存在且调用返回「未知工具」· 加载后读工具进入 `all_tool_names`/`openai_specs`/文本协议/`list_tool_meta`（带 description 与 plugin）· `execute` 调用成功且带 `plugin` · handler 抛异常只影响该次调用 · 人设白名单可限制 · **`write:true` 工具被拒且原因可读** · HTTP 面 `/api/agent/tools` 含插件工具、不含被拒的写工具 · **无插件时工具面与改造前完全一致**（6 个内核工具）。
+- **未做**：天气搬成插件（topbar 组件尚无扩展点，需先加 `slots` 并写进 PLUGIN_SPEC）、插件**写**工具（草稿确认流的插件分支）、MCP stdio 服务侧的插件工具、`settings_schema` 通用表单、`ctx.jobs`/`ctx.events`、`A2 剩余`、`A9 剩余`（8 个 `MutationObserver` 合并）、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 
