@@ -19,7 +19,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from . import kb_naming, store
+from . import store
+from core.contracts import kinds as contracts
+from core.contracts import naming
 
 _MAX_RESULT_CHARS = 8000
 _MAX_BODY_CHARS = 12000
@@ -143,9 +145,11 @@ def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
     if kind not in store.kind_dir_map():
         raise ValueError(f"kind 须为 {'/'.join(store.kind_dir_map())}，当前 {kind}")
     title = str(args.get("title") or "").strip()
-    validation = kb_naming.validate_title(kind, title)
+    issues = naming.validate_title(kind, title, projects=[str(x) for x in (args.get("projects") or []) if str(x)])
+    validation = naming.issues_summary(issues)
     if not validation["ok"]:
-        return {"ok": False, "error": "命名校验未通过，请修正后重试", "validation": validation}
+        return {"ok": False, "error": "命名校验未通过，请修正后重试", "validation": validation,
+                "issues": issues}
     # 查重先行：同题条目已存在 → 拒绝创建，提示走增补
     dup = [r for r in store.list_docs(kind=kind, query=title) if str(r.get("title") or "").strip() == title]
     if dup:
@@ -158,10 +162,12 @@ def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
         "projects": [str(x) for x in (args.get("projects") or []) if str(x).strip()][:6],
         "kind_marks": [str(x) for x in (args.get("kind_marks") or []) if str(x).strip()][:6],
     }
-    marks = kb_naming.category_mark(kind, title)
-    for m in marks:  # 类别词推断的内置标记去重合并
-        if m not in payload["kind_marks"]:
-            payload["kind_marks"].append(m)
+    # v261009 · P5 缺口补齐：Agent 建档此前不收状态与日期字段，导致 journal/summary/experiment/
+    # milestone/literature 缺法定日期；现按契约放行（日期字段由 store.create_doc 兜底为当天）。
+    for key in ("status", "record_date", "due", "added_date", "summary_type"):
+        if str(args.get(key) or "").strip():
+            payload[key] = str(args[key]).strip()
+    payload["kind_marks"] = naming.derive_marks(kind, title, payload["kind_marks"])
     if ctx.get("write_mode") == "direct":
         doc = store.create_doc(kind, payload)
         return {"ok": True, "doc_id": doc["id"], "title": doc.get("title"), "validation": validation}
@@ -240,9 +246,12 @@ TOOL_NAMES = tuple(_TOOL_IMPL)
 
 # ---------- 工具规格（OpenAI function calling） ----------
 
-# v260930d · 六类 kind 用字面量：模块级求值 store.kind_dir_map() 会触发循环导入
-# （导入链 store→workspace→config(模块级 reload_all)→agent_tools→store 部分初始化）；六类由命名规范固定，增类时须同步此处
-_KIND_ENUM = ["note", "idea", "journal", "milestone", "summary", "literature"]
+# v261009 · 契约单源：core.contracts 不依赖 app，可在模块级安全求值。
+# （原先用字面量规避 store→workspace→config→agent_tools 的循环导入，代价是 Agent 侧
+# 永远看不到新增类型——experiment 就是这样被漏掉的。）
+_KIND_ENUM = list(contracts.KIND_ORDER)
+_CATEGORY_ENUM = [str(c["word"]) for c in contracts.CATEGORY_WORDS]
+_MARK_ENUM = [str(m["id"]) for m in contracts.MARK_IDS]
 
 _TOOL_META: dict[str, dict[str, Any]] = {
     "kb_search": {
@@ -262,14 +271,20 @@ _TOOL_META: dict[str, dict[str, Any]] = {
         "write": False,
     },
     "kb_create_entry": {
-        "description": "在知识库新建条目。标题必须符合命名规范：知识类为「知识-<类别>-<名称>」，类别词取 架构/方法/模型/原理/实验/数据集；其他类型前缀为 总结-/灵感-/日志-/里程碑-/文献-。校验不通过会返回错误清单，须修正后重试。同名条目已存在时会拒绝并提示改用 kb_update_entry。confirm 模式下仅生成草稿，由用户确认后写入。",
+        "description": "在知识库新建条目。标题必须符合命名规范：知识类为「知识-<类别>-<名称>」，类别词取 架构/方法/模型/原理/数据集；实验独立成类，用 kind=experiment 且标题为「实验-<实验内容>（编号）」；其他类型前缀为 总结-/灵感-/日志-/里程碑-/文献-。校验不通过会返回错误清单，须修正后重试。同名条目已存在时会拒绝并提示改用 kb_update_entry。confirm 模式下仅生成草稿，由用户确认后写入。",
         "params": {"type": "object", "properties": {
-            "kind": {"type": "string", "enum": _KIND_ENUM, "description": "条目类型，术语/原理笔记用 note"},
-            "title": {"type": "string", "description": "合规标题，如「知识-原理-信杂比 SCR」"},
+            "kind": {"type": "string", "enum": _KIND_ENUM, "description": "条目类型，术语/原理笔记用 note，一次具体实验用 experiment"},
+            "title": {"type": "string", "description": "合规标题，如「知识-原理-信杂比 SCR」「实验-质心算法对比（4.1）」"},
             "body": {"type": "string", "description": "Markdown 正文；知识类建议含 摘要/原理/公式/场景/失效模式/关联 分节"},
             "tags": {"type": "array", "items": {"type": "string"}, "description": "标签，可选"},
             "projects": {"type": "array", "items": {"type": "string"}, "description": "归属项目名，可选"},
-            "kind_marks": {"type": "array", "items": {"type": "string"}, "description": "分类标记 id，可选"},
+            "kind_marks": {"type": "array", "items": {"type": "string"}, "enum": _MARK_ENUM,
+                           "description": "分类标记 id，可选；类别词对应的标记与实验的 ⚗ 会自动补齐"},
+            "status": {"type": "string", "description": "状态，取值须在该类型的状态机内（可选，缺省取首个状态）"},
+            "record_date": {"type": "string", "description": "journal/summary/experiment 的记录日期 YYYY-MM-DD（可选，缺省当天）"},
+            "due": {"type": "string", "description": "仅 milestone：截止日期 YYYY-MM-DD"},
+            "added_date": {"type": "string", "description": "仅 literature：收录日期 YYYY-MM-DD"},
+            "summary_type": {"type": "string", "description": "仅 summary：阶段总结/里程碑总结等"},
         }, "required": ["kind", "title", "body"]},
         "write": True,
     },

@@ -13,38 +13,15 @@ from typing import Any
 
 from .config import ROOT, get_app, workspace_root
 from . import activity
+from core.contracts import kinds as contracts
 
 _LOCK = threading.RLock()
 _MIGRATION_CHECKED = False
 
-WORKSPACE_LAYOUT = [
-    "Knowledge/Ideas",
-    "Knowledge/Journals",
-    "Knowledge/Notes",
-    "Knowledge/Experiments",
-    "Knowledge/Milestones",
-    "Knowledge/Summaries",
-    "Knowledge/Literature",
-    "Knowledge/Literature/PDF",
-    "Knowledge/Literature/Annotations",
-    "Knowledge/Literature/Notes",
-    "Knowledge/Literature/Index",
-    "Knowledge/Literature/Previews",
-    "Knowledge/Attachments",
-    "Knowledge/Exports/KnowledgeBundles",
-    "Knowledge/Exports/BibTeX",
-    "Knowledge/Exports/KnowledgeTree",
-    "Projects",
-    "Resources",
-    "System/Trash",
-    "System/Cache",
-    "System/AgentChats/Attachments",
-    "System/AgentChats/Trash",
-]
+# 工作区骨架的唯一声明处：core/contracts/kinds.py（v261009 起与 MCP 侧共用同一份）。
+WORKSPACE_LAYOUT = contracts.WORKSPACE_LAYOUT
 
-PROJECT_LAYOUT = [
-    "Notes", "Experiments", "Data", "Results", "Figures", "Manuscript", "References"
-]
+PROJECT_LAYOUT = contracts.PROJECT_LAYOUT
 
 LEGACY_RELATIVE = {
     "data/research_os/ideas": "Knowledge/Ideas",

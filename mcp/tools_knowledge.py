@@ -30,17 +30,8 @@ def _resolve_title(args: dict[str, Any], kind: str) -> str:
 
 
 def _derive_marks(kind: str, title: str, marks: list[str]) -> list[str]:
-    out = [str(m) for m in marks if str(m)]
-    seg = naming.split_segments(title, kind)
-    word = seg["category"]
-    expected = next((c["mark"] for c in C.CATEGORY_WORDS if c["word"] == word), "")
-    if expected and expected not in out:
-        out.append(expected)
-    if kind == "note" and expected == "model" and "method" in out:
-        out.remove("method")  # 模型类条目不再沿用 method 标记
-    if kind == "experiment" and "experiment" not in out:
-        out.append("experiment")  # v261008.2 · 实验类型固定带 ⚗ 标记
-    return out
+    """标记推导的唯一实现在 core/contracts/naming.py（HTTP 侧 Agent 工具共用同一份）。"""
+    return naming.derive_marks(kind, title, marks)
 
 
 def _payload_from_args(args: dict[str, Any], kind: str, title: str) -> dict[str, Any]:

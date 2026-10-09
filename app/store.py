@@ -15,121 +15,40 @@ from typing import Any
 
 from .workspace import ensure_workspace, ensure_project
 from . import activity, config
+from core.contracts import kinds as contracts
 
-BUILTIN_KIND_DIR = {
-    "idea": "Knowledge/Ideas",
-    "journal": "Knowledge/Journals",
-    "note": "Knowledge/Notes",
-    "milestone": "Knowledge/Milestones",
-    "summary": "Knowledge/Summaries",
-    "literature": "Knowledge/Literature",
-    "experiment": "Knowledge/Experiments",
-}
+# v261009 · 契约单源：kind→目录/标签/状态机/日期字段一律取 core/contracts/kinds.py。
+# 历史上 store、mcp/constraints、kb_naming 三处各留一份副本且已漂移，本模块不再自留。
 
-BUILTIN_KIND_LABEL = {
-    "idea": "灵感",
-    "journal": "研究日志",
-    "note": "笔记",
-    "milestone": "里程碑",
-    "summary": "工作总结",
-    "literature": "文献",
-    "experiment": "实验",
-}
-
-BUILTIN_STATUSES = {
-    "idea": ["待整理", "探索中", "已采纳", "已归档"],
-    "journal": ["记录", "复盘", "已归档"],
-    "note": ["草稿", "整理中", "稳定", "已归档"],
-    "milestone": ["计划", "进行中", "受阻", "完成"],
-    "summary": ["草稿", "已定稿", "已归档"],
-    "literature": ["待阅读", "阅读中", "已精读", "已归档"],
-    "experiment": ["计划", "进行中", "完成", "受阻", "已归档"],
-}
 
 def kind_dir_map() -> dict[str, str]:
-    return dict(BUILTIN_KIND_DIR)
+    return contracts.kind_dir_map()
 
 
 def kind_label_map() -> dict[str, str]:
-    return dict(BUILTIN_KIND_LABEL)
+    return contracts.kind_label_map()
 
 
 def kind_statuses(kind: str) -> list[str]:
-    return list(BUILTIN_STATUSES.get(kind, []))
+    return contracts.kind_statuses(kind)
 
 
 def all_statuses() -> dict[str, list[str]]:
-    return dict(BUILTIN_STATUSES)
+    return contracts.all_statuses()
 
-DATE_FIELDS = {
-    "journal": "record_date",
-    "milestone": "due",
-    "summary": "record_date",
-    "literature": "added_date",
-    "experiment": "record_date",
-}
+
+DATE_FIELDS = contracts.DATE_FIELDS
 
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 
 # ---------------------------------------------------------------- 关联段 → 关系类型
 # 「关联」段的小标题（H3）与行内标签（`- 标签：`）共同决定 WikiLink 的关系类型；
 # 未命中任何映射的链接退化为通用 `wikilink`，历史条目无需改动即可获得类型化边。
-RELATION_GENERIC = "wikilink"
-
-RELATION_SECTIONS = {
-    "依据的知识": "uses-knowledge",
-    "用到的知识": "uses-knowledge",
-    "用到的数据": "uses-data",
-    "引用文献": "cites",
-    "同系列实验": "series",
-    "上一环节": "chain-prev",
-    "下一环节": "chain-next",
-    "产出与汇总": "produces",
-}
-
-RELATION_LABELS = {
-    "方法条目": "uses-knowledge",
-    "原理条目": "uses-knowledge",
-    "模型条目": "uses-knowledge",
-    "架构条目": "uses-knowledge",
-    "知识条目": "uses-knowledge",
-    "依据的知识": "uses-knowledge",
-    "用到的知识": "uses-knowledge",
-    "依据": "uses-knowledge",
-    "参照": "uses-knowledge",
-    "数据": "uses-data",
-    "数据集": "uses-data",
-    "用到的数据": "uses-data",
-    "文献": "cites",
-    "引用文献": "cites",
-    "引用": "cites",
-    "同系列": "series",
-    "同系列实验": "series",
-    "系列": "series",
-    "上一环节": "chain-prev",
-    "上一步": "chain-prev",
-    "前置": "chain-prev",
-    "下一环节": "chain-next",
-    "下一步": "chain-next",
-    "后续": "chain-next",
-    "产出": "produces",
-    "产出与汇总": "produces",
-    "汇总": "produces",
-    "全链汇总": "produces",
-    "报告": "produces",
-}
-
-#: 关系类型 → 显示名（前端图谱筛选、导出与文档共用同一份口径）
-RELATION_LABELS_DISPLAY = [
-    ("uses-knowledge", "依据知识"),
-    ("uses-data", "使用数据"),
-    ("cites", "引用文献"),
-    ("series", "同系列"),
-    ("chain-prev", "上一环节"),
-    ("chain-next", "下一环节"),
-    ("produces", "产出汇总"),
-    ("wikilink", "显式引用"),
-]
+# 映射表唯一声明处：core/contracts/kinds.py（store 只做转发）。
+RELATION_GENERIC = contracts.RELATION_GENERIC
+RELATION_SECTIONS = contracts.RELATION_SECTIONS
+RELATION_LABELS = contracts.RELATION_LABELS
+RELATION_LABELS_DISPLAY = contracts.RELATION_LABELS_DISPLAY
 
 _HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$")
 
@@ -204,11 +123,7 @@ def _quote_yaml(value: str) -> str:
 
 def _frontmatter_dump(meta: dict[str, Any]) -> str:
     lines = ["---"]
-    ordered = [
-        "id", "kind", "title", "created", "updated", "status", "project", "projects", "tags",
-        "kind_marks", "record_date", "due", "added_date", "summary_type", "pinned", "authors", "year",
-        "venue", "doi", "url", "cite_key"
-    ]
+    ordered = contracts.FRONTMATTER_ORDER
     seen = set()
     for key in ordered + sorted(meta.keys()):
         if key in seen or key not in meta:
@@ -541,43 +456,8 @@ def attachment_file(doc_id: str) -> Path | None:
 
 
 def _make_default_body(kind: str, title: str, payload: dict[str, Any]) -> str:
-    if kind == "idea":
-        return f"# {title}\n\n## 想法\n\n\n## 为什么值得记录\n\n\n## 下一步\n\n- [ ] \n"
-    if kind == "journal":
-        return f"# {title}\n\n## 今日进展\n\n\n## 关键发现\n\n\n## 问题与阻塞\n\n\n## 下一步\n\n- [ ] \n"
-    if kind == "note":
-        return f"# {title}\n\n## 摘要\n\n\n## 正文\n\n\n## 关联\n\n"
-    if kind == "milestone":
-        return f"# {title}\n\n## 目标\n\n\n## 验收条件\n\n- [ ] \n\n## 进展记录\n\n"
-    if kind == "summary":
-        return f"# {title}\n\n## 本阶段完成\n\n\n## 结果与产出\n\n\n## 问题与经验\n\n\n## 下一阶段\n\n- [ ] \n"
-    if kind == "literature":
-        bibtex = payload.get("bibtex") or "@article{cite_key,\n  title = {},\n  author = {},\n  year = {}\n}"
-        return (
-            f"# {title}\n\n"
-            "## BibTeX\n\n"
-            f"```bibtex\n{bibtex.strip()}\n```\n\n"
-            "## 核心结论\n\n\n"
-            "## 方法与数据\n\n\n"
-            "## 与当前研究的关系\n\n\n"
-            "## 摘录与批注\n\n"
-        )
-    if kind == "experiment":
-        return (
-            f"# {title}\n\n"
-            "## 摘要\n\n\n"
-            "## 目标与假设\n\n\n"
-            "## 配置与参数\n\n\n"
-            "## 数据与口径\n\n\n"
-            "## 结果\n\n\n"
-            "## 结论与失效模式\n\n\n"
-            "## 留档路径\n\n\n"
-            "## 关联\n\n"
-            "### 依据的知识\n\n\n"
-            "### 用到的数据\n\n\n"
-            "### 同系列实验\n\n\n"
-        )
-    return f"# {title}\n\n## 要点\n\n\n## 正文\n\n\n## 关联\n\n"
+    """正文骨架的唯一声明处在 core/contracts/kinds.py（BODY_TEMPLATES）。"""
+    return contracts.default_body(kind, title, payload)
 
 
 def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:

@@ -1,5 +1,20 @@
 # Changelog
 
+## v261009.0
+
+### 契约单源 + 基线对齐（底层变更，需重启生效）
+
+- **基线对齐（关键修复）**：把 `23a83f7`「知识库结构升级：实验独立成类 + 类型化关系层」摘到本分支（零冲突）。此前本分支的 `app/store.py`、`app/workspace.py`、`app/perf_index_*`、`web/app.js` 都停在升级前（6 类，没有 experiment），而 `Workspace/Knowledge/Experiments/` 里的 25 条实验、索引中 25 行 `documents(kind=experiment)` 以及 `mcp/` 层都已按七类写就——**下一次索引同步会把 25 条实验从索引与关系图中删除**（md 本体无损，但界面看不到实验）。复现证据：`.scratch/tmp/audit_kind_gap.py`（基线看得到 174 个 md，索引里 199 条，25 条会被删）。
+- **补齐「改动后必跑」的验证工具（A13）**：随上一条取回 `tools/kb_smoke.py`、`tools/kb_tree.py`、`tools/kb_migrate_experiments.py`；另从 `ba77ddc` 单独取回只读的 `tools/shot_page.py`、`tools/shot_prep.py`（截图 + 像素预算），使 `AGENTS.md` 指定的验收流程在本分支可用。
+- **契约单源（P0）**：新增 `core/contracts/kinds.py` —— 七类矩阵、标记表、字段契约、`WORKSPACE_LAYOUT`、关段关系映射、正文骨架的**唯一声明处**；新增 `core/contracts/naming.py` —— 标题校验的**唯一实现**（规则码 T000–T022、标记推导、建议标题）。`app/store.py`、`app/workspace.py`、`app/agent_tools.py` 改为消费契约；`mcp/constraints.py` 与 `mcp/naming.py` 退化为再导出门面（调用点零改动）；**删除**过期的第二套校验 `app/kb_naming.py`。
+- **校验合并（P1/P2）**：同一标题在 HTTP（应用内 Agent）与 MCP 两条写入路径上现在得到同一结论；`experiment` 不再被 Agent 侧放行（原先「未知条目类型 experiment，跳过命名校验」）。
+- **Agent 建档缺口（P5）**：`kb_create_entry` 开始接受 `status` / `record_date` / `due` / `added_date` / `summary_type`；`_KIND_ENUM` 改由契约派生（Agent 首次能看到 `experiment`，此前靠字面量硬编码六类）。
+- **幽灵常量修正**：`WORKBENCH_VERSION_EXPECTED` 改为直接读 `VERSION`，不再抄一份写死的 `v260924.1`。
+- **工作区骨架归一（P19）**：`WORKSPACE_LAYOUT` 由两处（`app/workspace.py` 22 项、`mcp/constraints.py` 17 项）合并为一处 22 项，`knowledge/constraints` 的 storage 主题不再漏掉 `Knowledge/Literature/{PDF,Annotations,Notes,Index,Previews}`。
+- **验证**：`python tools/kb_smoke.py` 全绿（199 条 / 关系边 1854）；`python -m mcp.server --selftest` 的 `problems` 为空；新增等价性核对 `.scratch/tmp/verify_contract_equiv.py` —— 七类正文骨架与旧实现**逐字一致**，kind→目录/标签/状态机/日期字段/关系映射四张表**逐项一致**。
+- **未做**：`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具，其余留待按功能迁移时处理；`config` 导入期副作用与循环导入顺序炸弹（P13/P21）仍待拆。
+- 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
+
 ## v261008.2
 
 ### 知识库数据结构升级：实验独立成类 + 类型化关系层（底层变更，需重启生效）
