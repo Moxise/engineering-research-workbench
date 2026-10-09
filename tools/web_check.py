@@ -187,6 +187,26 @@ def check_order(manifest: dict) -> None:
     providers_panel = [name for name, text in sources.items() if re.search(r"ERWPanels\.register\s*\(", text)]
     notes.append(f"面板自登记模块：{providers_panel or '（暂无）'}")
 
+    # §A9：文档级 childList 观察必须走共享接缝——不许各补丁自建整树 observer
+    # （属性观察 attributeFilter / ResizeObserver / IntersectionObserver 语义不同，不在此列）
+    seam_file = "dom-seam.js"
+    if seam_file not in order:
+        fail(f"{seam_file} 不在 manifest 的 js 里（ERWDom 接缝必须在所有补丁之前加载）")
+    doc_observers = []
+    for name, raw in sources.items():
+        if name == seam_file:
+            continue
+        # 去掉注释后找 `new MutationObserver`，再看其后 300 字符内的 observe 配置是否含 childList
+        for m in re.finditer(r"new\s+MutationObserver", raw):
+            window = raw[m.start(): m.start() + 300]
+            if "childList" in window:
+                doc_observers.append(name)
+                break
+    if doc_observers:
+        fail(f"这些模块仍在自建文档级 MutationObserver（应改用 window.ERWDom.onChildList）：{sorted(set(doc_observers))}")
+    elif seam_file in order:
+        notes.append("文档级 DOM 变更观察已收敛到 ERWDom 单一实例")
+
     if "vendor-lazy.js" not in [item["file"] for item in manifest["vendor_js"]]:
         fail("vendor-lazy.js 不在 manifest 的 vendor_js 中（erwVendor 需在业务脚本前就位）")
     if "v260922-performance.js" in order and "app.js" in order:

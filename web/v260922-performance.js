@@ -300,18 +300,12 @@
     decorateQueued = true;
     requestAnimationFrame(() => { decorateQueued = false; decorate(); });
   };
-  const observer = new MutationObserver((records) => {
-    for (const rec of records) {
-      if (rec.type !== 'childList') continue;
-      const target = rec.target;
-      if (!(target instanceof Element)) { queueDecorate(); return; }
-      /* Agent 消息、PDF canvas/批注层的高频增删与 docs/graph/folder 装饰无关，直接忽略。 */
-      if (target.closest?.('#erw-fab-panel,.lit-pages,.lit-reader,.lit-side')) continue;
-      queueDecorate(); return;
-    }
+  /* v261009 · A9：不再自建 MutationObserver，改用共享接缝 ERWDom（观察 + 合并 + 隔离统一在接缝里） */
+  window.ERWDom.onChildList(queueDecorate, {
+    /* Agent 消息、PDF canvas/批注层的高频增删与 docs/graph/folder 装饰无关，直接忽略。 */
+    ignore: '#erw-fab-panel,.lit-pages,.lit-reader,.lit-side',
   });
   window.addEventListener('DOMContentLoaded', () => {
-    observer.observe(document.body, {childList: true, subtree: true});
     decorate();
   });
 })();

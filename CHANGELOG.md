@@ -99,7 +99,12 @@
   - `app/agent_tools.py` 的工具面全面动态化：新增 `plugin_tool_meta` / `all_tool_meta` / `all_tool_names`，`openai_specs` / `text_protocol_prompt` / `is_write_tool` / `list_tool_meta` 改为读统一视图；`execute()` 未命中内核工具时查插件工具（`handler(args, ctx)`），异常只影响该次调用，返回值带 `plugin` 字段，人设白名单同样生效。`app/agent.py` 与 `app/config.py` 的白名单过滤改用 `all_tool_names()`（人设可勾选插件工具）。`server.py` 的插件路由分发改读 `runtime.current()`（与工具面同一份状态）。
   - `plugin_check` 新增不变量：**manifest 声明的 `mcp_tools` 必须真的在入口里注册**（声明了却不可用 = I10 反例）。
   - **验收**（`.scratch/tmp/verify_plugin_tools.py`，17 项全通过）：未加载时插件工具不存在且调用返回「未知工具」· 加载后读工具进入 `all_tool_names`/`openai_specs`/文本协议/`list_tool_meta`（带 description 与 plugin）· `execute` 调用成功且带 `plugin` · handler 抛异常只影响该次调用 · 人设白名单可限制 · **`write:true` 工具被拒且原因可读** · HTTP 面 `/api/agent/tools` 含插件工具、不含被拒的写工具 · **无插件时工具面与改造前完全一致**（6 个内核工具）。
-- **未做**：天气搬成插件（topbar 组件尚无扩展点，需先加 `slots` 并写进 PLUGIN_SPEC）、插件**写**工具（草稿确认流的插件分支）、MCP stdio 服务侧的插件工具、`settings_schema` 通用表单、`ctx.jobs`/`ctx.events`、`A2 剩余`、`A9 剩余`（8 个 `MutationObserver` 合并）、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
+- **A9 收尾：7 处文档级 `MutationObserver` 收敛为 1 个共享接缝**：
+  - 新增 [`web/dom-seam.js`](web/dom-seam.js)：`window.ERWDom.onChildList(cb, {root, ignore})` —— **一个** MutationObserver 观察 `documentElement` 后按订阅方分发，提供 ① `root` 作用域（保持各补丁原有的观察范围）② `ignore` 过滤（浮球面板 / PDF 阅读区的高频增删）③ **按帧合并**（一帧内多次变更只回调一次）④ **回调隔离**（某订阅方抛异常不影响其它订阅方与内核）。
+  - 7 处改写：`v260922-performance.js`（带 ignore 过滤）、`v260922-research-pages.js` 的 5 处（projects / overview-editor-tools / overview-graph / graph-performance / agent-profiles，各自保留 `root` 作用域）、`v260922-layout-bugfixes.js`。**保留** `layout-bugfixes.js` 中那个只观察单卡片行内样式的**属性观察**（语义不同，不属于本轮范围）。
+  - **不变量进闸门**：`web_check` 禁止在 `dom-seam.js` 之外自建「配置含 `childList`」的 MutationObserver（负向用例 5 例已验证：自建能抓到、属性观察与注释里的提及不误报）；`ui_smoke` 在运行期断言 observer 实例 == 1、订阅方 ≥ 5。装配清单新增 `dom-seam.js` 并置于所有补丁之前（补丁在求值期就要注册）。
+  - **验收**（`.scratch/tmp/verify_dom_seam.py`，8 项全通过，真浏览器）：observer 恰好 **1** 个、订阅方 **7** 个（7 处全部接上）· **作用域生效**（改侧栏不唤醒 `#main` 作用域的订阅方）· **按帧合并**（一帧 3 次变更 → 1 次回调）· **隔离生效**（故意抛异常的订阅方不影响其它，且不泄漏 console error）· **装饰等价** —— 文档分页器「1/2 页 · 共 90 条」与图谱状态条「当前加载 199 / 199」仍由接缝驱动出现。`ui_smoke` 17/17、A10 行为验证、RSS/focus 插件 E2E 全部回归通过。
+- **未做**：天气搬成插件（topbar 组件尚无扩展点，需先加 `slots` 并写进 PLUGIN_SPEC）、插件**写**工具的草稿确认流分支、MCP stdio 服务侧的插件工具、`settings_schema` 通用表单、`ctx.jobs`/`ctx.events`、`A2 剩余`、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

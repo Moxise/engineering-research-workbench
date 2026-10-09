@@ -206,8 +206,9 @@
   }
 
   const root = document.getElementById('main') || document.body;
-  const mutationObserver = new MutationObserver(() => scan());
-  mutationObserver.observe(root, { childList: true, subtree: true });
+  /* v261009 · A9：文档级 childList 改用共享接缝；下方的属性观察（attributeFilter: style）
+     语义不同（只看某张卡片的行内样式），继续自带一个 MutationObserver。 */
+  window.ERWDom.onChildList(() => scan(), { root: root });
 
   window.addEventListener('resize', () => {
     document.querySelectorAll(CARD_SELECTOR).forEach(settleAndAlign);

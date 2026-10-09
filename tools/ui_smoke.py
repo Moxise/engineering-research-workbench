@@ -164,6 +164,17 @@ def main(argv: list[str] | None = None) -> int:
             fails.append("window.erwFetch 接缝缺失（分页/图谱限流/搜索取消会静默失效）")
         if "workbenchPerformanceFetch" in page.evaluate("() => window.fetch.toString()"):
             fails.append("window.fetch 被全局替换了（P14 红线：补丁将无法摘除）")
+        dom_seam = page.evaluate(
+            "() => window.ERWDom ? {observers: window.ERWDom.observerCount(), subscribers: window.ERWDom.subscriberCount()} : null"
+        )
+        if not dom_seam:
+            fails.append("window.ERWDom 共享 DOM 变更接缝缺失（A9：不应各自新建整树 observer）")
+        else:
+            if int(dom_seam.get("observers") or 0) != 1:
+                fails.append(f"ERWDom observer 实例数应为 1，实际 {dom_seam.get('observers')}")
+            if int(dom_seam.get("subscribers") or 0) < 5:
+                fails.append(f"ERWDom 订阅方过少（{dom_seam.get('subscribers')}）——补丁可能没接上接缝")
+            notes.append(f"DOM 变更接缝：1 个 observer / {dom_seam.get('subscribers')} 个订阅方")
 
         # 面板注册表（§6.3）：内核声明的路由 + 面板自登记的路由，都必须真的挂到侧栏上
         panels = page.evaluate("() => (window.ERWPanels && window.ERWPanels.list ? window.ERWPanels.list() : []).map(p => p.id)")
