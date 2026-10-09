@@ -287,6 +287,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 | **P29 前端闸门**（`tools/ui_smoke.py`） | 真浏览器逐路由走查（不截图）：首屏 console error / 失败请求 / 重型库请求必须为 0，`app.js` 声明的**每个路由**都点得开且渲染出内容，`window.erwVendor` 与补丁接缝齐备。**不下载浏览器**（复用系统 Chrome/Edge 或 ms-playwright 里的 chromium）。实测：当前代码新起实例上 **17/17 路由通过、0 error、0 失败请求** —— A2/A9/A10 与 §6.3 插件面板从此可验收 |
 | **A10 首件：fetch 接缝化** | `v260922-performance.js` 不再在求值期执行 `window.fetch = ...`（P14 红线），改为提供 `window.erwFetch`，6 个模块的 `api()`（含 2 处直连）改为运行期解析 `(window.erwFetch \|\| fetch)`。行为等价经真浏览器验证（分页 1/2→2/2、图谱状态 199/199、搜索可用、0 console error）；「必须排在 app.js 之前」的旧约束作废。不变量改为静态可查：**不得给 `window.fetch` 赋值**、接缝提供方唯一、`api()` 不得绕过接缝（负向用例已验证） |
 | **A9/§6.3 首件：前端面板注册表** | 新增 `window.ERWPanels`（导航 + 页头 + 渲染三合一的自登记点）；**用量计费整体搬出 `app.js`**（删导航项 / PAGE_META / 路由分支 / `renderBillingPage`），由 `v261008-billing.js` 自登记 —— 删掉计费模块只会少一个导航项、不再白屏（§6.7 红线 5 解除）。等价性：侧栏 17 项**顺序逐项一致**、`#billing` 正常渲染、0 console error；闸门新增「内核不得调用 `ERWPanels.register`」与「登记面板必须出现在侧栏」两侧断言 |
+| **§6/P5 首件：插件运行时（内核侧）** | `core/plugins/{manifest,registry}.py` + `__main__.py` + `tools/plugin_check.py`：`plugin.json` 契约（P000–P018，含目录名=id、相对路由、裸工具名、派生库路径、未支持权限拒载）、两来源发现（ASSET 优先）、状态机（available/blocked/rejected/conflict）、**拓扑排序与环检测**、CLI `list/check/verify`；隔离体检含 I2（内核不得 import 插件）与「core 不得 import app」。夹具 21 项全通过。**执行层（register(ctx) 与挂载/卸载）留待首个真插件** |
 
 | 尚未开始 | 对应动作 |
 | --- | --- |

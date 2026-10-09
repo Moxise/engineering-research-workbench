@@ -322,7 +322,13 @@ def check_workspace_hygiene(ws: Path, rep: Report) -> None:
 
 
 def check_schema_versions(root: Path, ws: Path, rep: Report) -> None:
-    """版本单一入口：System/schema.json 与库内 meta 应一致（REFACTOR_PLAN §5.5.1）。"""
+    """版本单一入口：System/schema.json 的 index_schema_version 应与代码一致（REFACTOR_PLAN §5.5.1）。
+
+    代码侧版本取自 `core.index.migrate.TARGET_VERSION`——**不 import app**：
+    `core/` 必须能脱离 app 独立加载（`tools/plugin_check.py` 会静态拦这条）。
+    `workspace_schema_version` 的归属仍在 `app/perf_index_db`（工作区骨架版本），
+    这里只把它如实展示出来，不参与判定。
+    """
     schema = ws / "System" / "schema.json"
     disk = {}
     if schema.is_file():
@@ -330,20 +336,23 @@ def check_schema_versions(root: Path, ws: Path, rep: Report) -> None:
             disk = json.loads(schema.read_text(encoding="utf-8"))
         except Exception:
             pass
-    code = {}
+    code_version: int | None = None
     try:
-        # 绝对导入（core 是顶层包，不能用 ..app）；app 自 v261009 起导入期无副作用，
-        # 但仍包在 try 里：doctor 要在 app 起不来时照样能体检。
-        from app import perf_index_db as _db
-        code = {"index_schema_version": _db.SCHEMA_VERSION, "workspace_schema_version": _db.WORKSPACE_SCHEMA_VERSION}
+        from .index import migrate as index_migrate
+
+        code_version = index_migrate.TARGET_VERSION
     except Exception:
-        code = {}
-    if disk and code:
-        mism = {k: (disk.get(k), v) for k, v in code.items() if disk.get(k) != v}
-        rep.add("版本·schema.json 与代码", "error" if mism else "info", len(mism),
-                f"不一致（磁盘, 代码）：{mism}" if mism else f"一致：{disk}")
+        pass
+    if disk and code_version is not None:
+        disk_version = disk.get("index_schema_version")
+        mismatched = disk_version != code_version
+        rep.add("版本·schema.json 与代码", "error" if mismatched else "info", 1 if mismatched else 0,
+                f"index_schema_version 不一致（磁盘 {disk_version} / 代码 {code_version}）"
+                if mismatched else
+                f"index_schema_version 一致（{code_version}）；workspace_schema_version={disk.get('workspace_schema_version')}")
     else:
-        rep.add("版本·schema.json", "info", 1, f"磁盘={disk or '缺失'} 代码={code or '未取到（doctor 不依赖 app，跳过）'}")
+        rep.add("版本·schema.json", "info", 1,
+                f"磁盘={disk or '缺失'}；代码={code_version if code_version is not None else '未取到'}")
 
 
 # ---------------------------------------------------------------- 入口

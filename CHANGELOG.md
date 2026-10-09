@@ -60,7 +60,16 @@
   - **不变量进闸门**：`web_check` 新增「**app.js（内核）不得调用 `ERWPanels.register`**」（面板应由功能模块自行登记）并列出面板自登记模块；`ui_smoke` 断言注册表存在、**每个登记面板都真的出现在侧栏导航里**，并把这些面板路由一并走查 —— 期望路由 = `app.js` 声明 ∪ 运行期面板，不另抄清单。
   - **「内核零插件可跑」已实测**（`.scratch/tmp/drop_billing.py`）：把 `v261008-billing.js` 从 `web/manifest.json` 摘掉并重新生成 `index.html` 后起实例，`ui_smoke` 报 **16 个路由全部可渲染、0 console error、0 失败请求、装配接缝缺失 0 个、面板登记 0 个** —— 即「删掉计费 = 少一个导航项」，不再是白屏。实验后已还原清单与 `index.html`（`--check` 一致）。
   - 顺带修掉 `ui_smoke` 自身的一处**过期硬编码**：原先把 `ERWBilling` 等写死在「必备接缝」里，导致上述实验被误判失败。现改为**从装配清单推导**——只检查「已装配模块消费的接缝是否都由已装配模块提供」（装配自洽性），并区分状态型接缝（如 `ERWCurrentDoc` 仅在打开条目后赋值，首屏为空是正常的）。
-- **未做**：`A2 剩余`（把补丁并入主题模块、两个 canvas 先画后弃）、`A9 剩余`（补丁侧对内核内部的依赖、8 个 MutationObserver 的合并）、doctor 的修复动作（`--fix-*`）、插件运行时后端（§6 的 manifest/加载/隔离与「首个插件」）。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
+- **§6/P5 首件：插件运行时（内核侧：发现 / 校验 / 依赖解析）**：
+  - 新增 `core/plugins/manifest.py` —— `plugin.json` 契约的唯一实现（PLUGIN_SPEC §3/§4/§7）：规则码 `P000–P018`，覆盖 id 合法性与**目录名必须等于 id**、语义化版本、`api_version` 匹配（I7）、`core_min`、`kind`/`distribution`、`entry` 文件存在、**未支持权限拒载**、**路由必须是相对路径**（不得写裸 `/api/...`）、**MCP 工具名不得自带前缀**（前缀由内核加）、`settings_schema` 形状、依赖项自依赖/重复、**`storage.derived_db` 只允许 `System/Cache/<id>.sqlite`**、`nav.mount` 文件存在。所有 `error` 级问题都带可执行的修复建议。
+  - 新增 `core/plugins/registry.py` —— 两个来源（`ASSET_ROOT/plugins` 随包优先，`DATA_ROOT/plugins` 用户库）的发现、**状态机**（`available` / `blocked` / `rejected` / `conflict`）、**拓扑排序与环检测**（§4.2.1 检测到环整环拒载）、缺失前提插件 → `blocked` + 「缺什么、怎么补」（§4.2.3）、同 id 多来源按 §1 规则 ASSET 优先并给出提示、`System/plugins.json` 的安装意图读取。
+  - 新增 `core/plugins/__main__.py` —— CLI `list` / `check <id>` / `verify`（PLUGIN_SPEC §5），把权限用人话列出、把路由挂载点与工具前缀提前说明；有 `rejected`/`blocked`/`conflict` 时非零退出，可直接当闸门。
+  - 新增 `tools/plugin_check.py` —— 隔离体检：**I2**（`core/**`、`app/**`、`server.py` 都不得 import 插件实现）、**core 不得 import app**、**空插件集是合法状态**；`--assert-core-only` 额外跑 `kb_smoke` 作为「零插件下核心完整可跑」的代理（I1）。
+  - 新增 `plugins/README.md` —— 丢进去就能用的约定速查（目录名=id、相对路由、裸工具名、派生库路径、权限集合、不得 import 私有模块、核心不依赖插件）。
+  - **诚实边界**：本阶段**不含执行层**（`register(ctx)`、路由/工具/面板的挂载与卸载、I3/I4/I8/I10 的运行期校验），状态因此只报「已校验、可加载」而**不谎报 `enabled`**；这些随第一个真插件一并落地（前端面板接缝 `window.ERWPanels` 已在 `498d994` 就位）。
+  - **验收**：21 项夹具断言全通过（`.scratch/tmp/verify_plugins.py`）—— 合法插件 available、依赖满足 available、**8 类违规各自被拒**（id 非法 / api_version=99 / 裸 `/api` 路由 / 自带前缀工具名 / 未支持权限 / 派生库路径 / `core_min` 过高 / entry 缺文件）、依赖缺失 → `blocked`、**依赖成环 → 整环 blocked**、同 id 双来源 ASSET 优先（保留 1.2.0）、加载顺序把前提插件排在依赖者之前、被拒/被阻的插件不进加载顺序。CLI 对夹具库实跑通过。
+  - **顺带修掉一个真问题**：`tools/plugin_check.py` 的新不变量当场抓出 `core/doctor.py` 在 import `app`（第二轮为比对 schema 版本引入）。已改为从 `core.index.migrate.TARGET_VERSION` 取代码侧版本 —— `core/` 重新做到零 `app` 依赖。
+- **未做**：`A2 剩余`（把补丁并入主题模块、两个 canvas 先画后弃）、`A9 剩余`（补丁侧对内核内部的依赖、8 个 MutationObserver 的合并）、doctor 的修复动作（`--fix-*`）、**插件执行层与首个真插件**（专注计时/天气）。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 
