@@ -406,6 +406,7 @@ KINDS = {
 | 导入期会读写 config，且模块间存在顺序炸弹 | `config.py:665-666`；实测 `import app.workspace` 直接 ImportError（P21） | 插件加载 core 必须经**单一 `init()` 入口**，禁止在 import 期触碰 `app.*` 子模块 |
 | Agent 侧还有一条 MCP 通道 | `mcp/` | 插件后端能力需**同一份实现**同时暴露给 HTTP 与 MCP，不能两写 |
 | 分支/白名单会把功能「藏」起来 | P24/P27（RAG 只存在于分支上）、P25（`mcp/` 曾不在白名单，现已入库） | 新插件目录必须同时决定「是否入库」；跨分支功能必须有单一基线 |
+| **随包（bundled）插件要能随 exe 发布** | `ResearchWorkbench.spec:8` 目前只打包 `web/` 与 `VERSION` | `bundled` 插件走 `ASSET_ROOT/plugins`（只读、随版本升级），用户插件走 `DATA_ROOT/plugins`（可改可删），同名时 ASSET 优先；打包脚本需加 `--add-data "plugins;plugins"`（见 §8-D-E） |
 
 ### 6.2 插件形态
 
@@ -545,3 +546,4 @@ plugins/<plugin_id>/
 | **D6** | **RAG 怎么处置**（v3 重述） | ✅ 悬空工具已摘。实现本体在 `feature/rag-v261009`（已推送 origin），因此：① 保持分支分离，本地 161 MB 数据留着 ② 清理本地数据，需要时切分支重跑建库 ③ 按 §6.6 做成插件（从分支取回代码） | **① 先保持**：数据不贵、切回去即用；长期确认不要了再 ②；③ 等插件运行时可用之后 |
 | **D8** | **内核基线选哪条线** | ✅ **已定：①** —— 以 `feature/slim-workbench-v261009` 为内核基线；RAG 分支的未推送提交已在 v3.1 推上 origin | 后续契约归一、插件化都在此分支推进；`main` 落后 204 个提交的合并策略另议 |
 | **D7** | 版本库边界 | ✅ **已定：②** —— `.gitignore` 已放行 `mcp/**`（`*.py` / `README.md` / `*.bat`）与 `plugins/**`（代码与 manifest），并显式忽略 `plugins/**/data/`、`plugins/**/.cache/`、`__pycache__/`、`*.pyc` | 已落地（随 `cacdaad` 入库）；同类「整目录不受版本保护」不会再发生 |
+| **D-E** | **随包（bundled）插件放哪**（「附属也是插件」的直接推论） | ① 打进 exe 的 `ASSET_ROOT/plugins`（只读、随版本升级）② 放 `DATA_ROOT/plugins`（用户可直接改坏）③ 两处都扫、ASSET 优先 | **③**：`bundled` 与 `optional` 的加载/注册/隔离/卸载代码路径完全相同，只有「默认开关 + 来源目录」不同（见 §6.2 的 `distribution` / `default_enabled`） |
