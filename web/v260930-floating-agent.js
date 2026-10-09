@@ -897,9 +897,12 @@ function renderMessages(){
   root.innerHTML=clipped+rows.map((m,i)=>msgHtml(m,start+i)).join("");
   root.scrollTop=root.scrollHeight;
   /* 只对确实含 TeX 标记的消息做 MathJax，避免每次状态刷新重扫整个对话 DOM。 */
-  if(window.MathJax?.typesetPromise){
-    const mathBodies=qa(".fab-body",root).filter(el=>/[\\$]|\\\\\(|\\\\\[/.test(el.textContent||""));
-    if(mathBodies.length){try{MathJax.typesetPromise(mathBodies)}catch{}}
+  const mathBodies=qa(".fab-body",root).filter(el=>/[\\$]|\\\\\(|\\\\\[/.test(el.textContent||""));
+  if(mathBodies.length&&window.MathJax?.typesetPromise){
+    try{MathJax.typesetPromise(mathBodies)}catch{}
+  }else if(mathBodies.length&&window.erwVendor){
+    /* v261009 · A1：MathJax 改为按需加载（首屏不再无条件拉 2.11 MB） */
+    window.erwVendor.load("mathjax").then(()=>{try{MathJax.typesetPromise(mathBodies)}catch{}}).catch(()=>{});
   }
   wireMessageActions(root);
 }

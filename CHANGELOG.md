@@ -16,7 +16,8 @@
 - **层级解耦（P12）**：`app/perf_index_query.py` 不再在导入期 `import agent`（会话搜索改为函数内惰性导入），实测导入查询层/索引层后 `app.agent` 不在 `sys.modules`；跨模块私有调用改走新公开入口 `store.doc_from_path()` / `store.academic_progress()`。
 - **死代码清理（P11）**：删除全仓零引用的 `app/project_bridge.py`（52 行）。`app/search.py` 仍被 `mcp/bridge.py` 与 `tools/self_check.py` 使用，暂留待并入内核检索时再处置。
 - **端到端复核**：在备用端口 8799 以新代码起了一个实例，`/api/dashboard` 返回 `experiment:25 / 199 条`，`/api/docs?kind=experiment` 列出 25 条，索引 `document_links.role` 八类分布与 1854 条 `graph_edges` 全部保留——**「重启即丢 25 条实验」的风险已消除**（验证后退掉该实例）。
-- **未做**：`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具，其余留待按功能迁移时处理；`A1 vendor 按需加载`、`A2 前端补丁合并`、`core.doctor` 与迁移框架尚未开始。
+- **vendor 按需加载（A1，前端首屏）**：`mathjax-tex-svg.js`(2.11 MB) 与 `mermaid.min.js`(2.57 MB) 原先在 `index.html` 里**无条件 defer**，首屏就要下载。新增 `web/vendor-lazy.js` 提供 `window.erwVendor.load('mathjax'|'mermaid')`（共享 Promise、只加载一次、失败回退 CDN、可重试）与 `hasMath()` 判断；四处调用点改为真正用到时才 `await`：`app.js` 的 Markdown 预览与 Mermaid 渲染、`v260922-graph-performance.js` 的图谱节点预览、`v260930-floating-agent.js` 的对话气泡。**首屏 5.23 MB → 0.77 MB（−4.46 MB / −85%）**，`/vendor/mathjax-tex-svg.js` 与 `/vendor/mermaid.min.js` 已不在首屏引用列表内（核对脚本 `.scratch/tmp/a1_payload_compare.py`）。纯文本预览不会拉 MathJax；离线时 MathJax 静默降级、Mermaid 保留原有「渲染库暂未加载」提示。
+- **未做**：`A2 前端补丁合并`（18 个补丁按主题合并 + manifest 装配）、`core.doctor` 与迁移框架、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 
 ## v261008.2
