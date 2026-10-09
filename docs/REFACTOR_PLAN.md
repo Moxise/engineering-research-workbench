@@ -157,7 +157,9 @@
 - 实测：**199 条**，与索引 `documents` 199 行一致（另有 1 个 md 在 `Knowledge/Exports/`，不参与索引）。
 - 契约（`kb_constraints topic=schema`）：字段序 22 项 `id, kind, title, created, updated, status, project, projects, tags, kind_marks, record_date, due, added_date, summary_type, pinned, authors, year, venue, doi, url, cite_key`；`id/kind/created` 不可变；CREATE vs UPDATE 差集 = `{attachment}`；`attachment` **只在 UPDATE 列表、不在字段序**（契约自身不一致）。
 - 写入顺序 `store.py:207-211` 与 `mcp/constraints.py:230-233` 逐项相等；**未列入的键靠 `sorted(meta.keys())` 兜底**（`store.py:213`）——`project_id`/`project_ids` 正是靠这条才没被丢。
-- 七类矩阵（`topic=kinds`）：每类独立目录、标题前缀、状态机、日期字段、正文骨架。kind→目录映射在 `store.kind_dir_map()` 与 `mcp.constraints.KINDS` 间**程序比对完全相等**（但顺序不同）。
+- 七类矩阵（`topic=kinds`）：每类独立目录、标题前缀、状态机、日期字段、正文骨架。
+  > **v3 更正（实测）**：上一版此处写「`store.kind_dir_map()` 与 `mcp.constraints.KINDS` 程序比对完全相等」，**实际不相等**——本分支 `store.py` 只有 6 类（无 `experiment`），而 `mcp/` 已是 7 类。这正是「基线未对齐」的直接证据（见 §4.0 与 `5d753b4`）。
+  > **v261009 起**：两者都由 `core/contracts/kinds.py` 派生，相等由「单一事实来源」保证，不再是人工比对结论。
 - status 词表按 kind 分（7 组）；`kind_marks` 10 个合法 id，实测分布 knowledge 85 / synthesis 7 / method 109 / question 7 / thinking 11 / architecture 15 / experiment 34 / data 19 / model 19 / principle 17。
 
 **真实样本**（`Workspace/Knowledge/Experiments/note-20260923111042-bb9210.md:1-15`）：
@@ -270,13 +272,19 @@ project_ids: ["proj_a0af8ee9d4db"]
 | UI 紧凑化（近 5 次提交） | 桌面标题栏 64px、设置页 sticky 偏移、compact layout 调整、PDF 阅读区恢复 —— **属外观压缩，未触动结构** |
 | `kb_retrieve` 摘除 + `mcp/`、`plugins/` 入白名单 | 本轮完成（工具数 26 → 25，自检 problems 为空） |
 | 方案文档入库 | `docs/REFACTOR_PLAN.md` 随 `cacdaad` 提交 |
+| **基线对齐**（`5d753b4`） | 摘入 `23a83f7`「实验独立成类 + 类型化关系层」。**此前本分支代码停在 6 类**，与 `Workspace/` 里 25 条实验、索引 25 行 `documents` 及 `mcp/` 七类契约不一致——下一次索引同步会把这 25 条从索引与关系图删除（md 无损）。已消除 |
+| **A13 取回验证工具**（`275107b`） | `tools/kb_smoke.py`、`kb_tree.py`、`kb_migrate_experiments.py`（随基线对齐取回）+ `shot_page.py`、`shot_prep.py`（自 `ba77ddc` 单独取回） |
+| **P0 契约单源**（`e321a9d`） | 新增 `core/contracts/{kinds,naming}.py` 为唯一声明处与唯一校验器；`store`/`workspace`/`agent_tools` 改为消费，`mcp/constraints`、`mcp/naming` 退化为门面，删除过期副本 `app/kb_naming.py` |
+| **P1 校验合并 / P5 建档缺口 / P19 骨架归一**（`e321a9d`） | 同标题在 HTTP 与 MCP 两路结论一致；Agent 可建 experiment 且补收 `status/record_date/due/added_date/summary_type`；`WORKSPACE_LAYOUT` 22/17 两项合并为一处 |
+| **P11/P12/P13/P21**（`d02cb0f`） | `config` 导入期副作用清零（改显式 `init()`）、循环导入顺序炸弹拆除（每个 `app` 子模块均可作入口 import）、查询层不再导入期拖入 LLM 层、删零引用 `project_bridge.py` |
+| **A1 vendor 按需加载**（`61b2f15`） | mathjax + mermaid 移出首屏，**首屏 5.23 MB → 0.77 MB（−85%）**，目标「< 1 MB」达成 |
 
 | 尚未开始 | 对应动作 |
 | --- | --- |
-| 前端补丁合并（18 个补丁 4042 行，仍靠加载顺序互相覆盖） | A2（优先级上调） |
-| vendor 按需加载（8.2 MB 仍无条件 defer） | A1 |
-| 契约归一 / doctor / 迁移框架 | §5、A6–A8 |
-| 插件运行时（`plugins/`、`core/` 目录都还不存在） | §6 |
+| 前端补丁合并（18 个补丁，仍靠加载顺序互相覆盖） | A2（优先级第 1） |
+| 契约归一剩余项：doctor / 迁移框架 / 索引瘦身 | §5.5、A6–A8 |
+| 插件运行时（`plugins/`、`core/plugins` 都还不存在） | §6、P5 阶段 |
+| `ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径） | 需手工解冲突，按功能迁移时处理 |
 
 **优先级调整（v3）**：**A2 从第 2 位提到第 1 位**——`17682ce fix: restore PDF workspace after performance patch syntax error` 就是补丁层脆性造成的真实功能故障（一个补丁的语法错误直接打掉整个 PDF 工作区），而近 5 次提交里有 4 次都在补丁层做像素级调整，说明"靠在 base 上叠补丁"的成本已经在持续支付。
 
