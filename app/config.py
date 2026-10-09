@@ -501,6 +501,22 @@ def reload_all() -> dict:
         return {"app": deepcopy(app), "rss": deepcopy(rss)}
 
 
+def init() -> dict:
+    """显式初始化：注入 secrets 环境变量 + 载入配置缓存。
+
+    v261009 · 原先这两步写在模块尾部（import 即执行），带来两个后果：
+    ① ``import app.config`` 就会读写用户配置（迁移路径会落盘 app.json/secret.json）；
+    ② 由此形成 ``config → agent_tools → store → workspace → config`` 的**导入顺序炸弹**
+       ——先 import ``app.agent_tools`` 或 ``app.workspace`` 会在半初始化模块上 ImportError。
+
+    现在改由运行入口显式调用（``server.build_server``、``mcp.bridge``）；
+    其余访问器（``get_all`` / ``get_public`` / ``save_*``）依旧带 ``if not _cache: reload_all()``
+    惰性兜底，所以漏调 init() 也只是晚一点初始化，不会拿到半初始化状态。
+    """
+    load_secrets()
+    return reload_all()
+
+
 def get_all() -> dict:
     load_secrets()
     with _lock:
@@ -650,7 +666,3 @@ def workspace_root() -> Path:
     raw = str(cfg.get("workspace") or "Workspace")
     p = Path(raw)
     return p if p.is_absolute() else ROOT / p
-
-
-load_secrets()
-reload_all()

@@ -4,7 +4,7 @@ import sqlite3
 from datetime import date, timedelta
 from typing import Any
 
-from . import agent, config, store
+from . import config, store
 from . import perf_index_core as core
 from .perf_index_core import (
     DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, _connect, _init_db, _registry, _root,
@@ -110,7 +110,7 @@ def get_doc(doc_id: str) -> dict[str, Any]:
     if not path.exists():
         remove_doc(doc_id)
         raise FileNotFoundError(doc_id)
-    return store._doc_from_path(str(row["kind"]), path, include_body=True)
+    return store.doc_from_path(str(row["kind"]), path, include_body=True)
 
 
 def search_docs(query: str, limit: int = 60) -> list[dict[str, Any]]:
@@ -371,7 +371,7 @@ def dashboard() -> dict[str, Any]:
         "projects": project_names(),
         "project_records": project_records(),
         "project_stats": project_stats,
-        "academic": store._academic_progress(profile, today_obj),
+        "academic": store.academic_progress(profile, today_obj),
         "activity": _activity_payload(today_obj),
         "index": status(sync_first=False),
     }
@@ -411,6 +411,8 @@ def search_all(query: str, limit: int = 60) -> list[dict[str, Any]]:
         if len(results) >= limit:
             return results
     q_lower = q.casefold()
+    # v261009 · 惰性导入：索引查询层不在导入期就拖进 LLM/会话层（P12 层级倒置）。
+    from . import agent
     for s in agent.list_sessions():
         if len(results) >= limit:
             break

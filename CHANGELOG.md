@@ -12,7 +12,11 @@
 - **幽灵常量修正**：`WORKBENCH_VERSION_EXPECTED` 改为直接读 `VERSION`，不再抄一份写死的 `v260924.1`。
 - **工作区骨架归一（P19）**：`WORKSPACE_LAYOUT` 由两处（`app/workspace.py` 22 项、`mcp/constraints.py` 17 项）合并为一处 22 项，`knowledge/constraints` 的 storage 主题不再漏掉 `Knowledge/Literature/{PDF,Annotations,Notes,Index,Previews}`。
 - **验证**：`python tools/kb_smoke.py` 全绿（199 条 / 关系边 1854）；`python -m mcp.server --selftest` 的 `problems` 为空；新增等价性核对 `.scratch/tmp/verify_contract_equiv.py` —— 七类正文骨架与旧实现**逐字一致**，kind→目录/标签/状态机/日期字段/关系映射四张表**逐项一致**。
-- **未做**：`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具，其余留待按功能迁移时处理；`config` 导入期副作用与循环导入顺序炸弹（P13/P21）仍待拆。
+- **导入期副作用清零 + 顺序炸弹拆除（P13/P21）**：`app/config.py` 尾部的 `load_secrets()` / `reload_all()` 移除，改为显式 `config.init()`，由 `server.build_server()` 与 `mcp.bridge.Workbench` 调用；其余访问器保留 `if not _cache: reload_all()` 惰性兜底。收益：`import app.config` 不再读写用户配置（迁移路径原先会落盘 `app.json`/`secret.json`），且 `config → agent_tools → store → workspace → config` 的循环导入死结解开——实测 `app.config` / `app.store` / `app.workspace` / `app.agent_tools` / `app.agent` / `app.literature` / `app.perf_index_query` / `app.projects` **每一个都可作为入口直接 import**（此前 `import app.agent_tools` 直接 `AttributeError: partially initialized module`），`python -c "import server"` 前后 `config/` 目录 mtime 不变。
+- **层级解耦（P12）**：`app/perf_index_query.py` 不再在导入期 `import agent`（会话搜索改为函数内惰性导入），实测导入查询层/索引层后 `app.agent` 不在 `sys.modules`；跨模块私有调用改走新公开入口 `store.doc_from_path()` / `store.academic_progress()`。
+- **死代码清理（P11）**：删除全仓零引用的 `app/project_bridge.py`（52 行）。`app/search.py` 仍被 `mcp/bridge.py` 与 `tools/self_check.py` 使用，暂留待并入内核检索时再处置。
+- **端到端复核**：在备用端口 8799 以新代码起了一个实例，`/api/dashboard` 返回 `experiment:25 / 199 条`，`/api/docs?kind=experiment` 列出 25 条，索引 `document_links.role` 八类分布与 1854 条 `graph_edges` 全部保留——**「重启即丢 25 条实验」的风险已消除**（验证后退掉该实例）。
+- **未做**：`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具，其余留待按功能迁移时处理；`A1 vendor 按需加载`、`A2 前端补丁合并`、`core.doctor` 与迁移框架尚未开始。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 
 ## v261008.2

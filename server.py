@@ -599,6 +599,7 @@ def build_server(port_override: int | None = None, auto_open_browser: bool | Non
     port_override：端口被占用时由调用方传入空闲端口。
     auto_open_browser：桌面窗口模式传 False，避免额外打开系统浏览器。
     """
+    config.init()  # v261009 · 配置初始化由入口显式触发（原先在 config 模块 import 期执行）
     workspace.ensure_workspace()
     _scratch_boot_cleanup()
     if _project_registry_needs_migration():

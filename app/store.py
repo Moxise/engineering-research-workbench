@@ -1068,3 +1068,17 @@ def dashboard() -> dict[str, Any]:
         "academic": _academic_progress(profile, today_obj),
         "activity": _research_activity(docs, todo_items, today_obj),
     }
+
+
+# ---------------------------------------------------------------- 跨模块公开 API（v261009）
+# 索引/查询层原先直接调用下面的私有实现，私有签名一改就会连带破掉上层；
+# 这里给出稳定入口，跨模块调用一律走它。
+
+def doc_from_path(kind: str, path: Path, include_body: bool = True) -> dict[str, Any]:
+    """读单个条目文件为 doc 字典（公开入口，供索引层使用）。"""
+    return _doc_from_path(kind, path, include_body=include_body)
+
+
+def academic_progress(profile: dict[str, Any], today: date) -> dict[str, Any]:
+    """学业进度摘要（公开入口，供索引/仪表盘层使用）。"""
+    return _academic_progress(profile, today)

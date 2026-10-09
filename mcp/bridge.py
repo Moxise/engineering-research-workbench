@@ -37,6 +37,7 @@ class Workbench:
                 from app import activity, config, indexer, projects, search, store, todos, workspace
             except Exception as exc:  # pragma: no cover - 环境缺失时给出可读提示
                 raise WorkbenchError(f"无法加载工作台 app 包（{self.repo_root}）：{exc}") from exc
+            config.init()  # v261009 · 配置初始化改由入口显式触发（不再在 config 模块 import 期执行）
             self._mod = SimpleNamespace(
                 activity=activity, config=config, indexer=indexer, projects=projects,
                 search=search, store=store, todos=todos, workspace=workspace,
