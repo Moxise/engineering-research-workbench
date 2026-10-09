@@ -14,7 +14,7 @@ const S={
   draftState:{},     /* draft_id -> {status, result} 本地面板内状态 */
   personaId:localStorage.getItem("fabPersona")||(window.__FAB_DEFAULT_PERSONA__||"executor"), /* v260930g · 默认执行助手（含知识库写工具）；老用户尊重已存选择 */
   personas:null,     /* v260930 · M3 人设缓存（首次打开面板时拉取） */
-  relatedCache:{},   /* v260930g9 · M5 关联匹配结果按文献缓存（paper_id → {page,items}）：每文献只匹配一次，切换/切回即时恢复 */
+  relatedCache:new Map(), /* v261009p · 按 paper_id:page 缓存关联结果，避免前后翻页重复全库匹配；有界 LRU 控制内存 */
   relatedItems:[],   /* v260930d · M5 当前关联/检索条目缓存 */
   relatedOpen:null,  /* v260930d · M5 展开的卡片下标 */
   images:[],         /* v260930e · 待发送截图（dataURL，发送时才上传落盘） */
@@ -160,9 +160,9 @@ function mount(){
   document.addEventListener("mouseup",onDocMouseUp,false);
   window.addEventListener("hashchange",()=>{if(S.open){paintContext();ensureRelated()}}); /* v260930g9b · 切页同步刷新关联区：离开阅读工作区即清空，防止残留「没在阅读的文献」的关联 */
   window.addEventListener("erw-lit-back",()=>{if(S.open)ensureRelated()}); /* v260930g9b · 返回文献列表同样清空（事件派发在 window；同 hash 不触发 hashchange） */
-  document.addEventListener("erw-lit-page",()=>{ /* v260930d · M5 翻页刷新关联知识（literature.js track/go 派发） */
+  document.addEventListener("erw-lit-page",()=>{ /* v261009p · 翻页优先复用 paper:page 缓存，避免每次强制重扫知识库 */
     paintContext();
-    if(S.open)ensureRelated(true);
+    if(S.open)ensureRelated(false);
   });
   /* v261009 · PDF.js 使用自定义几何划选，原生 window.getSelection() 为空；
      literature.js 在选区变化时主动发事件，这里按动画帧合并刷新上下文 chip，
@@ -229,19 +229,29 @@ function toastInPanel(msg,isErr){
 /* ---------- 面板开关与上下文条 ---------- */
 /* ---------- 本页关联知识（M5）：页面正文 × 知识库条目纯文本匹配，翻页自动刷新 ---------- */
 const MARK_GLYPHS={architecture:"▤",method:"⚒",model:"⬡",principle:"∑",experiment:"⚗",data:"⊞",knowledge:"◈",synthesis:"◎"}; /* v260930d · 类别标记符号（对齐命名规范 kind_marks） */
+const RELATED_CACHE_MAX=80;
+function relatedCacheGet(key){
+  const hit=S.relatedCache.get(key);if(!hit)return null;
+  S.relatedCache.delete(key);S.relatedCache.set(key,hit); /* 简单 LRU：命中移到末尾 */
+  return hit;
+}
+function relatedCacheSet(key,items){
+  S.relatedCache.delete(key);S.relatedCache.set(key,items||[]);
+  while(S.relatedCache.size>RELATED_CACHE_MAX){const first=S.relatedCache.keys().next().value;S.relatedCache.delete(first)}
+}
 async function ensureRelated(force){
   const lit=litContext();
   const root=q("#fab-related");if(!root)return;
-  if(!lit||!lit.paper_id){root.innerHTML="";return} /* 非阅读页：清空 */
-  const page=lit.page||0,key=String(lit.paper_id),text=lit.page_text||"";
-  const cached=S.relatedCache[key];
-  if(!force&&cached&&cached.page===page){paintRelated(cached.items,{mode:"related"});return} /* v260930g9 · 同文献同页：缓存直显，切回文献即恢复 */
-  if(!text)return; /* v260930g9 · 正文未就绪：保留现有显示，等 erw-lit-page 事件再刷（修复切换文献时闪没） */
+  if(!lit||!lit.paper_id){root.innerHTML="";return}
+  const page=lit.page||0,paper=String(lit.paper_id),key=paper+":"+page,text=lit.page_text||"";
+  const cached=!force?relatedCacheGet(key):null;
+  if(cached){paintRelated(cached,{mode:"related"});return}
+  if(!text)return;
   try{
     const r=await api("/api/kb/related",{method:"POST",body:{page_text:text}});
     const now=litContext();
-    if(!now||String(now.paper_id)!==key||(now.page||0)!==page)return; /* 竞态防护：已切走则丢弃过期结果 */
-    S.relatedCache[key]={page,items:r.items||[]}; /* 会话内每文献只匹配一次 */
+    if(!now||String(now.paper_id)!==paper||(now.page||0)!==page)return;
+    relatedCacheSet(key,r.items||[]);
     paintRelated(r.items||[],{mode:"related"});
   }catch{/* 匹配失败静默：不影响对话主功能 */}
 }
