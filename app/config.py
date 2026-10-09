@@ -113,15 +113,6 @@ DEFAULT_APP_CONFIG = {
     },
 }
 
-DEFAULT_RSS_CONFIG = {
-    "sources": [
-        {"name": "arXiv · Artificial Intelligence", "url": "https://rss.arxiv.org/rss/cs.AI", "enabled": True},
-        {"name": "arXiv · Machine Learning", "url": "https://rss.arxiv.org/rss/cs.LG", "enabled": True},
-        {"name": "arXiv · Computation and Language", "url": "https://rss.arxiv.org/rss/cs.CL", "enabled": True},
-    ],
-    "max_items_per_source": 12,
-}
-
 _lock = threading.RLock()
 _cache: dict[str, Any] = {}
 _secrets_mtime: int | None = None
@@ -490,15 +481,14 @@ def reload_all() -> dict:
     global _cache
     with _lock:
         raw_app = _load_json(CONFIG_DIR / "app.json", DEFAULT_APP_CONFIG)
-        rss = _load_json(CONFIG_DIR / "rss.json", DEFAULT_RSS_CONFIG)
         secret, migrated = _load_or_migrate_secret(raw_app)
         app = _strip_legacy_llm_for_storage(raw_app)
         # On the first v2 migration, remove obsolete key/environment/provider fields
         # from app.json after they have been copied to secret.json.
         if migrated or app != raw_app:
             _atomic_json_write(CONFIG_DIR / "app.json", app)
-        _cache = {"app": app, "rss": rss, "secret": secret}
-        return {"app": deepcopy(app), "rss": deepcopy(rss)}
+        _cache = {"app": app, "secret": secret}
+        return {"app": deepcopy(app)}
 
 
 def init() -> dict:
@@ -522,7 +512,7 @@ def get_all() -> dict:
     with _lock:
         if not _cache:
             reload_all()
-        return {"app": deepcopy(_cache["app"]), "rss": deepcopy(_cache["rss"])}
+        return {"app": deepcopy(_cache["app"])}
 
 
 def get_app() -> dict:
@@ -553,7 +543,6 @@ def get_public() -> dict:
         if not _cache:
             reload_all()
         app = deepcopy(_cache["app"])
-        rss = deepcopy(_cache["rss"])
         secret = deepcopy(_cache["secret"])
     llm = dict(app.get("llm") or {})
     profiles = [_public_profile(p) for p in secret.get("profiles", [])]
@@ -583,7 +572,7 @@ def get_public() -> dict:
         "api_key_source": "config/secret.json",
     })
     app["llm"] = llm
-    return {"app": app, "rss": rss}
+    return {"app": app}
 
 
 def get_active_llm_profile_runtime() -> dict[str, Any]:
@@ -598,10 +587,6 @@ def get_active_llm_profile_runtime() -> dict[str, Any]:
     profile["assist"] = app_llm.get("assist") if isinstance(app_llm.get("assist"), dict) else {}  # v260929 · 阅读区 AI 助手设置（app.json 持久化，运行时透出给 agent.assist）
     profile["vision_enabled"] = app_llm.get("vision_enabled", False) is True  # v260929c · 多模态开关：阅读区 AI 助手可发送截图（需模型支持图片输入）
     return profile
-
-
-def get_rss() -> dict:
-    return get_all()["rss"]
 
 
 def _merge_profiles_from_public(incoming_llm: dict[str, Any], current_secret: dict[str, Any]) -> dict[str, Any]:
@@ -651,14 +636,6 @@ def save_app(data: dict) -> dict:
         _atomic_json_write(SECRET_PATH, secret)
         reload_all()
     return get_public()["app"]
-
-
-def save_rss(data: dict) -> dict:
-    merged = _deep_merge(DEFAULT_RSS_CONFIG, data or {})
-    with _lock:
-        _atomic_json_write(CONFIG_DIR / "rss.json", merged)
-        reload_all()
-    return get_rss()
 
 
 def workspace_root() -> Path:

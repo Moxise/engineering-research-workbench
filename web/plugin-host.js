@@ -35,6 +35,15 @@
     });
   }
 
+  function loadStyle(href) {
+    if (document.querySelector('link[data-plugin-style="' + href + '"]')) return;
+    var el = document.createElement('link');
+    el.rel = 'stylesheet';
+    el.href = href;
+    el.dataset.pluginStyle = href;
+    document.head.appendChild(el);
+  }
+
   async function boot() {
     var data;
     try {
@@ -52,6 +61,7 @@
       var nav = (plugin.nav || [])[0];
       if (!nav || !nav.url) continue;
       try {
+        if (nav.style_url) loadStyle(nav.style_url); /* 插件自带样式，按 §2 作用域 */
         await loadScript(nav.url);
         host.loaded.push(plugin.id);
       } catch (err) {

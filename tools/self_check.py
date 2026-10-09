@@ -11,11 +11,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app import agent, config, rss, search, store, todos, workspace  # noqa: E402
+from app import agent, config, search, store, todos, workspace  # noqa: E402
 
 
 def ok(name: str):
     print(f"[OK] {name}")
+
+
+def load_plugin_module(plugin_id: str, filename: str):
+    """按路径加载插件模块（插件不在 sys.path 上，也不该被内核 import）。"""
+    import importlib.util
+
+    path = ROOT / "plugins" / plugin_id / filename
+    spec = importlib.util.spec_from_file_location(f"selfcheck_{plugin_id}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def main() -> int:
@@ -156,15 +167,21 @@ def main() -> int:
         assert "milestone-preview" in app_js and "showMilestonePreview" in app_js
         assert "data-set-tab=\"service\"" in app_js and "svc-host" in app_js and "svc-workspace" in app_js
         assert "graph-wrap.preview-open" in styles and "overflow-wrap:anywhere" in styles
-        assert "mermaid.render" in app_js and "data-focus-preset" in app_js
+        assert "mermaid.render" in app_js and "ERWPanels" in app_js
         ok("Graph filters/highlight + Ctrl+S + dynamic Agent mode UI")
 
+        # v261009 · 资讯与专注已搬成插件：对应实现改到插件文件里查
+        plugin_rss = load_plugin_module("rss", "backend.py")
         sample = b"<?xml version='1.0'?><rss><channel><item><title>Paper A</title><link>https://example.test/a</link><pubDate>2026-09-20</pubDate><description>Summary</description></item></channel></rss>"
-        parsed = rss._parse_feed(sample, "Local", 5)
+        parsed = plugin_rss._parse_feed(sample, "Local", 5)
         assert parsed and parsed[0]["title"] == "Paper A"
-        urls = rss._candidate_urls({"url":"https://rss.arxiv.org/rss/cs.AI"}, 8)
+        urls = plugin_rss._candidate_urls({"url": "https://rss.arxiv.org/rss/cs.AI"}, 8)
         assert any("export.arxiv.org/api/query" in x for x in urls)
-        ok("RSS parser + arXiv fallback strategy")
+        ok("RSS parser + arXiv fallback strategy（插件 plugins/rss）")
+
+        focus_panel = (ROOT / "plugins" / "focus" / "web" / "panel.js").read_text(encoding="utf-8")
+        assert "data-focus-preset" in focus_panel and "ERWPanels.register" in focus_panel
+        ok("专注计时已成为插件并自登记面板（plugins/focus）")
 
         subprocess.run([sys.executable, "-m", "compileall", "-q", str(ROOT / "app"), str(ROOT / "server.py")], check=True)
         node = shutil.which("node")

@@ -4,9 +4,9 @@
   "css": [
     {
       "file": "styles.css",
-      "v": "261009h",
+      "v": "261009i",
       "theme": "base",
-      "note": "v260929h · 设置页导航 sticky 阈值改为等于内容自然起点（宽屏紧凑 92=topbar 82+padding 10），修页顶左右卡片顶边错位 6px；按密度×断点四组对齐。上版：高度改用 zoom 折算视口变量"
+      "note": "v261009i · 资讯相关样式（news-* / rss-* / source-row）已随功能搬入 plugins/rss/web/panel.css 并按 [data-plugin=\"rss\"] 作用域；上版：设置页导航 sticky 阈值对齐紧凑标题栏"
     },
     {
       "file": "literature.css",
@@ -71,15 +71,15 @@
     },
     {
       "file": "app.js",
-      "v": "261009d",
+      "v": "261009e",
       "theme": "base",
-      "note": "v261009d · 专注计时搬出内核（成为 plugins/focus），init 先等 ERWPluginHost.ready 再建侧栏；上版：§6.3 面板注册表（内核不再硬编码用量计费）"
+      "note": "v261009e · 资讯（RSS）搬出内核成为插件 plugins/rss（删导航项、PAGE_META、路由分支、renderNews、设置页资讯源 tab 与 sourceRow 助手）；上版：专注计时搬出内核"
     },
     {
       "file": "plugin-host.js",
-      "v": "261009",
+      "v": "261009b",
       "theme": "plugin-host",
-      "note": "v261009 · 插件前端宿主：按 /api/plugins 下发的清单加载面板脚本，面板自登记 ERWPanels；单插件失败不影响内核（I4）且原因明示（I11）"
+      "note": "v261009b · 支持 nav.style（插件自带样式按 §2 以 [data-plugin] 作用域）；按 /api/plugins 清单加载面板，面板自登记 ERWPanels；单插件失败不影响内核（I4）且原因明示（I11）"
     },
     {
       "file": "literature.js",

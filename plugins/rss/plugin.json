@@ -1,0 +1,21 @@
+{
+  "id": "rss",
+  "name": "RSS 科研资讯",
+  "version": "1.0.0",
+  "description": "抓取 RSS / Atom 资讯源并按源筛选展示；源配置由插件自己管理",
+  "api_version": 1,
+  "core_min": "v261009",
+  "kind": "inprocess",
+  "distribution": "bundled",
+  "default_enabled": true,
+  "entry": "backend.py",
+  "permissions": ["net:http", "storage:own", "config:own", "ui:panel"],
+  "nav": [
+    { "id": "news", "label": "资讯", "icon": "◎", "mount": "web/panel.js", "style": "web/panel.css" }
+  ],
+  "routes": [
+    { "method": "GET", "path": "feed" },
+    { "method": "GET", "path": "config" },
+    { "method": "POST", "path": "config" }
+  ]
+}

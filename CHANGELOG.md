@@ -86,7 +86,14 @@
   - **验收**（`.scratch/tmp/verify_plugin_api.py`，19 项全通过，起真服务）：GET 路由拿到 query、POST 路由拿到 body、挂载点确为 `/api/plugins/<id>/<rel>`、`ctx.storage` 落在 `Workspace/Plugins/<id>` 与 `System/Plugins/<id>`、配置写 `config/plugins/<id>.json`、MCP 工具暴露为 `p_hello__hello_now`；**`register` 抛异常的插件记为 failed 且内核与其它插件不受影响**；**裸 `/api/docs` 路由在声明期被拒**并给出挂载点提示；未注册路径 404、handler 抛异常 500（带插件 id）、内核路由与 `/api/plugins` 清单均不受影响。（夹具运行期产物已清理，未留在 `config/` 与 `Workspace/`。）
   - **顺带修正我自己的一个 bug**：加载器最初把 `/api/plugins` 当「内核保留前缀」，导致**所有**插件路由被拒 —— 正是上面这套验收当场抓出来的；插件路由天然带命名空间前缀，与内核路由不可能撞，现在只保留插件之间的冲突检查。
   - **诚实边界**：后端执行层已可用但**尚无真功能消费者** —— 首个插件 `focus` 是纯前端，`register(ctx)` 要等把某个带后端的功能（天气/RSS）搬成插件时才有实战检验。
-- **未做**：把带后端的功能搬成插件（天气需新增 topbar 扩展点、RSS 需新增 settings 扩展点或 `settings_schema` 通用表单）、插件 MCP 工具的运行期接线（`p_<id>__*` 目前只在加载结果里收集，尚未注入 Agent 工具清单）、`A2 剩余`、`A9 剩余`（8 个 `MutationObserver` 合并）、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
+- **§6/P6 首件：把「资讯（RSS）」整体搬成插件**（后端执行层的第一个真消费者）：
+  - 新增 [`plugins/rss/`](plugins/rss/plugin.json)：`plugin.json`（路由 `feed` / `config`、面板 + 自带样式、权限 `net:http`/`storage:own`/`config:own`/`ui:panel`）、`backend.py`、`web/panel.js`、`web/panel.css`。
+  - **后端**：`app/rss.py`（166 行）原样搬入 `backend.py`（解析/抓取/去重/陈旧回退逻辑未改写），三处适配 —— 配置来源改为插件自己的 `config/plugins/rss.json`、缓存改为 `Workspace/System/Plugins/rss/cache.json`（只碰自己命名空间，I5）、入口由 `fetch()` 改为 `register(ctx)` 注册三条路由。**首次运行自动把内核 `config/rss.json` 的 9 个源迁移过来**（实测已迁移，老用户配置不丢，PLUGIN_SPEC §11.3）。
+  - **前端**：`app.js` 的 `renderNews`（资讯列表 + 源筛选 + 刷新 + 诊断）搬入面板并自登记 `ERWPanels`；资讯源编辑（原设置页的一个 tab）改为**面板内联**；样式按 §2 从 `styles.css` 搬入 `web/panel.css` 并统一加 `[data-plugin="rss"]` 作用域（宿主新增 `nav.style` 支持）。
+  - **内核删除**：`app/rss.py`、`/api/rss`、`/api/config/rss`、`config.py` 的 `DEFAULT_RSS_CONFIG`/`get_rss`/`save_rss` 与 `get_all()` 里的 `rss`、`app.js` 的导航项/`PAGE_META.news`/路由分支/`renderNews`/设置页资讯源 tab/`sourceRow`+`wireSourceRows`、`styles.css` 的 news-*/rss-*/source-row 规则、`server.py` 的 rss 导入与 `clear_cache` 调用。`tools/self_check.py` 的 RSS 解析测试改为按路径加载插件后端（覆盖不丢）。
+  - **端到端验收**（`.scratch/tmp/verify_rss_plugin.py`，17 项全通过）：`/api/plugins` 同时下发 focus 与 rss（含面板与样式 URL）· 面板脚本与插件样式均被请求 · 宿主 `loaded=['focus','rss']` 且 failures 为空 · **侧栏 17 项与顺序逐项不变**（资讯仍在 Agent 之后）· `#news` 由插件渲染且**插件样式生效**（`.news-grid` computed `display:grid`）· 资讯源设置内联可用且**9 个源已迁移** · 插件路由 `feed`/`config` 可用（离线也 200 + 源状态）· **内核 `/api/rss` 已 404** · 内核 Python 已无任何 rss 痕迹 · 全程 0 console error / 0 失败请求。
+  - **有意变化（PLUGIN_SPEC §11.2 显式声明）**：资讯源设置从「设置页的一个 tab」移到「资讯页内联」——插件拥有自己的 UI，内核不再知道「资讯源」这个概念；接口从 `/api/rss`、`/api/config/rss` 变为 `/api/plugins/rss/*`。
+- **未做**：天气搬成插件（topbar 组件尚无扩展点，需先加 `slots`）、插件 MCP 工具的运行期接线（`p_<id>__*` 仍只在加载结果里收集）、`A2 剩余`、`A9 剩余`（8 个 `MutationObserver` 合并）、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

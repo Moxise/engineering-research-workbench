@@ -13,7 +13,6 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from app import config
-from app import rss as rss_service
 from app import store
 from app import todos
 from app import weather
@@ -291,9 +290,6 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/weather/geocode":
             name = (q.get("name") or [""])[0]
             return self.send_json(weather.geocode(name))
-        if path == "/api/rss":
-            force = (q.get("force") or ["0"])[0] == "1"
-            return self.send_json(rss_service.fetch(force))
         if path == "/api/search":
             query = (q.get("q") or [""])[0]
             limit = _q_int(q, "limit", 60, 1, 120)
@@ -345,15 +341,12 @@ class Handler(BaseHTTPRequestHandler):
     def handle_api_post(self, path, payload):
         if path == "/api/config/app":
             return self.send_json(config.save_app(payload))
-        if path == "/api/config/rss":
-            return self.send_json(config.save_rss(payload))
         if path == "/api/system/index/rebuild":
             return self.send_json(indexer.rebuild())
         if path == "/api/system/reload":
             data = config.reload_all()
             workspace.reset_runtime_state()
             root = workspace.ensure_workspace(run_migration=False)
-            rss_service.clear_cache()
             weather.clear_cache()
             if data.get("app", {}).get("workspace_migration", {}).get("enabled", True):
                 migration = workspace.migrate_legacy(root, force_scan=True)
@@ -707,12 +700,15 @@ def build_plugin_payload(root, workspace_dir) -> dict:
         for item in (cand.manifest or {}).get("nav") or []:
             if not isinstance(item, dict) or not item.get("mount"):
                 continue
-            nav.append({
+            entry = {
                 "id": str(item.get("id") or pid),
                 "label": str(item.get("label") or pid),
                 "icon": str(item.get("icon") or ""),
                 "url": f"/plugins-file/{pid}/{str(item['mount']).lstrip('/')}",
-            })
+            }
+            if item.get("style"):  # 插件自带样式（须按 §2 以 [data-plugin="<id>"] 作用域）
+                entry["style_url"] = f"/plugins-file/{pid}/{str(item['style']).lstrip('/')}"
+            nav.append(entry)
         out.append({"id": pid, "version": cand.version, "source": cand.source,
                     "distribution": (cand.manifest or {}).get("distribution") or "",
                     "nav": nav})
