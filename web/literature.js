@@ -101,10 +101,18 @@ function scheduleTrim(center=S.current){
 }
 async function build(){
  const host=q("#lit-pages");host.innerHTML="";S.pages.clear();const gen=S.generation;
+ /* v261009p · 旧实现为拿页面尺寸在打开 PDF 时串行 getPage(1..N)，长论文首屏会被 N 次异步解析阻塞。
+    学术论文绝大多数页面同尺寸：只取第 1 页作为占位尺寸，真正进入视口时再按实际页面尺寸修正。 */
+ const first=await S.pdf.getPage(1);if(gen!==S.generation)return;
+ const baseVp=first.getViewport({scale:S.scale});
+ const frag=document.createDocumentFragment();
  for(let n=1;n<=S.pdf.numPages;n++){
-  const p=await S.pdf.getPage(n);if(gen!==S.generation)return;const vp=p.getViewport({scale:S.scale});
-  const el=document.createElement("div");el.className="lit-page-shell";el.dataset.page=n;el.style.width=vp.width+"px";el.style.height=vp.height+"px";el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>";host.appendChild(el);S.pages.set(n,{el,rendered:false,rendering:false,annotations:annotationsForPage(n)});
+  const el=document.createElement("div");el.className="lit-page-shell";el.dataset.page=n;
+  el.style.width=baseVp.width+"px";el.style.height=baseVp.height+"px";
+  el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>';
+  frag.appendChild(el);S.pages.set(n,{el,rendered:false,rendering:false,annotations:annotationsForPage(n)});
  }
+ host.appendChild(frag);
  S.observer=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)renderPage(+e.target.dataset.page)}),{root:q("#lit-scroll"),rootMargin:"700px 0px",threshold:.01});
  S.pages.forEach(r=>S.observer.observe(r.el));q("#lit-scroll").onscroll=throttle(track,80);toolbar();
 }
@@ -118,6 +126,7 @@ async function renderPage(n){
   const text=await p.getTextContent();
   r.textItems=buildPdfTextGeometry(text,vp);
   r.annotations=annotationsForPage(n);r.rendered=true;
+  try{p.cleanup()}catch{} /* 释放 PDF.js 当前页 operator/display 资源；需要时可再次惰性渲染 */
   const pageEl=q(".lit-page",r.el),hit=q(".lit-interaction-layer",r.el);
   hit.onmousedown=e=>beginPdfGeometrySelection(n,e);
   hit.onclick=e=>handlePageAnnotationClick(n,e);
