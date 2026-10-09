@@ -77,7 +77,16 @@
   - **路径安全**（`.scratch/tmp/verify_plugin_assets.py`，用**未归一化**的原始请求行，避免客户端先把 `..` 归一化掉）：10 例全通过 —— 正常面板 200、插件自身文件 200、编码 `../` 与多次穿越 403、未知插件 404、缺 id/子路径 400，且无源码泄漏。
   - `plugin_check` 新增**面板契约**不变量：声明了 `nav` 的插件，其 mount 脚本必须自登记 `ERWPanels` —— 否则脚本会「正常加载但什么都不做」，属静默失败。
   - **顺带修掉一个真 bug，并让闸门变确定**：`/api/weather` 在离线时 `URLError` 冒泡成 **500 + 浏览器 console error**，既让「天气」卡片报错，也让 `ui_smoke` 的「无 console error」断言随天气缓存 TTL 时好时坏（**不确定的闸门比没有闸门更糟**）。现改为：先退回**陈旧缓存**（带 `stale:true` 与可读原因），无缓存则返回显式的 `unavailable` 载荷；`geocode` 同样不再抛异常。实测离线返回陈旧数据 +「网络不可达（连接被拒绝）」，`/api/weather` 恢复 200，失败请求归零。
-- **未做**：插件**后端执行层**（`register(ctx)`、`core_api` 门面、路由与 MCP 工具的挂载/卸载、I3–I8/I10 的运行期校验）——首个插件是纯前端，故本阶段只实现了前端管线；`A2 剩余`、`A9 剩余`（8 个 `MutationObserver` 合并）、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
+- **§6/P5：插件后端执行层（`register(ctx)` / 路由分发 / 命名空间隔离）**：
+  - 新增 [`core_api.py`](core_api.py)（仓库根）：插件**唯一允许** import 的内核门面 —— `log` / `plugin_dir` / `cache_db` / `workspace_dir` / `system_dir` / `config_path` / `read_config` / `write_config`。保持最小面，要加是有意的动作（须同步 PLUGIN_SPEC §6）。
+  - 新增 [`core/plugins/context.py`](core/plugins/context.py)：`ctx`（`PluginContext`）—— `routes.get/post/put/patch/delete`（**声明期**就强制相对路径、拒裸 `/api/*`、拒重复，错误信息直接给出正确挂载点）、`mcp.tool(name, spec, handler)`（只收裸名，对外名内核加 `p_<id>__`）、`storage`（只给插件自己命名空间内的路径，I5）、`config_read/config_write`、`log`。**未实现的不假装有**：`jobs` / `events` / `search.addSection` 明确列为待做。
+  - 新增 [`core/plugins/loader.py`](core/plugins/loader.py)：按拓扑顺序执行 `register(ctx)`；**每插件独立 `try/except`**（I4）——注册失败记为 `failed` + 可读原因并继续跑其它插件；路由冲突按条拒绝并记原因；`dispatch()` 按 `(METHOD, 完整路径)` 查表，handler 抛异常**只影响该次请求**（500 且带插件 id）。
+  - `server.py`：`build_server()` 启动时加载插件（按拓扑顺序打印、失败打到 stderr）；`/api/plugins/<id>/<rel>` 在 **GET/POST/DELETE** 三个入口统一分发；`ERW_PLUGINS_ROOTS`（`|` 分隔）可覆盖扫描根，便于测试与便携安装。
+  - `plugin_check` 新增 **I3 静态检查**：插件后端只允许 import 标准库与 `core_api`；`core.*` / `app.*` / `mcp.*` / `server` 一律拦下（负向用例 6 例验证：注释里的 import 不误报）。
+  - **验收**（`.scratch/tmp/verify_plugin_api.py`，19 项全通过，起真服务）：GET 路由拿到 query、POST 路由拿到 body、挂载点确为 `/api/plugins/<id>/<rel>`、`ctx.storage` 落在 `Workspace/Plugins/<id>` 与 `System/Plugins/<id>`、配置写 `config/plugins/<id>.json`、MCP 工具暴露为 `p_hello__hello_now`；**`register` 抛异常的插件记为 failed 且内核与其它插件不受影响**；**裸 `/api/docs` 路由在声明期被拒**并给出挂载点提示；未注册路径 404、handler 抛异常 500（带插件 id）、内核路由与 `/api/plugins` 清单均不受影响。（夹具运行期产物已清理，未留在 `config/` 与 `Workspace/`。）
+  - **顺带修正我自己的一个 bug**：加载器最初把 `/api/plugins` 当「内核保留前缀」，导致**所有**插件路由被拒 —— 正是上面这套验收当场抓出来的；插件路由天然带命名空间前缀，与内核路由不可能撞，现在只保留插件之间的冲突检查。
+  - **诚实边界**：后端执行层已可用但**尚无真功能消费者** —— 首个插件 `focus` 是纯前端，`register(ctx)` 要等把某个带后端的功能（天气/RSS）搬成插件时才有实战检验。
+- **未做**：把带后端的功能搬成插件（天气需新增 topbar 扩展点、RSS 需新增 settings 扩展点或 `settings_schema` 通用表单）、插件 MCP 工具的运行期接线（`p_<id>__*` 目前只在加载结果里收集，尚未注入 Agent 工具清单）、`A2 剩余`、`A9 剩余`（8 个 `MutationObserver` 合并）、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

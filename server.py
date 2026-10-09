@@ -138,6 +138,8 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(parsed.query, keep_blank_values=True)  # v260930i · 保留空值参数：/api/agent/drafts?status= 依赖空串表示「全量」，否则被解析为未传而回退 pending，导致重启后草稿已确认状态无法校准
         try:
             if path.startswith("/api/"):
+                if path.startswith("/api/plugins/"):  # v261009 · §6.3 插件路由（查表分发）
+                    return self.handle_plugin_route("GET", path, q)
                 return self.handle_api_get(path, q)
             if path.startswith("/workspace-file/"):
                 return self.serve_workspace_file(path[len("/workspace-file/"):])
@@ -157,6 +159,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/literature/import":
                 return self.handle_literature_import()
+            if path.startswith("/api/plugins/"):  # v261009 · 插件路由
+                return self.handle_plugin_route("POST", path, parse_qs(parsed.query, keep_blank_values=True),
+                                                self.read_json())
             payload = self.read_json()
             return self.handle_api_post(path, payload)
         except FileNotFoundError as e:
@@ -170,6 +175,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         try:
+            if path.startswith("/api/plugins/"):  # v261009 · 插件路由
+                return self.handle_plugin_route("DELETE", path, parse_qs(parsed.query, keep_blank_values=True))
             if path.startswith("/api/projects/"):
                 project_id = unquote(path.split("/api/projects/", 1)[1])
                 result = projects.delete_project(project_id)
@@ -573,6 +580,19 @@ class Handler(BaseHTTPRequestHandler):
         """内核下发给前端的插件清单（§6.3）。实现见模块级 build_plugin_payload（便于单测）。"""
         return build_plugin_payload(ROOT, workspace.ensure_workspace())
 
+    def handle_plugin_route(self, method, path, q, body=None):
+        """插件路由分发（§6.3）：只查已加载插件的路由表，未知路径 404。
+
+        handler 抛异常时返回 500 **只影响该次请求**，错误信息带插件 id（I4）。
+        """
+        from core.plugins import loader as plugin_loader
+
+        result = PLUGINS.get("result")
+        if result is None:
+            return self.send_json({"error": "not_ready", "message": "插件尚未加载"}, 503)
+        status, payload = plugin_loader.dispatch(result, method, path, q, body)
+        return self.send_json(payload, status)
+
     def serve_plugin_file(self, rel):
         """提供插件自带的静态资源（面板脚本/样式）。**只允许插件目录内的文件**（§7.4 路径安全）。"""
         from core.plugins import registry as plugin_registry
@@ -581,7 +601,7 @@ class Handler(BaseHTTPRequestHandler):
         pid, _, sub = raw.partition("/")
         if not pid or not sub:
             return self.send_json({"error": "bad_request", "message": "路径应形如 <plugin_id>/<相对路径>"}, 400)
-        candidates, _notes = plugin_registry.discover()
+        candidates, _notes = plugin_registry.discover(plugin_roots(ROOT))
         candidate = candidates.get(pid)
         if candidate is None:
             raise FileNotFoundError(f"未知插件：{pid}")
@@ -630,6 +650,43 @@ def _scratch_boot_cleanup() -> None:
         print(f"[scratch] 跳过清理：{type(exc).__name__}: {exc}")
 
 
+def plugin_roots(root):
+    """插件扫描根：默认随包库 + 用户库；`ERW_PLUGINS_ROOTS` 可覆盖（`|` 分隔，测试/便携用）。"""
+    from core.plugins import registry as plugin_registry
+
+    env = os.environ.get("ERW_PLUGINS_ROOTS", "").strip()
+    if env:
+        out = []
+        for i, item in enumerate([x for x in env.split("|") if x.strip()]):
+            out.append(("bundled" if i == 0 else "user", Path(item.strip()).resolve()))
+        return out
+    return plugin_registry.default_roots(root)
+
+
+#: 插件加载结果（进程级）：`build_server()` 里填充，请求分发时查表
+PLUGINS = {"result": None}
+
+
+def load_plugins(root, workspace_dir) -> dict:
+    """启动时加载插件并执行 register(ctx)（§4.2 拓扑顺序；单插件失败不影响内核）。"""
+    from core.plugins import loader as plugin_loader
+
+    version = ""
+    try:
+        version = (ASSET_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    result = plugin_loader.load(roots=plugin_roots(root), workspace=workspace_dir, core_version=version)
+    PLUGINS["result"] = result
+    for note in result.notes:
+        print(f"[plugins] {note}")
+    if result.order:
+        print(f"[plugins] 已加载 {len(result.order)} 个：{' → '.join(result.order)}")
+    for failure in result.failures():
+        print(f"[plugins] 失败：{failure['id']} —— {failure['reason']}", file=sys.stderr)
+    return result.as_dict()
+
+
 def build_plugin_payload(root, workspace_dir) -> dict:
     """前端插件清单（§6.3）：只含「已校验可用 且 生效启用」的插件与其面板入口。
 
@@ -638,7 +695,7 @@ def build_plugin_payload(root, workspace_dir) -> dict:
     """
     from core.plugins import registry as plugin_registry
 
-    roots = plugin_registry.default_roots(root)
+    roots = plugin_roots(root)
     candidates, notes = plugin_registry.discover(roots)
     plugin_registry.resolve(candidates, "")
     install = plugin_registry.read_install_state(workspace_dir)
@@ -670,6 +727,7 @@ def build_server(port_override: int | None = None, auto_open_browser: bool | Non
     """
     config.init()  # v261009 · 配置初始化由入口显式触发（原先在 config 模块 import 期执行）
     workspace.ensure_workspace()
+    load_plugins(ROOT, workspace.ensure_workspace())  # v261009 · §6：启动时加载插件并注册扩展点
     _scratch_boot_cleanup()
     if _project_registry_needs_migration():
         projects.ensure_registry()

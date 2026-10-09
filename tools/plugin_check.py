@@ -35,6 +35,8 @@ PLUGIN_IMPORTERS_ALLOWED: set[str] = set()
 
 PLUGIN_IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+(plugins[\w.]*)", re.M)
 APP_IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+(app[\w.]*)", re.M)
+#: I3：插件只允许 import 标准库与 core_api；这些是禁止的内核私有入口
+PLUGIN_FORBIDDEN_IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+(core\.|app\.|mcp\.|server\b)", re.M)
 
 
 def strip_comments(text: str) -> str:
@@ -107,13 +109,43 @@ def main(argv: list[str] | None = None) -> int:
     else:
         notes.append("空插件集盘点干净（零插件 = 合法状态）")
 
+    # 一次发现，供下面几组插件侧检查共用
+    candidates, _notes2 = R.discover()
+    R.resolve(candidates, (ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else "")
+
+    # I3：插件只允许 import 标准库与 core_api（不得碰 core.* 私有模块、app.*、别的插件）
+    FORBIDDEN = PLUGIN_FORBIDDEN_IMPORT_RE
+    for pid, cand in sorted(candidates.items()):
+        if cand.state != "available":
+            continue
+        entry = str((cand.manifest or {}).get("entry") or "").strip()
+        if not entry:
+            continue
+        path = Path(cand.dir) / entry
+        if not path.is_file():
+            continue
+        text = strip_comments(path.read_text(encoding="utf-8"))
+        hits = FORBIDDEN.findall(text)
+        if hits:
+            fails.append(f"I3 违反：插件 {pid} 的 {entry} import 了内核私有模块 {sorted(set(hits))}"
+                         "（只允许 `from core_api import ...`）")
+        else:
+            notes.append(f"I3 通过：{pid} 的后端只 import 标准库 / core_api")
+        # 面板脚本不得改内核 DOM 基础设施（§6.3）；这里只提示依赖了哪些内核接缝
+        for item in (cand.manifest or {}).get("nav") or []:
+            mount = str((item or {}).get("mount") or "")
+            script = Path(cand.dir) / mount
+            if mount and script.is_file():
+                seams = sorted(set(re.findall(r"window\.(ERW[\w$]*)", script.read_text(encoding="utf-8"))))
+                if seams:
+                    notes.append(f"插件 {pid} 面板依赖的内核接缝：{seams}")
+
     real = R.report(workspace=None, core_version=(ROOT / "VERSION").read_text(encoding="utf-8").strip())
     notes.append(f"当前 plugins/ 实况：发现 {len(real['plugins'])} 个，可用 {real['available']}，"
                  f"blocked {real['blocked']}，rejected {real['rejected']}，冲突 {real['conflict']}")
 
     # 面板契约：声明了 nav 的插件，其 mount 脚本必须自登记 ERWPanels——
     # 否则脚本会正常加载但什么都不做，表现为「插件装了却不出现」，属静默失败（I11）。
-    candidates, _ = R.discover()
     for pid, cand in sorted(candidates.items()):
         if cand.state != "available":
             continue
