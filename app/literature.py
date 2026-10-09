@@ -118,19 +118,22 @@ def list_items(query: str = "", status: str = "", category: str = "", page: int 
 _DOC_META_KEYS = ("title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex")
 
 def _apply_doc_meta(item: dict[str, Any], doc: dict[str, Any]) -> None:
-    """v260929 · 用 md doc 的元数据覆盖 library 字段（真值归一的公共覆盖逻辑）。"""
+    """v261009 · 用 md doc 的元数据覆盖 library 字段。
+
+    md 是元数据唯一真值，因此“字段存在但值为空”也必须覆盖 registry 中的旧值；
+    否则用户在 md 中清空 DOI/作者/标签后，library.json 的历史值会重新显示。
+    """
     for key in _DOC_META_KEYS:
-        val = doc.get(key)
-        if val:
-            item[key] = val
-    if doc.get("tags"):
-        item["tags"] = doc["tags"]
-    if doc.get("projects"):
-        item["projects"] = doc["projects"]
-    if doc.get("excerpt"):  # v260929 · 摘要仅供列表展示（与文献列表页同源同款），不回写
-        item["excerpt"] = doc["excerpt"]
-    if doc.get("kind_marks"):  # v260929 · 分类标记徽章（阅读区与列表页同源，取自 md 真值）
-        item["kind_marks"] = doc["kind_marks"]
+        if key in doc:
+            value = doc.get(key)
+            item[key] = "" if value is None else value
+    for key in ("tags", "projects", "kind_marks"):
+        if key in doc:
+            value = doc.get(key)
+            item[key] = list(value) if isinstance(value, list) else []
+    if "excerpt" in doc:  # 摘要仅供列表展示（与文献列表页同源同款），不回写
+        item["excerpt"] = str(doc.get("excerpt") or "")
+
 
 def _join_doc_meta_batch(rows: list[dict[str, Any]]) -> None:
     """v260929 · 列表批量归一：一次批量取 doc（每篇文献只读一次盘），替代逐条 get_doc 的
@@ -175,27 +178,37 @@ def update_item(paper_id: str, patch: dict[str, Any]) -> dict[str, Any]:
     data = _load_registry()
     allowed = {"title","authors","year","venue","doi","url","cite_key","bibtex","reading_status","categories","tags","projects","favorite","last_page","page_count","kind_marks"}
     for item in data.get("items") or []:
-        if item.get("id") != paper_id: continue
+        if item.get("id") != paper_id:
+            continue
+
+        normalized: dict[str, Any] = {}
         md_patch: dict[str, Any] = {}
         for key in allowed:
-            if key in patch:
-                value = patch[key]
-                if key == "reading_status" and value not in READING_STATUSES: value = "未读"
-                if key in {"categories","tags","projects"}:
-                    value = list(dict.fromkeys(str(v).strip() for v in (value or []) if str(v).strip()))
-                item[key] = value
-                if key in _MD_SYNC_KEYS: md_patch[key] = value  # v260929 · 元数据改动需同步回 md（真值）
+            if key not in patch:
+                continue
+            value = patch[key]
+            if key == "reading_status" and value not in READING_STATUSES:
+                value = "未读"
+            if key in {"categories", "tags", "projects", "kind_marks"}:
+                value = list(dict.fromkeys(str(v).strip() for v in (value or []) if str(v).strip()))
+            normalized[key] = value
+            if key in _MD_SYNC_KEYS:
+                md_patch[key] = value
+
+        # v261009 · md 是唯一真值：先写 md，失败必须向上抛出，禁止静默形成
+        # “library 已更新但 md 未更新”的双真值状态。
+        doc_id = str(item.get("doc_id") or "")
+        if doc_id and md_patch:
+            from . import indexer
+            indexer.update_doc(doc_id, md_patch)
+
+        for key, value in normalized.items():
+            item[key] = value
         item["updated_at"] = datetime.now().isoformat(timespec="seconds")
         _save_registry(data)
-        doc_id = str(item.get("doc_id") or "")
-        if doc_id and md_patch:  # v260929 · 工作区改元数据 → 经 indexer.update_doc 同步 md 并刷新索引，两处口径一致
-            try:
-                from . import indexer
-                indexer.update_doc(doc_id, md_patch)
-            except Exception:
-                pass
         return _join_doc_meta(dict(item))
     raise FileNotFoundError(paper_id)
+
 
 def delete_item(paper_id: str) -> dict[str, Any]:
     data = _load_registry()
@@ -250,16 +263,19 @@ def import_pdf(filename: str, source_path: Path, metadata: dict[str, Any] | None
 
 
 def _ensure_doc_entry(item: dict[str, Any]) -> str:
-    """v260929 · 数据互认（合并阶段 2）：为 library 条目同步创建 literature md 条目。
-    md 是元数据唯一真值载体：attachment 指向工作区 PDF（相对 Workspace 路径），
-    cite_key 留空由 store 自动生成；doc_id 回写 library.json 形成双向关联。
-    md 创建失败不阻塞上传（doc_id 置空，可由重建端点补齐）。"""
+    """v261009 · 为 library 条目同步创建 literature md 条目，并兼容迁移旧 PDF 笔记。
+
+    旧 PDF 工作区把笔记保存在 Knowledge/Literature/Notes/<paper_id>.md。
+    升级到“literature md 为唯一真值”时，若旧笔记存在且非空，将其原样作为新条目正文，
+    避免重建关联后用户看到默认模板而误以为历史笔记丢失。旧 Notes 文件保留作迁移备份；
+    doc_id 一旦写回 library.json，后续重复重建不会再次创建或覆盖。
+    """
     if item.get("doc_id"):
         return str(item["doc_id"])
     doc_id = ""
     try:
         from . import store, indexer
-        doc = store.create_doc("literature", {
+        payload: dict[str, Any] = {
             "title": str(item.get("title") or item.get("filename") or "未命名文献"),
             "authors": item.get("authors") or "",
             "year": item.get("year") or "",
@@ -268,9 +284,17 @@ def _ensure_doc_entry(item: dict[str, Any]) -> str:
             "url": item.get("url") or "",
             "cite_key": item.get("cite_key") or "",
             "attachment": _attachment_rel(_pdf_dir() / item["stored_filename"]),
-        })
+        }
+
+        legacy_note = note_path(str(item.get("id") or ""))
+        if legacy_note.is_file():
+            legacy_body = legacy_note.read_text(encoding="utf-8-sig", errors="replace")
+            if legacy_body.strip():
+                payload["body"] = legacy_body
+
+        doc = store.create_doc("literature", payload)
         doc_id = str(doc["id"])
-        try:  # v260929 · 直写 md 须补刷 SQLite 索引，否则文献列表页（索引查询）看不到新条目
+        try:  # 直写 md 须补刷 SQLite 索引，否则文献列表页（索引查询）看不到新条目
             indexer.index_doc_path(str(doc.get("path") or ""))
         except Exception:
             pass
