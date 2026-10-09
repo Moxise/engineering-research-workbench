@@ -755,11 +755,18 @@ def delete_annotation(paper_id: str, annotation_id: str) -> dict[str, Any]:
     return {"ok": True}
 
 def _note_doc_id(paper_id: str) -> str:
-    """v260929 · 阅读区「笔记」的真值 = 该文献关联的知识条目 md（frontmatter 之后的正文），
-    与文献编辑器里的「文献笔记」正文同源，避免同一篇文献存在两份笔记。"""
-    doc_id = str(get_item(paper_id).get("doc_id") or "")
+    """v261009 · 阅读区「笔记」真值 = 关联 literature md。
+
+    对旧 PDF 工作区数据做懒迁移：首次打开笔记时若缺 doc_id，自动创建 literature md，
+    并由 _ensure_doc_entry() 把旧 Notes/<paper_id>.md 正文迁入。这样升级后无需先手工点击
+    “重建关联”才能看到历史笔记；迁移以 doc_id 为幂等标记。
+    """
+    item = get_item(paper_id)
+    doc_id = str(item.get("doc_id") or "")
     if not doc_id:
-        raise ValueError(f"文献条目不完整，缺少 doc_id 关联：{paper_id}")
+        doc_id = _ensure_doc_entry(item)
+    if not doc_id:
+        raise ValueError(f"文献条目迁移失败，无法建立 doc_id 关联：{paper_id}")
     return doc_id
 
 def get_note(paper_id: str) -> str:
