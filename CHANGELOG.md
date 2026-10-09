@@ -30,7 +30,14 @@
   - `update_doc` 的可写字段白名单改由契约 `UPDATE_FIELDS` 派生（原先在 store 里手抄 18 项，又是一处会漂移的副本）。
   - `tools/kb_smoke.py` 新增第 7 组共 14 条断言（越界 status/标记被拒、合法值放行、强制标记语义、日期格式、未声明字段、两条写入路径结论一致），**全绿**；并复核冒烟仍严格只读（`activity.jsonl` 945 行、`Knowledge` 200 个 md 前后不变）。
   - 注：本轮**未修**库里已有的 1 条越界 status 与 2 条越界标记——按 AGENTS.md「`Workspace/` 是用户数据」，修数据需确认后走 `kb_*` 工具，不手改文件。
-- **未做**：`A2 剩余部分`（把补丁并入主题模块、`window.fetch` 包装改显式分页 API、两个 canvas 先画后弃）、`A9/A10 钩子倒置`、doctor 的修复动作（`--fix-*`）与迁移框架、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具。
+- **P3 第二件：索引结构迁移框架（§5.5.2）**：
+  - 新增 `core/index/migrations/` —— `m0001_documents_attachment`（v1→v2）、`m0002_document_links_role`（v2→v3），每个迁移声明 `ID / TITLE / FROM_VERSION / TO_VERSION` 与 `apply(conn)->bool`（是否真改动）、`verify(conn)->(ok, detail)`、`rollback(conn)->bool`；`core/index/migrate.py` 负责编排：读当前版本 → 列待执行 → **默认 dry-run** → 备份 → 执行 → 验证，CLI 为 `python -m core.index.migrate [--apply | --rollback --to N] [--db] [--json]`。
+  - **替换**原先内联在 `app/perf_index_db._init_db()` 里的四段 if（没有声明、没有验证、没有回滚、没有备份，出问题只能删库重建）。
+  - **版本单一入口**：`app/perf_index_db.SCHEMA_VERSION` 改为读 `core.index.migrate.TARGET_VERSION`（= 迁移清单里的最大目标版本），不再写死数字——§5.5.1 点名的「5 处版本号各自演进」少了一处。
+  - **新增硬护栏**：磁盘库版本**高于**代码版本时拒绝写入并给出可执行提示（防旧 exe 打开新 Workspace 把结构改坏）；`core.doctor` 新增「索引·结构迁移状态」一并报出该状态与待执行迁移。
+  - 备份走 SQLite 自己的 backup API（WAL 下也得到一致快照），落在 `Workspace/System/Backups/<时间戳>-pre-v<N>.sqlite`。
+  - **验收**（`.scratch/tmp/verify_migrations.py`，24 项全通过）：在合成的 v1 旧库上 —— dry-run 后结构与版本**逐字节不变**；apply 补出 `attachment`/`role` 两列并升版到 3、`documents` 数据保留、`document_links` 按设计重建（纯派生数据，由索引器回填）；二次执行为 no-op 且 verify 仍通过；`rollback` 可逆回 v1（两列移除、版本回落）；**全新库**走 DDL 后迁移为 no-op、标记需全量建索引；`_init_db` 对版本 99 的库抛 `MigrationError`。CLI 端到端（dry-run → apply → 再 apply → rollback）实跑通过。真实库只读 dry-run 确认 `v3 → v3 已是最新`；服务侧 `indexer.initialize()` 实跑后索引仍为 **199 条 / 1854 边**、八类 `document_links.role` 分布不变。
+- **未做**：`A2 剩余部分`（把补丁并入主题模块、`window.fetch` 包装改显式分页 API、两个 canvas 先画后弃）、`A9/A10 钩子倒置`、doctor 的修复动作（`--fix-*`）、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

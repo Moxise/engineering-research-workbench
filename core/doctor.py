@@ -248,6 +248,25 @@ def scan_docs(ws: Path, rep: Report, index: sqlite3.Connection | None) -> dict:
                     f"schema_version={meta.get('schema_version')} last_sync={meta.get('last_sync')}")
         except sqlite3.Error:
             pass
+        # 结构迁移状态（core/index/migrate）：磁盘版本高于代码是硬错误——旧代码写入会破坏新结构
+        try:
+            from .index import migrate as index_migrate
+
+            try:
+                index_migrate.guard_disk_version(index)
+                guard_ok, guard_msg = True, ""
+            except index_migrate.MigrationError as exc:
+                guard_ok, guard_msg = False, str(exc)
+            info = index_migrate.plan(index)
+            rep.add("索引·结构迁移状态", "error" if not guard_ok else ("warn" if info["pending"] else "info"),
+                    0 if guard_ok and not info["pending"] else 1,
+                    guard_msg if not guard_ok else (
+                        f"当前 v{info['current_version']}（{info['current_label']}）→ 目标 v{info['target_version']}；"
+                        + ("待执行 " + ", ".join(s["id"] for s in info["pending"]) if info["pending"] else "已是最新")
+                    ),
+                    [f"{s['id']} {s['title']}" for s in info["pending"]])
+        except Exception as exc:  # pragma: no cover - 迁移模块不可用时不应拖垮体检
+            rep.add("索引·结构迁移状态", "info", 1, f"未检查（{exc}）")
     return by_kind
 
 

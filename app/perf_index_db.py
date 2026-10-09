@@ -9,8 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from . import workspace
+from core.index import migrate as index_migrate
 
-SCHEMA_VERSION=3  # v261008.2 · document_links 增加 role 列（「关联」段推导出的关系类型）
+#: 索引结构版本 = 迁移清单里的最大目标版本（唯一来源：core/index/migrations）。
+#: v261009 起不再在这里写死数字——原先有 5 处版本号各自演进（REFACTOR_PLAN §5.5.1）。
+SCHEMA_VERSION = index_migrate.TARGET_VERSION
 WORKSPACE_SCHEMA_VERSION=3
 SYNC_INTERVAL_SECONDS=30.0
 DEFAULT_PAGE_SIZE=50
@@ -208,32 +211,11 @@ def _init_db(conn: sqlite3.Connection) -> None:
         """
     )
 
-    row = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-    upgraded = False
-    if not row or int(row[0] or 0) != SCHEMA_VERSION:
-        upgraded = True
-        conn.execute(
-            "INSERT INTO meta(key,value) VALUES('schema_version',?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (str(SCHEMA_VERSION),),
-        )
-    # v260923 · 旧库补 attachment 列（新库建表已自带）；补列后由 initialize 强制重建索引回填
-    cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(documents)")}
-    if "attachment" not in cols:
-        conn.execute("ALTER TABLE documents ADD COLUMN attachment TEXT NOT NULL DEFAULT ''")
-        upgraded = True
-
-    # v261008.2 · 旧库的 document_links 无 role 列：该表是纯派生数据，直接重建后回填
-    link_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(document_links)")}
-    if "role" not in link_cols:
-        conn.execute("DROP TABLE IF EXISTS document_links")
-        conn.execute(
-            "CREATE TABLE document_links ("
-            "doc_id TEXT NOT NULL, token TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'wikilink', "
-            "PRIMARY KEY(doc_id, token, role), "
-            "FOREIGN KEY(doc_id) REFERENCES documents(id) ON DELETE CASCADE)"
-        )
-        upgraded = True
+    # v261009 · 版本化迁移交给 core/index/migrate（原先四段内联 if：没有声明、没有验证、
+    # 没有回滚、没有备份，出问题只能删库重建）。迁移是幂等的，新建库走上面的 DDL 后此处为 no-op。
+    disk_version = index_migrate.guard_disk_version(conn, SCHEMA_VERSION)  # 磁盘版本高于代码 → 拒写
+    result = index_migrate.apply(conn)
+    upgraded = bool(result["changed"]) or disk_version != SCHEMA_VERSION
 
     fts_exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents_fts'"
