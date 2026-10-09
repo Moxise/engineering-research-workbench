@@ -111,7 +111,23 @@
   - **顺带修掉一个真 bug（被闸门当场抓出）**：槽位面板曾被 `navGroups()` 一并塞进侧栏导航，于是冒出一个没有页面的 `#weather` 路由，并在 `navigate()` 抛 `render is not a function`。现在 `navGroups()` 跳过槽位面板、`navigate()` 用 `?.render` 守卫。
   - **闸门同步**：`ui_smoke` 区分**导航面板**（须出现在侧栏、须可走查）与**槽位面板**（须真的挂到对应槽位）；`plugin_check` 的面板契约检查覆盖全部插件；`manifest.py` 新增 `P019`（`nav.slot` 必须是已知槽位）。
   - **验收**（`.scratch/tmp/verify_weather_plugin.py`，16 项全通过）：插件清单含 weather（面板 + 样式 URL）· 配置路由可用且已迁移真实地点 · 内核 `/api/weather` 已 404 · **顶栏槽位容器存在且插件把自己的卡片画了进去** · 卡片文本已填充（离线降级显示「天气不可用」）· **插件样式生效**（status-dot 7px 圆点）· 点卡片弹出**插件自己的设置模态**（地点/经纬度/时区/启用 + 搜索坐标 + 保存并刷新）· 保存落盘到插件配置 · 内核 Python 零 weather 痕迹 · `index.html` 只剩槽位 · 全程 0 console error / 0 失败请求。
-- **未做**：插件**写**工具的草稿确认流分支、MCP stdio 服务侧的插件工具、`settings_schema` 通用表单、`ctx.jobs`/`ctx.events`、`A2 剩余`、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
+- **§8 ② 收尾：插件写工具接入草稿确认流**（此前是**明确拒绝注册**，因为写路径会绕过确认）：
+  - `core/plugins/loader.py`：写工具不再被拒，改为正常注册并记录「调用时由内核走草稿确认流」。
+  - `app/agent_tools.execute()`：插件写工具在 `write_mode != 'direct'` 时**先生成草稿**（返回 `pending` + `draft_id` + 插件归属），**完全不调用插件 handler**；用户确认后 `confirm_draft` 以 direct 模式再进来执行；`reject_draft` 则不动。
+  - **为什么闸门必须在内核侧**：插件拿不到 `save_draft`（那是 `app.agent_tools` 的内部能力，也不在 `core_api` 门面里），所以「写工具必须经用户确认」这条**不能指望插件自觉**——由内核统一拦截，插件 handler 只在 direct 模式下真正落盘。
+  - **验收**（`.scratch/tmp/verify_plugin_tools.py`，19 项全通过）：读/写工具都进入工具面且写工具带 `write: true` · 读工具直接执行、handler 异常隔离、人设白名单生效 · **confirm 模式只出草稿、插件 handler 未被调用** · `confirm_draft` 真正执行 · `reject_draft` 不执行 · `direct` 模式直接执行 · HTTP 面 `/api/agent/tools` 含读写工具与 `write` 标记 · 未加载插件时工具不存在。
+- **本轮收尾：21 套闸门全部通过**。可复跑的验收基线（都在仓库里，只读）：
+  - `python tools/kb_smoke.py` —— 数据/关系层冒烟（199 条 / 1854 边）
+  - `python tools/web_check.py` —— 前端静态：语法 / 装配清单 / 接缝 / 不变量（含「不得全局替换 `window.fetch`」「文档级 observer 必须走 `ERWDom`」「内核不得调用 `ERWPanels.register`」）
+  - `python tools/ui_smoke.py` —— 真浏览器逐路由走查（17 路由 + 导航面板在侧栏 + 槽位面板已挂载 + 首屏不拉重型库 + 0 console error）
+  - `python tools/web_manifest.py --check` —— 装配清单与 `index.html` 一致
+  - `python tools/plugin_check.py --assert-core-only` —— 插件隔离（I2 依赖方向、core 不依赖 app、零插件合法）+ 面板契约 + `mcp_tools` 声明即注册
+  - `python -m core.plugins list|check <id>|verify` —— 插件清单/依赖/冲突
+  - `python -m core.doctor` —— 知识库与索引只读体检（当前 2 errors / 7 warnings，均为已知数据问题）
+  - `python -m core.index.migrate` / `python -m core.index.maintain` —— 索引结构迁移（默认 dry-run）与维护（默认只读统计）
+  - `python -m mcp.server --selftest` —— MCP 工具面自检（problems 为空）
+  - `.scratch/tmp/` 下的 12 个夹具套件：插件执行层(19) / 插件工具与写工具草稿闸门(19) / manifest 契约(21) / 路径安全(10) / 三个插件 E2E(16+17+11) / DOM 接缝(8) / A10(6) / 面板注册表(9) / 迁移框架(24) / doctor 护栏与膨胀(各 1) / 规则负向(5+6)
+- **未做（留给后续）**：MCP stdio 服务侧的插件工具、`settings_schema` 通用表单（插件目前自带设置 UI）、`ctx.jobs` / `ctx.events`、`A2 剩余`（把补丁并入主题模块、两处 canvas 先画后弃）、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

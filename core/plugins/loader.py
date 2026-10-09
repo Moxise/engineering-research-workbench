@@ -161,18 +161,13 @@ def load(
             accepted.append(route)
             taken.add(key)
         plugin.routes = accepted
-        # 工具：读工具直接接入内置 Agent；**写工具暂不支持**——写路径要走内核的草稿确认流
-        # （save_draft/confirm_draft），那条链路还没有插件分支，所以这里明确拒绝而不是
-        # 半接（避免出现「声明了 write 却绕过确认直接落盘」的危险缺口）。
-        read_tools: list[McpTool] = []
-        for tool in ctx.mcp.tools:
-            if bool((tool.spec or {}).get("write")):
-                result.notes.append(
-                    f"插件 {pid} 的工具 {tool.name} 声明 write=true，但插件写工具的草稿确认流尚未实现，已拒绝注册"
-                )
-                continue
-            read_tools.append(tool)
-        plugin.mcp_tools = read_tools
+        # 工具：读工具直接接入内置 Agent；**写工具也接入，但由内核统一走草稿确认流**
+        # （`app/agent_tools.execute` 在 write_mode != direct 时先生成草稿，确认后才执行）——
+        # 插件自己拿不到 save_draft，所以这道闸门必须在内核侧，不能指望插件自觉。
+        plugin.mcp_tools = list(ctx.mcp.tools)
+        write_tools = [t.name for t in plugin.mcp_tools if bool((t.spec or {}).get("write"))]
+        if write_tools:
+            result.notes.append(f"插件 {pid} 注册了写工具 {write_tools}（调用时由内核走草稿确认流）")
 
     runtime.set_current(result)
     return result

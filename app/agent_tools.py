@@ -403,6 +403,15 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
             allowed = ctx.get("tools")
             if isinstance(allowed, (list, tuple)) and allowed and name not in allowed:
                 return {"ok": False, "error": f"当前人设未授权工具 {name}，可用：{'、'.join(str(t) for t in allowed)}"}
+            # v261009 · 插件写工具由**内核**统一走草稿确认流（插件拿不到 save_draft）：
+            # confirm 模式先生成草稿，用户确认后 confirm_draft 以 direct 模式再进来执行。
+            if is_write_tool(name) and ctx.get("write_mode") != "direct":
+                draft = save_draft(name, args)
+                return {
+                    "pending": True, "draft_id": draft["id"],
+                    "message": f"{plugin_tool.plugin_id} 插件的写操作草稿已生成，等待用户确认后执行",
+                    "draft": {"tool": name, "plugin": plugin_tool.plugin_id, "args": args},
+                }
             t0 = time.time()
             try:
                 result = plugin_tool.handler(args, ctx) or {}
