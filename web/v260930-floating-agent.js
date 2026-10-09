@@ -9,7 +9,8 @@ const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const S={
   open:false, session:null, messages:[], sending:false,
   bubbleSel:"",      /* 划词气泡捕获的选中内容（优先于发送时的实时 DOM 选中） */
-  writeDirect:false, /* true=写工具直接落盘；false=出草稿待确认（默认） */
+  writeDirect:false, /* 当前有效写入模式：true=直接落盘；false=草稿确认 */
+  writeOverride:null, /* null=跟随人设默认；boolean=用户在本次人设下手动覆盖 */
   draftState:{},     /* draft_id -> {status, result} 本地面板内状态 */
   personaId:localStorage.getItem("fabPersona")||(window.__FAB_DEFAULT_PERSONA__||"executor"), /* v260930g · 默认执行助手（含知识库写工具）；老用户尊重已存选择 */
   personas:null,     /* v260930 · M3 人设缓存（首次打开面板时拉取） */
@@ -149,7 +150,11 @@ function mount(){
   input.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();send()}});
   input.addEventListener("input",()=>{input.style.height="auto";input.style.height=Math.min(120,input.scrollHeight)+"px"});
   const wd=q("#fab-write-direct");
-  wd.onchange=()=>{S.writeDirect=wd.checked;q("#fab-mode-hint").textContent=wd.checked?"直接落盘已开启（谨慎）":"默认：写入需确认"};
+  wd.onchange=()=>{
+    S.writeOverride=!!wd.checked; /* v261009 · 人设 write_mode 只是默认值；复选框可在当前人设下临时覆盖 */
+    S.writeDirect=!!wd.checked;
+    syncWriteToggle();
+  };
   qa("[data-fab-act]",bubble).forEach(b=>b.onclick=()=>bubbleAct(b.dataset.fabAct));
   document.addEventListener("mousedown",onDocMouseDown,false);
   document.addEventListener("mouseup",onDocMouseUp,false);
@@ -158,6 +163,16 @@ function mount(){
   document.addEventListener("erw-lit-page",()=>{ /* v260930d · M5 翻页刷新关联知识（literature.js track/go 派发） */
     paintContext();
     if(S.open)ensureRelated(true);
+  });
+  /* v261009 · PDF.js 使用自定义几何划选，原生 window.getSelection() 为空；
+     literature.js 在选区变化时主动发事件，这里按动画帧合并刷新上下文 chip，
+     使“选中 N 字”在拖选完成/变化时即时出现，无需关闭面板或刷新页面。 */
+  let litSelectionPaintPending=false;
+  document.addEventListener("erw-lit-selection",()=>{
+    S.bubbleSel=""; /* 新 PDF 选区优先，清掉可能残留的普通 DOM 划词 */
+    if(!S.open||litSelectionPaintPending)return;
+    litSelectionPaintPending=true;
+    requestAnimationFrame(()=>{litSelectionPaintPending=false;paintContext()});
   });
   window.addEventListener("scroll",hideBubble,{passive:true,capture:true});
 }
@@ -312,7 +327,7 @@ async function ensureWritePersona(){
   const target=S.personas.find(p=>p.id==="executor"&&(p.tools||[]).some(t=>WRITE_TOOLS.includes(t)))
     ||S.personas.find(p=>(p.tools||[]).some(t=>WRITE_TOOLS.includes(t)));
   if(!target)return;
-  S.personaId=target.id;localStorage.setItem("fabPersona",S.personaId);
+  S.personaId=target.id;S.writeOverride=null;localStorage.setItem("fabPersona",S.personaId);
   paintPersonaSelect();
   toastInPanel(`当前人设无知识库写入工具，已切换到「${target.name}」`);
 }
@@ -323,19 +338,29 @@ function paintPersonaSelect(){
   if(S.open)paintContext(); /* v260930g · 人设就绪/切换后刷新写入能力徽章 */
 }
 function switchPersona(id){
-  S.personaId=id;localStorage.setItem("fabPersona",id);
-  paintPersonaSelect(); /* v260930g · 同步写入开关与能力徽章 */
+  S.personaId=id;S.writeOverride=null;localStorage.setItem("fabPersona",id); /* 切换人设时回到该人设默认写入模式 */
+  paintPersonaSelect();
   const p=currentPersona();
-  toastInPanel(p?`已切换人设：${p.name}（${p.write_mode==="direct"?"可直接写入":"写入需确认"}）`:"已切换人设");
+  toastInPanel(p?`已切换人设：${p.name}（默认${p.write_mode==="direct"?"直接写入":"写入需确认"}；可在底部临时切换）`:"已切换人设");
 }
 function syncWriteToggle(){
   const wd=q("#fab-write-direct"),hint=q("#fab-mode-hint"),p=currentPersona();
   if(!wd||!hint)return;
-  const locked=p&&p.write_mode!=="direct"; /* 人设为 confirm 时锁定开关：写入永远走草稿确认 */
-  wd.disabled=locked;
-  if(locked){wd.checked=false;S.writeDirect=false}
-  else if(wd.checked!==S.writeDirect)wd.checked=S.writeDirect;
-  hint.textContent=locked?"人设要求：写入需确认":(wd.checked?"直接落盘已开启（谨慎）":"默认：写入需确认");
+  const canWrite=personaHasWrite();
+  wd.disabled=!canWrite; /* v261009 · 只读人设才禁用；confirm 不再锁死，用户可显式选择直接落盘 */
+  if(!canWrite){
+    wd.checked=false;S.writeDirect=false;S.writeOverride=null;
+    hint.textContent="当前人设只读";
+    return;
+  }
+  const defaultDirect=p?.write_mode==="direct";
+  S.writeDirect=S.writeOverride===null?defaultDirect:!!S.writeOverride;
+  wd.checked=S.writeDirect;
+  if(S.writeOverride===null){
+    hint.textContent=S.writeDirect?"人设默认：直接写入":"人设默认：写入需确认";
+  }else{
+    hint.textContent=S.writeDirect?"本次：直接落盘（谨慎）":"本次：写入需确认";
+  }
 }
 async function openPanel(){
   S.open=true;const p=q("#erw-fab-panel");if(!p)return;
