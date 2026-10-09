@@ -87,7 +87,7 @@ function unloadPage(n){
  const r=S.pages.get(+n);if(!r||!r.rendered||r.rendering)return;
  if(S.pending?.page===+n||S.selectedAnn?.page===+n)return; /* 正在编辑/选择的页不回收 */
  releasePageCanvas(r);
- r.el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>';
+ r.el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>";
  r.rendered=false;r.textItems=null;r.annotations=annotationsForPage(n);
 }
 function trimRenderedPages(center=S.current){
@@ -109,7 +109,7 @@ async function build(){
  for(let n=1;n<=S.pdf.numPages;n++){
   const el=document.createElement("div");el.className="lit-page-shell";el.dataset.page=n;
   el.style.width=baseVp.width+"px";el.style.height=baseVp.height+"px";
-  el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>';
+  el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>";
   frag.appendChild(el);S.pages.set(n,{el,rendered:false,rendering:false,annotations:annotationsForPage(n)});
  }
  host.appendChild(frag);
