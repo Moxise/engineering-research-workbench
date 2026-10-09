@@ -7,7 +7,7 @@
   <title>科研工作台</title>
   <link rel="icon" type="image/png" href="/favicon.png?v=260923">
   <link rel="apple-touch-icon" href="/favicon.png?v=260923">
-  <!-- v260924g · CSS 引用带版本参数，避免 WebView 缓存旧样式；本次随分页排版/滚动同步锁修复升级 -->
+  <!-- web:css:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <link rel="stylesheet" href="/styles.css?v=261009h"><!-- v260929h · 设置页导航 sticky 阈值改为等于内容自然起点（宽屏紧凑 92=topbar 82+padding 10），修页顶左右卡片顶边错位 6px；按密度×断点四组对齐。上版：高度改用 zoom 折算视口变量 -->
   <link rel="stylesheet" href="/literature.css?v=260929j"><!-- v260929j · 批注编辑卡片操作行（加入笔记 / 附带截图勾选）样式；上版：AI 面板截图入口与待处理截图预览样式 -->
   <link rel="stylesheet" href="/v260922-projects.css?v=260924g">
@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/v260930-floating-agent.css?v=260930n"><!-- v260930n · 历史列表归档/删除操作样式；上版：停止按钮样式 -->
   <link rel="stylesheet" href="/v261008-billing.css?v=261008"><!-- v261008 · 用量计费仪表盘样式 -->
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
+  <!-- web:css:end -->
   <script>
     window.MathJax = {
       tex: {
@@ -31,12 +32,12 @@
       options: {skipHtmlTags: ['script','noscript','style','textarea','pre','code']}
     };
   </script>
+  <!-- web:vendor-js:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <script defer src="/vendor/marked.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/marked@15.0.12/marked.min.js'"></script>
   <script defer src="/vendor/purify.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.6/purify.min.js'"></script>
   <script defer src="/vendor/highlight-umd.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js'"></script>
-  <!-- v261009 · A1：mathjax（2.11 MB）与 mermaid（2.57 MB）改为按需加载，不再首屏无条件下载；
-       调用方走 window.erwVendor.load('mathjax'|'mermaid')，本地失败回退 CDN。见 vendor-lazy.js -->
-  <script defer src="/vendor-lazy.js?v=261009"></script>
+  <script defer src="/vendor-lazy.js?v=261009"></script><!-- v261009 · A1：mathjax（2.11 MB）与 mermaid（2.57 MB）改为按需加载，不再首屏无条件下载；调用方走 window.erwVendor.load('mathjax'|'mermaid')，本地失败回退 CDN。见 vendor-lazy.js -->
+  <!-- web:vendor-js:end -->
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -102,16 +103,14 @@
     </section>
   </div>
 
-  <script defer src="/v260922-performance.js?v=261009p"></script><!-- v260924g · 分页文案/排版修复，版本参数防缓存 -->
+  <!-- web:app-js:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
+  <script defer src="/v260922-performance.js?v=261009p"></script><!-- v260924g · 分页文案/排版修复，版本参数防缓存；**必须排在 app.js 之前**（它包装 window.fetch） -->
   <script defer src="/app.js?v=261009a"></script><!-- v261009a · A1：mathjax/mermaid 改按需加载；上版：侧栏新增「用量」页 -->
   <script defer src="/literature.js?v=261009p"></script><!-- v260930n · 修复框选失效（move/up 未挂载）+ Esc/取消时释放截图等待；上版：ERWCapture 桥 -->
-  <script defer src="/v260922-projects.js"></script>
-  <script defer src="/v260922-overview-editor-tools.js"></script>
-  <script defer src="/v260922-graph-performance.js?v=261009a"></script>
-  <script defer src="/v260922-overview-graph.js"></script>
-  <script defer src="/v260922-agent-profiles.js?v=260930g3"></script><!-- v260930g3 · 设置页顶部「AI 助手人设」锚点入口 + 统一提示词与人设提示词区分说明；上版：请求模式行可折叠 -->
+  <script defer src="/v260922-research-pages.js?v=261009a"></script><!-- v261009a · A2：由 projects / overview-editor-tools / graph-performance / overview-graph / agent-profiles 五个**位置连续**的补丁按序合并，内容逐字保留；原先靠加载顺序互相覆盖，现在顺序在文件内固定。改这里之前先读 tools/web_check.py 的接缝检查（含 window.__knowledgeGraphEngineVersion 等运行期标志） -->
   <script defer src="/v260930-floating-agent.js?v=261009q"></script><!-- v261009q · A1：悬浮球 MathJax 按需加载；上版：历史列表会话归档/删除+分组 -->
   <script defer src="/v260922-layout-bugfixes.js"></script>
   <script defer src="/v261008-billing.js?v=261008"></script><!-- v261008 · 用量计费仪表盘（window.ERWBilling） -->
+  <!-- web:app-js:end -->
 </body>
 </html>

@@ -17,7 +17,14 @@
 - **死代码清理（P11）**：删除全仓零引用的 `app/project_bridge.py`（52 行）。`app/search.py` 仍被 `mcp/bridge.py` 与 `tools/self_check.py` 使用，暂留待并入内核检索时再处置。
 - **端到端复核**：在备用端口 8799 以新代码起了一个实例，`/api/dashboard` 返回 `experiment:25 / 199 条`，`/api/docs?kind=experiment` 列出 25 条，索引 `document_links.role` 八类分布与 1854 条 `graph_edges` 全部保留——**「重启即丢 25 条实验」的风险已消除**（验证后退掉该实例）。
 - **vendor 按需加载（A1，前端首屏）**：`mathjax-tex-svg.js`(2.11 MB) 与 `mermaid.min.js`(2.57 MB) 原先在 `index.html` 里**无条件 defer**，首屏就要下载。新增 `web/vendor-lazy.js` 提供 `window.erwVendor.load('mathjax'|'mermaid')`（共享 Promise、只加载一次、失败回退 CDN、可重试）与 `hasMath()` 判断；四处调用点改为真正用到时才 `await`：`app.js` 的 Markdown 预览与 Mermaid 渲染、`v260922-graph-performance.js` 的图谱节点预览、`v260930-floating-agent.js` 的对话气泡。**首屏 5.23 MB → 0.77 MB（−4.46 MB / −85%）**，`/vendor/mathjax-tex-svg.js` 与 `/vendor/mermaid.min.js` 已不在首屏引用列表内（核对脚本 `.scratch/tmp/a1_payload_compare.py`）。纯文本预览不会拉 MathJax；离线时 MathJax 静默降级、Mermaid 保留原有「渲染库暂未加载」提示。
-- **未做**：`A2 前端补丁合并`（18 个补丁按主题合并 + manifest 装配）、`core.doctor` 与迁移框架、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具。
+- **A2 第一刀：装配清单化 + 前端静态体检闸门 + 连续补丁合并**：
+  - **装配清单**：新增 `web/manifest.json` 与 `tools/web_manifest.py`（`--write` / `--check`）。`index.html` 原先手写 11 个 `<link>` + 15 个 `<script>`，顺序有语义（`v260922-performance.js` 包装 `window.fetch`，必须排在 `app.js` 之前）却无处校验；现在三段引用块由清单生成，顺序只有一处声明，`--check` 可在提交前拦住漂移。
+  - **静态体检闸门**：新增 `tools/web_check.py`（只读）——① 语法（全部业务 JS 过 `node --check`、CSS 花括号配平）；② 清单↔`index.html` 一致；③ 清单↔磁盘双向缺失（新增前端模块不登记即报错）；④ **接缝完整性**：任何 `window.ERW*` 的消费方必须有定义方、任何自定义事件的监听方必须有派发方；⑤ 加载顺序约束。这条闸门正对 `17682ce`（一个补丁的语法错误直接打掉整个 PDF 工作区）那类事故——现在提交前就能拦住。
+  - **连续补丁合并**：`v260922-projects.js`、`overview-editor-tools`、`graph-performance`、`overview-graph`、`agent-profiles` 五个**在加载顺序上连续**的 IIFE 补丁合并为 `web/v260922-research-pages.js`，业务 JS **11 → 7 个**。合并前提经程序复核：5 个文件都是 `(() => {…})();` 且**顶层声明为 0**、彼此只经 `window`/事件/DOM 通信，且合并后放回第一个补丁的位置 → 全局顺序与文件内顺序都不变。复核脚本比对 git 中源文件：**payload 与按序拼接逐字一致（80,995 B），5 个 IIFE 原样**。
+  - **未做 CSS 主题合并（有意）**：11 个 CSS 在加载顺序上不构成连续的主题分组（`styles.css` 之后各补丁互相覆盖），合并会改变层叠顺序，收益（少几次请求）不抵风险；留待与 A9 钩子倒置一并处理。
+  - 顺带：`.gitignore` 放行 `web/**/*.json`（清单需入库）；本机 `AGENTS.md`（**当前不在版本库内**，见文末待决项）补「动 `web/` 必跑 `web_check.py`」「引用块不要手改」两条，并更正两处过期描述（`mcp/` 早已入白名单、新增 `core/` 契约层）。
+- **未做**：`A2 剩余部分`（把补丁并入主题模块、`window.fetch` 包装改显式分页 API、两个 canvas 先画后弃）、`A9/A10 钩子倒置`、`core.doctor` 与迁移框架、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具。
+- **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 
 ## v261008.2

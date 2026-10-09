@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "note": "web/ 前端装配清单。index.html 的三段引用块由 tools/web_manifest.py 生成；顺序有语义（补丁按加载顺序互相覆盖），改顺序请改这里并跑 --write，然后跑 tools/web_check.py。引用一律带 ?v=<版本> 版本参数，避免 WebView 缓存旧样式——改动对应文件时必须同步改这里的 v。",
+  "css": [
+    {
+      "file": "styles.css",
+      "v": "261009h",
+      "theme": "base",
+      "note": "v260929h · 设置页导航 sticky 阈值改为等于内容自然起点（宽屏紧凑 92=topbar 82+padding 10），修页顶左右卡片顶边错位 6px；按密度×断点四组对齐。上版：高度改用 zoom 折算视口变量"
+    },
+    {
+      "file": "literature.css",
+      "v": "260929j",
+      "theme": "literature",
+      "note": "v260929j · 批注编辑卡片操作行（加入笔记 / 附带截图勾选）样式；上版：AI 面板截图入口与待处理截图预览样式"
+    },
+    { "file": "v260922-projects.css", "v": "260924g", "theme": "projects" },
+    { "file": "v260922-compact-layout.css", "v": "261009h", "theme": "layout" },
+    { "file": "v260922-overview-editor-tools.css", "v": "260924g", "theme": "overview" },
+    { "file": "v260922-performance.css", "v": "260924g", "theme": "performance" },
+    { "file": "v260922-graph-performance.css", "v": "260924g", "theme": "graph" },
+    { "file": "v260922-agent-profiles.css", "v": "260929d", "theme": "agent" },
+    { "file": "v260922-layout-bugfixes.css", "v": "260924g", "theme": "layout" },
+    {
+      "file": "v260930-floating-agent.css",
+      "v": "260930n",
+      "theme": "agent",
+      "note": "v260930n · 历史列表归档/删除操作样式；上版：停止按钮样式"
+    },
+    {
+      "file": "v261008-billing.css",
+      "v": "261008",
+      "theme": "billing",
+      "note": "v261008 · 用量计费仪表盘样式"
+    },
+    {
+      "file": "vendor/github.min.css",
+      "theme": "vendor",
+      "cdn": "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css"
+    }
+  ],
+  "vendor_js": [
+    {
+      "file": "vendor/marked.min.js",
+      "theme": "vendor",
+      "cdn": "https://unpkg.com/marked@15.0.12/marked.min.js"
+    },
+    {
+      "file": "vendor/purify.min.js",
+      "theme": "vendor",
+      "cdn": "https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.6/purify.min.js"
+    },
+    {
+      "file": "vendor/highlight-umd.min.js",
+      "theme": "vendor",
+      "cdn": "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"
+    },
+    {
+      "file": "vendor-lazy.js",
+      "v": "261009",
+      "theme": "vendor",
+      "note": "v261009 · A1：mathjax（2.11 MB）与 mermaid（2.57 MB）改为按需加载，不再首屏无条件下载；调用方走 window.erwVendor.load('mathjax'|'mermaid')，本地失败回退 CDN。见 vendor-lazy.js"
+    }
+  ],
+  "js": [
+    {
+      "file": "v260922-performance.js",
+      "v": "261009p",
+      "theme": "performance",
+      "note": "v260924g · 分页文案/排版修复，版本参数防缓存；**必须排在 app.js 之前**（它包装 window.fetch）"
+    },
+    {
+      "file": "app.js",
+      "v": "261009a",
+      "theme": "base",
+      "note": "v261009a · A1：mathjax/mermaid 改按需加载；上版：侧栏新增「用量」页"
+    },
+    {
+      "file": "literature.js",
+      "v": "261009p",
+      "theme": "literature",
+      "note": "v260930n · 修复框选失效（move/up 未挂载）+ Esc/取消时释放截图等待；上版：ERWCapture 桥"
+    },
+    {
+      "file": "v260922-research-pages.js",
+      "v": "261009a",
+      "theme": "research-pages",
+      "note": "v261009a · A2：由 projects / overview-editor-tools / graph-performance / overview-graph / agent-profiles 五个**位置连续**的补丁按序合并，内容逐字保留；原先靠加载顺序互相覆盖，现在顺序在文件内固定。改这里之前先读 tools/web_check.py 的接缝检查（含 window.__knowledgeGraphEngineVersion 等运行期标志）"
+    },
+    {
+      "file": "v260930-floating-agent.js",
+      "v": "261009q",
+      "theme": "agent",
+      "note": "v261009q · A1：悬浮球 MathJax 按需加载；上版：历史列表会话归档/删除+分组"
+    },
+    {
+      "file": "v260922-layout-bugfixes.js",
+      "theme": "layout"
+    },
+    {
+      "file": "v261008-billing.js",
+      "v": "261008",
+      "theme": "billing",
+      "note": "v261008 · 用量计费仪表盘（window.ERWBilling）"
+    }
+  ]
+}
