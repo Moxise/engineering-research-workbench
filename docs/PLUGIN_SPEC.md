@@ -1,0 +1,237 @@
+# 工程科研工作台 · 插件规范（打包 / 安装 / 依赖）
+
+> 配套：[docs/SCOPE.md](SCOPE.md)（定位与功能分层）、[docs/REFACTOR_PLAN.md](REFACTOR_PLAN.md)（§6 插件化方案）。
+> 一句话目标：**把插件放进统一插件库就能用；不能用的必须明确告诉你为什么，且绝不影响核心。**
+
+---
+
+## 0. 三条设计原则
+
+| # | 原则 | 含义 |
+| --- | --- | --- |
+| P1 | **丢进去就能用** | 用户只需把「目录」或「单文件包」放进 `plugins/`；发现、校验、注册全自动，**不改代码、不重编译** |
+| P2 | **打包隔离** | 每个插件自包含（manifest + 后端 + 前端 + 迁移 + 依赖声明），不共享可变文件；共享物只能走 `core_api` 或**前提插件** |
+| P3 | **失败只伤自己** | manifest 不合法 / API 版本不兼容 / 依赖缺失 / 运行时抛错 → **只拒载或停用该插件**，核心与其它插件照常运行 |
+
+---
+
+## 1. 统一插件库：两个来源，一个入口
+
+| 来源 | 目录 | 谁能写 | 用途 |
+| --- | --- | --- | --- |
+| **用户库**（统一入口） | `DATA_ROOT/plugins/` | 用户 | 自己装/删的插件；**你说的"统一插件库"就是这里** |
+| **随包库**（bundled） | `ASSET_ROOT/plugins/` | 只能由发行版更新 | 官方附属插件（天气 / RSS / 专注计时 / 图谱 …），只读 |
+
+- 同名 `id` 同时存在时 **ASSET 优先**（防止用户误改随包插件导致升级不一致），并在诊断里报提示。
+- 开发态 `DATA_ROOT` = 仓库根 → 开发时就是仓库里的 `plugins/`（已被 `.gitignore` 放行、可入库）。
+- 打包态 `DATA_ROOT` = exe 同级 → 与便携数据同处一地，符合现有便携约定（`app/paths.py:16-23`）。
+
+**安装状态**记在 `System/plugins.json`（不放在插件目录里，避免插件写坏自己的清单）：
+
+```json
+{"schema_version": 1, "plugins": {
+  "weather":  {"version": "1.0.0", "source": "bundled", "enabled": true,  "installed_at": "2026-10-09T18:00:00", "hash": "sha256:…"},
+  "rag":      {"version": "0.9.3", "source": "user",    "enabled": false, "installed_at": "2026-10-10T09:00:00", "hash": "sha256:…"}
+}}
+```
+
+> 目录决定「在不在」，`System/plugins.json` 决定「开不开」。
+
+---
+
+## 2. 插件包格式：目录态 与 单文件包态
+
+| 形态 | 样子 | 生效方式 |
+| --- | --- | --- |
+| **目录态**（开发/源码） | `plugins/<id>/`（含 `plugin.json`） | 直接扫描加载 |
+| **单文件包态**（分发） | `plugins/<id>-<version>.zip`（内含 `plugin.json` 在根） | 内核**只读挂载**：解包到 `System/PluginCache/<id>-<version>/` 后加载；**不写回** `plugins/` |
+
+`plugins/<id>/` 的标准结构：
+
+```text
+plugins/weather/
+├─ plugin.json          # 唯一必需文件
+├─ backend.py           # 可选：register(ctx) 入口
+├─ web/
+│  ├─ panel.js          # 可选：export mount(ctx) / unmount()
+│  └─ panel.css         # 可选：必须以 [data-plugin="weather"] 作用域
+├─ migrations/          # 可选：自有数据迁移（NNNN_*.py）
+└─ README.md
+```
+
+**为什么单文件包要解包到 `System/PluginCache/` 而不是原地**：① 保证 `plugins/` 只存"用户放的东西"，升级/回滚干净；② 便于校验与清理；③ 避免运行时半解包状态。`System/PluginCache/` 可随时删除（可重建）。
+
+---
+
+## 3. manifest（`plugin.json`）完整字段
+
+```json
+{
+  "id": "weather",
+  "name": "天气",
+  "version": "1.0.0",
+  "description": "当前位置的实况天气卡片",
+
+  "api_version": 1,
+  "core_min": "v261010",
+
+  "kind": "inprocess",
+  "distribution": "bundled",
+  "default_enabled": true,
+
+  "entry": "backend.py",
+
+  "permissions": ["net:http", "storage:own", "config:own"],
+
+  "requires": {
+    "plugins": [{"id": "literature-base", "version": ">=1.0,<2"}],
+    "python": ">=3.10"
+  },
+  "provides": ["weather"],
+
+  "nav": [{"id": "weather", "label": "天气", "mount": "web/panel.js"}],
+  "routes": [{"method": "GET", "path": "forecast"}],
+  "mcp_tools": ["weather_now"],
+  "settings_schema": {"type": "object", "properties": {"city": {"type": "string"}}},
+  "jobs": [{"id": "refresh", "interval_min": 30}],
+  "events": ["doc.updated"],
+  "storage": {"derived_db": "System/Cache/weather.sqlite"}
+}
+```
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `id` | ✅ | 小写字母/数字/短横线；决定命名空间（路由、工具、存储、CSS 作用域） |
+| `version` | ✅ | 语义化版本，用于依赖解析与升级判定 |
+| `api_version` | ✅ | 插件所依赖的**内核 API 版本**；不匹配直接拒载（I7） |
+| `core_min` | — | 最低内核版本提示（不满足时给出明确信息） |
+| `kind` | ✅ | `inprocess`（默认）或 `process`（独立进程，见 §6） |
+| `distribution` / `default_enabled` | — | 合起来就是「附属（bundled+true）」与「可选插件（optional+false）」的唯一区别 |
+| `entry` | `process`/有后端时 ✅ | 后端入口文件 |
+| `permissions` | — | 权限清单（§7），安装/启用时展示给用户 |
+| `requires` / `provides` | — | 依赖与供给（§4） |
+| `nav` / `routes` / `mcp_tools` / `settings_schema` / `jobs` / `events` | — | 扩展点声明（注册方式与命名空间见 REFACTOR_PLAN §6.3） |
+| `storage` | — | 自有派生数据路径，**只允许** `System/Cache/<id>.sqlite` 这一类 |
+
+---
+
+## 4. 依赖与「前提插件」
+
+### 4.1 两类依赖
+
+| 类型 | 声明 | 说明 |
+| --- | --- | --- |
+| **前提插件**（prerequisite） | `requires.plugins[]` | 被依赖方必须已安装且启用；它就是普通插件，只是**默认开**。例：`literature-base`（文献条目/PDF 能力）被"阅读区 AI 助手""术语流水线"共同依赖 |
+| 内核 API | `api_version` / `core_min` | 与内核的契约版本；不匹配 → 拒载 |
+
+### 4.2 加载规则（确定性）
+
+1. **拓扑排序**：按 `requires.plugins` 做 DAG 排序后再注册；检测到环 → **整环拒载**并报错（不做"部分加载"）。
+2. **版本消解**：同一 `id` 在库中**只允许存在一个版本**；出现多版本（目录 + 单文件包、或两个包）→ 不猜、直接报冲突并列出候选，由用户删掉多余的那个。
+3. **缺失依赖**：某插件依赖的 `id` 未安装/未启用 → 该插件状态记为 `blocked`，在设置页显示「缺少前提插件：literature-base ≥1.0」，**核心与其它插件不受影响**。
+4. **级联停用**：前提插件被禁用/卸载 → 依赖它的插件**自动一起停用**（不崩溃、不清数据），恢复前提插件后可一键恢复启用。
+5. **顺序无关**（I9）：每个插件在独立 `try` 中注册；任何插件的注册失败都不阻断其它插件与核心。
+
+### 4.3 前提插件的边界（重要）
+
+前提插件**不得成为事实上的核心**：
+- 它自己必须能在「核心 + 它」的最小组合下独立工作；
+- 核心绝不允许依赖任何前提插件（I1：核心 + 零插件必须完整可跑）；
+- 前提插件被禁用时，核心功能不得退化（依赖它的插件一起停用即可）。
+
+---
+
+## 5. 安装 / 启用 / 禁用 / 更新 / 卸载
+
+| 动作 | 用户做什么 | 内核做什么 | 生效时机 |
+| --- | --- | --- | --- |
+| **安装** | 把目录或 `<id>-<version>.zip` 丢进 `plugins/` | 扫描 → 校验 manifest → 检查 `api_version`/依赖/冲突 → 记入 `System/plugins.json`（默认**不启用**，除非 `default_enabled: true`） | 后端需**重启**注册路由/工具；前端刷新即可见面板 |
+| **启用** | 设置页点「启用」（或 CLI） | 校验 → 拓扑排序注册 → 写 `enabled: true` | 同上 |
+| **禁用** | 点「禁用」 | 注销路由/面板/工具 → 级联停用其依赖者 → **保留数据** → 写 `enabled: false` | 同上 |
+| **更新** | 用新版本替换目录/包 | 版本比对 → 跑 `migrations/` → 更新记录与哈希；`api_version` 不兼容则**拒绝并保留旧版** | 同上 |
+| **卸载** | 点「卸载」 | 插件移入 `System/Trash/plugins/<id>/`；**数据默认保留**并提示（`Workspace/Plugins/<id>/`、`System/Plugins/<id>/` 是否一并删除由用户勾选） | 同上 |
+
+**CLI（与设置页同一套逻辑，便于排障）**：
+
+```powershell
+python -m core.plugins list            # 已发现 / 已启用 / blocked / 冲突
+python -m core.plugins check <id>      # manifest 校验 + 依赖与权限报告（不落盘）
+python -m core.plugins enable <id>     # 启用（含级联检查）
+python -m core.plugins disable <id>    # 禁用（含级联停用预览）
+python -m core.plugins verify          # 全库体检：孤儿派生库、缺失依赖、版本冲突
+```
+
+> 与现有约定一致：**后端改动必须重启**（AGENTS.md §二.4）；前端面板刷新即生效。
+
+---
+
+## 6. 隔离：三层，按插件类型选
+
+| 层 | 做法 | 适用 |
+| --- | --- | --- |
+| **命名空间隔离**（所有插件） | 路由 `/api/plugins/<id>/…`、工具 `p_<id>__<tool>`、存储 `Workspace/Plugins/<id>/`、`System/Plugins/<id>/`、`System/Cache/<id>.sqlite`、配置 `config/plugins/<id>.json`、CSS `[data-plugin="<id>"]` | 全部 |
+| **代码隔离**（`inprocess`） | 只允许 `from core_api import …`；禁止碰 `core.*` 私有模块；hook 全部 `try/except + 超时`，连续失败自动停用 | 轻量插件（天气、RSS、计时、面板类） |
+| **进程隔离**（`process`） | 插件自带解释器环境与依赖，通过本机 HTTP 与内核通信（`process: {port, python_env, health, model_dir}`）；内核缺包/服务未起时**降级**而非报错 | 重型插件（RAG、模型类） |
+
+**「打包隔离」的落地含义**（对应你的要求）：每个插件的**代码、前端、迁移、依赖声明、数据命名空间**都自包含，安装/启停/卸载互不写对方文件；插件之间**只能**通过 ① `core_api` ② 前提插件的公开接口 交互，**不允许** import 彼此的私有模块。
+
+---
+
+## 7. 安全与校验
+
+安装/启用时的校验清单（任一不过 → **拒载并说明原因**）：
+
+1. `plugin.json` 存在且能通过 schema 校验（`id` 合法、`version` 语义化、`api_version` 为整数）；
+2. `api_version` 与内核兼容；`core_min` 满足；
+3. 依赖可满足、无环、无同 id 多版本冲突；
+4. 单文件包解包安全：拒绝绝对路径、`..` 穿越、符号链接逃逸（只允许包内相对路径，且落点必须在 `System/PluginCache/<id>-<version>/` 内）；
+5. 可选完整性校验：包内或其旁提供 `.sha256`，与 `System/plugins.json` 记录比对；
+6. **权限清单展示**：`permissions` 会在安装/启用时用人话列出（如「可访问网络」「可写入自己的数据目录」）；声明了未支持权限 → 拒载；
+7. 冲突检查：`id`、路由前缀、工具名前缀、CSS 作用域与已启用插件重复 → 拒载。
+
+**失败行为统一为**：该插件状态 `rejected`/`blocked` + 原因 + 修复建议；**核心零影响**（I4），并在 `System/plugins.json` 与设置页健康面板同时可见。
+
+---
+
+## 8. AI 工具的扩展路径（默认最小集 → 按需添加）
+
+AI 的工具**只有三种来源**，且核心默认只开第一种：
+
+| 来源 | 默认 | 命名 | 说明 |
+| --- | --- | --- | --- |
+| ① 核心内置 | **开（不可关）** | `kb_search`、`kb_read`、`kb_create_entry`、`kb_update_entry` | 读库 + 出草稿等确认（SCOPE §5.1） |
+| ② 插件注册的工具包 | 关（可勾选） | `p_<plugin>__<tool>` | 把**已经存在**的工作台 MCP 25 个工具按主题打包成官方工具包，见下 |
+| ③ 外部 MCP 服务器 | 关（需显式确认） | `mcp_<server>__<tool>` | 在 `config/mcp.json` 里声明 `mcpServers`（stdio/http）即可接入任意第三方工具 |
+
+**②的三个官方工具包**（直接复用 `mcp/` 里已有的实现，不重写）：
+
+| 工具包 | 含工具 | 用途 |
+| --- | --- | --- |
+| `tools-kb-admin` | `kb_constraints`、`kb_list_entries`、`kb_get_entry`、`kb_check_entries`、`kb_rename_entry`、`kb_change_kind`、`kb_delete_entry` | 命名体检、改名、改 kind、删除（写类仍走草稿确认） |
+| `tools-ws-ops` | `ws_info`、`ws_tree`、`ws_list_projects`、`ws_project_detail`、`ws_create_project`、`ws_update_project`、`ws_dashboard`、`ws_activity`、`ws_index_status`、`ws_reindex`、`todo_list`、`todo_create`、`todo_update`、`kb_graph`、`lit_export_bibtex` | 项目/待办/索引/图谱/导出 |
+| （未来）`tools-rag` | `kb_retrieve` | 语义检索（随 RAG 插件） |
+
+**③的安全提示**：外部 MCP 服务器能读你的知识库，因此**默认关闭**，启用时展示它声明的能力并需一次人工确认；工具名一律加 `mcp_<server>__` 前缀避免撞名。
+
+---
+
+## 9. 「丢进去就能用」的 5 个前提（速查）
+
+| # | 条件 | 不满足时 |
+| --- | --- | --- |
+| 1 | `plugin.json` 合法（含 `id`/`version`/`api_version`/`kind`） | `rejected` + 指明哪个字段 |
+| 2 | `api_version` 与内核兼容 | `rejected` + 提示升级内核或换插件版本 |
+| 3 | 依赖（前提插件）已安装并启用 | `blocked` + 列出缺哪个、要什么版本 |
+| 4 | 无同 id 多版本 / 无命名空间冲突 | `conflict` + 列出候选，让你选留哪个 |
+| 5 | 声明的权限都被内核支持 | `rejected` + 列出不支持的权限项 |
+
+> 默认**不启用**（除非 `default_enabled: true`）；发现后出现在设置页「可用插件」里，一键启用。
+
+---
+
+## 10. 待你定的两点
+
+| # | 问题 | 选项 | 建议 |
+| --- | --- | --- | --- |
+| **P-A** | 单文件包的扩展名 | ① `.zip`（无门槛）② 自定义 `.erwp`（便于识别与关联打开） | **① 先用 `.zip`**：任何工具都能打包，零学习成本；将来需要再加 `.erwp` 别名 |
+| **P-B** | 是否允许 zip 自动解包 | ① 内核只读挂载到 `System/PluginCache/`（**推荐**）② 直接解包进 `plugins/` 变成目录态 | **①**：`plugins/` 只保留用户放进去的东西，升级/回滚干净，也避免半解包状态 |

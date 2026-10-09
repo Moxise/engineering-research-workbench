@@ -4,7 +4,7 @@
 > 每条结论附 `file:line` 或实测值；无法从代码断定的标「待确认」，不猜。
 > 目标：把工作台收敛成「科研数据梳理与汇总」内核，其余功能以可增删插件形式存在，且插件不得影响内核。
 >
-> **v3.1（本轮）**：① RAG 分支已推送 origin 并核验（`git ls-remote` 返回 `refs/heads/feature/rag-v261009 = ee4dd86`，48 文件 / 5120 行），「只存在于本机」的风险解除；② **D8 已定：以 `feature/slim-workbench-v261009` 为内核基线**（A0 的定基线部分完成）；③ 新增 [docs/SCOPE.md](SCOPE.md)——**定位与功能分层的权威定义**（§4.2 已与之对齐，§8-D1 移交为 SCOPE §4 的 D-A～D-D）。
+> **v3.1（本轮）**：① RAG 分支已推送 origin 并核验（`git ls-remote` 返回 `refs/heads/feature/rag-v261009 = ee4dd86`，48 文件 / 5120 行），「只存在于本机」的风险解除；② **D8 已定：以 `feature/slim-workbench-v261009` 为内核基线**（A0 的定基线部分完成）；③ 新增 [docs/SCOPE.md](SCOPE.md)——**定位与功能分层的权威定义**（§4.2 已与之对齐，§8-D1 移交为 SCOPE §4 的 D-A～D-D）；④ 新增 [docs/PLUGIN_SPEC.md](PLUGIN_SPEC.md)——**插件打包/安装/依赖规范**（统一插件库、单文件包、前提插件与级联停用、安装启停流程、权限校验）。
 > **本次更新（v3）**：① **更正上一版结论——RAG 并没有「丢失」**：完整实现已提交在独立分支 `feature/rag-v261009@ee4dd86`（本轮已推送 origin）；`tools/kb_smoke.py`、`tools/shot_page.py`、`tools/shot_prep.py`、`tools/rag_check.py`、`web/v261009-rag.css` 同样都在 git 里。当前分支看不到它们属于**基线不一致**，不是数据丢失（§1.4 与 §3-P24 / P26 已改写）。上一版误判的原因：只在当前分支跑了 `git log -- rag/*`，没加 `--all`。
 > ② 新增 §1.4 分支拓扑与 P27–P30（分支发散、读操作需写权限、本分支验证工具缺席、上游并行分支重复投入）。③ §4 精简方案按当前分支实测数值重排优先级，并补 A0 / A13 / A14。
 > **v2 回顾**：RAG 定为「不进内核」（现确认它本就独立在一条分支上）；已摘除悬空 `kb_retrieve`（工具数 26 → 25）；`.gitignore` 已放行 `mcp/`、`plugins/`。
@@ -397,6 +397,8 @@ KINDS = {
 
 ## 6. 插件化方案
 
+> **打包 / 安装 / 依赖 / 校验的完整规范见 [docs/PLUGIN_SPEC.md](PLUGIN_SPEC.md)**：统一插件库（`DATA_ROOT/plugins/` 用户库 + `ASSET_ROOT/plugins/` 随包库）、目录态与单文件包态、前提插件与级联停用、安装/启停/更新/卸载流程与 CLI、权限与安全校验、「丢进去就能用」的 5 个前提。本章只列与本方案动作相关的最小集。
+
 ### 6.1 设计约束（先钉死）
 
 | 约束 | 来源 | 设计后果 |
@@ -419,6 +421,8 @@ plugins/<plugin_id>/
 ├─ migrations/
 └─ README.md
 ```
+
+> 分发时也可为**单文件包** `plugins/<id>-<version>.zip`：内核只读挂载（解包到 `System/PluginCache/<id>-<version>/`）后加载，**不写回**库目录——见 [PLUGIN_SPEC §2](PLUGIN_SPEC.md)。
 
 ```json
 {
@@ -480,10 +484,14 @@ plugins/<plugin_id>/
 | I8 | 资源可控 | 每插件存储配额 + 调用耗时统计；超配额只禁该插件写 |
 | I9 | 加载顺序无关 | 每个插件在独立 `try` 中注册；`core_api.init()` 之后才允许触碰 core 子模块 |
 | **I10** | **注册即可用**：注册进工具表/路由表的入口必须可导入且能应答 | 自检新增「逐个工具做一次导入与最小调用探测」，堵住 P23 这类悬空注册（现在的 `--selftest` 只校验表结构，抓不到） |
+| **I11** | **加载失败必须给出可执行的原因**：`rejected` / `blocked` / `conflict` + 修复建议，**不得静默失败** | `python -m core.plugins list` 展示每种状态与原因；安装自检用例（[PLUGIN_SPEC §9](PLUGIN_SPEC.md) 的 5 条前提逐条造错验证） |
 
 ### 6.5 生命周期
 
 发现（扫 `plugins/*/plugin.json`）→ 校验（manifest/版本/权限）→ 注册（只登记不执行）→ 启用 → 运行 → 禁用（注销路由与面板，保留数据）→ 卸载（移入 `System/Trash/plugins/<id>/`，数据默认保留并提示）。
+
+> 含 CLI、级联停用、更新与冲突处理的完整流程见 [PLUGIN_SPEC §5](PLUGIN_SPEC.md)；「丢进去就能用」的 5 个前提见 [PLUGIN_SPEC §9](PLUGIN_SPEC.md)。
+
 后端变更需**重启**才生效（与 AGENTS.md「长驻进程改代码必须重启」一致）；前端面板刷新后热注册。
 
 ### 6.6 第一个插件选谁 + RAG 怎么回来
