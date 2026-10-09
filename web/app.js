@@ -19,9 +19,6 @@
   const storedArray = (key, fallback) => { try { const x=JSON.parse(localStorage.getItem(key)||'null'); return Array.isArray(x)?x:fallback; } catch { return fallback; } };
   const storedInt = (key, fallback, min, max) => { const raw=localStorage.getItem(key); const n=Number(raw); return raw!=null&&Number.isFinite(n)?Math.max(min,Math.min(max,Math.round(n))):fallback; };
 
-  const savedFocusMinutes = storedInt('focusMinutes', 25, 1, 240);
-  const savedBreakMinutes = storedInt('breakMinutes', 5, 1, 120);
-
   /* v261008.2 · 关系层：类型化关系（由「关联」段小标题推导）+ 标签/项目两种结构关系 */
   const GRAPH_RELATION_LABELS = [
     ['uses-knowledge','依据知识'], ['uses-data','使用数据'], ['cites','引用文献'], ['series','同系列'],
@@ -38,7 +35,6 @@
     tagOptions: [],
     agentSession: null, agentRefs: [], agentImages: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false,
     heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact', /* v260922h · 默认紧凑型（并排一屏收纳） */
-    focus: {mode:'专注', focusMinutes:savedFocusMinutes, breakMinutes:savedBreakMinutes, seconds:savedFocusMinutes*60, total:savedFocusMinutes*60, timer:null, running:false},
     sidebarPinned: new Set(storedArray('sidebarPinned', ['core'])),
     sidebarOpen: new Set(storedArray('sidebarOpen', ['core','resources','system'])),
     dirty: false,
@@ -46,7 +42,7 @@
 
   const NAV_GROUPS = [
     {id:'core', label:'核心工作', items:[
-      ['overview','概览','▦'], ['todos','待办','✓'], ['focus','专注','◷'], ['agent','Agent','◉'], ['news','资讯','◎']
+      ['overview','概览','▦'], ['todos','待办','✓'], ['agent','Agent','◉'], ['news','资讯','◎']
     ]},
     {id:'research', label:'研究 · 知识', defaultCollapsed:true, items:[
       ['research-overview','总览','◇'], ['ideas','灵感','✦'], ['journals','研究日志','▤'], ['notes','笔记','▧'],
@@ -76,7 +72,7 @@
   };
 
   const PAGE_META = {
-    overview:['CORE WORK','概览'], todos:['CORE WORK','待办'], focus:['CORE WORK','专注'], agent:['CORE WORK','科研 Agent'], news:['CORE WORK','资讯'],
+    overview:['CORE WORK','概览'], todos:['CORE WORK','待办'], agent:['CORE WORK','科研 Agent'], news:['CORE WORK','资讯'],
     'research-overview':['RESEARCH KNOWLEDGE','研究 · 知识总览'], ideas:['RESEARCH KNOWLEDGE','灵感'], journals:['RESEARCH KNOWLEDGE','研究日志'],
     notes:['RESEARCH KNOWLEDGE','笔记'], experiments:['RESEARCH KNOWLEDGE','实验'], milestones:['RESEARCH KNOWLEDGE','里程碑'], summaries:['RESEARCH KNOWLEDGE','工作总结'],
     literature:['RESEARCH KNOWLEDGE','文献'], graph:['RESEARCH KNOWLEDGE','知识图谱'], folders:['RESOURCES','文件夹'], settings:['SYSTEM','设置']
@@ -186,7 +182,6 @@
     try {
       if(route==='overview') await renderOverview();
       else if(route==='todos') await renderTodos();
-      else if(route==='focus') await renderFocus();
       else if(route==='agent') await renderAgent();
       else if(route==='news') await renderNews();
       else if(route==='research-overview') await renderResearchOverview();
@@ -505,32 +500,8 @@
   }
   function todoRow(t){return `<div class="todo-row ${t.done?'done':''}"><input class="todo-check" type="checkbox" ${t.done?'checked':''} data-todo-check="${t.id}"><div><div class="todo-title">${esc(t.title)}</div><div class="row-meta">${esc(t.project||'未归属项目')}</div></div><div class="mono">${fmtDate(t.due)}</div><span class="badge ${t.priority==='高'?'warn':''}">${esc(t.priority)}</span><button class="ghost-btn danger" data-todo-del="${t.id}">删除</button></div>`}
 
-  function renderFocus(){
-    $('#main').innerHTML=`<section class="card focus-panel"><div class="card-kicker">FOCUS TIMER</div><h3>专注计时</h3><p class="focus-caption">专注与休息时长均可自定义，设置保存在当前浏览器。</p><div class="progress-ring" id="focus-ring"></div><div class="focus-time" id="focus-time">25:00</div><div class="focus-mode" id="focus-mode">专注 · 25 分钟</div>
-      <div class="focus-duration-panel"><div class="focus-duration-grid"><label><span>专注时长</span><div><input id="focus-minutes" type="number" min="1" max="240" step="1" value="${state.focus.focusMinutes}"><em>分钟</em></div></label><label><span>休息时长</span><div><input id="break-minutes" type="number" min="1" max="120" step="1" value="${state.focus.breakMinutes}"><em>分钟</em></div></label><button class="secondary-btn" id="focus-apply">应用时长</button></div><div class="focus-presets"><span>快速预设</span>${[25,45,60,90].map(n=>`<button type="button" data-focus-preset="${n}">${n} min</button>`).join('')}</div></div>
-      <div class="focus-actions"><button class="primary-btn" id="focus-start">开始</button><button class="secondary-btn" id="focus-reset">重置</button><button class="secondary-btn" id="focus-mode-btn">切换休息</button></div></section>`;
-    paintFocus();
-    $('#focus-start').onclick=()=>{ state.focus.running?pauseFocus():startFocus(); };
-    $('#focus-reset').onclick=()=>resetFocus();
-    $('#focus-mode-btn').onclick=()=>{ pauseFocus(); state.focus.mode=state.focus.mode==='专注'?'休息':'专注'; syncFocusModeDuration(); paintFocus(); };
-    $('#focus-apply').onclick=()=>applyFocusDurations();
-    $$('[data-focus-preset]').forEach(btn=>btn.onclick=()=>{ $('#focus-minutes').value=btn.dataset.focusPreset; applyFocusDurations(); });
-  }
-  function clampFocusMinutes(value,min,max,fallback){ const n=Math.round(Number(value)); return Number.isFinite(n)?Math.max(min,Math.min(max,n)):fallback; }
-  function syncFocusModeDuration(){ state.focus.total=(state.focus.mode==='专注'?state.focus.focusMinutes:state.focus.breakMinutes)*60; state.focus.seconds=state.focus.total; }
-  function applyFocusDurations(){
-    const focus=clampFocusMinutes($('#focus-minutes')?.value,1,240,state.focus.focusMinutes);
-    const rest=clampFocusMinutes($('#break-minutes')?.value,1,120,state.focus.breakMinutes);
-    pauseFocus(); state.focus.focusMinutes=focus; state.focus.breakMinutes=rest;
-    localStorage.setItem('focusMinutes',String(focus)); localStorage.setItem('breakMinutes',String(rest));
-    if($('#focus-minutes')) $('#focus-minutes').value=focus; if($('#break-minutes')) $('#break-minutes').value=rest;
-    syncFocusModeDuration(); paintFocus(); toast(`已设置：专注 ${focus} 分钟 · 休息 ${rest} 分钟`);
-  }
-  function paintFocus(){ const el=$('#focus-time'); if(!el)return; const s=state.focus.seconds; el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; $('#focus-mode').textContent=`${state.focus.mode} · ${Math.round(state.focus.total/60)} 分钟`; $('#focus-start').textContent=state.focus.running?'暂停':'开始'; const deg=state.focus.total?Math.max(0,Math.min(360,(1-s/state.focus.total)*360)):0; $('#focus-ring').style.background=`conic-gradient(var(--accent) ${deg}deg,var(--surface-3) ${deg}deg)`; }
-  function startFocus(){ if(state.focus.timer)return; state.focus.running=true; state.focus.timer=setInterval(()=>{state.focus.seconds=Math.max(0,state.focus.seconds-1);paintFocus();if(state.focus.seconds===0){pauseFocus();toast(`${state.focus.mode}计时完成`)}},1000);paintFocus(); }
-  function pauseFocus(){clearInterval(state.focus.timer);state.focus.timer=null;state.focus.running=false;paintFocus();}
-  function resetFocus(){pauseFocus();state.focus.seconds=state.focus.total;paintFocus();}
-
+  /* v261009 · 专注计时已搬出内核，成为插件 plugins/focus（自登记 ERWPanels 面板）。
+     内核不再认识「专注」：删掉该插件只是少一个导航项。 */
 
   async function openGlobalSearch(initial=''){
     modal('全局搜索',`<div class="global-search"><div class="global-search-box"><span>⌕</span><input id="global-search-input" autocomplete="off" placeholder="搜索灵感、日志、笔记、里程碑、总结、文献、待办与 Agent 对话…" value="${esc(initial)}"></div><div class="global-search-hint">支持标题、正文、标签、项目等全文匹配 · Ctrl/⌘ + K</div><div class="global-search-results" id="global-search-results"><div class="empty">输入关键词开始检索</div></div></div>`,'');
@@ -1379,6 +1350,10 @@
     window.addEventListener('erw-lit-back',()=>renderDocsPage('literature'));
   }
 
-  async function init(){ try{bindGlobal();await loadBootstrap();renderSidebar();loadWeather();const route=location.hash.slice(1)||'overview';await navigate(route);}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
+  async function init(){ try{bindGlobal();
+    /* v261009 · 先等插件宿主把面板挂进来（面板在 eval 期自登记 ERWPanels），
+       再构建侧栏——否则插件的导航项要等下一次渲染才出现。 */
+    try{ await window.ERWPluginHost?.ready; }catch(e){ console.warn('plugin host failed', e); }
+    await loadBootstrap();renderSidebar();loadWeather();const route=location.hash.slice(1)||'overview';await navigate(route);}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
   window.addEventListener('load',init);
 })();

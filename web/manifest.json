@@ -71,9 +71,15 @@
     },
     {
       "file": "app.js",
-      "v": "261009c",
+      "v": "261009d",
       "theme": "base",
-      "note": "v261009c · §6.3：新增 window.ERWPanels 面板注册表（导航/页头/渲染三合一），内核不再硬编码用量计费；上版：A10 api() 走 erwFetch 接缝"
+      "note": "v261009d · 专注计时搬出内核（成为 plugins/focus），init 先等 ERWPluginHost.ready 再建侧栏；上版：§6.3 面板注册表（内核不再硬编码用量计费）"
+    },
+    {
+      "file": "plugin-host.js",
+      "v": "261009",
+      "theme": "plugin-host",
+      "note": "v261009 · 插件前端宿主：按 /api/plugins 下发的清单加载面板脚本，面板自登记 ERWPanels；单插件失败不影响内核（I4）且原因明示（I11）"
     },
     {
       "file": "literature.js",

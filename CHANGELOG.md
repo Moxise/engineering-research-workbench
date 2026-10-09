@@ -69,7 +69,15 @@
   - **诚实边界**：本阶段**不含执行层**（`register(ctx)`、路由/工具/面板的挂载与卸载、I3/I4/I8/I10 的运行期校验），状态因此只报「已校验、可加载」而**不谎报 `enabled`**；这些随第一个真插件一并落地（前端面板接缝 `window.ERWPanels` 已在 `498d994` 就位）。
   - **验收**：21 项夹具断言全通过（`.scratch/tmp/verify_plugins.py`）—— 合法插件 available、依赖满足 available、**8 类违规各自被拒**（id 非法 / api_version=99 / 裸 `/api` 路由 / 自带前缀工具名 / 未支持权限 / 派生库路径 / `core_min` 过高 / entry 缺文件）、依赖缺失 → `blocked`、**依赖成环 → 整环 blocked**、同 id 双来源 ASSET 优先（保留 1.2.0）、加载顺序把前提插件排在依赖者之前、被拒/被阻的插件不进加载顺序。CLI 对夹具库实跑通过。
   - **顺带修掉一个真问题**：`tools/plugin_check.py` 的新不变量当场抓出 `core/doctor.py` 在 import `app`（第二轮为比对 schema 版本引入）。已改为从 `core.index.migrate.TARGET_VERSION` 取代码侧版本 —— `core/` 重新做到零 `app` 依赖。
-- **未做**：`A2 剩余`（把补丁并入主题模块、两个 canvas 先画后弃）、`A9 剩余`（补丁侧对内核内部的依赖、8 个 MutationObserver 的合并）、doctor 的修复动作（`--fix-*`）、**插件执行层与首个真插件**（专注计时/天气）。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
+- **§6/P5：插件前端管线 + 首个真插件「专注计时」**：
+  - 内核侧新增 `GET /api/plugins`（只下发「已校验可用 且 生效启用」的插件与其面板入口）与 `GET /plugins-file/<id>/<rel>`（提供插件自带静态资源，**只允许插件目录内的文件**）。「开不开」的判定落在 `core.plugins.registry.effective_enabled`：`System/plugins.json` 有记录用记录，没有记录用 manifest 的 `default_enabled`（随包附属默认开、可选默认关）。实测：无记录 → 出现；显式 `enabled:false` → 消失；`enabled:true` → 出现。
+  - 新增 `web/plugin-host.js`：按清单加载面板脚本，面板在 eval 期自登记 `window.ERWPanels`；`app.js` 在建侧栏前 `await ERWPluginHost.ready`（否则插件导航项要等下一次渲染才出现）。**单插件失败不影响内核与其它插件**（I4），失败原因明示并附排查命令（I11）。
+  - **首个真插件 [`plugins/focus/`](plugins/focus/plugin.json)**：把专注计时从 `app.js` **原样搬出**（逻辑与标记未改写，只把内核内部的 `$`/`$$`/`toast` 换成等价的本地实现），localStorage 键沿用 `focusMinutes`/`breakMinutes`（老用户设置不丢）。`app.js` 删掉导航项、`PAGE_META.focus`、路由分支、`renderFocus` 簇、`state.focus` 与两处 localStorage 读取 —— 内核不再认识「专注」。
+  - **端到端验收**（`.scratch/tmp/verify_focus_plugin.py`，真浏览器）：`/api/plugins` 下发 focus、面板脚本确实被请求、`ERWPluginHost.loaded=['focus']` 且 failures 为空、**侧栏 17 项与顺序逐项不变**（专注仍在「待办」与「Agent」之间）、`#focus` 由插件面板渲染出计时器、点「开始」倒计时真的在走（25:00 → 24:58，按钮变「暂停」）、暂停/重置可用、改时长写回 `focusMinutes=45`/`breakMinutes=10`、**全程 0 console error**、内核源码已无任何专注痕迹。
+  - **路径安全**（`.scratch/tmp/verify_plugin_assets.py`，用**未归一化**的原始请求行，避免客户端先把 `..` 归一化掉）：10 例全通过 —— 正常面板 200、插件自身文件 200、编码 `../` 与多次穿越 403、未知插件 404、缺 id/子路径 400，且无源码泄漏。
+  - `plugin_check` 新增**面板契约**不变量：声明了 `nav` 的插件，其 mount 脚本必须自登记 `ERWPanels` —— 否则脚本会「正常加载但什么都不做」，属静默失败。
+  - **顺带修掉一个真 bug，并让闸门变确定**：`/api/weather` 在离线时 `URLError` 冒泡成 **500 + 浏览器 console error**，既让「天气」卡片报错，也让 `ui_smoke` 的「无 console error」断言随天气缓存 TTL 时好时坏（**不确定的闸门比没有闸门更糟**）。现改为：先退回**陈旧缓存**（带 `stale:true` 与可读原因），无缓存则返回显式的 `unavailable` 载荷；`geocode` 同样不再抛异常。实测离线返回陈旧数据 +「网络不可达（连接被拒绝）」，`/api/weather` 恢复 200，失败请求归零。
+- **未做**：插件**后端执行层**（`register(ctx)`、`core_api` 门面、路由与 MCP 工具的挂载/卸载、I3–I8/I10 的运行期校验）——首个插件是纯前端，故本阶段只实现了前端管线；`A2 剩余`、`A9 剩余`（8 个 `MutationObserver` 合并）、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

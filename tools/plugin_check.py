@@ -111,6 +111,27 @@ def main(argv: list[str] | None = None) -> int:
     notes.append(f"当前 plugins/ 实况：发现 {len(real['plugins'])} 个，可用 {real['available']}，"
                  f"blocked {real['blocked']}，rejected {real['rejected']}，冲突 {real['conflict']}")
 
+    # 面板契约：声明了 nav 的插件，其 mount 脚本必须自登记 ERWPanels——
+    # 否则脚本会正常加载但什么都不做，表现为「插件装了却不出现」，属静默失败（I11）。
+    candidates, _ = R.discover()
+    for pid, cand in sorted(candidates.items()):
+        if cand.state != "available":
+            continue
+        for item in (cand.manifest or {}).get("nav") or []:
+            mount = str((item or {}).get("mount") or "")
+            if not mount:
+                continue
+            script = Path(cand.dir) / mount
+            if not script.is_file():
+                fails.append(f"插件 {pid} 的 nav.mount 文件不存在：{mount}")
+                continue
+            text = script.read_text(encoding="utf-8")
+            if "ERWPanels.register" not in text and "ERWPanels?.register" not in text:
+                fails.append(f"插件 {pid} 的面板 {mount} 没有调用 ERWPanels.register"
+                             "（会正常加载但不出现在侧栏）")
+            else:
+                notes.append(f"面板契约通过：{pid} → {mount} 自登记 ERWPanels")
+
     if args.assert_core_only:
         # 额外跑一次数据冒烟：它跑在「当前装配」上，等价于「核心零插件」的功能验收（I1 的代理）
         r = subprocess.run([sys.executable, str(ROOT / "tools" / "kb_smoke.py")],

@@ -141,6 +141,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.handle_api_get(path, q)
             if path.startswith("/workspace-file/"):
                 return self.serve_workspace_file(path[len("/workspace-file/"):])
+            if path.startswith("/plugins-file/"):
+                return self.serve_plugin_file(path[len("/plugins-file/"):])
             return self.serve_static(path)
         except FileNotFoundError as e:
             self.send_json({"error": "not_found", "message": str(e)}, 404)
@@ -256,6 +258,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(indexer.get_doc(doc_id))
         if path == "/api/statuses":
             return self.send_json(store.all_statuses())
+        if path == "/api/plugins":  # v261009 · §6.3：内核下发「可用且启用」的插件及其面板入口
+            return self.send_json(self.plugin_payload())
         if path == "/api/projects":
             return self.send_json(indexer.project_names())
         if path == "/api/project-records":
@@ -565,6 +569,39 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def plugin_payload(self):
+        """内核下发给前端的插件清单（§6.3）。实现见模块级 build_plugin_payload（便于单测）。"""
+        return build_plugin_payload(ROOT, workspace.ensure_workspace())
+
+    def serve_plugin_file(self, rel):
+        """提供插件自带的静态资源（面板脚本/样式）。**只允许插件目录内的文件**（§7.4 路径安全）。"""
+        from core.plugins import registry as plugin_registry
+
+        raw = unquote(rel).replace("\\", "/").lstrip("/")
+        pid, _, sub = raw.partition("/")
+        if not pid or not sub:
+            return self.send_json({"error": "bad_request", "message": "路径应形如 <plugin_id>/<相对路径>"}, 400)
+        candidates, _notes = plugin_registry.discover()
+        candidate = candidates.get(pid)
+        if candidate is None:
+            raise FileNotFoundError(f"未知插件：{pid}")
+        base = Path(candidate.dir).resolve()
+        target = (base / sub).resolve()
+        if base != target and base not in target.parents:
+            return self.send_json({"error": "forbidden", "message": "插件资源只能取插件目录内的文件"}, 403)
+        if not target.is_file():
+            raise FileNotFoundError(str(target))
+        content = target.read_bytes()
+        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
+            ctype += "; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(content)
+
     def serve_workspace_file(self, rel):
         root = workspace.ensure_workspace().resolve()
         target = (root / unquote(rel)).resolve()
@@ -591,6 +628,38 @@ def _scratch_boot_cleanup() -> None:
             print(f"[scratch] {scratch.summarize(result)}")
     except Exception as exc:  # 临时空间异常绝不应阻断工作台启动
         print(f"[scratch] 跳过清理：{type(exc).__name__}: {exc}")
+
+
+def build_plugin_payload(root, workspace_dir) -> dict:
+    """前端插件清单（§6.3）：只含「已校验可用 且 生效启用」的插件与其面板入口。
+
+    「开不开」的判定在 `core.plugins.registry.effective_enabled`：`System/plugins.json`
+    有记录用记录，没有记录用 manifest 的 `default_enabled`（随包附属默认开、可选默认关）。
+    """
+    from core.plugins import registry as plugin_registry
+
+    roots = plugin_registry.default_roots(root)
+    candidates, notes = plugin_registry.discover(roots)
+    plugin_registry.resolve(candidates, "")
+    install = plugin_registry.read_install_state(workspace_dir)
+    out = []
+    for pid, cand in sorted(candidates.items()):
+        if cand.state != "available" or not plugin_registry.effective_enabled(cand, install):
+            continue
+        nav = []
+        for item in (cand.manifest or {}).get("nav") or []:
+            if not isinstance(item, dict) or not item.get("mount"):
+                continue
+            nav.append({
+                "id": str(item.get("id") or pid),
+                "label": str(item.get("label") or pid),
+                "icon": str(item.get("icon") or ""),
+                "url": f"/plugins-file/{pid}/{str(item['mount']).lstrip('/')}",
+            })
+        out.append({"id": pid, "version": cand.version, "source": cand.source,
+                    "distribution": (cand.manifest or {}).get("distribution") or "",
+                    "nav": nav})
+    return {"plugins": out, "notes": notes}
 
 
 def build_server(port_override: int | None = None, auto_open_browser: bool | None = None):

@@ -83,7 +83,14 @@ def discover(roots: list[tuple[str, Path]] | None = None) -> tuple[dict[str, Plu
     """扫描各根目录下的 `plugins/<id>/`，返回 (候选表, 提示列表)。同名 ASSET 优先。"""
     notes: list[str] = []
     found: dict[str, PluginCandidate] = {}
+    seen_roots: set[Path] = set()
     for source, root in (roots or default_roots()):
+        # 开发态 packaged 与 user 指向同一个目录（仓库根），同一个根不要扫两遍，
+        # 否则会给自己报一个假的「同名插件冲突」。
+        real = Path(root).resolve() if Path(root).exists() else Path(root)
+        if real in seen_roots:
+            continue
+        seen_roots.add(real)
         if not Path(root).is_dir():
             continue
         for entry in sorted(Path(root).iterdir()):
@@ -185,6 +192,18 @@ def resolve(candidates: dict[str, PluginCandidate], core_version: str = "") -> d
     # 只有可用节点参与加载顺序
     load_order = [pid for pid in order if candidates[pid].state == "available"]
     return {"load_order": load_order, "cycle": cycle}
+
+
+def effective_enabled(candidate: PluginCandidate, install: dict) -> bool:
+    """「开不开」的判定（§1：目录决定在不在，`System/plugins.json` 决定开不开）。
+
+    - 有安装记录且写了 `enabled` → 用它；
+    - 没有记录 → 用 manifest 的 `default_enabled`（随包附属插件默认开，可选插件默认关）。
+    """
+    record = (install.get("plugins") or {}).get(candidate.id)
+    if isinstance(record, dict) and "enabled" in record:
+        return bool(record.get("enabled"))
+    return bool((candidate.manifest or {}).get("default_enabled", False))
 
 
 def read_install_state(workspace: Path) -> dict:

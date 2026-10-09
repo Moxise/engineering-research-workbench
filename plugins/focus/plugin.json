@@ -1,0 +1,15 @@
+{
+  "id": "focus",
+  "name": "专注计时",
+  "version": "1.0.0",
+  "description": "专注/休息计时器；时长设置保存在浏览器本地",
+  "api_version": 1,
+  "core_min": "v261009",
+  "kind": "inprocess",
+  "distribution": "bundled",
+  "default_enabled": true,
+  "permissions": ["ui:panel"],
+  "nav": [
+    { "id": "focus", "label": "专注", "icon": "◷", "mount": "web/panel.js" }
+  ]
+}
