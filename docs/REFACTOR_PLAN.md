@@ -279,12 +279,18 @@ project_ids: ["proj_a0af8ee9d4db"]
 | **P11/P12/P13/P21**（`d02cb0f`） | `config` 导入期副作用清零（改显式 `init()`）、循环导入顺序炸弹拆除（每个 `app` 子模块均可作入口 import）、查询层不再导入期拖入 LLM 层、删零引用 `project_bridge.py` |
 | **A1 vendor 按需加载**（`61b2f15`） | mathjax + mermaid 移出首屏，**首屏 5.23 MB → 0.77 MB（−85%）**，目标「< 1 MB」达成 |
 
+| **A2 第一刀**（`a965a12`） | 装配清单化（`web/manifest.json` + `tools/web_manifest.py --write/--check`，index.html 三段引用块由清单生成）、前端静态体检闸门 `tools/web_check.py`（语法 / 清单一致 / 模块缺失 / `window.ERW*` 与自定义事件接缝 / 加载顺序）、5 个连续 IIFE 补丁合并为 `v260922-research-pages.js`（业务 JS 11 → 7，内容逐字复核一致） |
+| **P3 首件**（本轮） | `python -m core.doctor` 只读体检：22 个检查项，覆盖 §5.5.5 清单的绝大部分；首次实测 199 条数据得 error 2 项 / warn 8 项（越界 status 1、越界标记 2、幽灵归属 2、断链 2、回收站漂移、4 个冲突文件、6.8 MB 冲突副本、WAL 21.4 MB） |
+
 | 尚未开始 | 对应动作 |
 | --- | --- |
-| 前端补丁合并（18 个补丁，仍靠加载顺序互相覆盖） | A2（优先级第 1） |
-| 契约归一剩余项：doctor / 迁移框架 / 索引瘦身 | §5.5、A6–A8 |
+| 前端补丁并入主题模块、`window.fetch` 包装改显式分页 API、两处 canvas 先画后弃 | A2 剩余、A10（`fetch` 那项需浏览器验收，见下） |
+| 钩子倒置：base 不再硬依赖 `window.ERW*` 补丁 | A9 |
+| doctor 的修复动作（`--fix-*`）、迁移框架、索引瘦身 | §5.5、A6–A8 |
 | 插件运行时（`plugins/`、`core/plugins` 都还不存在） | §6、P5 阶段 |
 | `ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径） | 需手工解冲突，按功能迁移时处理 |
+
+> **A10 的 `window.fetch` 包装（`v260922-performance.js`）需要浏览器验收**：它把 `/api/docs` 改写成 `paged=1&page=N&page_size=M` 的分页请求、给 `/api/graph` 加 `limit`（`research-overview` 路由下改写为 `/api/graph/overview`）、并给 `/api/search` 挂可取消的 AbortController。改成显式分页 API 要动 `app.js` 的列表分页与图谱取数调用点，属「改完必须点着看」的改动；本机当前无 playwright（`tools/shot_page.py` 依赖它），故本轮只把契约与风险点记录在此，未动手。
 
 **优先级调整（v3）**：**A2 从第 2 位提到第 1 位**——`17682ce fix: restore PDF workspace after performance patch syntax error` 就是补丁层脆性造成的真实功能故障（一个补丁的语法错误直接打掉整个 PDF 工作区），而近 5 次提交里有 4 次都在补丁层做像素级调整，说明"靠在 base 上叠补丁"的成本已经在持续支付。
 

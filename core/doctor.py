@@ -1,0 +1,362 @@
+"""core.doctor —— 知识库与派生索引的只读体检。
+
+用法：
+    python -m core.doctor                 # 人读报告
+    python -m core.doctor --json          # 机器可读
+    python -m core.doctor --strict        # 有 error 级发现时非零退出
+    python -m core.doctor --workspace DIR # 指定 Workspace（默认按 config/app.json）
+
+为什么要它（docs/REFACTOR_PLAN.md P3/§5.5.5）：契约、索引与磁盘三者的一致性此前只靠人眼——
+已经实际发生过「同一套规则两套校验结论相反」「越界 status/标记进了库」「幽灵项目节点」
+「25 条实验不在索引」。这些都能静态查出来，`doctor` 把它们变成一条可重复的命令。
+
+**只读**：本模块只读 Markdown 与 SQLite（`mode=ro` 打开），不写任何东西；
+`--fix-*` 之类的修复动作（如有）必须在别处显式实现并先跑 dry-run。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sqlite3
+import sys
+from pathlib import Path
+
+from .contracts import kinds as C
+from .contracts import naming
+
+#: frontmatter 里合法但不在字段序中的键（历史遗留，契约已确认其存在）
+EXTRA_KNOWN_FIELDS = {"project_id", "project_ids", "attachment"}
+KNOWN_FIELDS = set(C.FRONTMATTER_ORDER) | EXTRA_KNOWN_FIELDS
+
+
+# ---------------------------------------------------------------- 读取
+
+def resolve_workspace(arg: str | None, root: Path) -> Path:
+    if arg:
+        return Path(arg).resolve()
+    cfg = root / "config" / "app.json"
+    raw = "Workspace"
+    if cfg.is_file():
+        try:
+            raw = str(json.loads(cfg.read_text(encoding="utf-8")).get("workspace") or "Workspace")
+        except Exception:
+            pass
+    p = Path(raw)
+    return p if p.is_absolute() else (root / p).resolve()
+
+
+def parse_frontmatter(text: str) -> tuple[dict, str]:
+    """最小 frontmatter 解析器（与 app/store.py 同口径，独立实现以免 doctor 依赖 app）。"""
+    if not text.startswith("---"):
+        return {}, text
+    m = re.match(r"^---\s*\n(.*?)\n---\s*\n?", text, flags=re.S)
+    if not m:
+        return {}, text
+    meta: dict = {}
+    for raw in m.group(1).splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#") or ":" not in raw:
+            continue
+        key, value = raw.split(":", 1)
+        key, value = key.strip(), value.strip()
+        if not key:
+            continue
+        if value.lower() in ("true", "false"):
+            meta[key] = value.lower() == "true"
+        elif value.startswith("[") and value.endswith("]"):
+            try:
+                meta[key] = json.loads(value)
+            except Exception:
+                meta[key] = []
+        elif value[:1] in ('"', "'"):
+            try:
+                meta[key] = json.loads(value) if value.startswith('"') else value.strip("'")
+            except Exception:
+                meta[key] = value.strip("\"'")
+        else:
+            try:
+                meta[key] = int(value)
+            except Exception:
+                meta[key] = value
+    return meta, text[m.end():]
+
+
+def as_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        return [x.strip() for x in re.split(r"[,，]", value) if x.strip()]
+    return []
+
+
+def iter_docs(ws: Path):
+    for kind, rel in C.KIND_DIRS.items():
+        folder = ws / rel
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.glob("*.md")):
+            try:
+                meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+            yield kind, path, meta, body
+
+
+def load_index(ws: Path) -> sqlite3.Connection | None:
+    db = ws / "System" / "Cache" / "index.sqlite"
+    if not db.is_file():
+        return None
+    try:
+        return sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+
+
+# ---------------------------------------------------------------- 检查项
+
+class Report:
+    def __init__(self) -> None:
+        self.items: list[dict] = []
+
+    def add(self, check: str, level: str, count: int, detail: str, samples: list[str] | None = None) -> None:
+        self.items.append({
+            "check": check, "level": level, "count": count, "detail": detail,
+            "samples": (samples or [])[:8],
+        })
+
+    def errors(self) -> int:
+        return sum(1 for i in self.items if i["level"] == "error" and i["count"])
+
+    def warns(self) -> int:
+        return sum(1 for i in self.items if i["level"] == "warn" and i["count"])
+
+
+def check_contract_selfconsistency(rep: Report) -> None:
+    """契约自洽：字段序与创建/更新字段的关系。（历史问题：attachment 只在 UPDATE 列表）"""
+    missing = [
+        f for f in C.CREATE_FIELDS
+        if f not in set(C.FRONTMATTER_ORDER) | EXTRA_KNOWN_FIELDS and f != "body"  # body 是正文，不是 frontmatter 键
+    ]
+    only_update = [f for f in C.UPDATE_FIELDS if f not in C.CREATE_FIELDS]
+    rep.add(
+        "契约·字段自洽", "warn" if (missing or only_update) else "info",
+        len(missing) + len(only_update),
+        "CREATE 字段不在字段序中" + (f"：{missing}" if missing else "")
+        + "；仅 UPDATE 可写" + (f"：{only_update}" if only_update else ""),
+    )
+    bad = [
+        k for k, spec in C.KINDS.items()
+        if not spec.get("statuses") or (not spec.get("date_field") and k not in ("idea", "note"))
+    ]
+    rep.add("契约·类型完整", "error" if bad else "info", len(bad),
+            f"缺状态机或日期字段的类型：{bad}" if bad else "七类均有状态机与日期字段")
+
+
+def scan_docs(ws: Path, rep: Report, index: sqlite3.Connection | None) -> dict:
+    docs = list(iter_docs(ws))
+    by_kind: dict[str, int] = {}
+    id_mismatch: list[str] = []
+    status_bad: list[str] = []
+    mark_bad: list[str] = []
+    mark_missing: list[str] = []
+    date_missing: list[str] = []
+    h1_bad: list[str] = []
+    name_bad: list[str] = []
+    field_unknown: list[str] = []
+    for kind, path, meta, body in docs:
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        doc_id = str(meta.get("id") or path.stem)
+        if not doc_id.startswith(f"{kind}-"):
+            id_mismatch.append(f"{doc_id}（声明 {kind}）")
+        status = str(meta.get("status") or "")
+        allowed = C.kind_statuses(kind)
+        if allowed and status not in allowed:
+            status_bad.append(f"{doc_id}: status={status} 不在 {allowed}")
+        marks = as_list(meta.get("kind_marks"))
+        valid_marks = {str(m["id"]) for m in C.MARK_IDS}
+        for m in marks:
+            if m not in valid_marks:
+                mark_bad.append(f"{doc_id}: kind_marks 含 {m}")
+        for req in C.required_marks(kind):
+            if req not in marks:
+                mark_missing.append(f"{doc_id}: 缺必需标记 {req}")
+        date_field = C.DATE_FIELDS.get(kind)
+        if date_field and not str(meta.get(date_field) or "").strip():
+            date_missing.append(f"{doc_id}: 缺 {date_field}")
+        h1 = naming.first_h1(body)
+        if h1 and h1 != str(meta.get("title") or "").strip():
+            h1_bad.append(f"{doc_id}: title≠H1")
+        issues = naming.validate_title(
+            kind, str(meta.get("title") or ""), kind_marks=marks, projects=as_list(meta.get("projects")),
+        )
+        errs = [i for i in issues if i["level"] == "error"]
+        if errs:
+            name_bad.append(f"{doc_id}: {errs[0]['code']} {errs[0]['message'][:40]}")
+        for key in meta:
+            if key not in KNOWN_FIELDS:
+                field_unknown.append(f"{doc_id}: {key}")
+
+    rep.add("文档·磁盘数量", "info", len(docs), f"按契约目录扫到 {len(docs)} 条：" + "、".join(f"{k} {v}" for k, v in sorted(by_kind.items())))
+    rep.add("文档·id 前缀与 kind 不符", "warn", len(id_mismatch),
+            "契约已明确「id 不承载类型语义」，故仅提示；修法见 REFACTOR_PLAN §5.3", id_mismatch)
+    rep.add("文档·status 越界", "error", len(status_bad), "状态机在 core/contracts/kinds.py 声明", status_bad)
+    rep.add("文档·kind_marks 越界", "error", len(mark_bad), "合法标记见契约 MARK_IDS", mark_bad)
+    rep.add("文档·缺契约强制标记", "error", len(mark_missing), "如 experiment 固定带 ⚗", mark_missing)
+    rep.add("文档·缺法定日期", "error", len(date_missing), "各类型日期字段见契约 DATE_FIELDS", date_missing)
+    rep.add("文档·title 与首个 H1 不一致", "error", len(h1_bad), "改名须同步 H1（用 kb_rename_entry）", h1_bad)
+    rep.add("文档·标题不合命名规范", "error", len(name_bad), "校验器 core/contracts/naming.py", name_bad)
+    rep.add("文档·未声明字段", "warn", len(field_unknown), f"不在字段序也不在 {sorted(EXTRA_KNOWN_FIELDS)} 中的键", field_unknown)
+
+    # 索引对照
+    if index is None:
+        rep.add("索引·可用性", "warn", 1, "找不到或打不开 System/Cache/index.sqlite（未建索引？）")
+    else:
+        try:
+            rows = {k: c for k, c in index.execute("SELECT kind, COUNT(*) FROM documents GROUP BY kind")}
+        except sqlite3.Error as exc:
+            rep.add("索引·可用性", "warn", 1, f"查询失败：{exc}")
+            rows = {}
+        if rows:
+            diff = {k: (by_kind.get(k, 0), rows.get(k, 0)) for k in set(by_kind) | set(rows)}
+            bad = {k: v for k, v in diff.items() if v[0] != v[1]}
+            rep.add("索引·与磁盘数量一致", "error" if bad else "info", len(bad),
+                    f"不一致（磁盘, 索引）：{bad}" if bad else f"7 类逐一相等，共 {sum(rows.values())} 条")
+        # 幽灵归属：document_projects 有 name 无 id
+        try:
+            ghost = index.execute(
+                "SELECT doc_id, project_name FROM document_projects WHERE TRIM(COALESCE(project_id,''))=''"
+            ).fetchall()
+            rep.add("索引·项目归属幽灵行", "warn", len(ghost),
+                    "同一项目在图谱上会裂成 name / id 两个节点（REFACTOR_PLAN P15）",
+                    [f"{r[0]} → {r[1]}" for r in ghost])
+        except sqlite3.Error:
+            pass
+        # 断链
+        try:
+            known = {r[0] for r in index.execute("SELECT id FROM documents")}
+            titles = {str(r[0]).strip() for r in index.execute("SELECT title FROM documents")}
+            broken = [t for (t,) in index.execute("SELECT DISTINCT token FROM document_links")
+                      if str(t).strip() not in known and str(t).strip() not in titles]
+            rep.add("索引·不可解析的关联链接", "warn", len(broken),
+                    "既不是 doc_id 也不是现有标题（改名后未同步？）", broken)
+        except sqlite3.Error:
+            pass
+        try:
+            meta = dict(index.execute("SELECT key, value FROM meta"))
+            rep.add("索引·meta", "info", 1,
+                    f"schema_version={meta.get('schema_version')} last_sync={meta.get('last_sync')}")
+        except sqlite3.Error:
+            pass
+    return by_kind
+
+
+def check_workspace_hygiene(ws: Path, rep: Report) -> None:
+    # 回收站目录 vs kind 列表
+    trash = ws / "System" / "Trash"
+    if trash.is_dir():
+        dirs = sorted(p.name for p in trash.iterdir() if p.is_dir())
+        stale = [d for d in dirs if d not in C.KINDS]
+        rep.add("工作区·回收站目录漂移", "warn", len(stale),
+                f"不在现役 kind 中的回收站子目录：{stale}（现有：{dirs}）" if stale else f"与 kind 列表一致：{dirs}")
+
+    # 同步冲突残留
+    conflicts = [p for p in ws.rglob("*sync-conflict*") if p.is_file()]
+    size = sum(p.stat().st_size for p in conflicts)
+    rep.add("工作区·同步冲突残留", "warn", len(conflicts),
+            f"合计 {size / 1048576:.1f} MB（不进索引，需人工确认后清理）",
+            [f"{p.relative_to(ws)} ({p.stat().st_size / 1048576:.1f} MB)" for p in conflicts])
+
+    # Cache 体积 / WAL / 孤儿库
+    cache = ws / "System" / "Cache"
+    if cache.is_dir():
+        files = {p.name: p.stat().st_size for p in cache.glob("*") if p.is_file()}
+        main = files.get("index.sqlite", 0)
+        wal = files.get("index.sqlite-wal", 0)
+        rep.add("索引·磁盘体积", "warn" if wal > main * 0.3 else "info", 1,
+                f"index.sqlite {main / 1048576:.1f} MB + WAL {wal / 1048576:.1f} MB"
+                + ("（WAL 偏大，建议关库时 wal_checkpoint(TRUNCATE)）" if wal > main * 0.3 else ""))
+        sqlites = [n for n in files if n.endswith(".sqlite")]
+        orphans = [n for n in sqlites if n != "index.sqlite"]
+        rep.add("索引·派生库归属", "info", len(orphans),
+                "index.sqlite 之外的派生库（应归属某个插件，内核不依赖）", orphans)
+        # 冲突副本有两种命名：Syncthing 的 `*sync-conflict*` 与人工/工具留下的 `*冲突*`
+        conflict_db = [n for n in files if "sync-conflict" in n or "冲突" in n]
+        if conflict_db:
+            rep.add("索引·冲突副本", "warn", len(conflict_db),
+                    "冲突产生的库副本（实测曾有 6.8 MB 副本损坏到无法打开，属可删的派生数据）",
+                    [f"{n} ({files[n] / 1048576:.1f} MB)" for n in conflict_db])
+
+
+def check_schema_versions(root: Path, ws: Path, rep: Report) -> None:
+    """版本单一入口：System/schema.json 与库内 meta 应一致（REFACTOR_PLAN §5.5.1）。"""
+    schema = ws / "System" / "schema.json"
+    disk = {}
+    if schema.is_file():
+        try:
+            disk = json.loads(schema.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    code = {}
+    try:
+        # 绝对导入（core 是顶层包，不能用 ..app）；app 自 v261009 起导入期无副作用，
+        # 但仍包在 try 里：doctor 要在 app 起不来时照样能体检。
+        from app import perf_index_db as _db
+        code = {"index_schema_version": _db.SCHEMA_VERSION, "workspace_schema_version": _db.WORKSPACE_SCHEMA_VERSION}
+    except Exception:
+        code = {}
+    if disk and code:
+        mism = {k: (disk.get(k), v) for k, v in code.items() if disk.get(k) != v}
+        rep.add("版本·schema.json 与代码", "error" if mism else "info", len(mism),
+                f"不一致（磁盘, 代码）：{mism}" if mism else f"一致：{disk}")
+    else:
+        rep.add("版本·schema.json", "info", 1, f"磁盘={disk or '缺失'} 代码={code or '未取到（doctor 不依赖 app，跳过）'}")
+
+
+# ---------------------------------------------------------------- 入口
+
+def run(workspace: Path, root: Path) -> Report:
+    rep = Report()
+    rep.add("环境·工作区", "info" if workspace.is_dir() else "error",
+            0 if workspace.is_dir() else 1, str(workspace))
+    check_contract_selfconsistency(rep)
+    index = load_index(workspace)
+    scan_docs(workspace, rep, index)
+    if index is not None:
+        index.close()
+    check_workspace_hygiene(workspace, rep)
+    check_schema_versions(root, workspace, rep)
+    return rep
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="知识库只读体检（core.doctor）")
+    ap.add_argument("--workspace", help="Workspace 路径（默认按 config/app.json）")
+    ap.add_argument("--json", action="store_true", help="输出 JSON")
+    ap.add_argument("--strict", action="store_true", help="有 error 级发现时非零退出")
+    args = ap.parse_args(argv)
+
+    root = Path(__file__).resolve().parents[1]
+    ws = resolve_workspace(args.workspace, root)
+    rep = run(ws, root)
+
+    if args.json:
+        print(json.dumps({"workspace": str(ws), "items": rep.items,
+                          "errors": rep.errors(), "warnings": rep.warns()},
+                         ensure_ascii=False, indent=2))
+    else:
+        icon = {"error": "[E]", "warn": "[W]", "info": "[i]"}
+        print(f"core.doctor · 工作区 {ws}\n")
+        for item in rep.items:
+            # 有发现才显示级别图标；零发现一律显示 ok，避免「[E] 0 条」这种自相矛盾的行
+            mark = icon.get(item["level"], "[?]") if item["count"] else " ok"
+            print(f"  {mark} {item['check']:<26} {item['detail']}")
+            for s in item["samples"]:
+                print(f"       - {s}")
+        print(f"\n合计：error 级检查项 {rep.errors()} 个、warn 级 {rep.warns()} 个")
+
+    return 1 if (args.strict and rep.errors()) else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
