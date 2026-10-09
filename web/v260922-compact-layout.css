@@ -25,6 +25,8 @@
   .top-actions{gap:5px}.weather-pill,.icon-btn,.primary-btn,.secondary-btn,.ghost-btn,.top-search-btn{min-height:32px}.icon-btn{width:32px}.weather-pill,.primary-btn,.secondary-btn,.ghost-btn{padding-left:9px;padding-right:9px}.top-search-btn{padding:0 8px}
   .dropdown{top:37px}
   .main-content{padding:16px 22px 34px}
+  /* v261009h · PDF 工作区跟随紧凑标题栏释放出的 18px，高度补回阅读区而非留在页面底部。 */
+  html[data-density="compact"] .lit-shell{height:calc(100vh - 94px)}
 
   /* Generic content density */
   .grid{gap:10px}.card-pad{padding:14px}.card-head{gap:9px;margin-bottom:10px}.card-head h3{font-size:14px}
