@@ -887,12 +887,20 @@ function paintAttach(){
   root.innerHTML=S.images.map((d,i)=>`<span class="fab-attach-item"><img src="${d}" alt="附图${i+1}"><span class="fab-attach-x" data-attach-x="${i}" title="移除">×</span></span>`).join("");
   qa("[data-attach-x]",root).forEach(b=>b.onclick=()=>{S.images.splice(+b.dataset.attachX,1);paintAttach()});
 }
+const FAB_RENDER_LIMIT=60; /* v261009p · DOM 只保留最近消息；完整历史仍在 S.messages/会话文件，可从历史回看 */
 function renderMessages(){
   const root=q("#fab-messages");if(!root)return;
   if(!S.messages.length)return renderEmpty();
-  root.innerHTML=S.messages.map((m,i)=>msgHtml(m,i)).join("");
+  const start=Math.max(0,S.messages.length-FAB_RENDER_LIMIT);
+  const rows=S.messages.slice(start);
+  const clipped=start?'<div class="fab-empty" style="padding:6px 8px">较早 '+start+' 条消息已省略渲染，可从历史对话查看</div>':"";
+  root.innerHTML=clipped+rows.map((m,i)=>msgHtml(m,start+i)).join("");
   root.scrollTop=root.scrollHeight;
-  if(window.MathJax?.typesetPromise){try{MathJax.typesetPromise([root])}catch{}}
+  /* 只对确实含 TeX 标记的消息做 MathJax，避免每次状态刷新重扫整个对话 DOM。 */
+  if(window.MathJax?.typesetPromise){
+    const mathBodies=qa(".fab-body",root).filter(el=>/[\\$]|\\\\\(|\\\\\[/.test(el.textContent||""));
+    if(mathBodies.length){try{MathJax.typesetPromise(mathBodies)}catch{}}
+  }
   wireMessageActions(root);
 }
 function wireMessageActions(root){
