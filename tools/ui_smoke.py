@@ -31,8 +31,42 @@ APP_JS = ROOT / "web" / "app.js"
 
 #: 首屏出现即视为「按需加载回归」的重型库
 HEAVY_LIBS = ("mathjax", "mermaid")
-#: base 硬依赖的补丁接缝（app.js 会消费）
-REQUIRED_SEAMS = ("ERWLiterature", "ERWBilling", "ERWFabTimeline", "ERWNav")
+
+
+def assembled_js() -> list[Path]:
+    """本次装配真正加载的业务 JS（读 web/manifest.json，而不是磁盘上所有文件）。
+
+    这样「要求某个接缝存在」只会要求**已装配模块真正消费**的那些：
+    把某个功能模块从装配里摘掉时，它的接缝就不再被要求（§6.7「内核零插件可跑」）。
+    """
+    try:
+        manifest = json.loads((ROOT / "web" / "manifest.json").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    out = []
+    for item in manifest.get("js", []):
+        path = ROOT / "web" / item["file"]
+        if path.is_file():
+            out.append(path)
+    return out
+
+
+def seam_report() -> tuple[list[str], list[str], list[str]]:
+    """已装配模块的接缝自洽性（静态）：返回 (消费, 提供, 缺失)。
+
+    判据是**装配自洽**而不是「运行期一定已赋值」：`window.ERWCurrentDoc` 这类是**状态型**
+    接缝（打开条目后才赋值），首屏为空是正常的；而「某模块消费了一个没人提供的接缝」
+    无论运行期状态如何都是装配错误。提供方按整份装配汇总（跨模块提供也算数）。
+    """
+    consumed: set[str] = set()
+    provided: set[str] = set()
+    for path in assembled_js():
+        text = path.read_text(encoding="utf-8")
+        text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+        text = re.sub(r"(?m)//[^\n]*$", " ", text)
+        for symbol in re.findall(r"window\.(ERW[\w$]*)", text):
+            (provided if re.search(rf"window\.{re.escape(symbol)}\s*=", text) else consumed).add(symbol)
+    return sorted(consumed), sorted(provided), sorted(consumed - provided)
 
 
 def declared_routes() -> list[str]:
@@ -120,14 +154,10 @@ def main(argv: list[str] | None = None) -> int:
         heavy = [u for u in first_requests if any(h in u.lower() for h in HEAVY_LIBS)]
         if heavy:
             fails.append(f"首屏请求了重型库（按需加载回归）：{heavy}")
-        seams_present = page.evaluate(
-            "() => Object.fromEntries("
-            + json.dumps(list(REQUIRED_SEAMS))
-            + ".map(n => [n, typeof window[n] !== 'undefined']))"
-        )
-        missing_seams = [n for n, ok in seams_present.items() if not ok]
+        consumed, provided, missing_seams = seam_report()
         if missing_seams:
-            fails.append(f"补丁接缝缺失：{missing_seams}")
+            fails.append(f"装配不自洽：这些接缝被消费但已装配模块里没有提供方 {missing_seams}")
+        notes.append(f"装配自洽性：消费 {len(consumed)} 个 ERW* 接缝，提供 {len(provided)} 个，缺失 {len(missing_seams)} 个")
         if not page.evaluate("() => !!window.erwVendor && typeof window.erwVendor.load === 'function'"):
             fails.append("window.erwVendor 按需加载器缺失")
         if not page.evaluate("() => typeof window.erwFetch === 'function'"):
