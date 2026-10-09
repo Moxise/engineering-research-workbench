@@ -3,7 +3,9 @@
 const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp=v=>Math.max(0,Math.min(1,v));
-const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
+const PDF_RENDER_RADIUS=4; /* v261009p · 仅保留当前页前后少量已渲染 canvas，防长 PDF 内存随滚动线性增长 */
+const PDF_DPR_CAP=2;       /* 高 DPI 屏限制离屏像素规模；视觉清晰度基本不变，显存/内存峰值显著下降 */
+const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],annByPage:new Map(),trimTimer:null,ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
 async function ensurePdfJs(){
@@ -49,27 +51,53 @@ async function openPaper(id){
   api("/api/literature/"+enc),
   api("/api/literature/"+enc+"/annotations")
  ]);
- S.paper=paper;S.annotations=Array.isArray(annotations)?annotations:[];
+ S.paper=paper;S.annotations=Array.isArray(annotations)?annotations:[];rebuildAnnotationIndex();
  q("#lit-reader-empty").hidden=true;q("#lit-reader-live").hidden=false;side();loadList().catch(()=>{}) /* v260929 · 列表刷新仅更新徽章，不阻塞 PDF 加载 */;
  try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
  catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
-function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.areaResolver=null;S.annotations=[];S.ai={text:"",image:"",result:"",error:"",busy:false,instruction:""}} /* v260930e · areaResolver 一并复位 */
-function annotationsForPage(page){return (S.annotations||[]).filter(a=>+a.page===+page)}
+function releasePageCanvas(r){
+ if(!r?.el)return;
+ const cv=q("canvas",r.el);
+ if(cv){cv.width=1;cv.height=1} /* 先主动释放 backing store，再移除 DOM，避免 GC 延迟占住几十 MB */
+}
+function reset(){
+ S.generation++;S.observer?.disconnect();clearTimeout(S.trimTimer);
+ S.pages.forEach(r=>releasePageCanvas(r));S.pages.clear();
+ S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.areaResolver=null;
+ S.annotations=[];S.annByPage.clear();S.ai={text:"",image:"",result:"",error:"",busy:false,instruction:""}
+} /* v261009p · 切文献时主动释放 PDF canvas / 文本几何 */
+function rebuildAnnotationIndex(){
+ S.annByPage.clear();
+ for(const a of S.annotations||[]){const p=+a.page||1;if(!S.annByPage.has(p))S.annByPage.set(p,[]);S.annByPage.get(p).push(a)}
+}
+function annotationsForPage(page){return S.annByPage.get(+page)||[]}
 function annotationById(id){return (S.annotations||[]).find(a=>a.id===id)||null}
 function upsertAnnotation(a){
  const i=S.annotations.findIndex(x=>x.id===a.id);
  if(i>=0)S.annotations[i]=a;else S.annotations.push(a);
- const r=S.pages.get(+a.page);
- if(r){
-  const j=(r.annotations||[]).findIndex(x=>x.id===a.id);
-  if(j>=0)r.annotations[j]=a;else r.annotations.push(a);
- }
+ rebuildAnnotationIndex(); /* 批注通常很少；写入时一次重建，换取渲染页 O(1) 读取 */
+ const r=S.pages.get(+a.page);if(r)r.annotations=annotationsForPage(a.page);
 }
 function removeAnnotationLocal(id,page){
- S.annotations=S.annotations.filter(a=>a.id!==id);
- const r=S.pages.get(+page);
- if(r)r.annotations=(r.annotations||[]).filter(a=>a.id!==id);
+ S.annotations=S.annotations.filter(a=>a.id!==id);rebuildAnnotationIndex();
+ const r=S.pages.get(+page);if(r)r.annotations=annotationsForPage(page);
+}
+function unloadPage(n){
+ const r=S.pages.get(+n);if(!r||!r.rendered||r.rendering)return;
+ if(S.pending?.page===+n||S.selectedAnn?.page===+n)return; /* 正在编辑/选择的页不回收 */
+ releasePageCanvas(r);
+ r.el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>';
+ r.rendered=false;r.textItems=null;r.annotations=annotationsForPage(n);
+}
+function trimRenderedPages(center=S.current){
+ if(!S.pdf)return;
+ const lo=Math.max(1,+center-PDF_RENDER_RADIUS),hi=Math.min(S.pdf.numPages,+center+PDF_RENDER_RADIUS);
+ S.pages.forEach((r,n)=>{if(n<lo||n>hi)unloadPage(n)});
+}
+function scheduleTrim(center=S.current){
+ clearTimeout(S.trimTimer);
+ S.trimTimer=setTimeout(()=>trimRenderedPages(center),120);
 }
 async function build(){
  const host=q("#lit-pages");host.innerHTML="";S.pages.clear();const gen=S.generation;
@@ -77,13 +105,13 @@ async function build(){
   const p=await S.pdf.getPage(n);if(gen!==S.generation)return;const vp=p.getViewport({scale:S.scale});
   const el=document.createElement("div");el.className="lit-page-shell";el.dataset.page=n;el.style.width=vp.width+"px";el.style.height=vp.height+"px";el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>";host.appendChild(el);S.pages.set(n,{el,rendered:false,rendering:false,annotations:annotationsForPage(n)});
  }
- S.observer=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)renderPage(+e.target.dataset.page)}),{root:q("#lit-scroll"),rootMargin:"1000px 0px",threshold:.01});
- S.pages.forEach(r=>S.observer.observe(r.el));q("#lit-scroll").onscroll=throttle(track,100);toolbar();
+ S.observer=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)renderPage(+e.target.dataset.page)}),{root:q("#lit-scroll"),rootMargin:"700px 0px",threshold:.01});
+ S.pages.forEach(r=>S.observer.observe(r.el));q("#lit-scroll").onscroll=throttle(track,80);toolbar();
 }
 async function renderPage(n){
  const r=S.pages.get(n);if(!r||r.rendered||r.rendering||!S.pdf)return;r.rendering=true;const gen=S.generation;
  try{
-  const p=await S.pdf.getPage(n),vp=p.getViewport({scale:S.scale}),dpr=window.devicePixelRatio||1;if(gen!==S.generation)return;
+  const p=await S.pdf.getPage(n),vp=p.getViewport({scale:S.scale}),dpr=Math.min(window.devicePixelRatio||1,PDF_DPR_CAP);if(gen!==S.generation)return;
   r.el.style.width=vp.width+"px";r.el.style.height=vp.height+"px";r.el.innerHTML='<div class="lit-page" data-page="'+n+'" style="width:'+vp.width+'px;height:'+vp.height+'px"><canvas></canvas><svg class="lit-annotation-layer" viewBox="0 0 1 1" preserveAspectRatio="none"></svg><div class="lit-selection-layer"></div><div class="lit-interaction-layer" title="拖动选择文字"></div></div>';
   const cv=q("canvas",r.el),ctx=cv.getContext("2d");cv.width=Math.floor(vp.width*dpr);cv.height=Math.floor(vp.height*dpr);cv.style.width=vp.width+"px";cv.style.height=vp.height+"px";
   await p.render({canvasContext:ctx,viewport:vp,transform:dpr===1?null:[dpr,0,0,dpr,0,0]}).promise;if(gen!==S.generation)return;
@@ -93,7 +121,7 @@ async function renderPage(n){
   const pageEl=q(".lit-page",r.el),hit=q(".lit-interaction-layer",r.el);
   hit.onmousedown=e=>beginPdfGeometrySelection(n,e);
   hit.onclick=e=>handlePageAnnotationClick(n,e);
-  paint(n);
+  paint(n);scheduleTrim(S.current);
  }catch(e){r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{r.rendering=false}
 }
 
@@ -343,13 +371,23 @@ function handlePageAnnotationClick(n,e){
   }
  }
 }
-function track(){const sc=q("#lit-scroll"),y=sc.getBoundingClientRect().top+70;let best=1,d=Infinity;S.pages.forEach((r,n)=>{const z=Math.abs(r.el.getBoundingClientRect().top-y);if(z<d){d=z;best=n}});if(best===S.current)return;S.current=best;toolbar();dispatchPage();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)} /* v260930d · M5 翻页派发事件供悬浮球刷新关联知识 */
+function pageAtScroll(){
+ const sc=q("#lit-scroll");if(!sc||!S.pdf)return 1;
+ const y=sc.scrollTop+70;let lo=1,hi=S.pdf.numPages,best=1;
+ /* v261009p · 二分定位当前页：旧实现每次滚动对所有页 getBoundingClientRect()，长文档会频繁强制布局 O(N)。 */
+ while(lo<=hi){const mid=(lo+hi)>>1,r=S.pages.get(mid);if(!r){break}if(r.el.offsetTop<=y){best=mid;lo=mid+1}else hi=mid-1}
+ const a=S.pages.get(best),b=S.pages.get(Math.min(S.pdf.numPages,best+1));
+ if(a&&b){const da=Math.abs((a.el.offsetTop+a.el.offsetHeight/2)-y),db=Math.abs((b.el.offsetTop+b.el.offsetHeight/2)-y);if(db<da)best=best+1}
+ return best;
+}
+function track(){const best=pageAtScroll();scheduleTrim(best);if(best===S.current)return;S.current=best;toolbar();dispatchPage();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)} /* v261009p · O(logN) 页定位 + 有界渲染缓存 */
 async function savePos(page){if(!S.paper||!S.pdf)return;const st=S.paper.reading_status==="未读"?"在读":S.paper.reading_status;S.paper.last_page=page;S.paper.reading_status=st;try{await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({last_page:page,page_count:S.pdf.numPages,reading_status:st})})}catch{}}
 function dispatchPage(){document.dispatchEvent(new CustomEvent("erw-lit-page",{detail:{page:S.current}}))} /* v260930d · M5 翻页事件 */
 function go(n,smooth=true){
  const rec=S.pages.get(n),sc=q("#lit-scroll");if(!rec||!sc)return;
+ renderPage(+n); /* 跳页时主动预热目标页，不等 IntersectionObserver 下一拍 */
  const top=Math.max(0,rec.el.offsetTop-8);
- sc.scrollTo({top,behavior:smooth?"smooth":"auto"});S.current=n;toolbar();dispatchPage();
+ sc.scrollTo({top,behavior:smooth?"smooth":"auto"});S.current=+n;toolbar();dispatchPage();scheduleTrim(+n);
 }
 async function zoom(delta){if(!S.pdf)return;const keep=S.current;S.scale=Math.max(.65,Math.min(2.4,S.scale+delta));S.generation++;S.observer?.disconnect();await build();requestAnimationFrame(()=>go(keep,false))}
 function toolbar(){if(!S.pdf)return;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});qa("[data-ai]").forEach(b=>{b.disabled=!(S.pending?.kind==="text"&&S.pending?.text);b.classList.toggle("ready",!!(S.pending?.kind==="text"&&S.pending?.text))});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;const cp=q("#lit-copy");if(cp)cp.disabled=!(S.pending?.kind==="text"&&S.pending?.text)}
