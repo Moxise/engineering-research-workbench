@@ -232,4 +232,15 @@
   }
 
   window.ERWBilling = { render };
+
+  /* v261009 · 面板自登记（§6.3）：导航项、页头标题与渲染函数都由本模块声明，
+     内核（app.js）不再认识「计费」——删掉本文件只会少一个导航项，不会白屏。
+     before:'settings' 保持原有导航顺序（用量在设置之前）。 */
+  if (window.ERWPanels) {
+    window.ERWPanels.register({
+      id: 'billing', group: 'system', before: 'settings',
+      label: '用量', icon: '▩', eyebrow: 'SYSTEM', title: '用量统计',
+      render: (main) => render(main),
+    });
+  }
 })();

@@ -54,15 +54,32 @@
       ['milestones','里程碑','⚑'], ['summaries','工作总结','▣'], ['literature','文献','◫'], ['graph','知识图谱','⌬']
     ]},
     {id:'resources', label:'资源', items:[['folders','文件夹','▱']]},
-    {id:'system', label:'系统', items:[['billing','用量','▩'], ['settings','设置','⚙']]}
+    {id:'system', label:'系统', items:[['settings','设置','⚙']]}
   ];
+
+  /* v261009 · §6.3 前端面板注册表。
+     目标：**内核不认识具体功能**——功能自己登记导航项、标题与渲染函数，内核只负责挂载。
+     这解掉的是 P14/§6.7 红线 5「内核功能依赖某个补丁才能工作」：此前 app.js 里硬编码了
+     用量计费（导航项 + PAGE_META + 路由分支 + 页面壳），删掉计费模块就会白屏。
+     面板形如：{ id, group, label, icon, eyebrow, title, before?, render(mainEl) } */
+  const PANELS = [];
+  window.ERWPanels = {
+    register(panel){
+      if(!panel || !panel.id || typeof panel.render !== 'function')
+        throw new Error('ERWPanels.register 需要 {id, render}');
+      if(PANELS.some(p => p.id === panel.id)) throw new Error('面板 id 重复：' + panel.id);
+      PANELS.push(panel);
+      return panel.id;
+    },
+    list(){ return PANELS.slice(); },
+    get(id){ return PANELS.find(p => p.id === id) || null; },
+  };
 
   const PAGE_META = {
     overview:['CORE WORK','概览'], todos:['CORE WORK','待办'], focus:['CORE WORK','专注'], agent:['CORE WORK','科研 Agent'], news:['CORE WORK','资讯'],
     'research-overview':['RESEARCH KNOWLEDGE','研究 · 知识总览'], ideas:['RESEARCH KNOWLEDGE','灵感'], journals:['RESEARCH KNOWLEDGE','研究日志'],
     notes:['RESEARCH KNOWLEDGE','笔记'], experiments:['RESEARCH KNOWLEDGE','实验'], milestones:['RESEARCH KNOWLEDGE','里程碑'], summaries:['RESEARCH KNOWLEDGE','工作总结'],
-    literature:['RESEARCH KNOWLEDGE','文献'], graph:['RESEARCH KNOWLEDGE','知识图谱'], folders:['RESOURCES','文件夹'], settings:['SYSTEM','设置'],
-    billing:['SYSTEM','用量统计'] /* v261008 · 用量计费仪表盘 */
+    literature:['RESEARCH KNOWLEDGE','文献'], graph:['RESEARCH KNOWLEDGE','知识图谱'], folders:['RESOURCES','文件夹'], settings:['SYSTEM','设置']
   };
 
   const KIND_ROUTE = {ideas:'idea', journals:'journal', notes:'note', experiments:'experiment', milestones:'milestone', summaries:'summary', literature:'literature'};
@@ -113,7 +130,17 @@
   }
 
   function navGroups(){
-    return NAV_GROUPS.map(g=>({...g, items:[...g.items]}));
+    const groups = NAV_GROUPS.map(g=>({...g, items:[...g.items]}));
+    /* 面板登记项并入导航：默认追加到声明分组末尾；给 before 则插到该路由之前 */
+    for(const panel of PANELS){
+      const groupId = panel.group || 'system';
+      let group = groups.find(g=>g.id===groupId);
+      if(!group){ group = {id:groupId, label:panel.group_label||'扩展', items:[]}; groups.push(group); }
+      const item = [panel.id, panel.label||panel.id, panel.icon||'▪'];
+      const at = panel.before ? group.items.findIndex(it=>it[0]===panel.before) : -1;
+      if(at>=0) group.items.splice(at, 0, item); else group.items.push(item);
+    }
+    return groups;
   }
 
   function renderSidebar(){
@@ -140,7 +167,8 @@
 
   function setHeader(route){
     let eyebrow,pageTitle;
-    const meta = PAGE_META[route];
+    const panel = window.ERWPanels.get(route);
+    const meta = PAGE_META[route] || (panel ? [panel.eyebrow || 'EXTENSION', panel.title || panel.label || route] : null);
     if(meta){ [eyebrow,pageTitle]=meta; }
     else { eyebrow='WORKBENCH'; pageTitle=route; }
     $('#page-eyebrow').textContent=eyebrow; $('#page-title').textContent=pageTitle;
@@ -164,8 +192,8 @@
       else if(route==='research-overview') await renderResearchOverview();
       else if(route==='graph') await renderGraphPage();
       else if(route==='folders') await renderFolders();
-      else if(route==='billing') await renderBillingPage(); /* v261008 · 用量计费 */
       else if(route==='settings') await renderSettings();
+      else if(window.ERWPanels.get(route)) await window.ERWPanels.get(route).render($('#main')); /* 面板登记项 */
       else if(KIND_ROUTE[route]) await renderDocsPage(KIND_ROUTE[route]);
       else await renderOverview();
       if(seq!==state.navSeq) return false; /* v260930g9c · 已被更新导航取代：视为未完成 */
@@ -1206,11 +1234,9 @@
   function treeHtml(node){const ico=node.type==='dir'?'▱':'·';return `<div class="tree-node"><div class="tree-line"><span>${ico}</span><span class="folder-name" title="${esc(node.path)}">${esc(node.name)}</span>${node.type==='dir'?`<span class="folder-actions"><button data-open-path="${esc(node.path)}">↗</button></span>`:''}</div>${node.children?.length?`<div class="tree-children">${node.children.map(treeHtml).join('')}</div>`:''}</div>`}
   function wireTreeOpen(){$$('[data-open-path]').forEach(b=>b.onclick=e=>{e.stopPropagation();api('/api/workspace/open',{method:'POST',body:{path:b.dataset.openPath}}).catch(x=>toast(x.message,true))})}
 
-  /* v261008 · 用量计费页：渲染主体在独立模块 v261008-billing.js（window.ERWBilling.render） */
-  async function renderBillingPage(){
-    if(!window.ERWBilling){ $('#main').innerHTML='<div class="card card-pad danger">用量模块未加载（v261008-billing.js）</div>'; return; }
-    await window.ERWBilling.render($('#main'));
-  }
+  /* v261009 · 用量计费页已整体搬到 v261008-billing.js，并由它自己用 window.ERWPanels.register 登记
+     （导航项 + 标题 + 渲染函数）。内核不再认识「计费」这个功能。 */
+
   async function renderSettings(){const cfg=await api('/api/config');state.config=cfg;
     $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="weather">天气</button><button data-set-tab="rss">资讯源</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button></aside><section class="card settings-panel" id="settings-panel"></section></div>`;
     $$('[data-set-tab]').forEach(b=>b.onclick=()=>{$$('[data-set-tab]').forEach(x=>x.classList.toggle('active',x===b));renderSettingsTab(b.dataset.setTab,cfg)});renderSettingsTab('general',cfg);

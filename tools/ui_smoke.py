@@ -135,8 +135,21 @@ def main(argv: list[str] | None = None) -> int:
         if "workbenchPerformanceFetch" in page.evaluate("() => window.fetch.toString()"):
             fails.append("window.fetch 被全局替换了（P14 红线：补丁将无法摘除）")
 
+        # 面板注册表（§6.3）：内核声明的路由 + 面板自登记的路由，都必须真的挂到侧栏上
+        panels = page.evaluate("() => (window.ERWPanels && window.ERWPanels.list ? window.ERWPanels.list() : []).map(p => p.id)")
+        panel_ids = [str(p) for p in panels]
+        nav_routes = [r for r in page.eval_on_selector_all(".nav-item", "els => els.map(e => e.dataset.route)") if r]
+        if not page.evaluate("() => !!window.ERWPanels && typeof window.ERWPanels.register === 'function'"):
+            fails.append("window.ERWPanels 面板注册表缺失（§6.3：功能无法自行登记导航与页面）")
+        for pid in panel_ids:
+            if pid not in nav_routes:
+                fails.append(f"面板 {pid} 已登记但未出现在侧栏导航里")
+        notes.append(f"面板注册表登记 {len(panel_ids)} 个：{panel_ids}")
+
         rendered: dict[str, str] = {}
-        for route in routes:
+        # 走查清单 = 内核声明的路由 + 面板自登记的路由（后者从运行期取，避免另抄一份）
+        walk_routes = routes + [p for p in panel_ids if p not in routes]
+        for route in walk_routes:
             before = len(console)
             try:
                 page.goto(f"{args.base_url}/#{route}", wait_until="domcontentloaded", timeout=args.timeout)
@@ -174,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         "base_url": args.base_url,
         "title": title,
-        "routes_checked": len(routes),
+        "routes_checked": len(walk_routes),
         "route_headings": rendered,
         "heavy_libs_on_first_screen": heavy,
         "console_errors": console,
@@ -195,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             for f in fails:
                 print(f"  [x] {f}")
         else:
-            print(f"\n前端冒烟通过：首屏干净、{len(routes)} 个路由全部可渲染、接缝齐备、首屏未拉重型库")
+            print(f"\n前端冒烟通过：首屏干净、{len(walk_routes)} 个路由全部可渲染、接缝齐备、首屏未拉重型库")
     return 1 if fails else 0
 
 

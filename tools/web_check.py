@@ -180,6 +180,13 @@ def check_order(manifest: dict) -> None:
     if bypass:
         fail(f"这些模块自带 api() 却绕过接缝（会丢分页/限流/取消）：{sorted(set(bypass))}")
 
+    # §6.3：内核不替功能登记面板——登记应由功能模块自己做（app.js = 内核）
+    app_src = sources.get("app.js", "")
+    if re.search(r"ERWPanels\.register\s*\(", app_src):
+        fail("app.js（内核）调用了 ERWPanels.register：面板应由功能模块自行登记（§6.3）")
+    providers_panel = [name for name, text in sources.items() if re.search(r"ERWPanels\.register\s*\(", text)]
+    notes.append(f"面板自登记模块：{providers_panel or '（暂无）'}")
+
     if "vendor-lazy.js" not in [item["file"] for item in manifest["vendor_js"]]:
         fail("vendor-lazy.js 不在 manifest 的 vendor_js 中（erwVendor 需在业务脚本前就位）")
     if "v260922-performance.js" in order and "app.js" in order:

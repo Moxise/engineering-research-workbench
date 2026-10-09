@@ -71,9 +71,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009b",
+      "v": "261009c",
       "theme": "base",
-      "note": "v261009b · A10：api() 走 window.erwFetch 接缝；上版：A1 按需加载"
+      "note": "v261009c · §6.3：新增 window.ERWPanels 面板注册表（导航/页头/渲染三合一），内核不再硬编码用量计费；上版：A10 api() 走 erwFetch 接缝"
     },
     {
       "file": "literature.js",
@@ -99,9 +99,9 @@
     },
     {
       "file": "v261008-billing.js",
-      "v": "261009b",
+      "v": "261009c",
       "theme": "billing",
-      "note": "v261009b · A10：api() 走接缝；上版：用量计费仪表盘（window.ERWBilling）"
+      "note": "v261009c · §6.3：自行登记 ERWPanels 面板（导航项 + 页头 + 渲染），内核不再认识计费；上版：A10 api() 走接缝"
     }
   ]
 }

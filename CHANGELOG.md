@@ -53,7 +53,12 @@
   - **行为等价经真浏览器验证**（`.scratch/tmp/verify_a10.py`）：`window.fetch` 已恢复原生（`function fetch() { [native code] }`）；分页器「1/2 页 · 共 90 条」、请求带 `paged=1&page=1&page_size=50`、点「下一页」→「2/2 页」且列表内容变化；图谱状态条「当前加载 199 / 199 个知识节点」（`graphMeta` 事件仍通）；全局搜索返回结果；全程无 console error。
   - **不变量改为静态可查**（`tools/web_check.py`）：① 任何模块**不得**给 `window.fetch` 赋值（P14 红线）；② `window.erwFetch` 提供方有且只有一个；③ 每个自带 `api()` 的模块必须走接缝（否则会静默丢分页/限流/取消）。扫描前先剥注释，负向用例已验证（代码违规能抓到、注释里提及不误报、消费方不被误计为提供方）。`tools/ui_smoke.py` 同步在运行期断言接缝存在且 `window.fetch` 未被替换。
   - 「必须排在 `app.js` 之前」的旧约束随之作废（`app.js` 的引导挂在 `load` 事件上，任何请求都晚于全部 defer 脚本求值）；清单说明改为「非强制，但保持最先加载更稳」。
-- **未做**：`A2 剩余`（把补丁并入主题模块、两个 canvas 先画后弃）、`A9 钩子倒置`（补丁侧对内核内部的依赖、8 个 MutationObserver 的合并）、doctor 的修复动作（`--fix-*`）、插件运行时；`ba77ddc` 的业务改动只取回两个只读工具。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
+- **A9/§6.3：前端面板注册表 —— 内核不再硬编码具体功能**：
+  - 新增 `window.ERWPanels`（`register` / `list` / `get`）：功能模块自行登记**导航项 + 页头元数据 + 渲染函数**；`app.js` 的 `navGroups()` 合并登记项（支持 `before` 保持既有顺序），`setHeader()` 与 `navigate()` 增加面板分支（内核路由优先级仍高于面板）。
+  - **用量计费整体搬出内核**：删掉 `app.js` 里的导航项 `['billing','用量','▩']`、`PAGE_META.billing`、`navigate()` 的 billing 分支与 `renderBillingPage()`；改由 `v261008-billing.js` 自己 `ERWPanels.register`。这正是 P14 与 §6.7 红线 5「内核功能依赖某个补丁才能工作」——现在删掉计费模块**只会少一个导航项，不会白屏**。
+  - **等价性经真浏览器验证**（`.scratch/tmp/verify_panels.py`，9 项全通过）：侧栏导航项与顺序**与改造前逐项一致**（用量仍在设置之前）、billing 是面板登记项且出现在侧栏、`#billing` 渲染出内容、页头「SYSTEM / 用量统计」由面板元数据提供、全程 0 console error；静态复核 `app.js` 实现里已无任何 billing 痕迹。
+  - **不变量进闸门**：`web_check` 新增「**app.js（内核）不得调用 `ERWPanels.register`**」（面板应由功能模块自行登记）并列出面板自登记模块；`ui_smoke` 断言注册表存在、**每个登记面板都真的出现在侧栏导航里**，并把这些面板路由一并走查 —— 期望路由 = `app.js` 声明 ∪ 运行期面板，不另抄清单。
+- **未做**：`A2 剩余`（把补丁并入主题模块、两个 canvas 先画后弃）、`A9 剩余`（补丁侧对内核内部的依赖、8 个 MutationObserver 的合并）、doctor 的修复动作（`--fix-*`）、插件运行时后端（§6 的 manifest/加载/隔离与「首个插件」）。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

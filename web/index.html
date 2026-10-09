@@ -105,12 +105,12 @@
 
   <!-- web:app-js:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <script defer src="/v260922-performance.js?v=261009q"></script><!-- v261009q · A10：不再全局替换 window.fetch，改为提供 window.erwFetch 接缝（各模块 api() 运行期解析、缺省回退原生 fetch）；仍建议最先加载，以免未来出现求值期的请求 -->
-  <script defer src="/app.js?v=261009b"></script><!-- v261009b · A10：api() 走 window.erwFetch 接缝；上版：A1 按需加载 -->
+  <script defer src="/app.js?v=261009c"></script><!-- v261009c · §6.3：新增 window.ERWPanels 面板注册表（导航/页头/渲染三合一），内核不再硬编码用量计费；上版：A10 api() 走 erwFetch 接缝 -->
   <script defer src="/literature.js?v=261009b"></script><!-- v261009b · A10：api() 走接缝；上版：修复框选失效 + Esc 释放截图等待 -->
   <script defer src="/v260922-research-pages.js?v=261009b"></script><!-- v261009b · A10：三处 api() 与两处直连 /api/docs、/api/graph/overview 改走 window.erwFetch 接缝；A2：由 projects / overview-editor-tools / graph-performance / overview-graph / agent-profiles 五个**位置连续**的补丁按序合并，内容逐字保留 -->
   <script defer src="/v260930-floating-agent.js?v=261009r"></script><!-- v261009r · A10：api() 走接缝；上版：A1 悬浮球 MathJax 按需加载 -->
   <script defer src="/v260922-layout-bugfixes.js"></script>
-  <script defer src="/v261008-billing.js?v=261009b"></script><!-- v261009b · A10：api() 走接缝；上版：用量计费仪表盘（window.ERWBilling） -->
+  <script defer src="/v261008-billing.js?v=261009c"></script><!-- v261009c · §6.3：自行登记 ERWPanels 面板（导航项 + 页头 + 渲染），内核不再认识计费；上版：A10 api() 走接缝 -->
   <!-- web:app-js:end -->
 </body>
 </html>
