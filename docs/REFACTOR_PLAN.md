@@ -496,6 +496,7 @@ plugins/<plugin_id>/
 | MCP 工具 | `ctx.mcp.tool("weather_now", spec, handler)` | 对外名 `p_<id>__<tool>`；内置 Agent 工具同理；**未启用则工具不出现**（不能像现在 `kb_retrieve` 那样悬空注册） |
 | 知识 kind | `ctx.kinds.register(KindSpec(...))` | 仅允许 `x-<id>-<kind>`；内核必须容忍未知 kind |
 | 前端面板 | manifest `nav[]` + `mount(ctx)` | 内核按 manifest 渲染导航与挂载点；插件**不得**改内核 DOM |
+| **前端槽位** | manifest `nav[].slot` + `ERWPanels.register({slot, renderSlot})` | 内核提供挂载点（当前只有 `topbar`）并给容器加 `data-plugin="<id>"`；插件只在容器内画东西。已知槽位在 `core/plugins/manifest.KNOWN_SLOTS` 声明，新增槽位是**有意的动作** |
 | **搜索分区** | `ctx.search.addSection({id,label,render})` | 内核搜索框保留关键词结果，语义结果由插件注入（RAG 的位置就在这里） |
 | 设置 | manifest `settings_schema` | 内核渲染表单，值落 `config/plugins/<id>.json` |
 | 事件 | `ctx.events.on("doc.updated", cb)` | 只读载荷；回调内禁止同步长耗时 |

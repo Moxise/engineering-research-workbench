@@ -118,6 +118,7 @@ plugins/weather/
 | `permissions` | — | 权限清单（§7），安装/启用时展示给用户 |
 | `requires` / `provides` | — | 依赖与供给（§4） |
 | `nav` / `routes` / `mcp_tools` / `settings_schema` / `jobs` / `events` | — | 扩展点声明（注册方式与命名空间见 REFACTOR_PLAN §6.3） |
+| `nav[].slot` | — | **槽位面板**：声明 `slot`（当前支持 `topbar`）后该面板**不进导航**，而是画进内核提供的槽位容器（容器带 `data-plugin="<id>"`，样式按 §2 作用域）；入口脚本用 `ERWPanels.register({id, slot, renderSlot(container)})` 自登记。未知槽位会被拒载（`P019`） |
 | `storage` | — | 自有派生数据路径，**只允许** `System/Cache/<id>.sqlite` 这一类 |
 
 ---
