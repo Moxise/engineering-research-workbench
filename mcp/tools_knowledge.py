@@ -6,6 +6,7 @@ from typing import Any
 
 from . import constraints as C
 from . import naming
+from core.contracts import validate
 from .bridge import Workbench, WorkbenchError
 from .protocol import RpcError, arr, b, fail, i, ok, s, tool
 
@@ -201,8 +202,17 @@ def t_create_entry(wb: Workbench, args: dict[str, Any]) -> Any:
             "created": False, "validation": validation,
             "_hint": "标题不符合命名规范，未写入。请修正后重试，或显式传 allow_violation=true 强制建档。",
         }
+    # v261009 · 字段级硬校验（status / kind_marks / 日期 / 未声明字段），与 store.write 同一实现
+    field_issues = validate.validate_write(kind, payload, title=title)
+    if validate.errors(field_issues) and not args.get("allow_violation"):
+        return {
+            "created": False, "field_issues": field_issues,
+            "_hint": "字段不符合契约，未写入（" + validate.summarize(field_issues) + "）。"
+                     "取值见 kb_constraints topic=kinds|marks；或显式传 allow_violation=true 强制建档。",
+        }
     doc = wb.create_entry(kind, payload)
-    return {"created": True, "entry": doc, "validation": validation, "dir": C.KINDS[kind]["dir"]}
+    return {"created": True, "entry": doc, "validation": validation,
+            "field_issues": field_issues, "dir": C.KINDS[kind]["dir"]}
 
 
 def t_update_entry(wb: Workbench, args: dict[str, Any]) -> Any:
@@ -238,8 +248,13 @@ def t_update_entry(wb: Workbench, args: dict[str, Any]) -> Any:
     if not validation["ok"] and not args.get("allow_violation"):
         return {"updated": False, "validation": validation,
                 "_hint": "改动不符合命名规范，未写入。改名请用 kb_rename_entry 以同步交叉引用。"}
+    # v261009 · 字段级硬校验（更新语义：只校验本次实际写入的字段）
+    field_issues = validate.validate_write(kind, payload, partial=True, title=title)
+    if validate.errors(field_issues) and not args.get("allow_violation"):
+        return {"updated": False, "field_issues": field_issues,
+                "_hint": "字段不符合契约，未写入（" + validate.summarize(field_issues) + "）。"}
     doc = wb.update_entry(doc_id, payload)
-    return {"updated": True, "entry": doc, "validation": validation}
+    return {"updated": True, "entry": doc, "validation": validation, "field_issues": field_issues}
 
 
 def t_rename_entry(wb: Workbench, args: dict[str, Any]) -> Any:

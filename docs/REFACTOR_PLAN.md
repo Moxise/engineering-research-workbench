@@ -281,6 +281,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 
 | **A2 第一刀**（`a965a12`） | 装配清单化（`web/manifest.json` + `tools/web_manifest.py --write/--check`，index.html 三段引用块由清单生成）、前端静态体检闸门 `tools/web_check.py`（语法 / 清单一致 / 模块缺失 / `window.ERW*` 与自定义事件接缝 / 加载顺序）、5 个连续 IIFE 补丁合并为 `v260922-research-pages.js`（业务 JS 11 → 7，内容逐字复核一致） |
 | **P3 首件**（本轮） | `python -m core.doctor` 只读体检：22 个检查项，覆盖 §5.5.5 清单的绝大部分；首次实测 199 条数据得 error 2 项 / warn 8 项（越界 status 1、越界标记 2、幽灵归属 2、断链 2、回收站漂移、4 个冲突文件、6.8 MB 冲突副本、WAL 21.4 MB） |
+| **P1 补齐**（本轮） | 写入期字段校验 `core/contracts/validate.py`（F001–F007）：越界 status / 越界标记 / 强制标记 / 日期格式 / 未声明字段；`store` 与 MCP 两条写入路径消费同一份校验器，`create_doc` 按契约补齐标记，`update_doc` 白名单改由契约派生；`kb_smoke` 新增 14 条断言（第 7 组）全绿 —— **P16 的根因（写入期零校验）已堵住** |
 
 | 尚未开始 | 对应动作 |
 | --- | --- |

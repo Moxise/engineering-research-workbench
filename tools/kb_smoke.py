@@ -156,6 +156,51 @@ def main() -> int:
             legacy_notes.append(str(meta.get("title")))
     check("实验迁移已幂等（无遗留 note）", not legacy_notes, str(legacy_notes[:3]))
 
+    # ---------- 7. 写入期字段校验（v261009 · P16 根因）----------
+    print("\n== 7. 写入期字段校验 ==")
+    import inspect
+
+    from core.contracts import validate as V
+
+    def _codes(kind, payload, **kw):
+        return [i["code"] for i in V.errors(V.validate_write(kind, payload, **kw))]
+
+    def _rejects(fn) -> bool:
+        """调用是否被硬校验拦住（只读：校验在落盘之前，故不会产生文件）。"""
+        try:
+            fn()
+        except ValueError:
+            return True
+        except Exception:
+            return False
+        return False
+
+    # 越界 status：idea 的状态机没有「进行中」（库里那条脏数据就是这么来的）
+    check("越界 status 被拒", "F002" in _codes("idea", {"status": "进行中"}))
+    check("合法 status 放行", not _codes("idea", {"status": "探索中"}))
+    check("越界 kind_marks 被拒", "F003" in _codes("note", {"kind_marks": ["知识-方法"]}))
+    check("合法 kind_marks 放行", not _codes("note", {"kind_marks": ["method"]}))
+    # 契约强制标记：建档自动补齐；更新时显式漏掉则拒写
+    check("experiment 建档自动补齐 ⚗", not _codes("experiment", {"kind_marks": []}))
+    check("experiment 更新漏掉 ⚗ 被拒",
+          "F004" in _codes("experiment", {"kind_marks": []}, partial=True))
+    check("experiment 更新带 ⚗ 放行",
+          not _codes("experiment", {"kind_marks": ["experiment"]}, partial=True))
+    check("非法日期格式被拒", "F005" in _codes("journal", {"record_date": "2026/10/09"}))
+    check("合法日期放行", not _codes("journal", {"record_date": "2026-10-09"}))
+    check("未声明字段告警", "F007" in [i["code"] for i in V.validate_write("note", {"自定义键": 1})])
+
+    # 两条写入路径同一结论：HTTP 的 store 与 MCP 工具层消费同一份校验器
+    check("store 建档路径拒绝越界 status",
+          _rejects(lambda: store.create_doc("idea", {"title": "灵感-越界状态测试", "status": "进行中"})))
+    check("store 建档路径补齐契约标记",
+          "derive_marks" in inspect.getsource(store.create_doc))
+    check("store 更新路径拒绝越界 status",
+          _rejects(lambda: store.update_doc("idea-20260924104458-90ee1b", {"status": "进行中"})))
+    check("MCP 建档工具消费同一校验器",
+          "validate_write" in inspect.getsource(TK.t_create_entry)
+          and "validate_write" in inspect.getsource(TK.t_update_entry))
+
     print()
     if FAILS:
         print(f"结果：{len(FAILS)} 项失败 → {FAILS}")

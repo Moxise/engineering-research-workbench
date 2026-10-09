@@ -16,6 +16,8 @@ from typing import Any
 from .workspace import ensure_workspace, ensure_project
 from . import activity, config
 from core.contracts import kinds as contracts
+from core.contracts import naming as contract_naming
+from core.contracts import validate as contract_validate
 
 # v261009 · 契约单源：kind→目录/标签/状态机/日期字段一律取 core/contracts/kinds.py。
 # 历史上 store、mcp/constraints、kb_naming 三处各留一份副本且已漂移，本模块不再自留。
@@ -460,10 +462,25 @@ def _make_default_body(kind: str, title: str, payload: dict[str, Any]) -> str:
     return contracts.default_body(kind, title, payload)
 
 
+def _enforce_write(kind: str, payload: dict[str, Any], *, partial: bool = False, title: str = "") -> None:
+    """写入前的字段硬校验（v261009 · P16 根因修复）。
+
+    这些规则原先只写在文档里、写入期零校验，于是库里真的出现了越界 status 与越界标记。
+    现在两条写入路径（HTTP 的 store 与 MCP 工具层）都过这里。
+    `level=error` 直接拒写；warn 级只提示，不阻断。
+    """
+    issues = contract_validate.validate_write(kind, payload, partial=partial, title=title)
+    if contract_validate.errors(issues):
+        raise ValueError("字段校验未通过：" + contract_validate.summarize(issues))
+
+
 def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     if kind not in kind_dir_map():
         raise ValueError("Invalid kind")
     title = str(payload.get("title") or f"未命名{kind_label_map().get(kind, kind)}").strip()
+    # 契约强制的标记在此补齐（两条写入路径一致；此前只有 MCP 侧补，HTTP 侧不补）
+    payload = {**payload, "kind_marks": contract_naming.derive_marks(kind, title, payload.get("kind_marks"))}
+    _enforce_write(kind, payload, title=title)
     doc_id = f"{kind}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
     now = _now()
     meta: dict[str, Any] = {
@@ -503,13 +520,13 @@ def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
 def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     doc = get_doc(doc_id)
     kind = doc["kind"]
+    # 可写字段的唯一声明处在 core/contracts/kinds.py（UPDATE_FIELDS）；body 走正文分支
+    allowed = set(contracts.UPDATE_FIELDS) - {"body"}
+    incoming = {k: v for k, v in payload.items() if k in allowed}
+    _enforce_write(kind, incoming, partial=True, title=str(incoming.get("title") or doc.get("title") or ""))
     path = ensure_workspace() / doc["path"]
     text = path.read_text(encoding="utf-8")
     meta, body = _frontmatter_parse(text)
-    allowed = {
-        "title", "status", "project", "projects", "tags", "kind_marks", "pinned", "record_date", "due", "added_date",
-        "summary_type", "authors", "year", "venue", "doi", "url", "cite_key", "attachment"
-    }
     for key in allowed:
         if key in payload:
             meta[key] = payload[key]
