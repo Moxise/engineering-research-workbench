@@ -209,9 +209,15 @@ def normalize_prices(raw: Any) -> dict[str, Any]:
         cleaned_plan = _clean_plan(entry)
         if cleaned_plan is not None and cleaned_plan.get("mode") != "token":  # token 是默认，无需落盘
             plans[key] = cleaned_plan
+    currency = str((raw.get("currency") if isinstance(raw, dict) else "") or "USD").upper()
+    # v261009 · 账本/API/前端的金额字段当前均以 USD 为基准（cost_usd/equiv_usd、$ 展示）。
+    # 单个模型条目仍可使用 currency=CNY 等，再通过 fx 折算到 USD；禁止把顶层基准币种
+    # 改成非 USD，避免“人民币数值却显示为美元”的静默金额错误。
+    if currency != "USD":
+        raise ValueError("顶层 currency 当前仅支持 USD；人民币等官方标价请写在单个模型条目的 currency 字段，并通过 fx 折算")
     return {
         "schema_version": SCHEMA_VERSION,
-        "currency": str((raw.get("currency") if isinstance(raw, dict) else "") or "USD").upper(),
+        "currency": currency,
         "unit": "per_1m_tokens",
         "fx": {**DEFAULT_FX, **_clean_fx(raw.get("fx") if isinstance(raw, dict) else None)},
         "note": str(raw.get("note") or PRICE_NOTE) if isinstance(raw, dict) else PRICE_NOTE,
