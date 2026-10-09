@@ -30,6 +30,7 @@
 
 !app/**/*.py
 !core/**/*.py
+!/core_api.py
 !tools/**/*.py
 
 # 清理入口的一键包装（双击即用），其余 .bat 仍不发布

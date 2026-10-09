@@ -113,6 +113,25 @@ def main(argv: list[str] | None = None) -> int:
     candidates, _notes2 = R.discover()
     R.resolve(candidates, (ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else "")
 
+    # core_api 必须真的入库：它是插件的唯一门面，落在仓库根（不在 core/** 通配里），
+    # 很容易被 .gitignore 的白名单漏掉——那样克隆下来插件全废（本轮真踩过一次）。
+    facade = ROOT / "core_api.py"
+    if not facade.is_file():
+        fails.append("core_api.py 不存在（插件唯一允许 import 的门面）")
+    else:
+        try:
+            tracked = subprocess.run(["git", "ls-files", "core_api.py"], capture_output=True,
+                                     text=True, encoding="utf-8", errors="replace", cwd=str(ROOT))
+            ignored = subprocess.run(["git", "check-ignore", "-q", "core_api.py"], cwd=str(ROOT))
+            if tracked.returncode == 0 and ignored.returncode == 0:
+                fails.append("core_api.py 被 .gitignore 忽略：插件门面必须入库，否则克隆后插件全废")
+            elif tracked.returncode == 0 and not tracked.stdout.strip():
+                notes.append("提示：core_api.py 存在但尚未 git add")
+            else:
+                notes.append("core_api.py 已入库（插件门面）")
+        except OSError:
+            pass
+
     # I3：插件只允许 import 标准库与 core_api（不得碰 core.* 私有模块、app.*、别的插件）
     FORBIDDEN = PLUGIN_FORBIDDEN_IMPORT_RE
     for pid, cand in sorted(candidates.items()):
