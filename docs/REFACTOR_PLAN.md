@@ -4,7 +4,9 @@
 > 每条结论附 `file:line` 或实测值；无法从代码断定的标「待确认」，不猜。
 > 目标：把工作台收敛成「科研数据梳理与汇总」内核，其余功能以可增删插件形式存在，且插件不得影响内核。
 >
-> **本次更新（v2）**：按三项决定落地——① RAG 由「可选内核」改为**已移除**（有意回滚：非必要功能、体量大；内核检索只保留关键词 FTS，将来若要恢复按插件形态重建，见 §6.6）；② 已摘除悬空的 `kb_retrieve`（MCP 工具数 **26 → 25**，`--selftest` problems 为空）；③ `.gitignore` 白名单新增 `mcp/`、`plugins/`（此前不在白名单，回滚时整目录不受保护）。全部引用已按回滚后的当前工作树校准（`rag/` 源码已不存在，见 §3-P23/P24/P25）。
+> **本次更新（v3）**：① **更正上一版结论——RAG 并没有「丢失」**：完整实现已提交在独立分支 `feature/rag-v261009@ee4dd86`（本地已提交、**尚未推送 origin**）；`tools/kb_smoke.py`、`tools/shot_page.py`、`tools/shot_prep.py`、`tools/rag_check.py`、`web/v261009-rag.css` 同样都在 git 里。当前分支看不到它们属于**基线不一致**，不是数据丢失（§1.4 与 §3-P24 / P26 已改写）。上一版误判的原因：只在当前分支跑了 `git log -- rag/*`，没加 `--all`。
+> ② 新增 §1.4 分支拓扑与 P27–P30（分支发散、读操作需写权限、本分支验证工具缺席、上游并行分支重复投入）。③ §4 精简方案按当前分支实测数值重排优先级，并补 A0 / A13 / A14。
+> **v2 回顾**：RAG 定为「不进内核」（现确认它本就独立在一条分支上）；已摘除悬空 `kb_retrieve`（工具数 26 → 25）；`.gitignore` 已放行 `mcp/`、`plugins/`。
 
 ---
 
@@ -17,21 +19,21 @@
 | **① 精简** | 功能面已超出「数据梳理与汇总」；前端 13 个补丁文件靠加载顺序互相覆盖 | 划内核边界，把非内核功能移出核心启动路径 | 首屏资源 8.2 MB → < 1 MB；补丁 3987 行 → 主题模块 |
 | **② 契约归一** | 同一套规则 3 处实现、2 套校验、5 处版本号；已产生越界 status、越界 mark、幽灵项目节点 | 单一契约源 + 生成物 + 体检/迁移框架 | 消灭「同一数据两套规则」 |
 | **③ 插件化** | 新功能只能改核心 | 固化 manifest/扩展点/隔离不变量 | 内核零插件可跑，插件可自由增删 |
-| **④ RAG 出核**（已落地） | RAG 已从内核移除（有意回滚） | ✅ 悬空 `kb_retrieve` 已摘除、工具数 26 → 25；⏳ 161 MB 孤儿数据待处置（§8-D6） | 内核不再背 RAG 的依赖与体积 |
+| **④ RAG 出核**（已落地） | RAG 在内核里已不存在 | ✅ 悬空 `kb_retrieve` 已摘除（工具数 26 → 25）；RAG 完整实现保留在 `feature/rag-v261009`，161 MB 本地数据仍在 | 内核不背 RAG 的依赖与体积，需要时按插件或按分支取回 |
 
-**代码体量实测（回滚后当前树）**
+**代码体量实测（当前分支 `feature/slim-workbench-v261009`，VERSION v261008.1）**
 
 | 层 | 文件数 | 行数 | 体积 |
 | --- | --- | --- | --- |
-| 根 Python（`server.py` 647 行 + `client.py` 等） | 3 | ≈945 | 54 KB |
-| `app/`（HTTP 后端 + 数据层） | 25 | ≈8.4k | 380 KB |
-| `mcp/`（Agent 用的 stdio MCP 服务） | 8 | 2255 | 109 KB |
-| `tools/`（运维脚本） | 12 | 2008 | 103 KB |
-| `web/` 非 vendor 代码 | 25 | ≈7.0k | 659 KB |
-| — 基础 5 文件 | 5 | 2992 | 376 KB |
-| — 版本化补丁 | 13 | **3987** | 266 KB |
-| `web/vendor/`（92.6% 体积，本地专用） | 193 | 27888 | **8.2 MB** |
-| `server.py` 路由 | — | **≈85 条**（审计基线 87 条含 RAG 2 条；现 `server.py` 内 `/api` 路由判定 83 处，另加 `/workspace-file` 与静态兜底） | — |
+| 根 Python（`server.py` + `client.py` 等） | 3 | 938 | 50 KB |
+| `app/`（HTTP 后端 + 数据层） | 24 | 7876 | 356 KB |
+| `mcp/`（stdio MCP 服务，本版起首次入库） | 8 | 2207 | 107 KB |
+| `tools/`（运维脚本） | 4 | 389 | 21 KB |
+| `web/` 非 vendor 代码 | 23 | ≈6.7k | 617 KB |
+| — 基础 5 文件 | 5 | 2703 | 348 KB |
+| — 版本化补丁 | 18 | **4042** | 269 KB |
+| `web/vendor/`（本地专用，占前端体积 92%） | 193 | 27888 | **8.2 MB** |
+| 路由 | — | **82 条 `/api` 路由分支**（GET 34 / POST 40 / DELETE 8）+ `/workspace-file` 与静态兜底 ≈ **84 个端点** | — |
 
 **数据现状实测**
 
@@ -40,8 +42,8 @@
 | 知识条目 | **199 条**（Notes 90 / Literature 67 / Experiments 25 / Journals 6 / Ideas 4 / Summaries 4 / Milestones 3），与索引 `documents` 199 行一致；另有 1 个 md 在 `Knowledge/Exports/` 不参与索引 |
 | 关系边 | `document_links` 395（可解析 393 / 不可解析 2）、`graph_edges` 1854 |
 | 状态文件 | `projects.json` 4 项目、`todos.json` 3 条、`activity.jsonl` **946 行**、`AgentChats/` 102 文件（69 草稿 + 24 回收） |
-| 派生数据 | `index.sqlite` 35.7 MB + WAL、损坏的冲突副本 7.1 MB |
-| **RAG 孤儿残留** | `.rag/` 模型权重 **92 MB** + `Cache/rag.sqlite` **69.2 MB** + `rag/__pycache__` 13 个 `.pyc` |
+| 派生数据 | `index.sqlite` 35.7 MB + `-wal` **21.4 MB**（长期未 checkpoint）、损坏的冲突副本 6.8 MB |
+| RAG 本地数据（**非孤儿**，属 RAG 分支的运行期产物） | `.rag/` 权重 **92 MB** + `Cache/rag.sqlite` **69.2 MB**；源码在 `feature/rag-v261009`（§1.4） |
 | 同步冲突残留 | 5 个（`activity`/`migration`×2/`chat`/`index` 各一） |
 
 ---
@@ -104,7 +106,7 @@
 
 **结论**：插件目录必须是 `DATA_ROOT/plugins/<id>/`，由运行期 `importlib` 从文件路径加载；任何「把插件写进 `app/` 或 `web/`」的方案在打包后都不可用。
 
-### 1.3 功能面清单（按路由数排序，回滚后实测）
+### 1.3 功能面清单（按路由数排序，当前分支实测）
 
 | 功能 | 路由数 | 主要代码 | 使用痕迹（2026-10-09） |
 | --- | --- | --- | --- |
@@ -121,8 +123,27 @@
 | 关键词检索 | 1 | `perf_index_query.search_all`（中文 bigram FTS，含 loose 兜底） | — |
 | 天气 | 2 | `weather.py`(109) | weather.json 最后写入 **10-09 12:42（在用）** |
 | RSS 资讯 | 1 | `rss.py`(166) | rss_cache 最后写入 **10-09 09:10（在用）** |
-| ~~语义检索 RAG~~ | ~~2~~ | **已从内核移除**（`rag/` 源码不存在；`mcp` 侧悬空，见 §3-P23） | 残留 161 MB（§3-P24） |
+| ~~语义检索 RAG~~ | ~~2~~ | **不在本分支**：源码在 `feature/rag-v261009`（见 §1.4）；`mcp` 侧悬空工具已摘除（P23） | 本地仍有 `.rag/` 92 MB + `rag.sqlite` 69.2 MB（§3-P24） |
 | **专注计时** | **0** | **只有前端**：`app.js:482-499` + localStorage `focusMinutes/breakMinutes` | 无模块、无路由 → 最易插件化 |
+
+### 1.4 分支拓扑（决定「精简哪条线」，v3 新增）
+
+工作区只有一个，但 git 里有多条并行分支：**AI 助手线、RAG 线、精简线各占一条**，所以「当前工作台包含什么」取决于在哪条分支上。
+
+| 分支 | HEAD | VERSION | 相对当前 HEAD（该分支独有 / 落后） | 内容 |
+| --- | --- | --- | --- | --- |
+| `feature/slim-workbench-v261009`（**当前**） | cacdaad | v261008.1 | — | 精简线：近 5 次提交全是 UI 紧凑化（标题栏 64px、sticky 偏移、compact layout、PDF 恢复修复）+ 本轮 `kb_retrieve` 摘除 / 白名单 / 方案文档 |
+| `feature/ai-assistant-v260930` | ba77ddc | v261008.2 | 2 / 20 | AI 助手线（悬浮球、Agent 工具链、计费） |
+| `feature/rag-v261009` | **ee4dd86** | v261008.2 | 3 / 20 | **RAG 完整实现**：`rag/*.py` + 7 份 eval 报告 + `tools/rag_check.py` + `web/v261009-rag.css`；**有 1 个提交未推送 origin** |
+| `fix/ai-assistant-pr5-review` | d637ef3 | — | 0 / 1 | 当前分支的基点（HEAD 的父提交） |
+| `main` / `origin/main` / `upstream/main` | 97bdbe2 / 2f63af6 / 9a164f7 | — | 落后 **204** | 发布主线，久未合并 |
+| `upstream/*` 并行分支 | — | — | — | `feature/rag-recall-v2`、`test/rag-hybrid-retrieval`、**`feature/custom-knowledge-types`**（与 §8-D2「插件能否注册新 kind」直接相关） |
+
+三条要点：
+
+1. **RAG 是「另一条分支」，不是「被删掉的功能」**：它从未合入当前分支；`.rag/`(92 MB) 与 `Cache/rag.sqlite`(69.2 MB) 是它的运行期产物（被 gitignore，跨分支共用同一工作区所以一直留着）。
+2. **精简的基线必须先定义**：在 `slim-workbench` 上做精简，就意味着暂时放弃 AI 助手线的 2 个提交与 RAG 分支的 3 个提交；而 `main` 已落后 204 个提交。目前没有人回答「哪条线是内核基线」（见 P27）。
+3. **上游在做重叠的事**：`feature/rag-recall-v2`、`test/rag-hybrid-retrieval`、`feature/custom-knowledge-types` —— 动手前先对齐上游（见 P30）。
 
 ---
 
@@ -181,9 +202,10 @@ project_ids: ["proj_a0af8ee9d4db"]
 | `activity_daily` | 30 | `PK(date,type)`，无显式索引 |
 | `documents_fts` | **199** | FTS5 `(doc_id UNINDEXED, title, body, tags, projects, seg)`，`seg` 存中文 bigram，**只有 `seg` 真正参与检索** |
 
-- **版本号散落 5 处独立演进**：`perf_index_db.py:13-14`(3/3)、`System/schema.json`(3/3)、`config.py:20`(=2)、`billing.py:31`(=1)、`rag.sqlite meta`(=1，现为孤儿库)；`schema.json` 与库内 `meta.schema_version` **互不校验**。
+- **版本号散落 5 处独立演进**：`perf_index_db.py:13-14`(3/3)、`System/schema.json`(3/3)、`config.py:20`(=2)、`billing.py:31`(=1)、`rag.sqlite meta`(=1，属 RAG 分支)；`schema.json` 与库内 `meta.schema_version` **互不校验**。另：`VERSION` 本身也按分支分叉（本分支 v261008.1 / 两条兄弟分支 v261008.2，见 §1.4）。
 - **无通用迁移**：4 条迁移路径内联在 `_init_db`——① 版本号覆写；② `documents` 缺列 → `ALTER TABLE ADD COLUMN` 并触发全量重建（`:220-224`）；③ `document_links` 缺 `role` → **DROP 后重建**（`:226-236`）；④ FTS 分词器变更 → **DROP `documents_fts` 重建** + `fts_backfill_pending`（`:238-263`）。唯一「重建」是删库文件后 `initialize(force=True)`（`perf_index_core.py:430-439`）。
-- **磁盘实测**：`index.sqlite` 35.7 MB + WAL；`index-冲突-Moxise_Win11.sqlite` 7.1 MB（**已损坏到无法打开**）；`rag.sqlite` 69.2 MB（**孤儿**，见 §3-P24）。
+- **磁盘实测**：`index.sqlite` 35.7 MB + `index.sqlite-wal` **21.4 MB**（长期未 checkpoint，比库体量还大）；`index-冲突-Moxise_Win11.sqlite` 6.8 MB（**已损坏到无法打开**）；`rag.sqlite` 69.2 MB（RAG 分支的向量库，见 §1.4）。
+- **读操作需要写权限**（v3 实测）：`perf_index_*` 每次建连都跑一遍 `_init_db`，所以连纯查询也要写库；在服务占库的情况下 `indexer.search_all()` 直接抛 `OperationalError: attempt to write a readonly database` —— 只读消费者（测试、只读 MCP、审计脚本）因此都用不了，只能改用 `?mode=ro` 的裸 sqlite 连接绕开（见 P28）。
 - 物理隔离：`Workspace/.stignore` 仅一行 `System/Cache/`。
 
 ### 2.4 其它持久化
@@ -197,7 +219,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 | `System/Cache/weather.json` | TTL **600 s**；`{timestamp,key,data{…}}`，`key` 里重复存了一份配置 | `weather.py:25,58,105-108` |
 | `System/Cache/rss_cache.json` | `{timestamp,updated,items[72],sources,errors,stale,…}` | 失败时用 stale 覆盖但不落盘（`rss.py:161-165`） |
 | `window-state.json` | `{maximized,width,height}` | **唯一生产者与消费者都是 `client.py`**（`:23,75,93,153`），不经 HTTP |
-| `.rag/models` | 模型权重 **92 MB** | **孤儿**：读它的代码已不存在 |
+| `.rag/models` | 模型权重 **92 MB** | RAG 分支的模型目录（源码在 `feature/rag-v261009`，见 §1.4） |
 
 ---
 
@@ -210,10 +232,10 @@ project_ids: ["proj_a0af8ee9d4db"]
 | **P3** | **id 前缀与 kind 脱钩且不可修**：契约称 `id={kind}-{ts}-{hex6}`，实际 25 条 experiment 的 id 全是 `note-*`；`kb_change_kind` 明确「id/created 不变」 | §2.1 样本；`mcp/bridge.py:104-108` | 以 id 前缀推断类型的一切逻辑都错 |
 | **P4** | **一个项目关系存 4 个字段**：`project`/`projects`（名）+ `project_id`/`project_ids`（id），后两者不在契约；索引里另有 `documents.project/project_id/projects_json/project_ids_json` 4 列 + `document_projects` 三元组 | 样本 `:8-9,14-15`；`perf_index_db.py:125-128,144-152` | 冗余 + 同步面扩大 |
 | **P5** | **Agent 建档能力缺口**：只读 `kind/title/body/tags/projects/kind_marks`，不收 `status/record_date/due/added_date`；MCP 版支持 | `agent_tools.py:205-211`、spec `:316-325` vs `mcp/README.md:132-143` | 经 Agent 建的 journal/summary/experiment/milestone/literature **缺法定日期**；spec 类别词仍含已废弃「实验」（`:317`） |
-| **P6** | **派生数据散落与不可回滚**：5 处版本号；`document_links`/`documents_fts` 迁移是 DROP 重建；无 down-migration；损坏的冲突副本 7.1 MB 常驻 | §2.3 各条 | 升级无单一入口；迁移不可回滚 |
+| **P6** | **派生数据散落与不可回滚**：5 处版本号；`document_links`/`documents_fts` 迁移是 DROP 重建；无 down-migration；损坏的冲突副本 6.8 MB 常驻 | §2.3 各条 | 升级无单一入口；迁移不可回滚 |
 | **P7** | **前端靠加载顺序互相覆盖**：13 个补丁 3987 行 > 基础 2992 行；`index.html:105-115` 手写顺序 | `web/index.html`；实测行数 | 无法按功能增删；一处顺序错就坏 |
 | **P8** | **文档口径落后于代码**：`mcp/README.md:7` 写 24 工具、`:81` 写「六类条目矩阵」，实际 26 工具 / 7 类 | 同上 | 规范文档不再可作事实来源 |
-| **P9** | ~~`rag/` 已是事实上的插件~~ → **该实现已在 10-09 回滚中丢失**（`rag/` 从未入库） | 见 P24/P25 | 可插拔的**设计**仍然成立，但没有可复用的实现代码 |
+| **P9** | **`rag/` 已经是事实上的「可插拔组件」**：它独立成进程（8770）、独立库（`rag.sqlite`）、独立模型目录（`.rag/`）、缺包即降级，且**现独立在 `feature/rag-v261009` 分支上**（1 个提交未推送） | `git ls-tree -r feature/rag-v261009`；`server.py` 早已没有 `_rag_*` | 插件化不必从零发明——这套形态就是模板；但「靠分支承载可选功能」也说明缺少插件机制 |
 | **P10** | **临时空间无上限**：`.scratch` 已 6465 文件（上轮实测 253.7 MB，其中 `pycache` 4284 文件、35.7 MB index 快照）；启动清理未触发（`workbench.log` 停在 10-08 16:12 → 工作台进程未重启） | 实测 | 需体积上限 + 目录白名单，不只按时间清理 |
 | **P11** | **死代码 / 半死代码**：`app/project_bridge.py`(52 行) 全仓零引用；`app/search.py`(43 行) 只被 `mcp/bridge.py:37`、`tools/self_check.py:14` 用，**server.py 不用** | 内容级 grep | 阅读成本与误改风险 |
 | **P12** | **层级倒置**：`perf_index_query.py:7` 导入期依赖整个 `agent`（LLM）模块，只为 `:460/:466` 调 `agent.list_sessions()`；并跨模块调私有函数 `store._doc_from_path`(`:135`)、`store._academic_progress`(`:411/:420`) | 同上 | 索引查询层拖进 LLM 层，无法独立裁剪/测试 |
@@ -228,12 +250,33 @@ project_ids: ["proj_a0af8ee9d4db"]
 | **P21** | **循环导入被写成「调用顺序契约」**：`config.py:666` 模块末尾直接 `reload_all()`；直接 `import app.workspace` 会经 `config→agent_tools→kb_naming/store→workspace` 回到半初始化模块并 **ImportError**（实测复现）；`billing.py:94-100` 用惰性导入绕过并注释说明 | 同上 | 插件运行期动态加载 core 模块会踩顺序炸弹（详见 §6.1） |
 | **P22** | **5 个同步冲突文件常驻 Workspace**（含 7.1 MB 已损坏的 index 副本） | 同上 | 不进索引、无清理逻辑 |
 | **P23** ✅ 已修复 | ~~**`kb_retrieve` 是悬空工具**~~（已从 `TOOLS`/`HANDLERS`/实现中移除，工具数 26 → 25，自检 problems 为空；留作「注册了却不可用」的案例）：`mcp/tools_workspace.py:217` 惰性 `from rag.client import retrieve`，而 `rag/` 源码已不存在 → 工具仍在 `TOOLS` 表（`:331`）并出现在会话工具清单里，**调用时才 `ModuleNotFoundError: No module named 'rag.client'`**（实测）。`python -m mcp.server --selftest` 仍报 `problems: []`（惰性导入不触发，自检抓不到） | 实测 | Agent 会看到并调用一个必然失败的工具（对外表现为「检索不了」） |
-| **P24** | **RAG 残留 161 MB 孤儿数据、且源码不可恢复**：`.rag/` 模型权重 **92 MB**、`Cache/rag.sqlite` **69.2 MB**、`rag/__pycache__/*.pyc` 13 个。恢复途径已断：`rag/` 从未入库（`git log -- rag/*` = 0 提交），`CHANGELOG`/`README`/`docs/` 已随回滚复原（全库 `*.md` 搜 `v261009\|RAG` **零命中**） | 实测 | 要么按插件重建，要么清理（§8-D6） |
-| **P26** | **回滚还带走了两个被规范引用的工具脚本**：`tools/kb_smoke.py`（`AGENTS.md:36` 指定的「改完必跑」只读冒烟）与 `tools/shot_page.py`（`AGENTS.md:28` 指定的截图采集工具）都已不存在，而 `AGENTS.md` 是**已跟踪**文件 | `Test-Path` 实测为假；`git ls-files tools/` 仅 5 个文件 | 按自家规范执行会直接 `No such file or directory`；需恢复脚本或修规范 |
+| **P24** | **RAG 实现与当前分支脱钩**（上一版误判为「已丢失」，此处更正）：完整实现提交在 `feature/rag-v261009@ee4dd86`，**有 1 个提交未推送 origin**；当前分支工作树里 `rag/` 只剩 `__pycache__`，另有 `.rag/` 权重 92 MB 与 `Cache/rag.sqlite` 69.2 MB 常驻（被 gitignore，跨分支共用同一工作区） | `git ls-tree -r feature/rag-v261009` 列出 `rag/*.py` + 7 份 eval 报告；`git log --all -- rag/*` 非空（上一版只查了当前分支，故判断错误） | 真问题不是「丢了」，而是**同一功能散落在分支上、没有单一基线**（P27）；插件化正好让这类功能脱离「靠分支合并才能回来」 |
+| **P26** | **规范引用的验证/采集脚本不在当前分支**：`AGENTS.md:36` 指定「改完必跑」的 `tools/kb_smoke.py` 与 `:28` 的 `tools/shot_page.py` 在本分支工作树里不存在（本分支 `tools/` 只剩 4 个 `.py`），但它们**都在 git 里**（`kb_smoke.py` 涉及 2 个提交、`shot_page.py` 1 个，另有 `shot_prep.py`、`rag_check.py`） | `Test-Path` 为假；`git log --all --oneline -- tools/kb_smoke.py` 非空 | 按自家规范在本分支执行会 `No such file or directory`；应从对应分支取回，或把规范改成「按分支可用性择一」 |
+| **P27** | **分支发散、没有内核基线**：6 条本地分支 + 多条上游分支；当前 HEAD 比 `main` 领先 **204** 个提交；`feature/rag-v261009` 有 1 个提交未推送；`VERSION` 在分支间分叉（v261008.1 / v261008.2） | `git branch -a`、`git rev-list --left-right --count` 实测 | 「当前工作台是什么」取决于所在分支；精简/重构没有基线的成果会像 RAG 一样停在某条分支上 |
+| **P28** | **纯读操作也要写库**：`perf_index_db._connect()` + 每次连接都执行 `_init_db()`，读路径因此需要写权限；服务占库时 `indexer.search_all()` 抛 `OperationalError: attempt to write a readonly database`（v3 实测） | `perf_index_db.py:36-37,101`；实测报错 | 只读消费者（冒烟脚本、只读 MCP、审计脚本）跑不了，只能改用裸 `?mode=ro` 连接绕过 |
+| **P29** | **本分支缺「改动后必跑」的低成本回归闸门**（P26 的后果面）：`tools/` 只剩 4 个脚本，其中 `self_check.py` 会临时改写 `config/`，其余为性能 / 图标 / 临时空间脚本 | 实测 `tools/` 清单 | 任何精简动作只能靠手工验证，回归风险上升 |
+| **P30** | **上游并行分支与本地方向重叠**：`upstream/feature/rag-recall-v2`、`upstream/test/rag-hybrid-retrieval`、`upstream/feature/custom-knowledge-types`（后者与 §8-D2「插件注册新 kind」直接相关） | `git branch -a` | 先对齐上游再做 RAG 插件化 / 自定义 kind，否则重复造且未来合并冲突 |
 
 ---
 
 ## 4. 精简方案
+
+### 4.0 当前分支的实际进度（v3 实测）
+
+| 已发生 | 说明 |
+| --- | --- |
+| UI 紧凑化（近 5 次提交） | 桌面标题栏 64px、设置页 sticky 偏移、compact layout 调整、PDF 阅读区恢复 —— **属外观压缩，未触动结构** |
+| `kb_retrieve` 摘除 + `mcp/`、`plugins/` 入白名单 | 本轮完成（工具数 26 → 25，自检 problems 为空） |
+| 方案文档入库 | `docs/REFACTOR_PLAN.md` 随 `cacdaad` 提交 |
+
+| 尚未开始 | 对应动作 |
+| --- | --- |
+| 前端补丁合并（18 个补丁 4042 行，仍靠加载顺序互相覆盖） | A2（优先级上调） |
+| vendor 按需加载（8.2 MB 仍无条件 defer） | A1 |
+| 契约归一 / doctor / 迁移框架 | §5、A6–A8 |
+| 插件运行时（`plugins/`、`core/` 目录都还不存在） | §6 |
+
+**优先级调整（v3）**：**A2 从第 2 位提到第 1 位**——`17682ce fix: restore PDF workspace after performance patch syntax error` 就是补丁层脆性造成的真实功能故障（一个补丁的语法错误直接打掉整个 PDF 工作区），而近 5 次提交里有 4 次都在补丁层做像素级调整，说明"靠在 base 上叠补丁"的成本已经在持续支付。
 
 ### 4.1 判据
 
@@ -252,7 +295,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 | **内核 Core**（零插件完整可跑） | 条目 CRUD + 原子写 + 回收站；命名/存放/字段契约与校验；SQLite 索引 + **中文 FTS 关键词检索** + 关系图谱**数据**；项目 + 待办 + 活动；界面壳（导航/列表/详情/编辑器）；BibTeX 与汇总导出 | 对应判据 1-3；**语义检索不在内核**，内核检索保持关键词即可 |
 | **可选内核**（随包发布、设置里可关） | 文献与 PDF 工作区（20 路由）；知识图谱可视化；里程碑与 3D 时间线；AI 写工具 + 草稿确认流 | 体量大/依赖重，但属科研主线 |
 | **插件**（可自由增删） | 专注计时（**纯前端 0 路由，最易**）；天气（2）；RSS（1）；用量计费（5）※；悬浮球助手 ※；术语建档流水线（人设）；mermaid/mathjax 按需加载 | 与数据结构无强耦合，或纯展示/观测 |
-| **已移除**（不进内核、当前也不装） | 语义检索 RAG（v261009 有意回滚；如需恢复按 `kind:"process"` 插件重建，见 §6.6） | 非必要功能且体量大：独立进程 + 独立解释器 + 92 MB 权重 + 69 MB 向量库；内核关键词 FTS 已覆盖「有没有相关内容」 |
+| **已移除**（不进内核、当前分支也不装） | 语义检索 RAG（现独立在 `feature/rag-v261009` 分支；如需装进内核则按 `kind:"process"` 插件形态，见 §6.6） | 非必要功能且体量大：独立进程 + 独立解释器 + 92 MB 权重 + 69 MB 向量库；内核关键词 FTS 已覆盖「有没有相关内容」 |
 | **待定**（§8-D1） | 知识图谱、PDF 工作区、Agent 本体 | 三者都重且都在用 |
 
 > ※ 计费与悬浮球有**前置条件**：见 P14，须先把 `app.js` 的硬依赖倒置成钩子，否则摘除即坏页面。
@@ -274,7 +317,10 @@ project_ids: ["proj_a0af8ee9d4db"]
 | A9 前端接缝改契约 | 15 个 `window.ERW*` + 5 个自定义事件 + 6 个 MutationObserver → 统一注册表 + `ctx` 契约 | §6.3 |
 | A10 消除双实现 | 删 canvas 先画后弃；`window.fetch` 包装改为显式分页 API | P14 |
 | **A11 摘掉悬空工具** ✅ 已执行 | `kb_retrieve` 已从 `mcp/tools_workspace.py` 的 `TOOLS` / `HANDLERS` / 实现中移除（工具数 26 → 25，`--selftest` problems 为空）；**待办**：给自检加「工具实现可导入」探测，否则同类悬空注册仍抓不到（I10） | P23 止血完成 |
-| **A12 RAG 残留处置** | 按 §8-D6 决定：保留/清理 `.rag/`(92 MB) 与 `rag.sqlite`(69.2 MB)；若重建插件则原位复用 | P24 |
+| **A12 RAG 本地数据处置** | 161 MB（`.rag/` 92 MB + `rag.sqlite` 69.2 MB）现在**无用但可复用**（源码在 `feature/rag-v261009`）：① 保留 ② 清理省 161 MB ③ 做插件时原位复用 —— 见 §8-D6 | P24 |
+| **A0 定基线**（v3 新增，**应最先做**） | 明确精简在哪条线做：以 `feature/slim-workbench-v261009` 为内核基线；先把 `feature/rag-v261009` 的 1 个**未推送提交**推上 origin；`main` 落后 204 个提交的合并策略单独定 | P27，不定基线后面全是重复劳动 |
+| **A13 取回验证工具**（v3 新增） | 从 `feature/rag-v261009` / `feature/ai-assistant-v260930` 取回 `tools/kb_smoke.py`、`tools/shot_page.py`（并评估 `shot_prep.py`、`rag_check.py`），恢复「改动后必跑冒烟」；顺带修 `AGENTS.md` 的引用 | P26/P29，精简的安全网 |
+| **A14 上游对齐**（v3 新增） | 先读 `upstream/feature/custom-knowledge-types`（对应 §8-D2）与两条上游 RAG 分支，再定插件契约的 kind 扩展设计 | P30，避免重复造 |
 
 ---
 
@@ -358,7 +404,7 @@ KINDS = {
 | Markdown 是唯一事实来源 | `paths.py`、AGENTS.md | 插件**不得**另建事实来源；自有数据必须可重建或明确标注 |
 | 导入期会读写 config，且模块间存在顺序炸弹 | `config.py:665-666`；实测 `import app.workspace` 直接 ImportError（P21） | 插件加载 core 必须经**单一 `init()` 入口**，禁止在 import 期触碰 `app.*` 子模块 |
 | Agent 侧还有一条 MCP 通道 | `mcp/` | 插件后端能力需**同一份实现**同时暴露给 HTTP 与 MCP，不能两写 |
-| 未跟踪目录不受版本保护 | P25（`rag/`、`mcp/` 从未入库） | 新插件目录必须同时决定「是否入库」，否则一次 clean 就没了 |
+| 分支/白名单会把功能「藏」起来 | P24/P27（RAG 只存在于分支上）、P25（`mcp/` 曾不在白名单，现已入库） | 新插件目录必须同时决定「是否入库」；跨分支功能必须有单一基线 |
 
 ### 6.2 插件形态
 
@@ -442,12 +488,12 @@ plugins/<plugin_id>/
 | **专注计时** | 0 路由、纯前端、无数据耦合——正好验证「manifest 渲染导航 + `mount(ctx)` + 禁用即消失」这条最小闭环 | 无 |
 | **天气** | 2 路由、状态独立（`Cache/weather.json`）、今天仍在用 | 把 `weather.py` 的缓存路径改走 `ctx.storage` |
 | 计费 / 悬浮球 | 价值高 | 先做 A10/P14 的钩子倒置 |
-| **RAG** | 曾是完整参考实现，但**源码已丢** | 见下 |
+| **RAG** | 完整的「可选组件」参考实现，**源码在 `feature/rag-v261009`**（可直接取回，不必重写） | 见下 |
 
 **RAG 若要恢复，按插件形态重建（不要进内核）**：
 
 1. 建 `plugins/rag/`：`plugin.json` 用 §6.2 的 `kind:"process"`；`backend.py` 只做注册（把内核曾有过的 `_rag_client/_rag_http/_rag_retrieve/_rag_status` 这套「源码模式直连 + 打包模式走 HTTP + 缺包降级」逻辑搬进来）。
-2. 服务端 `rag/service.py` 重写（`rag/__pycache__` 的 `.pyc` 可作参考但别指望反编译）；**`.rag/models` 92 MB 与原 `rag.sqlite` 69.2 MB 可原位复用**，重建后先跑一次全量建库。
+2. 从 `feature/rag-v261009` 检出 `rag/`（源码完整：`service/client/search/store/embedder/pdf/chunk/build_index/config` + eval 报告），**无需重写**；`.rag/` 权重 92 MB 与原 `rag.sqlite` 69.2 MB 可原位复用，必要时跑一次全量建库。
 3. 检索入口两处都走注册表：HTTP 由 `/api/plugins/rag/search` 提供，UI 通过 `ctx.search.addSection()` 注入到现有搜索弹窗（不再是内核里的固定分区）。
 4. MCP 的 `kb_retrieve` 改为「插件在册才注册」——插件未启用时该工具**不出现**（现在它悬空注册并报错，P23）。
 5. 验收：插件关掉 → `/api/plugins/rag/*` 404、搜索弹窗只剩关键词分区、`kb_retrieve` 不在工具表、`kb_smoke` 全绿；插件开 → 语义结果与 PDF 页码命中恢复。
@@ -467,10 +513,10 @@ plugins/<plugin_id>/
 
 | 阶段 | 内容 | 交付 | 验收命令（必须全绿） |
 | --- | --- | --- | --- |
-| **P0** | 修悬空入口 + 契约源抽取（不改行为） | 摘掉/接管 `kb_retrieve`；`core/contracts/` + 3 处改为消费 | `python tools/kb_smoke.py`、`python -m mcp.server --selftest`，并新增「工具可导入」探测（I10） |
+| **P0** | 修悬空入口 + 定基线 + 契约源抽取（不改行为） | 摘掉/接管 `kb_retrieve`（✅ 已完成）；定内核基线（A0）；`core/contracts/` + 3 处改为消费 | `python -m mcp.server --selftest`、`python tools/kb_smoke.py`（先从对应分支取回，A13），并新增「工具可导入」探测（I10） |
 | **P1** | 校验合并 + 补齐缺口（P2/P5/P16） | 一份校验器；status/mark 枚举校验；Agent 可写日期/状态 | 新增「Agent 建 experiment 违规标题被拒」「越界 status 被拒」用例 |
 | **P2** | 死代码清理 + 层级解耦 + 导入期副作用清零（P11/P12/P13/P21） | `indexer` 不再 import `agent`；`config.init()`；顺序炸弹拆除 | `python -c "import server"` 不写盘（比对 config 目录 mtime） |
-| **P3** | Doctor + 迁移框架 + 索引瘦身（P3/P4/P6/P15/P17/P19/P20/P22/P24） | `python -m core.doctor`；项目归属单一写入路径 | 清单含已知项（25 条 id 漂移、2 行幽灵归属、5 个冲突文件、孤儿 `rag.sqlite`），`--dry-run` 不落盘；修复后幽灵归属 = 0 |
+| **P3** | Doctor + 迁移框架 + 索引瘦身（P3/P4/P6/P15/P17/P19/P20/P22/P24） | `python -m core.doctor`；项目归属单一写入路径 | 清单含已知项（25 条 id 漂移、2 行幽灵归属、5 个冲突文件、RAG 分支遗留的 `rag.sqlite`），`--dry-run` 不落盘；修复后幽灵归属 = 0 |
 | **P4** | 前端模块化 + vendor 按需 + 钩子倒置（A1/A2/A9/A10） | 首屏 < 1 MB；manifest 装配；base 不再直接调补丁 | `node --check web/*.js`、`tools/shot_page.py` 截图冒烟 |
 | **P5** | 插件运行时 + 首个插件（专注计时或天气） | `plugins/` 空集可启动；一个真插件跑通 | `tools/plugin_check.py --assert-core-only` |
 | **P6** | 迁移非内核功能：天气 → RSS → 计费 → 悬浮球 | 每个都能单独禁用 | 每迁一个跑 `kb_smoke` + 插件自检 |
@@ -478,7 +524,7 @@ plugins/<plugin_id>/
 
 顺序原则：**先契约、再解耦、后搬运**。契约不归一就插件化，等于把分叉复制到更多地方。
 
-> 注：表中 `tools/kb_smoke.py` 目前已不存在（见 P26），作为验收命令前需先恢复该脚本或改用 `tools/self_check.py`。
+> 注：表中 `tools/kb_smoke.py` **不在当前分支**（它在 git 里，见 P26），作为验收命令前需先从对应分支取回（A13），或改用 `tools/self_check.py`。
 
 ---
 
@@ -491,5 +537,6 @@ plugins/<plugin_id>/
 | **D3** | 数据重构激进程度 | ① 只加契约源 + doctor，不动 199 条数据 ② 补字段/统一 project_id/修幽灵归属 ③ 连 id 一起迁移 | ①→② 分两步（②含修 P15 这类**已发生**的不一致）；id 迁移单独作为可选操作 |
 | **D4** | 插件运行形态 | ① 默认同进程 ② 默认独立进程 | ① 为常态；模型/GPU 类走 ②（RAG 属此类） |
 | **D5** | 精简力度 | ① 只移出内核 + 按需加载 ② 直接删天气/RSS/专注计时 | ①：RSS 与天气**今天仍在写入**，先移出、观察一个版本再谈删 |
-| **D6** | **RAG 怎么处置** | ✅ **已定：③** —— 摘除悬空工具（已完成）；`.rag/`(92 MB) 与 `rag.sqlite`(69.2 MB) **原样保留**，不动不删。是否彻底清理（省 161 MB）或按 §6.6 重建，留待后续决定 | 残留保持原样：随时可复用，也可一键删除 |
-| **D7** | 版本库边界 | ✅ **已定：②** —— `.gitignore` 已放行 `mcp/**`（`*.py` / `README.md` / `*.bat`）与 `plugins/**`（代码与 manifest），并显式忽略 `plugins/**/data/`、`plugins/**/.cache/`、`__pycache__/`、`*.pyc` | 已落地（本次提交一并入库），同类「回滚即整目录丢失」不会再发生 |
+| **D6** | **RAG 怎么处置**（v3 重述） | ✅ 悬空工具已摘。实现本体在 `feature/rag-v261009`（1 个提交未推送），因此：① 保持分支分离，本地 161 MB 数据留着 ② 清理本地数据，需要时切分支重跑建库 ③ 按 §6.6 做成插件（从分支取回代码） | **① 先保持**：数据不贵、切回去即用；长期确认不要了再 ②；③ 等插件运行时可用之后 |
+| **D8** | **内核基线选哪条线**（v3 新增，P27） | ① 以 `feature/slim-workbench-v261009` 为基线 ② 先合并 AI 助手线的 2 个提交再精简 ③ 回落到 `main` 重做 | ①：本分支已有精简提交与方案文档；但**先推 `feature/rag-v261009` 的未推送提交**，避免又一次「只存在于本地」 |
+| **D7** | 版本库边界 | ✅ **已定：②** —— `.gitignore` 已放行 `mcp/**`（`*.py` / `README.md` / `*.bat`）与 `plugins/**`（代码与 manifest），并显式忽略 `plugins/**/data/`、`plugins/**/.cache/`、`__pycache__/`、`*.pyc` | 已落地（随 `cacdaad` 入库）；同类「整目录不受版本保护」不会再发生 |
