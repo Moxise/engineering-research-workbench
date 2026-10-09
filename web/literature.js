@@ -223,13 +223,14 @@ function beginPdfGeometrySelection(n,e){
   if(!S.dragSel.moved&&Math.hypot((last.x-start.x)*page.clientWidth,(last.y-start.y)*page.clientHeight)>3)S.dragSel.moved=true;
   if(!S.dragSel.moved)return;
   const next=buildSelectionFromPdfGeometry(n,start,last);
-  if(next){S.pending=next;paintPending();toolbar()}
+  if(next){S.pending=next;paintPending();toolbar();document.dispatchEvent(new CustomEvent("erw-lit-selection",{detail:{kind:"text",page:n,length:String(next.text||"").length}}))}
  };
  const up=ev=>{
   document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);
   const drag=S.dragSel;S.dragSel=null;if(!drag?.moved)return;
   const last=eventPointInPage(page,ev),next=buildSelectionFromPdfGeometry(n,start,last);
   if(next)S.pending=next;paintPending();toolbar();
+  document.dispatchEvent(new CustomEvent("erw-lit-selection",{detail:{kind:S.pending?.kind||"",page:n,length:String(S.pending?.text||"").length}}));
  };
  document.addEventListener("mousemove",move,true);
  document.addEventListener("mouseup",up,true);
@@ -291,15 +292,17 @@ async function commit(action){
  S.undo.push({id:row.id,page:S.pending.page});
  upsertAnnotation(row);
  S.pending=null;paintPending();paint(row.page);toolbar();annList();
+ document.dispatchEvent(new CustomEvent("erw-lit-selection",{detail:{kind:"",page:row.page,length:0}}));
 }
 function toggleArea(){
  S.area=!S.area;S.pending=null;paintPending();toolbar();
+ document.dispatchEvent(new CustomEvent("erw-lit-selection",{detail:{kind:"",page:S.current||1,length:0}}));
  qa(".lit-interaction-layer").forEach(el=>{el.onmousedown=S.area?areaStart:null});
  if(!S.area&&S.areaResolver){const rs=S.areaResolver;S.areaResolver=null;rs("")} /* v260930n · 取消框选时释放悬浮球等待中的截图 promise，避免永久悬挂 */
 }
 function areaStart(e){
  const page=e.target.closest(".lit-page");if(!page||!S.area)return;e.preventDefault();const n=+page.dataset.page,pr=page.getBoundingClientRect(),a=[clamp((e.clientX-pr.left)/pr.width),clamp((e.clientY-pr.top)/pr.height)];
- const move=ev=>{const b=[clamp((ev.clientX-pr.left)/pr.width),clamp((ev.clientY-pr.top)/pr.height)];S.pending={page:n,text:"区域选块",kind:"area",rects:[[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]]};paintPending()};
+ const move=ev=>{const b=[clamp((ev.clientX-pr.left)/pr.width),clamp((ev.clientY-pr.top)/pr.height)];S.pending={page:n,text:"区域选块",kind:"area",rects:[[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])]]};paintPending();document.dispatchEvent(new CustomEvent("erw-lit-selection",{detail:{kind:"area",page:n,length:0}}))};
  const up=()=>{document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);S.area=false;qa(".lit-interaction-layer").forEach(el=>el.onmousedown=null);toolbar();const rs=S.areaResolver;S.areaResolver=null;if(rs){rs(areaPreviewDataUrl(S.pending))}else{openAiTabForArea()}}; /* v260930e · 框选完成：外部接管（悬浮球截图）优先于阅读区 AI 面板联动 */
  document.addEventListener("mousemove",move,true);document.addEventListener("mouseup",up,true); /* v260930n · 修复框选失效：move/up 此前定义后未挂载，拖动与松开无人监听，选区不出现 */
 }
@@ -562,5 +565,5 @@ function pageText(n){ /* v260930c · M4 · 取渲染页缓存的文本几何拼�
  const r=S.pages.get(+n);if(!r||!Array.isArray(r.textItems))return "";
  return r.textItems.map(i=>i.text).join(" ").replace(/\s+/g," ").trim().slice(0,6000);
 }
-document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"&&q("#lit-note")){e.preventDefault();saveNote()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="c"&&S.pending?.kind==="text"&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();copyPendingText()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&S.paper&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();undo()}else if(e.key==="Escape"&&(S.pending||S.area)){S.pending=null;paintPending();if(S.area)toggleArea();else toolbar()} /* v260930n · Esc 退出框选态并释放悬挂 promise */});
+document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"&&q("#lit-note")){e.preventDefault();saveNote()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="c"&&S.pending?.kind==="text"&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();copyPendingText()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&S.paper&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();undo()}else if(e.key==="Escape"&&(S.pending||S.area)){S.pending=null;paintPending();if(S.area)toggleArea();else toolbar();document.dispatchEvent(new CustomEvent("erw-lit-selection",{detail:{kind:"",page:S.current||1,length:0}}))} /* v261009 · Esc 同步清空悬浮 Agent 选区 chip */});
 })();
