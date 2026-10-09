@@ -8,24 +8,22 @@
   :root{--sidebar:260px;--radius:10px}
 
   /* Shell / navigation */
-  /* v260924e · 顶栏两侧等高对齐：brand 与 topbar 统一上下内边距（内容区同为 62px），
-     文本块拉伸充满并垂直居中，右侧行高向左侧副题靠拢，首末行错位收敛，
-     上边条观感高度不随页面内容与密度切换变化 */
-  .brand{height:82px;padding:10px 17px 9px;gap:11px;align-items:stretch}
-  .brand-mark{width:30px;height:30px;align-self:center}.brand-mark:before{width:40px;left:-7px}.brand-mark:after{height:40px;top:-7px}.brand-mark span{width:12px;height:12px;box-shadow:0 0 0 4px var(--accent-soft)}
+  /* v261009h · 顶栏压缩：82px → 64px。品牌区与内容顶栏保持等高，
+     保留主标题/副标题/日期三层信息，但减少上下留白，把垂直空间还给阅读区。 */
+  .brand{height:64px;padding:7px 17px 6px;gap:10px;align-items:stretch}
+  .brand-mark{width:28px;height:28px;align-self:center}.brand-mark:before{width:38px;left:-6px}.brand-mark:after{height:38px;top:-6px}.brand-mark span{width:11px;height:11px;box-shadow:0 0 0 4px var(--accent-soft)}
   .brand-copy{display:flex;flex-direction:column;justify-content:center;min-height:0}
-  .brand h1{font-size:18px;line-height:1.2}.brand p{margin-top:3px;font-size:9px;line-height:1.45}
+  .brand h1{font-size:17px;line-height:1.15}.brand p{margin-top:2px;font-size:8px;line-height:1.3}
   .sidebar-nav{padding:10px 8px 64px}.nav-group{margin-bottom:5px}.nav-group-head{height:31px;padding:0 7px}.nav-items{gap:1px}.nav-item{height:38px;gap:9px;padding:0 10px;border-radius:8px}
   .nav-group[data-group="core"] .nav-group-head,.nav-group[data-group="research"] .nav-group-head{height:34px;margin-bottom:3px;padding:0 8px;border-radius:8px}
   .sidebar-footer{padding:9px 13px}
 
-  /* Header / page canvas */
-  .topbar{height:82px;padding:10px 22px 9px 26px;gap:14px;flex-shrink:0;min-height:82px}/* v260924f · 紧凑型 main-shell 锁 100vh 成 flex column（一屏仪表盘/docs 页），下方内容填满后 flex 加权收缩会压缩 topbar，禁收缩并锁高下限 */
-  /* v260924e · 右侧标题块与左侧 brand 同规则等高垂直居中，行高与左侧副题对齐 */
+  /* Header / page canvas · v261009h：桌面标题栏 82px → 64px */
+  .topbar{height:64px;padding:7px 18px 6px 22px;gap:12px;flex-shrink:0;min-height:64px}
   .topbar>.page-heading{height:100%;display:flex;flex-direction:column;justify-content:center;min-height:0}
-  .page-heading h2{font-size:25px;margin:0 0 2px;line-height:1.2}.page-date{font-size:11px;line-height:1.45}.eyebrow{font-size:9px}
-  .top-actions{gap:6px}.weather-pill,.icon-btn,.primary-btn,.secondary-btn,.ghost-btn,.top-search-btn{min-height:34px}.icon-btn{width:34px}.weather-pill,.primary-btn,.secondary-btn,.ghost-btn{padding-left:11px;padding-right:11px}.top-search-btn{padding:0 9px}
-  .dropdown{top:39px}
+  .page-heading h2{font-size:20px;margin:0 0 1px;line-height:1.12}.page-date{font-size:10px;line-height:1.3}.eyebrow{font-size:8px;line-height:1.2}
+  .top-actions{gap:5px}.weather-pill,.icon-btn,.primary-btn,.secondary-btn,.ghost-btn,.top-search-btn{min-height:32px}.icon-btn{width:32px}.weather-pill,.primary-btn,.secondary-btn,.ghost-btn{padding-left:9px;padding-right:9px}.top-search-btn{padding:0 8px}
+  .dropdown{top:37px}
   .main-content{padding:16px 22px 34px}
 
   /* Generic content density */
