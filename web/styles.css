@@ -481,3 +481,49 @@ html[data-density="cozy"] .quick-capture-card{padding:20px 22px}
   .agent-context-strip,.agent-composer{margin-inline:0}
 }
 
+/* ==========================================================
+   v261008.2d · 文档列表降密度（列表页与 PDF 阅读区共用 .doc-item）
+   目标：一屏能扫更多条目、不再横向溢出、长题名不撑成三四行
+   ========================================================== */
+.doc-list{gap:4px;padding:6px;grid-auto-rows:max-content;align-content:start}
+.doc-item{padding:7px 8px;overflow:hidden;min-height:0;flex-shrink:0}
+/* 标题/摘要：改用「固定行高上限 + 硬裁剪」做截断，不再依赖 -webkit-line-clamp
+   （clamp 在下述情况下会「算 N 行高、画 N+1 行字」：字体回退/缩放的渲染器里整列列表会呈现文字叠印。
+     行数由 max-height 决定：标题 2 行 × 1.35 ≈ 2.7em，摘要 2 行 × 1.4 = 2.8em） */
+.doc-item .title{display:block;-webkit-line-clamp:none;line-height:1.35;max-height:2.7em;overflow:hidden}
+.doc-item .excerpt{display:block;-webkit-line-clamp:none;margin-top:3px;line-height:1.4;max-height:2.8em;overflow:hidden}
+/* 元信息两行结构沿用原有 .tags / .doc-projects（v261008.2d 的单行 .meta 方案已回退：
+   单行 + nowrap 会把项目名截成「红…」，信息量反而下降） */
+.doc-item.pinned{border-left-width:2px}
+/* v261008.2f · 日期徽章固定列：统一最小宽度 + 右对齐 + 等宽数字，
+   让列表里所有卡片的日期纵向成列（原来紧跟在项目徽章后面，位置随项目名长短浮动） */
+.doc-item .doc-projects .badge.mono{margin-left:auto;flex:0 0 auto;min-width:88px;justify-content:center;text-align:center;font-variant-numeric:tabular-nums}
+.doc-item .doc-projects .proj-badge{flex:0 1 auto;min-width:0}
+/* ==========================================================
+   v261008.2e · 文档列表页顶部筛选区整理
+   分组表头（筛选 · 共 N 条 · 清除）+ 条件行 + 操作行，非默认条件高亮
+   ========================================================== */
+.doc-filter{gap:7px;padding:9px 9px 8px}
+.filter-head{display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--line);margin-bottom:1px}
+.filter-head .filter-title{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted)}
+/* v261008.2g · 「清除筛选」改为胶囊按钮，且仅在确有筛选条件时出现（无筛选不占位、不突兀） */
+.filter-clear{margin-left:auto;display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border:1px solid var(--line-strong);border-radius:999px;background:var(--surface);color:var(--muted);font-size:11px;line-height:1.6;cursor:pointer;white-space:nowrap}
+.filter-clear:before{content:"×";font-size:12px;line-height:1}
+.filter-clear:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.filter-clear[hidden]{display:none}
+.filter-row{grid-column:1/-1;display:flex;gap:6px;align-items:center}
+.filter-row .search-input{flex:1 1 auto;min-width:0}
+.filter-actions{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;padding-top:6px;border-top:1px dashed var(--line)}
+.filter-chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:0 10px;border:1px solid var(--line-strong);border-radius:999px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;user-select:none}
+.filter-chip:hover{border-color:var(--accent);color:var(--accent)}
+.filter-chip input{margin:0;accent-color:var(--accent)}
+.filter-chip:has(input:checked){border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+/* 非默认的筛选条件高亮，配合表头的「清除」快速复位 */
+.doc-filter select.active,.doc-filter input.active{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+.doc-filter .search-input,.doc-filter select{min-height:28px;font-size:12px}
+.doc-filter select{padding-right:18px}
+html[data-density="compact"] .doc-item{padding:6px 7px}
+html[data-density="compact"] .doc-item .title{font-size:12px}
+html[data-density="compact"] .doc-item .excerpt{font-size:10px}
+html[data-density="cozy"] .doc-item{padding:9px 10px}
+

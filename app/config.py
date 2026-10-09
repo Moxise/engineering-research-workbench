@@ -33,15 +33,25 @@ _WRITING_RULES_FALLBACK = """【AI 写作与建档约束（精简版，完整版
 6. 交叉引用指向真实标题；从文献提取的专业名词必须在关联段引用来源文献/笔记（文献-<题名>），可跳转溯源；检索不到就明说，不臆造。
 7. 正文中文，图内文字一律英文；ν 专指新息，量测噪声一律用 v。"""
 _WRITING_RULES_CACHE: str | None = None
+_WRITING_RULES_MTIME: float = -1.0
 
 def writing_rules() -> str:
-    global _WRITING_RULES_CACHE
-    if _WRITING_RULES_CACHE is None:
-        try:
-            from .workspace import ensure_workspace  # 延迟导入：workspace 依赖 config，顶层导入会循环
-            path = ensure_workspace() / "System" / "AI助手写作与建档规范.md"
+    """AI 写作与建档规范全文（注入系统提示词）。
+
+    v261008.2h · 按文件 mtime 重读：规范文档自称「修改本文档即对所有人生效，无需改代码」，
+    但原实现只在进程内缓存一次，改完必须重启工作台才生效——与文档承诺相反。
+    现在 mtime 变化即重读（stat 成本可忽略），编辑规范后下一次对话即刻生效。
+    """
+    global _WRITING_RULES_CACHE, _WRITING_RULES_MTIME
+    try:
+        from .workspace import ensure_workspace  # 延迟导入：workspace 依赖 config，顶层导入会循环
+        path = ensure_workspace() / "System" / "AI助手写作与建档规范.md"
+        mtime = path.stat().st_mtime
+        if _WRITING_RULES_CACHE is None or mtime != _WRITING_RULES_MTIME:
             _WRITING_RULES_CACHE = path.read_text(encoding="utf-8-sig")
-        except Exception:
+            _WRITING_RULES_MTIME = mtime
+    except Exception:
+        if _WRITING_RULES_CACHE is None:
             _WRITING_RULES_CACHE = _WRITING_RULES_FALLBACK
     return _WRITING_RULES_CACHE
 

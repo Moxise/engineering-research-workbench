@@ -94,7 +94,7 @@ def _safe_name(name: str) -> str:
     stem = re.sub(r"[^\w\-. ()\[\]]+", "_", Path(base).stem, flags=re.UNICODE).strip(" ._")[:120] or "paper"
     return stem + ".pdf"
 
-def list_items(query: str = "", status: str = "", category: str = "", page: int = 1, page_size: int = 60, mark: str = "") -> dict[str, Any]:
+def list_items(query: str = "", status: str = "", category: str = "", page: int = 1, page_size: int = 60, mark: str = "", sort: str = "") -> dict[str, Any]:
     rows = list(_load_registry().get("items") or [])
     _join_doc_meta_batch(rows)  # v260929 · 批量归一 md 真值后再过滤/排序，保证检索与展示口径一致
     q = str(query or "").strip().lower()
@@ -109,7 +109,14 @@ def list_items(query: str = "", status: str = "", category: str = "", page: int 
         rows = [x for x in rows if category in (x.get("categories") or [])]
     if mark:  # v260929 · 分类标记筛选（与文献列表页口径一致：分类即 kind_marks）
         rows = [x for x in rows if mark in (x.get("kind_marks") or [])]
-    rows.sort(key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True)
+    # v261008.2b · 排序口径与知识库列表页统一：置顶优先 + 加入时间（默认）/ 最近更新 / 标题。
+    # 旧口径用 registry 的 updated_at（保存阅读位置、写批注都会刷新），会让条目莫名跳到最前。
+    mode = str(sort or "").strip() or "added"
+    if mode not in SORT_MODES:
+        mode = "added"
+    rows.sort(key=lambda x: str(x.get("id") or ""), reverse=True)      # 兜底：与 SQL 的 id DESC 对齐
+    rows.sort(key=lambda x: sort_value(x, mode), reverse=(mode != "title"))
+    rows.sort(key=lambda x: 0 if x.get("pinned") else 1)               # 置顶优先（稳定排序保留上面两级）
     total = len(rows)
     page = max(1, int(page)); page_size = max(10, min(200, int(page_size)))
     start = (page - 1) * page_size
@@ -117,12 +124,38 @@ def list_items(query: str = "", status: str = "", category: str = "", page: int 
 
 _DOC_META_KEYS = ("title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex")
 
+#: v261008.2b · 排序与徽章口径：与知识库列表页（`perf_index_query.list_docs`）保持同一套字段
+_DOC_SORT_KEYS = ("pinned", "added_date", "record_date", "created", "updated", "status", "attachment")
+
+#: 「加入时间」取值顺序：文献 → added_date；其余 → record_date → created（与 SQL 口径一致）
+_SORT_ADDED_KEYS = ("added_date", "record_date", "created", "updated", "updated_at", "created_at")
+
+SORT_MODES = ("added", "updated", "title")
+
+
+def sort_value(item: dict[str, Any], mode: str = "added") -> str:
+    """按统一口径取排序键（字符串比较即可：日期为 YYYY-MM-DD，标题为字典序）。"""
+    if mode == "title":
+        return str(item.get("title") or "")
+    if mode == "updated":
+        return str(item.get("updated") or item.get("updated_at") or item.get("created") or "")
+    for key in _SORT_ADDED_KEYS:
+        value = str(item.get(key) or "")
+        if value:
+            return value
+    return ""
+
+
 def _apply_doc_meta(item: dict[str, Any], doc: dict[str, Any]) -> None:
     """v260929 · 用 md doc 的元数据覆盖 library 字段（真值归一的公共覆盖逻辑）。"""
     for key in _DOC_META_KEYS:
         val = doc.get(key)
         if val:
             item[key] = val
+    # v261008.2b · 排序/徽章字段同样以 md 为准，保证阅读区列表与知识库列表页同口径
+    for key in _DOC_SORT_KEYS:
+        if doc.get(key) not in (None, ""):
+            item[key] = doc[key]
     if doc.get("tags"):
         item["tags"] = doc["tags"]
     if doc.get("projects"):
@@ -458,6 +491,54 @@ def open_folder() -> dict[str, Any]:
     else:
         subprocess.Popen(["xdg-open", str(d)])
     return {"ok": True, "pdf_dir": str(d)}
+
+def resolve_reveal_target(paper_id: str = "", doc_id: str = "") -> Path | None:
+    """v261008.2b · 定位"该文献的 PDF 文件"（供文件管理器选中它）。
+
+    只接受条目 / 文献 id，**不接受任意路径**：路径一律由工作台自己的登记信息解析。
+    找不到实际文件时返回 None（调用方退回打开 PDF 目录）。
+    """
+    from . import store
+    candidates: list[Path] = []
+    if paper_id:
+        try:
+            candidates.append(pdf_path(paper_id))
+        except Exception:
+            pass
+    if doc_id:
+        try:
+            attachment = store.attachment_file(doc_id)
+            if attachment:
+                candidates.append(Path(attachment))
+        except Exception:
+            pass
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate.resolve()
+        except OSError:
+            continue
+    return None
+
+
+def reveal(paper_id: str = "", doc_id: str = "") -> dict[str, Any]:
+    """在系统文件管理器中打开文献所在位置：Windows 用 `explorer /select` 选中该 PDF；
+    找不到 PDF 时退回打开 PDF 存放目录。"""
+    target = resolve_reveal_target(paper_id=paper_id, doc_id=doc_id)
+    if target is None:
+        directory = _pdf_dir()
+        if not directory.is_dir():
+            raise FileNotFoundError(f"未找到 PDF 文件，且 PDF 目录不存在：{directory}")
+        open_folder()
+        return {"ok": True, "opened": "dir", "path": str(directory)}
+    if os.name == "nt":
+        subprocess.Popen(f'explorer /select,"{target}"')  # noqa: S603,S607
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", str(target)])
+    else:
+        subprocess.Popen(["xdg-open", str(target.parent)])
+    return {"ok": True, "opened": "file", "path": str(target)}
+
 
 def set_note_images_dir(new_dir: str) -> dict[str, Any]:
     """v260929f · 设置页：修改笔记图片存放目录（app.literature.note_images_dir）。

@@ -1229,6 +1229,8 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 │  ├─ kb_tree.py
 │  ├─ kb_smoke.py
 │  ├─ kb_migrate_experiments.py
+│  ├─ shot_prep.py
+│  ├─ shot_page.py
 │  └─ scratch_clean.py
 │
 ├─ web/
@@ -1267,11 +1269,17 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 
 历史条目的行内写法（如 `- 方法条目：[[知识-方法-…]]`）同样会被识别成对应类型，**存量条目无需改写**；未命中的链接记为通用 `wikilink`。跨项目通用的基础知识：`projects` 留空 + 标签 `通用基础`，列表页选「未归属项目（通用基础）」即可集中阅读，其在各项目的使用情况仍可从图谱看到。
 
+**列表排序**：置顶条目（📌 置顶）始终排最前；其余默认按**加入时间**（文献 → `added_date`，日志/总结/实验 → `record_date`，其他 → `created`）排列，因此登记附件、批量建档、改名同步等"非编辑性写入"**不会**再让条目跳到列表最前。需要"最近动过的靠前"时，在列表页「排序」下拉切到「最近更新」（选择会记住）。对应接口参数：`GET /api/docs?sort=added|updated|title`、`kb_list_entries(sort=…)`。**文献列表页与 PDF 阅读工作区「文献库」用同一套排序口径与同一个「排序」选择**（`GET /api/literature?sort=…`）。
+
+**打开文献所在文件夹**：文献编辑器「PDF 附件路径」右侧的「📂 打开所在文件夹」，以及 PDF 阅读工作区「信息」面板的同名按钮，会在系统文件管理器中**定位并选中该篇 PDF**（找不到文件时退回打开 PDF 存放目录）。接口 `POST /api/literature/reveal` 只接受 `doc_id` / `paper_id`，不接受任意路径。
+
 生成与迁移工具：
 
 - `tools/kb_tree.py` → 知识树 / 交叉使用清单 / 实验依赖视图 / 通用基础清单，输出到 `Workspace/Knowledge/Exports/KnowledgeTree/`；
 - `tools/kb_migrate_experiments.py` → `知识-实验-…`（旧）迁移为 `实验-…`（`--dry-run` 预览 / `--apply` 执行，幂等）；
 - `tools/kb_smoke.py` → 结构与关系层冒烟测试（只读：关系解析、命名规则、归属归一化、关系边、七类条目、工具与约束渲染、迁移幂等）；
+- `tools/shot_prep.py` → 截图预处理（裁剪 + 像素预算，降低图片 token）：`python tools/shot_prep.py 原图.png --scale 0.5 --crop 195,0,500,700 -o 处理.png`。实测口径见 CHANGELOG `v261008.2i`——图片 token 只与**像素面积**相关（与文件体积无关），每张有 ≈190 的固定开销、provider 侧上限 ≈991；「1x + 只截目标区域」比「2x 整窗」单图省约 80%；
+- `tools/shot_page.py` → **一条龙 UI 截图**（无头浏览器 1x 采集 → 裁剪/压像素 → 打印 token 估算），默认 1x + 0.3 MP 预算 + 每次全新临时 profile（避免"改了 CSS 但截图没变"的缓存假象）：`python tools/shot_page.py <url|本地html> -o .scratch/preview/x.png [--crop x1,y1,x2,y2] [--size 1000x700] [--scale 2]`。默认组合 ≈200 token/张，对比 2x 整窗 ≈991；
 - 完整底层口径（数据库与接口变更、迁移记录、已知陷阱）见 [docs/KNOWLEDGE_RELATIONS.md](docs/KNOWLEDGE_RELATIONS.md)。
 
 ### 操作临时数据 `.scratch/`

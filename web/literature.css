@@ -114,8 +114,29 @@ html[data-density="compact"] .lit-head-actions .ghost-btn{min-height:26px;paddin
 
 /* v260929 · 阅读区信息栏「分类标记」chips：右侧栏较窄，改为换行（编辑区仍为单行横向滚动） */
 .lit-info .lit-marks-label{margin-bottom:5px}
-.lit-info .mark-chip-box{flex-wrap:wrap;overflow:visible;min-height:0;gap:5px}
-.lit-info .project-chip-box{flex-wrap:wrap;overflow:visible;min-height:34px;height:auto;align-items:center}
+
+/* v261008.2c · 阅读区「信息」面板重排：分组卡片（基本信息/分类标记/标签/引用信息）+ 标签在上值在下的字段 + 底部常驻操作条 */
+#lit-side-body{min-height:0;overflow:auto}
+.lit-info{display:flex;flex-direction:column;gap:9px;padding:10px}
+.li-sec{display:flex;flex-direction:column;gap:8px;padding:10px 11px 11px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)}
+.li-sec-title{margin:0;font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--muted)}
+.li-sec-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.li-field{display:flex;flex-direction:column;gap:3px;min-width:0}
+.li-label{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lit-info input,.lit-info select,.lit-info textarea{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font:inherit;font-size:13px;line-height:1.45}
+.lit-info textarea{resize:vertical;min-height:46px}
+.lit-info input:hover,.lit-info select:hover,.lit-info textarea:hover{border-color:var(--line-strong)}
+.lit-info input:focus,.lit-info select:focus,.lit-info textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.li-grid{display:grid;grid-template-columns:minmax(0,88px) minmax(0,1fr);gap:8px}
+.lit-info .mark-chip-box{flex-wrap:wrap;overflow:visible;min-height:0;gap:6px}
+.lit-info .mark-chip{background:var(--surface)}
+.lit-info .project-chip-box{flex-wrap:wrap;overflow:visible;min-height:0;height:auto;align-items:center;gap:6px;border:0;background:transparent;padding:0}
+.li-chip-add{border:1px dashed var(--line-strong);background:transparent;color:var(--muted);border-radius:999px;padding:3px 10px;font-size:11px;cursor:pointer}
+.li-chip-add:hover{border-color:var(--accent);color:var(--accent)}
+.li-fav{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer}
+.li-fav input{width:auto;flex:0 0 auto;margin:0;padding:0;accent-color:var(--accent)}
+.li-actions{position:sticky;bottom:0;display:flex;gap:8px;padding:10px 0 2px;background:linear-gradient(180deg,#0000,var(--surface) 42%)}
+.li-actions .primary-btn,.li-actions .secondary-btn{flex:1 1 0;justify-content:center;white-space:nowrap}
 
 /* v260929 · PDF 阅读区 AI 助手面板：来源预览 / 动作按钮 / 自定义指令 / 结果与写入笔记 */
 .lit-ai{display:grid;gap:8px}
@@ -144,3 +165,60 @@ html[data-density="compact"] .lit-head-actions .ghost-btn{min-height:26px;paddin
 .lit-ai-foot{display:flex;gap:6px;flex-wrap:wrap}
 .lit-ai-foot .primary-btn,.lit-ai-foot .secondary-btn{min-height:28px;padding:0 12px;font-size:12px}
 @keyframes lit-ai-pulse{0%,100%{opacity:.55}50%{opacity:1}}
+
+/* ==========================================================
+   v261008.2i · 笔记面板重排（追加在末尾以覆盖 line 1 的旧规则）
+   要点：编辑/预览切换、编辑区贴合面板高度、操作条一行放得下
+   ========================================================== */
+.lit-note-wrap{display:flex;flex-direction:column;height:100%;min-height:0}
+.lit-note-head{display:flex;align-items:center;gap:8px;flex:0 0 auto;padding-bottom:8px}
+.lit-note-head .lit-note-hint{margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lit-note-head .view-tabs button{font-size:12px;padding:3px 10px}
+.lit-note{flex:1 1 auto;min-height:160px;width:100%;box-sizing:border-box;margin:0;resize:none;
+  padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--text);
+  font-family:inherit;font-size:13px;line-height:1.75;tab-size:2}
+.lit-note:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.lit-note[hidden]{display:none}
+.lit-note-preview{flex:1 1 auto;min-height:0;border:1px solid var(--line);border-radius:10px;font-size:13px;line-height:1.75}
+.lit-note-preview[hidden]{display:none}
+.lit-note-actions{flex:0 0 auto;display:flex;align-items:center;justify-content:flex-start;gap:6px;
+  margin-top:9px;padding-top:9px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+.lit-note-actions button{flex:0 0 auto;white-space:nowrap;justify-content:center}
+.lit-note-actions .primary-btn{margin-left:auto;padding-inline:16px}
+.lit-note-actions span{display:flex;gap:6px;min-width:0}
+
+/* ==========================================================
+   v261008.2j · 右栏宽度可调（拖拽把手 / ⇔ 按钮 / 双击复位）
+   340px 固定宽写长笔记太挤：把手落在栅格 12px 间隙内，绝对定位不占轨道
+   ========================================================== */
+.lit-shell{position:relative;grid-template-columns:276px minmax(420px,1fr) var(--lit-side-w,340px)}
+.lit-side-resizer{position:absolute;top:0;bottom:0;right:calc(var(--lit-side-w,340px) + 6px);width:12px;z-index:6;
+  border-radius:6px;cursor:col-resize;transition:background .12s}
+.lit-side-resizer:hover,.lit-side-resizer:active{background:var(--accent-soft)}
+.lit-side-resizer:after{content:"";position:absolute;left:5px;top:42%;bottom:42%;width:2px;border-radius:2px;background:var(--line-strong);opacity:.55}
+.lit-side-resizer:hover:after{background:var(--accent);opacity:.9}
+body.lit-col-resizing{cursor:col-resize;-webkit-user-select:none;user-select:none}
+body.lit-col-resizing .lit-side-resizer{background:var(--accent-soft)}
+/* 原 tabs 是 repeat(4,1fr) 的 grid，加宽按钮直接 append 会落到第二行 —— 改为 4 等分 + 窄按钮列 */
+.lit-side-tabs{grid-template-columns:repeat(4,1fr) auto;align-items:center}
+.lit-side-tabs .lit-side-widen{margin-left:0;justify-self:end;align-self:center;flex:0 0 auto;border:1px solid var(--line-strong);background:var(--surface);color:var(--muted);
+  border-radius:8px;padding:2px 9px;font-size:13px;line-height:1.6;cursor:pointer}
+.lit-side-tabs .lit-side-widen:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+/* ==========================================================
+   v261008.2k · 右栏高度链（笔记编辑区拿满可用高度）
+   原状况：.lit-side 不是 flex 容器 → #lit-side-body 高度=内容 → .lit-note-wrap{height:100%}
+   退化成 auto → textarea 只能撑到 min-height(160px)，看着很矮。
+   链路：.lit-side(flex 列, 高度由栅格拉伸) → #lit-side-body(flex:1, 自身滚动)
+        → .lit-note-wrap(flex:1) → textarea(flex:1)
+   ========================================================== */
+.lit-side{display:flex;flex-direction:column}
+.lit-side>.lit-side-tabs{flex:0 0 auto}
+#lit-side-body{flex:1 1 auto;min-height:0;overflow:auto}
+#lit-side-body:has(>.lit-note-wrap){display:flex;flex-direction:column}
+.lit-note-wrap{flex:1 1 auto;height:auto;min-height:0}
+.lit-note{flex:1 1 auto;min-height:200px}
+/* 「信息」面板同理：内容区撑满，常驻操作条（保存/打开文件夹）钉在面板底部 */
+#lit-side-body:has(>.lit-info){display:flex;flex-direction:column}
+.lit-info{flex:1 1 auto;min-height:0}
+.lit-info .li-actions{margin-top:auto}

@@ -11,6 +11,19 @@ from .perf_index_core import (
     _row_doc, remove_doc, sync, status,
 )
 
+# ---------------------------------------------------------------- 列表排序口径（v261008.2b）
+# 白名单式排序片段（直接拼进 SQL，故只接受这里的键）。`pinned DESC` 由调用处统一前置。
+ORDER_BY_DEFAULT = "added"
+ORDER_BY_CHOICES: dict[str, str] = {
+    # 置顶优先 + 加入时间：文献 → added_date；journal/summary/experiment → record_date；其余 → created
+    "added": "COALESCE(NULLIF(d.added_date,''),NULLIF(d.record_date,''),NULLIF(d.created,''),d.updated) DESC",
+    # 最近更新：保留"谁最后被写入谁靠前"的旧口径（登记附件、批量建档也会影响它）
+    "updated": "COALESCE(NULLIF(d.updated,''),d.created) DESC",
+    # 标题升序：稳定的字典序，适合按名找条目
+    "title": "d.title ASC",
+}
+ORDER_BY_ENUM: list[str] = list(ORDER_BY_CHOICES)
+
 def _fts_clause(query: str) -> tuple[str, list[Any]]:
     q = str(query or "").strip()
     if not q:
@@ -38,6 +51,7 @@ def list_docs(
     mark: str = "",
     tag: str = "",
     unowned: bool = False,
+    sort: str = "",
     *,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
@@ -74,9 +88,14 @@ def list_docs(
     with _connect() as conn:
         _init_db(conn)
         total = int(conn.execute(f"SELECT COUNT(*) FROM documents d WHERE {sql_where}", params).fetchone()[0])
+        # v261008.2b · 默认排序改为「置顶优先 + 加入时间」：
+        # `updated` 只表示"最近被写入"，登记附件、批量建档、改名同步都会刷新它，
+        # 于是条目会在没有任何编辑的情况下跳到列表最前，看起来像被置顶却没有 📌 徽章。
+        # 加入时间口径：文献 → added_date；journal/summary/experiment → record_date；其余 → created。
+        order_by = ORDER_BY_CHOICES.get(sort) or ORDER_BY_CHOICES[ORDER_BY_DEFAULT]
         rows = conn.execute(
             f"SELECT d.* FROM documents d WHERE {sql_where} "
-            "ORDER BY d.pinned DESC, COALESCE(NULLIF(d.updated,''),d.created) DESC, d.id DESC LIMIT ? OFFSET ?",  # v260924i · 置顶条目排头显示
+            f"ORDER BY d.pinned DESC, {order_by}, d.id DESC LIMIT ? OFFSET ?",  # v260924i · 置顶条目排头显示
             [*params, page_size, (page - 1) * page_size],
         ).fetchall()
     items = [_row_doc(r) for r in rows]

@@ -148,6 +148,43 @@ def main() -> int:
     check("relations 主题存在", "relations" in C.TOPICS and "uses-knowledge" in TK._constraint_text("relations"))
     check("kb_change_kind 已注册", "kb_change_kind" in TK.HANDLERS)
 
+    # ---------- 7. 列表排序口径 ----------
+    print("\n== 7. 列表排序口径 ==")
+    from app import perf_index_query as Q  # noqa: E402  先加载 app.config 已避免循环导入
+    check("默认排序为加入时间", Q.ORDER_BY_DEFAULT == "added", Q.ORDER_BY_DEFAULT)
+    default_sql = Q.ORDER_BY_CHOICES[Q.ORDER_BY_DEFAULT]
+    check("默认排序不看 updated 开头", default_sql.startswith("COALESCE(NULLIF(d.added_date"), default_sql[:40])
+    check("三种排序可选", set(Q.ORDER_BY_CHOICES) == {"added", "updated", "title"}, str(list(Q.ORDER_BY_CHOICES)))
+    check("排序白名单防注入", all(isinstance(v, str) and ";" not in v for v in Q.ORDER_BY_CHOICES.values()))
+
+    # ---------- 8. 文献阅读区与列表页口径统一 ----------
+    print("\n== 8. 文献排序口径统一 / 打开所在文件夹 ==")
+    from app import literature as L  # noqa: E402  先加载 app.config 已避免循环导入
+    check("阅读区排序模式与列表页一致", set(L.SORT_MODES) == set(Q.ORDER_BY_CHOICES), str(list(L.SORT_MODES)))
+    check("加入时间优先 added_date",
+          L.sort_value({"added_date": "2026-01-02", "updated": "2026-09-09"}, "added") == "2026-01-02")
+    check("最近更新看 updated",
+          L.sort_value({"added_date": "2026-01-02", "updated": "2026-09-09"}, "updated") == "2026-09-09")
+    check("标题排序取 title", L.sort_value({"title": "B 文献"}, "title") == "B 文献")
+    check("定位功能不接任意路径（无 id 返回 None）", L.resolve_reveal_target() is None)
+    check("置顶字段参与排序", "pinned" in L._DOC_SORT_KEYS, str(L._DOC_SORT_KEYS))
+
+    # ---------- 9. 标题长度上限（显示宽度） ----------
+    print("\n== 9. 标题长度上限（显示宽度） ==")
+    check("显示宽度：汉字计 2、拉丁与半角计 1", naming.display_width("知识-abc") == 4 + 1 + 3,
+          f"{naming.display_width('知识-abc')}")
+    check("上限常量已定义", C.TITLE_WIDTH_LIMIT == 60 and set(C.TITLE_WIDTH_WARN) >= {"note", "journal"},
+          f"{C.TITLE_WIDTH_LIMIT} / {C.TITLE_WIDTH_WARN}")
+    over = naming.validate_title("note", "知识-方法-" + "超" * 30, kind_marks=["method"])
+    check("超硬上限报 T021（error）",
+          any(i["code"] == "T021" and i["level"] == "error" for i in over), str([i["code"] for i in over]))
+    mild = naming.validate_title("note", "知识-方法-" + "长" * 22, kind_marks=["method"])
+    check("超建议值报 T022（warn）",
+          any(i["code"] == "T022" and i["level"] == "warn" for i in mild), str([i["code"] for i in mild]))
+    lit = naming.validate_title("literature", "文献-" + "A Long English Paper Title " * 6)
+    check("文献题名豁免长度上限",
+          not any(i["code"] in ("T021", "T022") for i in lit), str([i["code"] for i in lit]))
+
     # 迁移幂等：不应再有「实验」类别词的 note
     legacy_notes = []
     for path in (ws / "Knowledge" / "Notes").glob("*.md"):

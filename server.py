@@ -229,11 +229,12 @@ class Handler(BaseHTTPRequestHandler):
             mark = (q.get("mark") or [""])[0]
             tag = (q.get("tag") or [""])[0]
             unowned = (q.get("unowned") or ["0"])[0] == "1"
+            sort = (q.get("sort") or [""])[0]
             page = _q_int(q, "page", 1, 1, 1_000_000)
             page_size = _q_int(q, "page_size", indexer.DEFAULT_PAGE_SIZE, 1, indexer.MAX_PAGE_SIZE)
             paged = (q.get("paged") or ["0"])[0] == "1"
             return self.send_json(indexer.list_docs(
-                kind, query, status, project, mark, tag=tag, unowned=unowned,
+                kind, query, status, project, mark, tag=tag, unowned=unowned, sort=sort,
                 page=page, page_size=page_size, paged=paged,
             ))
         # v260923 · 文献 PDF 附件下载：/api/docs/<id>/attachment，路径须置于 /api/docs/ 泛匹配之前
@@ -292,6 +293,7 @@ class Handler(BaseHTTPRequestHandler):
                 (q.get("q") or [""])[0], (q.get("status") or [""])[0], (q.get("category") or [""])[0],
                 _q_int(q, "page", 1, 1, 1000000), _q_int(q, "page_size", 60, 10, 200),
                 (q.get("mark") or [""])[0],
+                (q.get("sort") or [""])[0],  # v261008.2b · 与知识库列表页同一套排序口径
             ))
         if path == "/api/literature/storage":  # v260929 · 设置页：PDF 存放目录概况
             return self.send_json(literature.storage_info())
@@ -442,6 +444,9 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("paper_id") or ""), str(payload.get("preview_path") or "")), 201)
         if path == "/api/literature/open-folder":  # v260929 · 设置页：文件管理器打开 PDF 目录
             return self.send_json(literature.open_folder())
+        if path == "/api/literature/reveal":  # v261008.2b · 在文件管理器中定位某篇文献的 PDF（选中文件）；只认 id，不认任意路径
+            return self.send_json(literature.reveal(
+                paper_id=str(payload.get("paper_id") or ""), doc_id=str(payload.get("doc_id") or "")))
         if path.startswith("/api/literature/") and path.endswith("/annotations"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
             return self.send_json(literature.save_annotation(paper_id, payload), 201)
