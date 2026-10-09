@@ -421,13 +421,13 @@ async function runAssist(action,instruction,label){ /* v260929b · label：按�
  catch(e){S.ai={...S.ai,error:String(e?.message||e),result:"",busy:false}}
  aiPanel();
 }
-function mdLite(s){ /* 结果区轻量 Markdown 渲染：标题/列表/粗体/行内代码/代码块（已先转义，安全） */
+function mdLite(s){ /* 结果区轻量 Markdown 渲染：所有模型输出先转义，再拼受控标签，避免同源 XSS */
  const lines=String(s||"").split(/\r?\n/);let out="",inList=false,inCode=false;
- const inline=t=>t.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>");
+ const inline=t=>esc(t).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>");
  for(const raw of lines){
   const t=raw.trimEnd();
   if(t.trim().startsWith("```")){if(inList){out+="</ul>";inList=false}out+=inCode?"</code></pre>":"<pre><code>";inCode=!inCode;continue}
-  if(inCode){out+=raw+"\n";continue}
+  if(inCode){out+=esc(raw)+"\n";continue}
   const h=t.match(/^(#{1,6})\s+(.*)$/);
   if(h){if(inList){out+="</ul>";inList=false}out+="<h4>"+inline(h[2])+"</h4>";continue}
   const li=t.match(/^\s*[-*·]\s+(.*)$/);
@@ -535,8 +535,15 @@ async function start(){shell();await loadList()}
 async function openByAttachment(att){
  const name=String(att||"").split(/[\\/]/).pop().trim();
  if(!name)throw new Error("无附件路径");
- const d=await api("/api/literature?page_size=200");
- const hit=(d.items||[]).find(x=>String(x.stored_filename||"")===name);
+ /* v261009 · 分页查找，避免文献超过 200 篇时只扫第一页导致已登记附件被误判为“未登记”。 */
+ let page=1,hit=null,total=0;
+ do{
+  const d=await api("/api/literature?page_size=200&page="+page);
+  total=Number(d.total||0);
+  hit=(d.items||[]).find(x=>String(x.stored_filename||"")===name)||null;
+  if(hit)break;
+  page++;
+ }while((page-1)*200<total);
  if(!hit)throw new Error("该附件未登记到 PDF 工作区");
  await start();await openPaper(hit.id);
 }
