@@ -1,0 +1,15 @@
+/* v261009.1 · 全局搜索里的 RAG 语义检索分区（含文献 PDF 全文命中）
+   与 styles.css 的 .global-search-* 同套变量与尺寸，独立成文件以免动主样式表。 */
+
+.global-search-rag-status{font-size:10px;color:var(--muted);margin-left:8px}
+.global-search-rag-status.ready{color:var(--accent-ink);font-weight:700}
+.global-search-rag-status.warn{color:var(--danger)}
+
+.global-search-section{display:flex;align-items:center;gap:8px;margin:14px 2px 6px;font-size:10px;
+  font-weight:700;letter-spacing:.4px;color:var(--accent-ink);text-transform:uppercase}
+.global-search-section::after{content:"";flex:1;height:1px;background:var(--line)}
+.global-search-section em{font-style:normal;font-weight:400;letter-spacing:0;color:var(--muted);text-transform:none}
+.global-search-section em.danger{color:var(--danger)}
+
+.global-search-row.rag-pdf{grid-template-columns:60px minmax(0,1fr) 24px}
+.global-search-row.rag-pdf .global-search-kind{color:var(--danger)}

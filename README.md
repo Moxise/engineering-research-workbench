@@ -1238,12 +1238,21 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 │  ├─ index.html
 │  └─ styles.css
 │
+├─ rag/               # v261009.1 · 本地 RAG 检索层（向量+FTS+图，可选组件）
+│  ├─ service.py      #   本机服务 127.0.0.1:8770（bge-small-zh，GPU 常驻）
+│  ├─ client.py       #   stdlib 客户端：自动拉起 / 降级为 FTS+图
+│  ├─ search.py       #   三路检索 + RRF 融合 + 拒答阈值
+│  ├─ build_index.py  #   建/增量刷新 System/Cache/rag.sqlite
+│  └─ eval/           #   评测集、四档评测、阈值标定与报告
+│
 ├─ Workspace/
 ├─ .scratch/          # 操作临时数据：仅本地，不入库，7 天自动清理
+├─ .rag/              # RAG 模型权重与运行日志：仅本地，不入库
 ├─ CHANGELOG.md
 ├─ VERSION
 ├─ run.bat
 ├─ run.sh
+├─ run_rag_service.bat  # 一键启动 RAG 服务（cuda 环境）
 └─ server.py
 ```
 

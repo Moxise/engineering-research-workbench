@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import store
+from .kb_segment import segment as segment_for_fts  # v261009 · 中文 bigram 预分词（与查询侧共用）
 from . import perf_index_db as db
 from .perf_index_db import (
     SCHEMA_VERSION, WORKSPACE_SCHEMA_VERSION, SYNC_INTERVAL_SECONDS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE,
@@ -149,9 +150,17 @@ def _index_path_conn(conn: sqlite3.Connection, kind: str, path: Path) -> str:
         [(doc_id, token, role) for token, role in links],
     )
     conn.execute("DELETE FROM documents_fts WHERE doc_id=?", (doc_id,))
+    # v261009 · seg 列存 bigram 预分词结果（供 MATCH），其余列存原文（供 LIKE 兜底与展示）
     conn.execute(
-        "INSERT INTO documents_fts(doc_id,title,body,tags,projects) VALUES(?,?,?,?,?)",
-        (doc_id, title, body, " ".join(tags), " ".join(projects)),
+        "INSERT INTO documents_fts(doc_id,title,body,tags,projects,seg) VALUES(?,?,?,?,?,?)",
+        (
+            doc_id,
+            title,
+            body,
+            " ".join(tags),
+            " ".join(projects),
+            segment_for_fts(" ".join([title, body, " ".join(tags), " ".join(projects)])),
+        ),
     )
     return doc_id
 
@@ -319,6 +328,9 @@ def sync(force: bool = False) -> dict[str, Any]:
             return status(sync_first=False)
         with _connect() as conn:
             _init_db(conn)
+            # v261009 · FTS 表刚被迁移重建时必须全量回填，否则 MATCH 索引为空
+            if db.fts_backfill_pending(conn):
+                force = True
             existing = {
                 str(r["path"]): (str(r["id"]), int(r["mtime_ns"]), int(r["size"]))
                 for r in conn.execute("SELECT id,path,mtime_ns,size FROM documents")
@@ -358,6 +370,8 @@ def sync(force: bool = False) -> dict[str, Any]:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (db._LAST_SYNC_ISO,),
             )
+            if force and db.fts_backfill_pending(conn):
+                db.clear_fts_backfill(conn)   # 回填已成功走完一整轮，清标志
             conn.commit()
         db._LAST_SYNC_MONO = time.monotonic()
     state = status(sync_first=False)

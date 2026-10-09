@@ -6,19 +6,22 @@ const clamp=v=>Math.max(0,Math.min(1,v));
 const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
-/* v261008a · PDF.js 版本与外挂字库资源集中到一处。PDF.js 自身不含字库，中文 PDF 必须外挂两类资源：
-   - cmaps/：预定义 CJK CMap（GBK-EUC-H / UniGB-UCS2-H 等）。/Encoding 非 Identity-H 的 CID 字体
-     （如「方正书宋_GBK」、/CIDSystemInfo Adobe-GB1）靠它把双字节编码映射成 CID；缺了这段映射，
-     整段中文渲染成空白，而拉丁文走 WinAnsiEncoding 不受影响 —— 表现正是「英文正常、中文消失」。
-   - standard_fonts/：14 个标准字体的替代数据，PDF 未内嵌字体时不再退化成空白/方框。
-   字形本身仍取自 PDF 内嵌字体子集（经 FontFace 注入画布），这两项只补编码映射与替代数据。 */
-const PDFJS_BASE="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174";
-const PDFJS_FONT_ASSETS={cMapUrl:PDFJS_BASE+"/cmaps/",cMapPacked:true,standardFontDataUrl:PDFJS_BASE+"/standard_fonts/"};
+/* v261009.4 · pdf.js 本地优先：web/vendor/pdfjs/ 可用就用它（断网也能读 PDF），失败回退 CDN。
+   注意不能用 HEAD 探测——工作台的静态服务只实现 GET（HEAD 返回 501），探测会永远失败退回 CDN。
+   本地化同时消除无头验收的假失败：tools/shot_page.py 的 --virtual-time-budget 不等远端脚本加载。
+   字库同理：cmaps/ 与 standard_fonts/ 都从同一个 base 取。 */
+const PDFJS_CDN="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174";
+const PDFJS_LOCAL="/vendor/pdfjs";
+function pdfjsAssets(base){return {cMapUrl:base+"/cmaps/",cMapPacked:true,standardFontDataUrl:base+"/standard_fonts/"}}
+function loadScript(src){return new Promise((ok,bad)=>{const s=document.createElement("script");s.src=src;s.onload=ok;s.onerror=bad;document.head.appendChild(s)})}
 async function ensurePdfJs(){
  if(window.pdfjsLib)return;
- await new Promise((ok,bad)=>{const s=document.createElement("script");s.src=PDFJS_BASE+"/build/pdf.min.js";s.onload=ok;s.onerror=bad;document.head.appendChild(s)});
- if(!window.pdfjsLib)throw new Error("PDF.js 加载失败");
- window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_BASE+"/build/pdf.worker.min.js";
+ let base=PDFJS_LOCAL;
+ try{await loadScript(base+"/build/pdf.min.js")}
+ catch(e){base=PDFJS_CDN;await loadScript(base+"/build/pdf.min.js")}
+ if(!window.pdfjsLib)throw new Error("PDF.js 加载失败（本地 "+PDFJS_LOCAL+" 与 CDN 均不可用）");
+ window.__pdfjsAssets=pdfjsAssets(base);
+ window.pdfjsLib.GlobalWorkerOptions.workerSrc=base+"/build/pdf.worker.min.js";
 }
 /* v260929 · 阅读区列表条目统一为文献列表页风格（.doc-item 同构）：标题→摘要→徽章行→项目+日期
    徽章行 = 阅读状态 + 收藏 + 分类标记；附件徽章去掉（点击条目本身即打开 PDF，徽章冗余）
@@ -58,7 +61,7 @@ function shell(){
 }
 async function upload(file){if(!file)return;try{const r=await fetch("/api/literature/import",{method:"POST",headers:{"Content-Type":"application/pdf","X-Filename":encodeURIComponent(file.name)},body:file});const d=await r.json();if(!r.ok)throw new Error(d.message||"上传失败");await loadList();await openPaper(d.id)}catch(e){alert(e.message)}finally{q("#lit-file").value=""}}
 
-async function openPaper(id){
+async function openPaper(id,page){ /* v261009.3 · page：从检索命中直接落到指定页（不传则沿用上次阅读位置） */
  reset();
  const enc=encodeURIComponent(id);
  const [paper,annotations]=await Promise.all([
@@ -67,7 +70,13 @@ async function openPaper(id){
  ]);
  S.paper=paper;S.annotations=Array.isArray(annotations)?annotations:[];
  q("#lit-reader-empty").hidden=true;q("#lit-reader-live").hidden=false;side();ensureSideResizer();loadList().catch(()=>{}) /* v260929 · 列表刷新仅更新徽章，不阻塞 PDF 加载 */;
- try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024,...PDFJS_FONT_ASSETS}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
+ try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024,...(window.__pdfjsAssets||pdfjsAssets(PDFJS_CDN))}).promise;
+  /* v261009.3 · 指定页跳转必须与 track() 竞争：build() 期间的滚动会让 track() 改写 S.current，
+     故把目标页单独存住，并在布局稳定后再兜底跳一次，确保落在请求页。 */
+  const total=S.pdf.numPages;const want=Math.max(1,Math.min(total,+page||+S.paper.last_page||1));
+  S.current=want;await build();
+  const settle=()=>{const t=Math.max(1,Math.min(total,+page||S.current));S.current=t;go(t,false)};
+  requestAnimationFrame(()=>{settle();if(+page)setTimeout(settle,180)})}
  catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
 function reset(){S.generation++;S.observer?.disconnect();S.pages.clear();S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.areaResolver=null;S.annotations=[];S.ai={text:"",image:"",result:"",error:"",busy:false,instruction:""}} /* v260930e · areaResolver 一并复位 */
@@ -631,15 +640,15 @@ function throttle(fn,ms){let wait=false;return(...a)=>{if(wait)return;wait=true;
 async function start(){shell();await loadList()}
 /* v260929 · 由文献条目附件徽章进入：按 attachment 路径尾段匹配库内 PDF 文件名（stored_filename 唯一），
    命中则进工作区并直接打开该论文；未登记（如手动填写附件路径的旧条目）抛错，由调用方退回新窗口直开 */
-async function openByAttachment(att){
+async function openByAttachment(att,page){
  const name=String(att||"").split(/[\\/]/).pop().trim();
  if(!name)throw new Error("无附件路径");
  const d=await api("/api/literature?page_size=200");
  const hit=(d.items||[]).find(x=>String(x.stored_filename||"")===name);
  if(!hit)throw new Error("该附件未登记到 PDF 工作区");
- await start();await openPaper(hit.id);
+ await start();await openPaper(hit.id,page);
 }
-window.ERWLiterature={start,openByAttachment,context:()=>({paper_id:S.paper?.id||"",title:S.paper?.title||"",page:S.current||1,selection:S.pending?.kind==="text"?String(S.pending.text||""):"",page_text:pageText(S.current||1)})}; /* v260930 · M2 悬浮球上下文桥：当前文献/页码/PDF 选中文本；v260930c · M4 增加当前页文本层正文（术语提取输入） */
+window.ERWLiterature={start,openByAttachment,openAt:(att,page)=>openByAttachment(att,page),context:()=>({paper_id:S.paper?.id||"",title:S.paper?.title||"",page:S.current||1,selection:S.pending?.kind==="text"?String(S.pending.text||""):"",page_text:pageText(S.current||1)})}; /* v260930 · M2 悬浮球上下文桥：当前文献/页码/PDF 选中文本；v260930c · M4 增加当前页文本层正文（术语提取输入）；v261009.3 · 增 openAt(附件,页) 供检索命中直达指定页 */
 /* v260930e · 悬浮球截图桥：page()=截当前整页；area()=进入框选模式，resolve 框选区域截图（外部接管联动） */
 window.ERWCapture={
  page:()=>S.pdf?pageDataUrl():"",

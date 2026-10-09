@@ -507,8 +507,61 @@
 
 
   async function openGlobalSearch(initial=''){
-    modal('全局搜索',`<div class="global-search"><div class="global-search-box"><span>⌕</span><input id="global-search-input" autocomplete="off" placeholder="搜索灵感、日志、笔记、里程碑、总结、文献、待办与 Agent 对话…" value="${esc(initial)}"></div><div class="global-search-hint">支持标题、正文、标签、项目等全文匹配 · Ctrl/⌘ + K</div><div class="global-search-results" id="global-search-results"><div class="empty">输入关键词开始检索</div></div></div>`,'');
-    const input=$('#global-search-input'); const run=debounce(async()=>{const q=input.value.trim();if(!q){$('#global-search-results').innerHTML='<div class="empty">输入关键词开始检索</div>';return}try{const rows=await api('/api/search?q='+encodeURIComponent(q));$('#global-search-results').innerHTML=rows.length?rows.map(searchResultRow).join(''):'<div class="empty">没有找到相关条目</div>';$$('[data-search-result]').forEach(b=>b.onclick=()=>openSearchResult(rows[+b.dataset.searchResult]));}catch(e){$('#global-search-results').innerHTML=`<div class="empty danger">${esc(e.message)}</div>`}},180);input.oninput=run;setTimeout(()=>input.focus(),20);if(initial)run();
+    modal('全局搜索',`<div class="global-search"><div class="global-search-box"><span>⌕</span><input id="global-search-input" autocomplete="off" placeholder="搜索灵感、日志、笔记、里程碑、总结、文献、待办与 Agent 对话…" value="${esc(initial)}"></div><div class="global-search-hint">关键词全字段匹配 + <b>语义检索</b>（含 56 篇文献 PDF 全文）<span class="global-search-rag-status" id="global-search-rag-status">检测 RAG 服务…</span><br>Ctrl/⌘ + K</div><div class="global-search-results" id="global-search-results"><div class="empty">输入关键词开始检索</div></div></div>`,'');
+    /* v261009.1 · RAG 状态条：让「语义检索（含 PDF 全文）」这件事在界面上可见 */
+    api('/api/rag/status').then(st=>{const el=$('#global-search-rag-status');if(!el)return;el.classList.toggle('ready',!!st.service);el.classList.toggle('warn',!st.service);el.textContent=st.service?(st.model_ready?`RAG 就绪 · ${st.chunks||0} 个片段`:'RAG 模型加载中…'):'RAG 服务未启动（仅关键词可用）'}).catch(()=>{});
+    const input=$('#global-search-input');
+    const run=debounce(async()=>{
+      const q=input.value.trim(),box=$('#global-search-results');
+      if(!q){box.innerHTML='<div class="empty">输入关键词开始检索</div>';return}
+      box.innerHTML='<div class="empty">检索中…</div>';
+      const rows=await api('/api/search?q='+encodeURIComponent(q)+'&limit=8').catch(()=>[]);
+      let rag={sources:[]};try{rag=await api('/api/rag/search?q='+encodeURIComponent(q)+'&topk=6')}catch(e){rag={sources:[],caveats:[e.message]}}
+      const kwRows=Array.isArray(rows)?rows:[];
+      /* v261009.5 · 语义分区置顶（带页码与真实相似度）；关键词只取前 8 条，否则 60 条会把语义分区顶到屏幕外 */
+      const kwBlock=`<div class="global-search-section"><span>关键词</span><em>前 ${kwRows.length} 条</em></div>`+(kwRows.length?kwRows.map(searchResultRow).join(''):'<div class="empty">关键词没有命中</div>');
+      box.innerHTML=ragSection(rag)+kwBlock;
+      $$('[data-search-result]').forEach(b=>b.onclick=()=>openSearchResult(kwRows[+b.dataset.searchResult]));
+      $$('[data-rag-hit]').forEach(b=>b.onclick=()=>openRagHit((rag.sources||[])[+b.dataset.ragHit]));
+    },220);
+    input.oninput=run;setTimeout(()=>input.focus(),20);if(initial)run();
+  }
+  /* v261009.1 · 语义检索分区：向量 + 关键词融合结果，PDF 命中带页码 */
+  function ragSection(rag){
+    const items=(rag&&rag.sources)||[],caveats=(rag&&rag.caveats)||[];
+    const conf=rag&&rag.confidence?`<em>置信度 ${esc(rag.confidence)}</em>`:'';
+    const deg=rag&&rag.degraded?'<em class="danger">已降级：关键词+图</em>':'';
+    const head=`<div class="global-search-section"><span>语义检索 · 含 PDF 全文</span>${conf}${deg}<em>${items.length} 条</em></div>`;
+    if(!items.length)return head+`<div class="empty">${esc(caveats[0]||'未找到相关内容')}</div>`;
+    return head+items.map(ragResultRow).join('');
+  }
+  function ragResultRow(s,i){
+    const isPdf=s.source_type==='pdf';
+    const label=isPdf?`PDF${s.page?' p.'+s.page:''}`:kindLabel(s.kind);
+    const bits=[];
+    if(s.kind==='literature'&&!isPdf)bits.push('文献条目');
+    if(s.in_fts&&s.in_vector)bits.push('关键词+语义');else if(s.in_vector)bits.push('语义');else if(s.in_fts)bits.push('关键词');
+    /* v261009.5 · 显示真实余弦相似度；融合分（score，1/(k+rank) 量级 0.01）对用户无意义，只在缺失时兜底 */
+    if(s.similarity!==null&&s.similarity!==undefined)bits.push('相似度 '+Number(s.similarity).toFixed(3));
+    else if(s.score!==null&&s.score!==undefined)bits.push('融合分 '+Number(s.score).toFixed(4));
+    return `<button class="global-search-row${isPdf?' rag-pdf':''}" type="button" data-rag-hit="${i}"><span class="global-search-kind">${esc(label)}</span><span class="global-search-copy"><strong>${esc(s.title||'未命名')}</strong><small>${esc(bits.join(' · '))}${bits.length?' · ':''}${esc(s.snippet||'')}</small></span><span>↗</span></button>`;
+  }
+  async function openRagHit(s){
+    if(!s)return;closeModal();
+    /* v261009.3 · PDF 命中：直接落到命中页（此前 openByAttachment 不接页码，会停在目录/上次阅读位置） */
+    if(s.source_type==='pdf'&&s.pdf&&window.ERWLiterature?.openAt){
+      const ok=await navigate(routeForKind('literature'));
+      if(ok===false)return;
+      state.selectedDoc=null;
+      try{await window.ERWLiterature.openAt(s.pdf,s.page||1);toast(`《${s.title}》已定位到第 ${s.page||1} 页`,false);return}
+      catch(e){/* 未登记附件等 → 退回常规跳转 */}
+    }
+    if(s.source_type==='pdf'||s.kind==='literature'){
+      await window.ERWNav.open('literature',s.doc_id);
+      toast(s.source_type==='pdf'&&s.page?`已打开《${s.title}》——命中在第 ${s.page} 页`:'已打开文献条目',false);
+      return;
+    }
+    await openSearchResult({id:s.doc_id,kind:s.kind});
   }
   function searchResultRow(r,i){const label=r.source==='chat'?'Agent 对话':r.source==='todo'?'待办':kindLabel(r.kind);return `<button class="global-search-row" type="button" data-search-result="${i}"><span class="global-search-kind">${esc(label)}</span><span class="global-search-copy"><strong>${esc(r.title||'未命名')}</strong><small>${esc(r.project||'')}${r.project?' · ':''}${esc(r.excerpt||'')}</small></span><span>↗</span></button>`}
   async function openSearchResult(r){closeModal();if(!r)return;if(r.source==='chat'){state.agentSession=r.id;await navigate('agent');return}if(r.source==='todo'){await navigate('todos');return}const route=routeForKind(r.kind);await navigate(route);setTimeout(()=>selectDoc(r.id),30)}
@@ -1395,6 +1448,8 @@
     window.addEventListener('erw-lit-back',()=>renderDocsPage('literature'));
   }
 
-  async function init(){ try{bindGlobal();await loadBootstrap();renderSidebar();loadWeather();const route=location.hash.slice(1)||'overview';await navigate(route);}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
+  async function init(){ try{bindGlobal();await loadBootstrap();renderSidebar();loadWeather();const route=location.hash.slice(1)||'overview';await navigate(route);const params=new URLSearchParams(location.search);const deepQuery=params.get('q');if(deepQuery)openGlobalSearch(deepQuery); /* v261009.1 · 深链 ?q=关键词 直接开全局搜索（便于分享与自动化验证） */
+    /* v261009.3 · 深链 ?paper=<PDF 文件名或附件路径>&page=N：直接打开该文献并定位到第 N 页（可分享的「跳到原文某页」链接） */
+    const deepPaper=params.get('paper');if(deepPaper){const deepPage=+params.get('page')||1;setTimeout(async()=>{try{const okNav=await navigate(routeForKind('literature'));if(okNav===false)return;state.selectedDoc=null;await window.ERWLiterature.openAt(deepPaper,deepPage)}catch(err){toast('打开指定文献失败：'+(err&&err.message||err),true)}},60)}}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
   window.addEventListener('load',init);
 })();

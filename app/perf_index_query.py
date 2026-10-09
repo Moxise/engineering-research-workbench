@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from . import agent, config, store
+from . import kb_segment  # v261009 · 中文 bigram 预分词（与写入侧共用同一实现）
 from . import perf_index_core as core
 from .perf_index_core import (
     DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, _connect, _init_db, _registry, _root,
@@ -28,18 +29,20 @@ def _fts_clause(query: str) -> tuple[str, list[Any]]:
     q = str(query or "").strip()
     if not q:
         return "", []
-    like = f"%{q.casefold()}%"
-    if len(q) >= 3 or core._FTS_TOKENIZER != "trigram":
-        phrase = '"' + q.replace('"', '""') + '"'
+    like = kb_segment.like_pattern(q)
+    expr = kb_segment.match_expression(q, mode="and")
+    if expr:
+        # v261009 · bigram 预分词 + unicode61：任意长度查询都能走 MATCH。旧 trigram 下
+        # 「质心/CW」这类 <3 字符查询恒为 0 命中，只能退化为 LIKE 全表扫且无法按相关度排序。
+        # LIKE 保留为兜底，并补充标题/摘要的字面命中。
         return (
             " AND (d.id IN (SELECT doc_id FROM documents_fts WHERE documents_fts MATCH ?) "
             "OR lower(d.title) LIKE ? OR lower(d.excerpt) LIKE ?)",
-            [phrase, like, like],
+            [expr, like, like],
         )
     return (
-        " AND EXISTS (SELECT 1 FROM documents_fts f WHERE f.doc_id=d.id AND "
-        "(lower(f.title) LIKE ? OR lower(f.body) LIKE ? OR lower(f.tags) LIKE ? OR lower(f.projects) LIKE ?))",
-        [like, like, like, like],
+        " AND (lower(d.title) LIKE ? OR lower(d.excerpt) LIKE ?)",
+        [like, like],
     )
 
 
@@ -138,25 +141,49 @@ def search_docs(query: str, limit: int = 60) -> list[dict[str, Any]]:
     if not q:
         return []
     limit = max(1, min(200, int(limit or 60)))
-    like = f"%{q.casefold()}%"
+    like = kb_segment.like_pattern(q)
     with _connect() as conn:
         _init_db(conn)
         rows: list[sqlite3.Row] = []
-        if len(q) >= 3 or core._FTS_TOKENIZER != "trigram":
-            phrase = '"' + q.replace('"', '""') + '"'
+        # v261009 · 四段式检索：词间 AND（精确）→ 词间 OR（降级召回）→ bigram 全 OR（中文整句兜底）
+        # → LIKE 全表扫。旧实现把整串查询当**一个短语**，多词查询要求原样相邻，召回极差；
+        # 而「红外暗弱目标识别」这类没有一个空格的整句，AND/OR 都还是整串短语匹配，实测 0 命中，
+        # 故补 loose（每个 bigram 各作独立词，bm25 排序）——只管「有没有相关内容」，不作证据。
+        exprs = [
+            kb_segment.match_expression(q, mode="and"),
+            kb_segment.match_expression(q, mode="or"),
+            kb_segment.match_expression(q, mode="loose"),
+        ]
+        # v261009.5 · 标题命中优先：loose 的 bm25 会把「术语覆盖最全」的导航类条目（知识库全局说明）
+        # 顶到第一条，而用户要的是标题就写着这个主题的条目。故先按「标题含任一查询词」分组，再按 bm25。
+        # 注意用 **bigram token** 而不是整串查询：「红外暗弱目标识别」没有任何标题包含这一整串，
+        # 用它做 LIKE 等于没加（第一版就是这么失效的）。
+        title_tokens: list[str] = []
+        for term in kb_segment.terms(q):
+            title_tokens.extend(kb_segment.tokens_for_term(term))
+        title_tokens = [t for t in dict.fromkeys(title_tokens) if len(t) >= 2][:8]
+        title_order = ""
+        title_params: list[Any] = []
+        if title_tokens:
+            title_order = ("CASE WHEN " + " OR ".join("lower(d.title) LIKE ?" for _ in title_tokens)
+                           + " THEN 0 ELSE 1 END, ")
+            title_params = [f"%{t.casefold()}%" for t in title_tokens]
+        for expression in dict.fromkeys(e for e in exprs if e):
             try:
                 rows = conn.execute(
-                    """
+                    f"""
                     SELECT d.* FROM documents_fts f
                     JOIN documents d ON d.id=f.doc_id
                     WHERE documents_fts MATCH ?
-                    ORDER BY d.pinned DESC, bm25(documents_fts), COALESCE(NULLIF(d.updated,''),d.created) DESC
+                    ORDER BY d.pinned DESC, {title_order}bm25(documents_fts), COALESCE(NULLIF(d.updated,''),d.created) DESC
                     LIMIT ?
                     """,
-                    (phrase, limit),
+                    (expression, *title_params, limit),
                 ).fetchall()
             except sqlite3.OperationalError:
                 rows = []
+            if rows:
+                break
         if not rows:
             rows = conn.execute(
                 """

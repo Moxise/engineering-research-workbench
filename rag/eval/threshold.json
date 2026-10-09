@@ -1,0 +1,27 @@
+{
+  "vector_min_score": 0.45,
+  "medium_score": 0.50,
+  "confirm_score": 0.62,
+  "vector_only_medium_score": 0.62,
+  "separated": false,
+  "negative_max": 0.6096,
+  "positive_min": 0.6033,
+  "calibrated_at": "2026-10-09T11:50:00",
+  "queries": 60,
+  "corpus": "md 3093 块 + pdf 14106 块（含 56 篇文献全文）",
+  "rule": "硬拒答：FTS 无命中 AND 最高向量相似度 < vector_min_score（0.45）；置信度按证据结构给：关键词命中 ≥3 或（≥1 且向量 ≥ confirm_score）→ high，关键词命中 ≥1 → medium，仅语义召回 → low（结果照常返回并提示核对）",
+  "evidence": {
+    "why_two_tier": "分数无法区分「跨语言正确答案」与「无关命中」：跨语言正确命中常只有 0.55~0.61（『传感器切换时的配准』→《Cross-Spectral Navigation with Sensor Handover》=0.593），而无关命中可到 0.6096（『激光通信终端…』→《星空背景下空间目标的检测与跟踪技术》）。用 0.62 作拒答门槛会让前者消失 —— 检索工具不应替调用方决定『找不到』。",
+    "chosen_point": "硬拒答 0.45（几乎没有证据）；置信度改由证据结构决定（见 rule）。实测负样本全部落在 low（高置信误标率 0.000），跨语言正确命中落在 low 但**照常返回**",
+    "vector_only_medium_note": "无关键词证据时，向量分需 ≥0.62 才给 medium：该值取在实测离题上限 0.6096 之上、最小余量（原设 0.65 会把『红外暗弱目标识别』(0.646) 这类正确语义命中压成 low）",
+    "signals_tested": "rag/eval/signal_experiment.py 实测：绝对分（重叠 8/8）、top1 相对全库的 z（重叠 8/8）、margin（重叠 7/8）——三种信号都无法分开两类，故放弃「用分数编置信度」",
+    "fragility": "负样本仅 8 条；语料增长后需用 calibrate_threshold.py / _op_point.py / _boundary.py 重标",
+    "scripts": [
+      "rag/eval/calibrate_threshold.py（分数分布）",
+      "rag/eval/operating_point.py（阈值 × Recall/拒答率）",
+      "rag/eval/boundary_report.py（边界值明细）",
+      "rag/eval/signal_experiment.py（信号分离度）",
+      "rag/eval/crosslingual_probe.py（跨语言命中诊断）"
+    ]
+  }
+}

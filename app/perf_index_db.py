@@ -235,27 +235,45 @@ def _init_db(conn: sqlite3.Connection) -> None:
         )
         upgraded = True
 
-    fts_exists = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents_fts'"
+    # v261009 · FTS 中文检索修复（见 app/kb_segment.py）：
+    # trigram 分词器要求 token ≥ 3 字符，「质心 / 滤波 / CW」这类高频领域短词在 MATCH 下恒为
+    # 0 命中（27 词实测仅 12 命中）。改为 unicode61 + 写入/查询两侧共用的中文 bigram 预分词；
+    # 新增 seg 列专供 MATCH，title/body/tags/projects 仍存原文，保留 LIKE 兜底与原文展示能力。
+    # 旧库自动迁移：DROP 后重建并置 fts_backfill_pending，由 sync() 消费并触发一次全量回填。
+    fts_row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='documents_fts'"
     ).fetchone()
-    if not fts_exists:
-        try:
-            conn.execute(
-                "CREATE VIRTUAL TABLE documents_fts USING fts5("
-                "doc_id UNINDEXED, title, body, tags, projects, tokenize='trigram')"
-            )
-            _FTS_TOKENIZER = "trigram"
-        except sqlite3.OperationalError:
-            conn.execute(
-                "CREATE VIRTUAL TABLE documents_fts USING fts5("
-                "doc_id UNINDEXED, title, body, tags, projects, tokenize='unicode61')"
-            )
-            _FTS_TOKENIZER = "unicode61"
-    elif not _FTS_TOKENIZER:
-        sql = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='documents_fts'"
-        ).fetchone()
-        text = str(sql[0] if sql else "")
-        _FTS_TOKENIZER = "trigram" if "trigram" in text else "unicode61"
+    fts_sql = " ".join(str(fts_row[0] if fts_row else "").split())
+    need_create = not fts_sql
+    if fts_sql and ("trigram" in fts_sql or ", seg," not in fts_sql):
+        conn.execute("DROP TABLE documents_fts")
+        need_create = True
+        upgraded = True
+    if need_create:
+        conn.execute(
+            "CREATE VIRTUAL TABLE documents_fts USING fts5("
+            "doc_id UNINDEXED, title, body, tags, projects, seg, tokenize='unicode61')"
+        )
+        conn.execute(
+            "INSERT INTO meta(key,value) VALUES('fts_backfill_pending','1') "
+            "ON CONFLICT(key) DO UPDATE SET value='1'"
+        )
+        _FTS_TOKENIZER = "unicode61"
+    else:
+        _FTS_TOKENIZER = "trigram" if "trigram" in fts_sql else "unicode61"
     conn.commit()
     return upgraded
+
+
+def fts_backfill_pending(conn: sqlite3.Connection) -> bool:
+    """FTS 表是否刚被迁移重建、等待一次全量回填（由 sync() 消费）。"""
+    row = conn.execute("SELECT value FROM meta WHERE key='fts_backfill_pending'").fetchone()
+    return bool(row) and str(row[0]) == "1"
+
+
+def clear_fts_backfill(conn: sqlite3.Connection) -> None:
+    """回填完成后清标志（只在成功走完一整轮 sync 之后调用）。"""
+    conn.execute(
+        "INSERT INTO meta(key,value) VALUES('fts_backfill_pending','0') "
+        "ON CONFLICT(key) DO UPDATE SET value='0'"
+    )

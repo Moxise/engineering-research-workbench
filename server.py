@@ -36,6 +36,62 @@ def json_bytes(data) -> bytes:
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
 
+# ---------------------------------------------------------------- RAG 检索层（v261009.1）
+# 工作台保持 stdlib-only：源码模式直接复用 rag.client（含自动拉起与降级），
+# 打包 exe 里没有 rag/ 包时退回对本机 RAG 服务的 HTTP 调用。
+
+def _rag_client():
+    try:
+        from rag import client as rag_client  # noqa: PLC0415
+        return rag_client
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _rag_http(path: str, payload: dict | None = None, timeout: float = 120.0):
+    import urllib.request  # noqa: PLC0415
+
+    url = os.environ.get("ERW_RAG_URL") or "http://127.0.0.1:8770"
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(
+        url + path, data=data, headers={"Content-Type": "application/json"},
+        method="POST" if data is not None else "GET",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _rag_retrieve(query: str, topk: int, use_vector: bool = True) -> dict:
+    """混合检索（含 56 篇文献 PDF 全文）；服务不可用时降级为 FTS+图并标注。"""
+    client = _rag_client()
+    if client is not None:
+        return client.retrieve(query, topk=topk, use_vector=use_vector)
+    try:
+        return _rag_http("/search", {"query": query, "topk": topk, "use_vector": use_vector})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "query": query, "sources": [], "confidence": "none", "degraded": True,
+                "caveats": [f"RAG 服务不可达（{type(exc).__name__}）：请先运行 run_rag_service.bat。"]}
+
+
+def _rag_status() -> dict:
+    client = _rag_client()
+    info: dict = {}
+    if client is not None:
+        info = client.health(timeout=4.0) or {}
+    else:
+        try:
+            info = _rag_http("/health", timeout=4.0)
+        except Exception:  # noqa: BLE001
+            info = {}
+    if not info:
+        return {"ok": False, "service": False, "message": "RAG 服务未启动"}
+    return {
+        "ok": True, "service": True, "model_ready": bool(info.get("model_ready")),
+        "model": info.get("model"), "chunks": info.get("chunks"),
+        "index": info.get("index") or {}, "model_error": info.get("model_error") or "",
+    }
+
+
 def _q_int(q, key: str, default: int, minimum: int, maximum: int) -> int:
     try:
         value = int((q.get(key) or [str(default)])[0])
@@ -288,6 +344,14 @@ class Handler(BaseHTTPRequestHandler):
             query = (q.get("q") or [""])[0]
             limit = _q_int(q, "limit", 60, 1, 120)
             return self.send_json(indexer.search_all(query, limit))
+        if path == "/api/rag/search":  # v261009.1 · 混合检索（向量 + FTS，含 PDF 全文）
+            return self.send_json(_rag_retrieve(
+                (q.get("q") or [""])[0],
+                _q_int(q, "topk", 8, 1, 20),
+                (q.get("vector") or ["1"])[0] != "0",
+            ))
+        if path == "/api/rag/status":  # v261009.1 · RAG 服务与索引状态（界面状态条）
+            return self.send_json(_rag_status())
         if path == "/api/literature":
             return self.send_json(literature.list_items(
                 (q.get("q") or [""])[0], (q.get("status") or [""])[0], (q.get("category") or [""])[0],

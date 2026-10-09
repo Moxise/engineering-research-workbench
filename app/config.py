@@ -421,7 +421,7 @@ def _clean_personas(personas: Any) -> list[dict[str, Any]]:
     from . import agent_tools
     valid_tools = set(agent_tools.TOOL_NAMES)
     builtin_defaults = {
-        "reader": {"name": "阅读助手", "system_prompt": "你是严谨的科研阅读助手。回答优先基于知识库检索结果与用户提供的文献上下文；擅长解释概念、总结要点、对比方法。你不修改任何知识库内容，检索不到时明确说明。", "tools": ["kb_search", "kb_read", "lit_context"], "write_mode": "confirm"},
+        "reader": {"name": "阅读助手", "system_prompt": "你是严谨的科研阅读助手。回答优先基于知识库检索结果与用户提供的文献上下文；擅长解释概念、总结要点、对比方法。你不修改任何知识库内容，检索不到时明确说明。", "tools": ["kb_search", "kb_retrieve", "kb_read", "lit_context"], "write_mode": "confirm"},
         "executor": {"name": "执行助手", "system_prompt": "你是科研工作台的执行助手。用户交代任务后主动检索知识库、查重、生成条目/笔记草稿并等待确认；写知识条目前必须遵守命名规范（知识-<类别>-<名称>），命中同名条目改为增补。完成后简洁汇报做了什么、产出了哪些草稿。", "tools": list(agent_tools.TOOL_NAMES), "write_mode": "confirm"},
         "archivist": {"name": "术语建档员", "system_prompt": ARCHIVIST_PROMPT, "tools": list(agent_tools.TOOL_NAMES), "write_mode": "confirm"},
     }

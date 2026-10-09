@@ -1,0 +1,60 @@
+{"id":"q001","type":"provenance","query":"统一燃料模型的等效 ΔV 与预算裁剪口径","expected_doc_ids":["note-20260921145214-241d89"],"label_confidence":"high","notes":"标题直指「统一燃料模型（等效 ΔV 与预算裁剪）」"}
+{"id":"q002","type":"provenance","query":"信杂比 SCR 与背景对比度怎么定义","expected_doc_ids":["note-20260922174338-3e9a71"],"label_confidence":"high","notes":"知识-原理-信杂比（SCR）与背景对比度"}
+{"id":"q003","type":"provenance","query":"星点亚像素质心定位的方法","expected_doc_ids":["note-20260921181118-d4fab6"],"label_confidence":"high","notes":"知识-方法-星点亚像素质心定位"}
+{"id":"q004","type":"provenance","query":"WCS 星图定姿的坏帧判据是什么","expected_doc_ids":["note-20260924094423-91d2e0"],"label_confidence":"high","notes":"知识-方法-WCS 星图定姿与坏帧判据"}
+{"id":"q005","type":"provenance","query":"小目标检测评测指标体系包含哪些指标","expected_doc_ids":["note-20260924140605-cdfbe1"],"label_confidence":"high","notes":"知识-方法-小目标检测评测指标体系"}
+{"id":"q006","type":"provenance","query":"DUST 在轨实测数据集 SET 1 与 SET 2 的口径","expected_doc_ids":["note-20261008154719-1416d5"],"label_confidence":"high","notes":"知识-数据集-DUST 在轨实测（SET 1 / SET 2）"}
+{"id":"q007","type":"provenance","query":"三层解耦架构是怎么划分层次的","expected_doc_ids":["note-20260921145214-74d3cc"],"label_confidence":"high","notes":"知识-架构-三层解耦架构"}
+{"id":"q008","type":"provenance","query":"多站观测构型如何决策","expected_doc_ids":["note-20260924155733-7bd252"],"label_confidence":"high","notes":"知识-原理-多站观测构型决策"}
+{"id":"q009","type":"provenance","query":"Zernike 矩法在质心定位里的用法","expected_doc_ids":["note-20260922112305-9b5af7"],"label_confidence":"high","notes":"知识-方法-Zernike 矩法（zern）"}
+{"id":"q010","type":"provenance","query":"高轨非合作目标多视线分布式相对导航那篇文献","expected_doc_ids":["literature-20260924094209-c56165"],"label_confidence":"high","notes":"文献-高轨非合作目标多视线分布式相对导航方法"}
+{"id":"q011","type":"conflict","query":"BasicIRSTD 基线到底是 27 组还是 28 组 247 件","expected_doc_ids":["journal-20260922141126-707e0f","summary-20260922140705-b4e7a1"],"label_confidence":"high","notes":"日志标题含『权重底账校正为 28 组 247 件』，属口径冲突现场；总结为阶段 2 基线"}
+{"id":"q012","type":"conflict","query":"SIRST-v2 现在还在评测口径里吗","expected_doc_ids":["note-20261008154719-af7cd5","note-20260921181122-b83efa"],"label_confidence":"high","notes":"SIRST-v2 条目标题注明『已退出评测口径』；选型笔记对数据集口径"}
+{"id":"q013","type":"conflict","query":"质心算法对比实验的结论与日志记录是否一致","expected_doc_ids":["note-20260923111100-b5a540","journal-20260921151611-ebc070"],"label_confidence":"high","notes":"实验-五方法质心算法对比（4.1）+ 日志-质心算法对比 4.1 完成"}
+{"id":"q014","type":"conflict","query":"星图识别与 WCS 解算 4.2 到底收敛没有","expected_doc_ids":["journal-20260921151611-ebc070","note-20260923111109-7e697f"],"label_confidence":"high","notes":"日志标题『4.2 未收敛』；实验-星图识别与 WCS 解算（4.2）"}
+{"id":"q015","type":"conflict","query":"判胜条件与指标约定怎么定的","expected_doc_ids":["note-20260921145214-bae69a"],"label_confidence":"high","notes":"知识-原理-判胜条件与指标约定"}
+{"id":"q016","type":"conflict","query":"望远镜光学档位硬约束与增倍镜档位判定是否冲突","expected_doc_ids":["note-20260929165647-bb56f8","note-20260929165647-e6c0d8"],"label_confidence":"high","notes":"光学三条硬约束 + 增倍镜有效档位判定"}
+{"id":"q017","type":"conflict","query":"小目标难度分档在不同实验里口径一致吗","expected_doc_ids":["note-20260924140549-574a6f","note-20260924105535-3dd780"],"label_confidence":"medium","notes":"难度分档笔记 + 实验-结构实测与难度分级（2.0）"}
+{"id":"q018","type":"conflict","query":"阈值判决的分布前提与实际后处理链的差异","expected_doc_ids":["note-20260924140843-3d95e2","note-20260922133745-5a0105"],"label_confidence":"high","notes":"阈值判决的分布前提 + 小目标判决与后处理链"}
+{"id":"q019","type":"conflict","query":"容易混淆的术语这些指标怎么区分","expected_doc_ids":["note-20260924160744-a3b6bc"],"label_confidence":"high","notes":"知识-原理-易混术语辨析"}
+{"id":"q020","type":"conflict","query":"DUST 路线 3 实验报告与月盘掩膜预处理定本的口径","expected_doc_ids":["journal-20260923161957-3f9d2a","journal-20260924164214-09c21e"],"label_confidence":"high","notes":"两条 DUST 日志：报告成文 / 掩膜预处理定本"}
+{"id":"q021","type":"gap","query":"星图识别阶段还缺哪些支撑文献","expected_doc_ids":["note-20260921181123-c94f0b","note-20260924141142-7b7036"],"label_confidence":"medium","notes":"阶段划分与能力分层（缺口盘点所在）+ 星图识别的区分度机理"}
+{"id":"q022","type":"gap","query":"开题报告里创新点的支撑文献清单","expected_doc_ids":["summary-20261008105307-309127","idea-20260924104458-90ee1b"],"label_confidence":"high","notes":"总结-学位论文开题报告 + 灵感-开题报告"}
+{"id":"q023","type":"gap","query":"W1-W18 验收基线还差哪些项","expected_doc_ids":["milestone-20260921181115-a1c7e3"],"label_confidence":"high","notes":"里程碑-星图背景红外暗弱目标探测 W1-W18 验收基线"}
+{"id":"q024","type":"gap","query":"跨谱段偏差机理有哪些支撑文献","expected_doc_ids":["note-20260924160709-b0d2ff","literature-20260924094209-a449ac"],"label_confidence":"medium","notes":"跨谱段偏差机理笔记 + 跨谱段导航文献"}
+{"id":"q025","type":"gap","query":"多帧轨迹检测链还缺什么环节","expected_doc_ids":["note-20260924094556-c3e8d2","note-20260924160443-840c41"],"label_confidence":"medium","notes":"多帧轨迹检测链与关联 + 多帧可逆重参数化框架"}
+{"id":"q026","type":"gap","query":"星图背景红外仿真工具链还缺什么","expected_doc_ids":["note-20260924160507-dac61b"],"label_confidence":"high","notes":"知识-方法-星图背景红外仿真工具链"}
+{"id":"q027","type":"gap","query":"受控归因诊断还缺哪些实验支撑","expected_doc_ids":["note-20260924140208-c95737","note-20260924105535-b6a4c6"],"label_confidence":"medium","notes":"受控归因诊断 + 实验-四方法增强域受控归因（1.2c）"}
+{"id":"q028","type":"gap","query":"异构卫星集群抵近还缺哪些文献","expected_doc_ids":["idea-20261008105852-69ee2e","summary-20261008105307-309127"],"label_confidence":"high","notes":"灵感-异构卫星集群抵近空间非合作目标 + 开题报告总结"}
+{"id":"q029","type":"gap","query":"空间非合作目标意图识别方向的综述与缺口","expected_doc_ids":["literature-20260924094209-a83036","literature-20260924094209-cedd17"],"label_confidence":"high","notes":"意图识别与轨道博弈研究综述 + BiGRU 意图识别"}
+{"id":"q030","type":"gap","query":"GEO 三情景博弈项目还有哪些遗留问题","expected_doc_ids":["summary-20260923124144-3f9c7a","milestone-20260921151541-ebe834"],"label_confidence":"high","notes":"项目简报（含遗留问题）+ 平台基线里程碑"}
+{"id":"q031","type":"transfer","query":"FIM 可观性分析能不能迁移到轨道博弈的构型优化","expected_doc_ids":["literature-20260924094209-03748d","note-20260921150501-9f2c40"],"label_confidence":"high","notes":"跨域迁移：FIM 可观性文献 + 轨道博弈策略求解"}
+{"id":"q032","type":"transfer","query":"多站仅测角状态估计思路能否用于多航天器协同跟踪","expected_doc_ids":["note-20260921181120-f61cd8","literature-20260924094209-42556e"],"label_confidence":"high","notes":"多站仅测角总体思路 + 多目标仅测角跟踪文献"}
+{"id":"q033","type":"transfer","query":"输入估计滤波的思想能否用于机动推力观测器","expected_doc_ids":["literature-20260924094209-944773","note-20260930134734-74fffc"],"label_confidence":"high","notes":"IEKF 文献 + 机动推力加速度观测器（草稿）"}
+{"id":"q034","type":"transfer","query":"质心的梯度加权插值能否迁移到跨谱段配准","expected_doc_ids":["note-20260922112305-4c61e8","literature-20260924094209-62fb0d"],"label_confidence":"medium","notes":"梯度加权插值 + MultiPoint 跨谱段配准"}
+{"id":"q035","type":"transfer","query":"逃逸模型注册表的分级动作能否复用到拦截制导","expected_doc_ids":["note-20260921151503-8f1d24","note-20260923111912-a3d7f1"],"label_confidence":"high","notes":"逃逸模型注册表与分级动作 + 实验-拦截制导"}
+{"id":"q036","type":"transfer","query":"BiGRU 意图识别方法能否迁移到轨道博弈策略求解","expected_doc_ids":["literature-20260924094209-cedd17","note-20260921150501-9f2c40"],"label_confidence":"medium","notes":"BiGRU 文献 + 轨道博弈策略求解"}
+{"id":"q037","type":"transfer","query":"小区域滤波的单帧检测思路能否迁移到多帧链路","expected_doc_ids":["note-20260922133745-5a0101","note-20260924094556-c3e8d2"],"label_confidence":"medium","notes":"小区域滤波（SR）+ 多帧轨迹检测链"}
+{"id":"q038","type":"transfer","query":"星敏感器星像噪声抑制的 FIR 方法对星图预处理有借鉴吗","expected_doc_ids":["literature-20260924094209-eb5e20","note-20260924094533-b7c4a1"],"label_confidence":"medium","notes":"FIR 消除星像噪声文献 + 帧间稳像与链式配准"}
+{"id":"q039","type":"transfer","query":"主从博弈 Stackelberg 结构能否用于抵近策略设计","expected_doc_ids":["note-20260921150502-3d7e18","idea-20261008105852-69ee2e"],"label_confidence":"medium","notes":"主从博弈（Stackelberg）+ 异构卫星集群抵近灵感"}
+{"id":"q040","type":"transfer","query":"跨谱段配准的多点方法能否用于可见光红外融合探测","expected_doc_ids":["literature-20260924094209-62fb0d","literature-20260924094209-434543"],"label_confidence":"medium","notes":"MultiPoint 跨谱段配准 + 可见光热红外融合生成"}
+{"id":"q041","type":"negative","query":"激光通信终端的捕获跟踪瞄准精度指标","expected_doc_ids":[],"label_confidence":"high","notes":"域内但库中无激光通信条目"}
+{"id":"q042","type":"negative","query":"SAR 成像的方位向模糊抑制方法","expected_doc_ids":[],"label_confidence":"high","notes":"域内（天基遥感）但库中无 SAR 条目"}
+{"id":"q043","type":"negative","query":"星地量子密钥分发的成码率分析","expected_doc_ids":[],"label_confidence":"high","notes":"域内但无量子通信条目"}
+{"id":"q044","type":"negative","query":"液氧甲烷发动机燃烧不稳定性抑制","expected_doc_ids":[],"label_confidence":"high","notes":"域外（推进）"}
+{"id":"q045","type":"negative","query":"锂离子电池热失控预警阈值","expected_doc_ids":[],"label_confidence":"high","notes":"域外"}
+{"id":"q046","type":"negative","query":"联邦学习中的差分隐私预算分配","expected_doc_ids":[],"label_confidence":"medium","notes":"域外；注意『预算』与燃料预算同词，用于检验误召回"}
+{"id":"q047","type":"negative","query":"水稻叶片氮含量高光谱反演","expected_doc_ids":[],"label_confidence":"high","notes":"域外"}
+{"id":"q048","type":"negative","query":"蛋白质折叠的分子动力学模拟","expected_doc_ids":[],"label_confidence":"high","notes":"域外"}
+{"id":"q049","type":"provenance","style":"keyword","query":"CW","expected_doc_ids":["note-20260921145214-13ffbd"],"label_confidence":"high","notes":"2 字符缩写：trigram 下 MATCH 恒 0，只能靠 LIKE 且无排序"}
+{"id":"q050","type":"provenance","style":"keyword","query":"LQDG","expected_doc_ids":["note-20260921150504-c4e802"],"label_confidence":"high","notes":"缩写关键词"}
+{"id":"q051","type":"provenance","style":"keyword","query":"IPI","expected_doc_ids":["note-20260922133745-5a0104"],"label_confidence":"high","notes":"缩写关键词"}
+{"id":"q052","type":"provenance","style":"keyword","query":"SCR","expected_doc_ids":["note-20260922174338-3e9a71"],"label_confidence":"high","notes":"缩写关键词（信杂比）"}
+{"id":"q053","type":"provenance","style":"keyword","query":"WCS","expected_doc_ids":["note-20260924094423-91d2e0","note-20260923111109-7e697f"],"label_confidence":"high","notes":"缩写关键词：方法条目或对应实验条目均可"}
+{"id":"q054","type":"provenance","style":"keyword","query":"Zernike","expected_doc_ids":["note-20260922112305-9b5af7"],"label_confidence":"high","notes":"方法关键词"}
+{"id":"q055","type":"provenance","style":"keyword","query":"Top-Hat","expected_doc_ids":["note-20260922133745-5a0102"],"label_confidence":"high","notes":"方法关键词（含连字符）"}
+{"id":"q056","type":"provenance","style":"keyword","query":"小区域滤波","expected_doc_ids":["note-20260922133745-5a0101"],"label_confidence":"high","notes":"5 字方法名：legacy 可 MATCH 命中，检验不回归"}
+{"id":"q057","type":"provenance","style":"keyword","query":"判胜条件","expected_doc_ids":["note-20260921145214-bae69a"],"label_confidence":"high","notes":"4 字专有名词"}
+{"id":"q058","type":"provenance","style":"keyword","query":"燃料预算","expected_doc_ids":["note-20260921145214-241d89"],"label_confidence":"high","notes":"4 字名词"}
+{"id":"q059","type":"provenance","style":"keyword","query":"Stackelberg","expected_doc_ids":["note-20260921150502-3d7e18"],"label_confidence":"high","notes":"英文术语"}
+{"id":"q060","type":"provenance","style":"keyword","query":"亚像素","expected_doc_ids":["note-20260921181118-d4fab6"],"label_confidence":"high","notes":"3 字词：边界长度"}

@@ -34,6 +34,16 @@
 # 清理入口的一键包装（双击即用），其余 .bat 仍不发布
 !tools/scratch_clean.bat
 
+# ----------------------------------------------------------
+# kb RAG 层（检索增强）：代码 / 评测集 / 阈值入库；
+# 模型权重与运行数据在 /.rag/（见下方永不发布区）
+# ----------------------------------------------------------
+!rag/**/*.py
+!rag/**/*.md
+!rag/**/*.json
+!rag/**/*.jsonl
+!/run_rag_service.bat
+
 !web/**/*.js
 !web/**/*.html
 !web/**/*.css
@@ -60,6 +70,14 @@ build/
 # 操作临时数据空间（本地专用：永不提交、不入同步、7 天保留自动清理）
 # 细则见 .scratch/README.md；清理入口 tools/scratch_clean.py
 /.scratch/
+
+# RAG 模型权重与运行数据（约 95 MB，本地专用；换机重跑 rag/fetch_model.py）
+/.rag/
+
+# pdf.js 本地化资源（187 个文件 / 3.2 MB，本地专用）：必须整体不入库 ——
+# 只提交 build/*.js 而没有 cmaps/ 与 standard_fonts/，clone 后会走「本地可用」分支
+# 却渲染不出中文（比直接用 CDN 更糟）。下载：python tools/fetch_pdfjs.py
+web/vendor/pdfjs/
 
 # 临时产物基名约定（无前导斜杠 → 任意目录生效，堵住 web/**/*.html 之类放行规则）
 _verify_*

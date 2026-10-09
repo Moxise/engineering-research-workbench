@@ -129,6 +129,57 @@ def _t_kb_search(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     } for r in rows]}
 
 
+def _http_retrieve(query: str, topk: int = 8, use_vector: bool = True, use_graph: bool = True,
+                   **_kw: Any) -> dict[str, Any]:
+    """打包 exe 里没有 rag/ 包时的兜底：直接请求本机 RAG 服务（ERW_RAG_URL 可覆盖）。"""
+    import json as _json
+    import os as _os
+    import urllib.request as _url
+
+    url = _os.environ.get("ERW_RAG_URL") or "http://127.0.0.1:8770"
+    body = _json.dumps({"query": query, "topk": topk, "use_vector": use_vector,
+                        "use_graph": use_graph}).encode("utf-8")
+    req = _url.Request(url + "/search", data=body,
+                       headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with _url.urlopen(req, timeout=120) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        data["degraded"] = False
+        return data
+    except Exception as exc:  # noqa: BLE001
+        return {"sources": [], "confidence": "none", "degraded": True,
+                "caveats": [f"RAG 服务不可达（{type(exc).__name__}）：请先运行 run_rag_service.bat。"]}
+
+
+def _t_kb_retrieve(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """v261009 · 混合检索（向量 + FTS + 关联条目），服务不可用时降级为 FTS + 图。"""
+    query = str(args.get("query") or "").strip()
+    if not query:
+        raise ValueError("query 不能为空")
+    topk = max(1, min(int(args.get("topk") or 8), 20))
+    use_vector = bool(args.get("use_vector", True))
+    use_graph = bool(args.get("use_graph", True))
+    try:
+        from rag.client import retrieve  # 源码/开发模式：直接复用客户端（含自动拉起与降级）
+    except Exception:  # noqa: BLE001  打包 exe 无 rag/ 包
+        retrieve = _http_retrieve
+    result = retrieve(query, topk=topk, use_vector=use_vector, use_graph=use_graph)
+    sources = result.get("sources") or []
+    return {
+        "count": len(sources),
+        "confidence": result.get("confidence", "none"),
+        "degraded": bool(result.get("degraded")),
+        "sources": [
+            {k: s.get(k) for k in ("doc_id", "title", "kind", "status", "snippet", "score",
+                                   "in_fts", "in_vector")}
+            for s in sources
+        ],
+        "related": result.get("related", []),
+        "caveats": result.get("caveats", []),
+        "hint": "引用结论时回链 doc_id；需要全文再调 kb_read。",
+    }
+
+
 def _t_kb_read(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     doc_id = str(args.get("doc_id") or "").strip()
     if not doc_id:
@@ -229,6 +280,7 @@ def _t_lit_note_write(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, An
 
 _TOOL_IMPL: dict[str, Callable[[dict, dict], dict]] = {
     "kb_search": _t_kb_search,
+    "kb_retrieve": _t_kb_retrieve,
     "kb_read": _t_kb_read,
     "kb_create_entry": _t_kb_create_entry,
     "kb_update_entry": _t_kb_update_entry,
@@ -297,6 +349,19 @@ _TOOL_META: dict[str, dict[str, Any]] = {
             "mode": {"type": "string", "enum": ["append", "replace"]},
         }, "required": ["content"]},
         "write": True,
+    },
+    "kb_retrieve": {
+        "description": "混合检索（RAG）：向量语义 + 关键词 + 关联条目融合排序，返回带 doc_id 的来源片段与 confidence。"
+                       "适合「某个结论的出处在哪」「这个方法能否迁移到另一个方向」这类问题；"
+                       "证据不足时会明确返回未找到。与 kb_search 的分工：kb_search 走字面匹配且速度快，"
+                       "kb_retrieve 补语义召回，两者可并用。",
+        "params": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "检索词或自然语言问题"},
+            "topk": {"type": "integer", "description": "返回条数，默认 8，最大 20"},
+            "use_vector": {"type": "boolean", "description": "是否启用向量语义检索（默认 true；false = 仅关键词+图）"},
+            "use_graph": {"type": "boolean", "description": "是否附带关联条目（wikilink 1 跳，默认 true）"},
+        }, "required": ["query"]},
+        "write": False,
     },
 }
 
