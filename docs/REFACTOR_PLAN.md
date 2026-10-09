@@ -283,6 +283,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 | **P3 首件**（本轮） | `python -m core.doctor` 只读体检：22 个检查项，覆盖 §5.5.5 清单的绝大部分；首次实测 199 条数据得 error 2 项 / warn 8 项（越界 status 1、越界标记 2、幽灵归属 2、断链 2、回收站漂移、4 个冲突文件、6.8 MB 冲突副本、WAL 21.4 MB） |
 | **P1 补齐**（本轮） | 写入期字段校验 `core/contracts/validate.py`（F001–F007）：越界 status / 越界标记 / 强制标记 / 日期格式 / 未声明字段；`store` 与 MCP 两条写入路径消费同一份校验器，`create_doc` 按契约补齐标记，`update_doc` 白名单改由契约派生；`kb_smoke` 新增 14 条断言（第 7 组）全绿 —— **P16 的根因（写入期零校验）已堵住** |
 | **P3 第二件**（`core/index/`） | 索引结构迁移框架：`core/index/migrations/m0001,m0002` + `core/index/migrate.py`（默认 dry-run、备份、验证、可回滚），**替换** `_init_db()` 里的四段内联 if；`SCHEMA_VERSION` 改为读 `migrate.TARGET_VERSION`（版本单源少一处）；新增「磁盘版本高于代码 → 拒绝写入」护栏，doctor 同步报出 |
+| **A3 派生数据治理**（`core/index/maintain.py`） | 索引维护工具（checkpoint / vacuum，默认只读统计，VACUUM 前自动备份）；**实测回收 ≈49.9 MB**（35.70 MB + 21.39 MB WAL → 7.14 MB + 0），语义中性经 10 组查询 + 38 个 schema 对象比对证明；`server.py`/`client.py` 退出自动 checkpoint 防复发；doctor 新增空闲页告警 —— 并**更正了 §5.5.3 的收益假设**（删列/删边合计 < 1 MB） |
 
 | 尚未开始 | 对应动作 |
 | --- | --- |
@@ -397,6 +398,8 @@ KINDS = {
 1. **版本单一入口**：以 `System/schema.json` 为唯一记录；`perf_index_db.py:13-14`、`config.py:20`、`billing.py:31` 改为读它；磁盘版本 > 代码版本时**拒绝写入**并提示（防旧 exe 污染新数据）。
 2. **迁移框架**：`core/index/migrations/NNNN_*.py`，声明 `from/to/apply/verify/rollback`；执行前自动备份到 `System/Backups/<ts>/`；幂等；`--dry-run` 打印影响面。**替换**现在 `document_links`/`documents_fts` 的 DROP 重建式迁移。
 3. **索引瘦身**：`graph_edges` 不再重复物化 tag/project 边（可由 `document_tags`/`document_projects` 连接得到），去掉 typed 边的通用镜像边；`documents_fts` 只保留 `doc_id + seg`（其余四列无人读），正文真值只在 md。
+   > **v261009 实测更正（重要）**：这一条的收益被高估了。实测 `index.sqlite` **35.70 MB 里只有 7.19 MB 是活数据**——`PRAGMA freelist_count` = **7299/9139 页（80%）是空闲页**，另有 **21.39 MB 的 `-wal`**。而本条能省的：`tag`+`project` 边 1356 行 ≈ **0.25 MB**、FTS 四列 ≈ **0.8 MB**，合计 < 1 MB。
+   > 真正的瘦身是**维护**：`python -m core.index.maintain --checkpoint --vacuum` 已实测把 35.70 MB + 21.39 MB WAL 收到 **7.14 MB + 0**（回收 ≈49.9 MB），且经 10 组查询 + 38 个 schema 对象比对证明语义中性；`server.py`/`client.py` 退出时自动 checkpoint 防复发。删列/删边仍可做（省写放大），但**不该作为瘦身的主要手段**。
 4. **插件数据的归属**：插件自有派生数据一律进 `System/Cache/<plugin_id>.sqlite`（RAG 就是 `rag.sqlite`），**不得**写 `index.sqlite`；插件启用/停用时由内核负责建库与清理。
 5. **体检 `python -m core.doctor`**：磁盘 md 数 vs `documents` 行数；`id_prefix_mismatch`；缺法定日期；**status/kind_marks 越界**；未声明字段；title ≠ 首个 H1；断链/单向关系；`document_projects` 幽灵行；`System/Trash/` 目录 vs kind 列表；同步冲突文件；Cache 体积与 WAL；**孤儿派生库**（无对应插件的 `*.sqlite`）。
    - 注：旧 TODO 曾记「25 条实验不在索引」，实测**已修复**（`documents.experiment=25`），该项可关闭。

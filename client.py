@@ -209,6 +209,15 @@ def main():
     print(f"[client] {now()} server ready (+{time.time() - t0:.1f}s) at {url}")
     _run_window(url, cfg, httpd=httpd)
 
+    # v261009 · A3：窗口关闭 = 服务收尾，顺手 checkpoint 索引 WAL（实测曾累积到 21.4 MB）
+    try:
+        from app import indexer
+        info = indexer.checkpoint()
+        if info.get("wal_pages"):
+            print(f"[client] {now()} index WAL checkpointed: {info['wal_pages']} pages")
+    except Exception as exc:
+        print(f"[client] {now()} index checkpoint skipped: {exc}")
+
 
 if __name__ == "__main__":
     main()

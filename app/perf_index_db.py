@@ -47,6 +47,27 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def checkpoint(truncate: bool = True) -> dict:
+    """关库前把 WAL 并回主库并截断（v261009 · A3）。
+
+    长驻服务不关库时 WAL 会持续增长——实测 `index.sqlite-wal` 曾累积到 **21.4 MB**
+    （比库体量还大），而库文件本身 80% 是空闲页。关库时 checkpoint(TRUNCATE)
+    把这两项一起收拾干净；`python -m core.index.maintain` 可随时手动执行同一动作。
+    """
+    path = _db_path()
+    if not path.is_file():
+        return {"skipped": True, "reason": "索引库尚未建立"}
+    mode = "TRUNCATE" if truncate else "PASSIVE"
+    conn = sqlite3.connect(str(path), timeout=5.0)
+    try:
+        busy, log_pages, done = conn.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
+        return {"mode": mode, "busy": busy, "wal_pages": log_pages, "checkpointed": done}
+    except sqlite3.Error as exc:
+        return {"error": str(exc)}
+    finally:
+        conn.close()
+
+
 def _json_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(x).strip() for x in value if str(x).strip()]

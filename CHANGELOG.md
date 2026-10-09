@@ -37,7 +37,12 @@
   - **新增硬护栏**：磁盘库版本**高于**代码版本时拒绝写入并给出可执行提示（防旧 exe 打开新 Workspace 把结构改坏）；`core.doctor` 新增「索引·结构迁移状态」一并报出该状态与待执行迁移。
   - 备份走 SQLite 自己的 backup API（WAL 下也得到一致快照），落在 `Workspace/System/Backups/<时间戳>-pre-v<N>.sqlite`。
   - **验收**（`.scratch/tmp/verify_migrations.py`，24 项全通过）：在合成的 v1 旧库上 —— dry-run 后结构与版本**逐字节不变**；apply 补出 `attachment`/`role` 两列并升版到 3、`documents` 数据保留、`document_links` 按设计重建（纯派生数据，由索引器回填）；二次执行为 no-op 且 verify 仍通过；`rollback` 可逆回 v1（两列移除、版本回落）；**全新库**走 DDL 后迁移为 no-op、标记需全量建索引；`_init_db` 对版本 99 的库抛 `MigrationError`。CLI 端到端（dry-run → apply → 再 apply → rollback）实跑通过。真实库只读 dry-run 确认 `v3 → v3 已是最新`；服务侧 `indexer.initialize()` 实跑后索引仍为 **199 条 / 1854 边**、八类 `document_links.role` 分布不变。
-- **未做**：`A2 剩余部分`（把补丁并入主题模块、`window.fetch` 包装改显式分页 API、两个 canvas 先画后弃）、`A9/A10 钩子倒置`、doctor 的修复动作（`--fix-*`）、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具。
+- **A3 派生数据治理：索引维护工具 + 关库 checkpoint + 实测瘦身 ≈49.9 MB**：
+  - 新增 `core/index/maintain.py`：`python -m core.index.maintain [--checkpoint] [--vacuum] [--json]`（默认只读统计）。checkpoint 走 `PRAGMA wal_checkpoint(TRUNCATE)`；VACUUM 前自动备份到 `System/Backups/`；VACUUM 需要独占访问，工作台运行时会被锁挡住并给出提示。
+  - **实测发现（更正方案 §5.5.3 的假设）**：索引库文件 35.70 MB，而 `dbstat` 逐对象求和只有 **7.19 MB 活数据** —— `PRAGMA freelist_count` 显示 **7299/9139 页是空闲页（80%，28.51 MB）**，另有 **21.39 MB** 的 `-wal` 未 checkpoint。因此「索引瘦身」的真正收益在**维护**，不在原先假设的「删可推导边 / 砍 FTS 列」：`tag`+`project` 边 1356 行 ≈ 0.25 MB、FTS 的 `title/body/tags/projects` 四列 ≈ 0.8 MB，两项合计不到 1 MB。
+  - **已执行**（执行前备份 `Workspace/System/Backups/20261009-155909-pre-vacuum.sqlite`，37.4 MB）：WAL 21.39 MB → 0，库文件 35.70 MB → **7.14 MB**，合计回收 **≈49.9 MB**。**语义中性已程序证明**：原库 vs 处理后副本逐项比对 10 组查询（条目总数、按 kind 计数、八类 `document_links.role`、`graph_edges` 关系分布、tags/marks/projects 行数、两组 FTS 关键词命中、标题样本）与 38 个 schema 对象**完全一致**；处理后 `kb_smoke` 全绿（199 条 / 1854 边）、`doctor` 结果不变、运行中的实例仍返回正确计数。
+  - **防止复发**：新增 `app/perf_index_db.checkpoint()` 与 `indexer.checkpoint` 门面；`server.py` 退出与 `client.py` 窗口关闭时自动 `wal_checkpoint(TRUNCATE)`；`core.doctor` 新增「索引·体积与空闲页」检查（空闲页 >30% 或 WAL >30% 库体量时告警并给出维护命令，已用合成膨胀库正向验证）。
+- **未做**：`A2 剩余部分`（把补丁并入主题模块、`window.fetch` 包装改显式分页 API、两个 canvas 先画后弃）、`A9/A10 钩子倒置`、doctor 的修复动作（`--fix-*`）、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具。`index-冲突-Moxise_Win11.sqlite`（6.8 MB，已损坏的冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

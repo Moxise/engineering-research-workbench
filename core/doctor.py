@@ -292,9 +292,23 @@ def check_workspace_hygiene(ws: Path, rep: Report) -> None:
         files = {p.name: p.stat().st_size for p in cache.glob("*") if p.is_file()}
         main = files.get("index.sqlite", 0)
         wal = files.get("index.sqlite-wal", 0)
-        rep.add("索引·磁盘体积", "warn" if wal > main * 0.3 else "info", 1,
-                f"index.sqlite {main / 1048576:.1f} MB + WAL {wal / 1048576:.1f} MB"
-                + ("（WAL 偏大，建议关库时 wal_checkpoint(TRUNCATE)）" if wal > main * 0.3 else ""))
+        # 空闲页与 WAL：实测曾有「文件 35.7 MB / 活数据 7.19 MB（80% 空闲页）+ WAL 21.4 MB」，
+        # 真正的瘦身在维护（VACUUM + checkpoint），不在删列/删边——见 core/index/maintain.py
+        free_ratio = 0.0
+        live = 0
+        try:
+            from .index import maintain as index_maintain
+
+            st = index_maintain.stats(cache / "index.sqlite")
+            free_ratio = float(st.get("free_ratio") or 0.0)
+            live = int(st.get("live_bytes") or 0)
+        except Exception:
+            pass
+        bloated = free_ratio > 0.3 or (main and wal > main * 0.3)
+        rep.add("索引·体积与空闲页", "warn" if bloated else "info", 1,
+                f"文件 {main / 1048576:.1f} MB（活数据 {live / 1048576:.1f} MB、空闲页 "
+                f"{100 * free_ratio:.0f}%）+ WAL {wal / 1048576:.1f} MB"
+                + ("；建议 `python -m core.index.maintain --checkpoint --vacuum`" if bloated else ""))
         sqlites = [n for n in files if n.endswith(".sqlite")]
         orphans = [n for n in sqlites if n != "index.sqlite"]
         rep.add("索引·派生库归属", "info", len(orphans),

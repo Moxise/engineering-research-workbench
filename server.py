@@ -629,6 +629,13 @@ def main():
     finally:
         restart_requested = bool(getattr(server, "restart_requested", False))
         server.server_close()
+        # v261009 · A3：关库前 checkpoint，避免 -wal 无限增长（实测曾累积到 21.4 MB）
+        try:
+            info = indexer.checkpoint()
+            if info.get("wal_pages"):
+                print(f"Index WAL checkpointed: {info['wal_pages']} pages")
+        except Exception as exc:  # 关库收尾失败不应阻断退出
+            print(f"Index checkpoint skipped: {exc}", file=sys.stderr)
     if restart_requested:
         print("Restarting service...")
         if getattr(sys, "frozen", False):
