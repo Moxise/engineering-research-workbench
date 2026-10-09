@@ -283,7 +283,25 @@
     setTimeout(decorate, 0);
   });
 
-  const observer = new MutationObserver(() => requestAnimationFrame(decorate));
+  /* v261009p · 全局 MutationObserver 原先每次 DOM 变更都排一个 decorate()。
+     PDF 渲染/Agent 流式输出会在一帧内产生大量 childList 变更，导致重复全局 querySelector 扫描。
+     改为单帧合并，并且仅在可能影响性能装饰器的节点变化时调度。 */
+  let decorateQueued = false;
+  const queueDecorate = () => {
+    if (decorateQueued) return;
+    decorateQueued = true;
+    requestAnimationFrame(() => { decorateQueued = false; decorate(); });
+  };
+  const observer = new MutationObserver((records) => {
+    for (const rec of records) {
+      if (rec.type !== 'childList') continue;
+      const target = rec.target;
+      if (!(target instanceof Element)) { queueDecorate(); return; }
+      /* Agent 消息、PDF canvas/批注层的高频增删与 docs/graph/folder 装饰无关，直接忽略。 */
+      if (target.closest?.('#erw-fab-panel,.lit-pages,.lit-reader,.lit-side')) continue;
+      queueDecorate(); return;
+    }
+  });
   window.addEventListener('DOMContentLoaded', () => {
     observer.observe(document.body, {childList: true, subtree: true});
     decorate();
