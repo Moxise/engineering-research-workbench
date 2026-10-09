@@ -296,8 +296,8 @@ project_ids: ["proj_a0af8ee9d4db"]
 | 层 | 内容 | 理由 |
 | --- | --- | --- |
 | **核心 Core**（零插件完整可跑） | 条目 CRUD + 原子写 + 回收站；命名/存放/字段契约与校验；SQLite 索引 + **中文 FTS 关键词检索** + 关系数据；项目 + 待办 + 活动；界面壳；**文献梳理**（条目/元数据/阅读状态/BibTeX/互链）；**文献阅读基础**（打开/翻页/批注/笔记）；**AI 基础**（对话 + 6 个工具 + 草稿确认流）；数据留档（登记与关联）；汇总导出（Markdown 知识包 / BibTeX） | 逐条对上 [SCOPE §2.1](SCOPE.md) 的 8 条核心功能与 §2.4 判据 |
-| **附属**（随包发布、设置里可关） | 知识图谱可视化；里程碑 3D 时间线；阅读区 AI 助手；阅读中知识关联；悬浮球助手；用量计费；会话归档/历史回看；术语建档流水线；mermaid/mathjax 按需渲染 | 关掉不影响核心闭环（SCOPE §2.2） |
-| **插件**（可自由增删） | 语义检索 RAG（现处 `feature/rag-v261009`）；天气；RSS；专注计时；**数据视图（指标表/曲线）**；**报告导出（DOCX/PDF）**；文献库同步；备份/快照；统计绘图桥 | 与数据结构无关或纯展示/外部集成（SCOPE §2.3） |
+| **附属 = 官方随包插件**（**默认开**、设置里可关；与插件同机制、同等隔离要求） | 天气；RSS 科研资讯；专注计时；知识图谱可视化；里程碑 3D 时间线；阅读区 AI 助手；阅读中知识关联；悬浮球助手；用量计费；会话归档/历史回看；术语建档流水线；mermaid/mathjax 按需渲染 | 属科研主线或官方维护 → 默认开；关掉不影响核心闭环（SCOPE §2.2） |
+| **插件 = 可选插件**（**默认关**、不随包、可自由增删） | 语义检索 RAG（现处 `feature/rag-v261009`）；**数据视图（指标表/曲线）**；**报告导出（DOCX/PDF）**；文献库同步；备份/快照；统计绘图桥 | 与数据结构无关或纯展示/外部集成（SCOPE §2.3） |
 
 > ※ 计费与悬浮球有**前置条件**：见 P14，须先把 `app.js` 的硬依赖倒置成钩子，否则摘除即坏页面。
 
@@ -422,6 +422,8 @@ plugins/<plugin_id>/
 {
   "id": "weather", "name": "天气", "version": "1.0.0",
   "api_version": 1, "core_min": "v261010", "kind": "inprocess",
+  "distribution": "bundled",
+  "default_enabled": true,
   "entry": "backend.py",
   "permissions": ["net:http", "storage:own", "config:own"],
   "nav": [{"id": "weather", "label": "天气", "mount": "web/panel.js"}],
@@ -432,6 +434,8 @@ plugins/<plugin_id>/
   "events": ["doc.updated"]
 }
 ```
+
+> `distribution` + `default_enabled` 就是「附属 vs 可选插件」的**唯一区别**：`bundled` + `true` = **附属**（随包、默认开，如天气 / RSS / 专注计时）；`optional` + `false` = **可选插件**（默认关，如 RAG、数据视图、报告导出）。两者在加载、注册、隔离、卸载上走**完全相同**的代码路径。
 
 重型插件的 `"kind": "process"` 变体（RAG 若重建就走这支）：
 
@@ -464,7 +468,7 @@ plugins/<plugin_id>/
 
 | # | 不变量 | 如何自动验证 |
 | --- | --- | --- |
-| I1 | 内核零插件可完整启动与使用 | `tools/plugin_check.py --assert-core-only`：`plugins/` 置空 + `--no-plugins` 启动后跑 `tools/kb_smoke.py` 全绿 |
+| I1 | 内核**零插件**可完整启动与使用（含全部附属插件一起关闭） | `tools/plugin_check.py --assert-core-only`：`plugins/` 置空 + `--no-plugins` 启动后跑 `tools/kb_smoke.py` 全绿 |
 | I2 | 依赖方向单向：内核不得 import 插件 | 静态检查 `core/**`、`server.py` 无 `plugins.` / `import_module("plugins…")` |
 | I3 | 插件只依赖稳定门面 `core_api` | 插件只 `from core_api import …`；直接 import `core.model.store` 等私有模块 → 拒绝加载 |
 | I4 | 单插件失败不影响内核 | 每个 hook 包 `try/except + 超时`；连续失败自动停用并在健康面板可见 |
