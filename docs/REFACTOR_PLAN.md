@@ -284,6 +284,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 | **P1 补齐**（本轮） | 写入期字段校验 `core/contracts/validate.py`（F001–F007）：越界 status / 越界标记 / 强制标记 / 日期格式 / 未声明字段；`store` 与 MCP 两条写入路径消费同一份校验器，`create_doc` 按契约补齐标记，`update_doc` 白名单改由契约派生；`kb_smoke` 新增 14 条断言（第 7 组）全绿 —— **P16 的根因（写入期零校验）已堵住** |
 | **P3 第二件**（`core/index/`） | 索引结构迁移框架：`core/index/migrations/m0001,m0002` + `core/index/migrate.py`（默认 dry-run、备份、验证、可回滚），**替换** `_init_db()` 里的四段内联 if；`SCHEMA_VERSION` 改为读 `migrate.TARGET_VERSION`（版本单源少一处）；新增「磁盘版本高于代码 → 拒绝写入」护栏，doctor 同步报出 |
 | **A3 派生数据治理**（`core/index/maintain.py`） | 索引维护工具（checkpoint / vacuum，默认只读统计，VACUUM 前自动备份）；**实测回收 ≈49.9 MB**（35.70 MB + 21.39 MB WAL → 7.14 MB + 0），语义中性经 10 组查询 + 38 个 schema 对象比对证明；`server.py`/`client.py` 退出自动 checkpoint 防复发；doctor 新增空闲页告警 —— 并**更正了 §5.5.3 的收益假设**（删列/删边合计 < 1 MB） |
+| **P29 前端闸门**（`tools/ui_smoke.py`） | 真浏览器逐路由走查（不截图）：首屏 console error / 失败请求 / 重型库请求必须为 0，`app.js` 声明的**每个路由**都点得开且渲染出内容，`window.erwVendor` 与补丁接缝齐备。**不下载浏览器**（复用系统 Chrome/Edge 或 ms-playwright 里的 chromium）。实测：当前代码新起实例上 **17/17 路由通过、0 error、0 失败请求** —— A2/A9/A10 与 §6.3 插件面板从此可验收 |
 
 | 尚未开始 | 对应动作 |
 | --- | --- |

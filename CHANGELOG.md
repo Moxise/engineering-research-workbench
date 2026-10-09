@@ -42,7 +42,12 @@
   - **实测发现（更正方案 §5.5.3 的假设）**：索引库文件 35.70 MB，而 `dbstat` 逐对象求和只有 **7.19 MB 活数据** —— `PRAGMA freelist_count` 显示 **7299/9139 页是空闲页（80%，28.51 MB）**，另有 **21.39 MB** 的 `-wal` 未 checkpoint。因此「索引瘦身」的真正收益在**维护**，不在原先假设的「删可推导边 / 砍 FTS 列」：`tag`+`project` 边 1356 行 ≈ 0.25 MB、FTS 的 `title/body/tags/projects` 四列 ≈ 0.8 MB，两项合计不到 1 MB。
   - **已执行**（执行前备份 `Workspace/System/Backups/20261009-155909-pre-vacuum.sqlite`，37.4 MB）：WAL 21.39 MB → 0，库文件 35.70 MB → **7.14 MB**，合计回收 **≈49.9 MB**。**语义中性已程序证明**：原库 vs 处理后副本逐项比对 10 组查询（条目总数、按 kind 计数、八类 `document_links.role`、`graph_edges` 关系分布、tags/marks/projects 行数、两组 FTS 关键词命中、标题样本）与 38 个 schema 对象**完全一致**；处理后 `kb_smoke` 全绿（199 条 / 1854 边）、`doctor` 结果不变、运行中的实例仍返回正确计数。
   - **防止复发**：新增 `app/perf_index_db.checkpoint()` 与 `indexer.checkpoint` 门面；`server.py` 退出与 `client.py` 窗口关闭时自动 `wal_checkpoint(TRUNCATE)`；`core.doctor` 新增「索引·体积与空闲页」检查（空闲页 >30% 或 WAL >30% 库体量时告警并给出维护命令，已用合成膨胀库正向验证）。
-- **未做**：`A2 剩余部分`（把补丁并入主题模块、`window.fetch` 包装改显式分页 API、两个 canvas 先画后弃）、`A9/A10 钩子倒置`、doctor 的修复动作（`--fix-*`）、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）本轮只取回两个只读工具。`index-冲突-Moxise_Win11.sqlite`（6.8 MB，已损坏的冲突副本）**未删**——删文件需你确认。
+- **A13 收尾：恢复「页面能不能点开」的自动闸门**（P29，前几轮唯一缺失的验证能力）：
+  - 新增 `tools/ui_smoke.py` —— 真浏览器逐路由走查，**只读 DOM/控制台/网络，不截图**（文本优先）。断言：首屏无 console error / 无失败请求；`web/app.js` 里 `NAV_GROUPS` 声明的**每个路由**都点得开且渲染出内容（期望路由从 `app.js` 解析，不另抄清单）；首屏**不请求** mathjax/mermaid（A1 的按需加载是硬约束）；`window.erwVendor` 与补丁接缝（`ERWLiterature`/`ERWBilling`/`ERWFabTimeline`/`ERWNav`）齐备。支持 `--base-url` / `--json` / `--strict`。
+  - **不要求下载浏览器**：脚本复用机器上已有的 Chrome / Edge / `ms-playwright` 里的 chromium（也可用 `ERW_BROWSER` 指定），只依赖 `playwright` 这个 Python 包。
+  - **实测结果**：对**用当前代码新起的实例**（备用端口 8799）走查 —— 页面标题「概览 · 科研工作台」，**17 个路由全部可渲染**、console error **0**、失败请求 **0**、首屏重型库请求 **0**；实验页标题「实验」并渲染出真实实验内容（基线对齐在真实 UI 中生效）。同一脚本对 8765 上的旧实例同样全绿。
+  - 顺带核实 `tools/shot_page.py` 在本机可直接用（它自己探测 Windows/macOS/Linux 的 Chrome/Edge 路径，不依赖 playwright）：实拍一张裁剪图，`1000x700 ≈428 tokens → 521x576 ≈243 tokens`。
+- **未做**：`A2 剩余部分`（把补丁并入主题模块、`window.fetch` 包装改显式分页 API、两个 canvas 先画后弃）、`A9/A10 钩子倒置`、doctor 的修复动作（`--fix-*`）、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）只取回两个只读工具。`index-冲突-Moxise_Win11.sqlite`（6.8 MB，已损坏的冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 
