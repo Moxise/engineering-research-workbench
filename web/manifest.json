@@ -4,9 +4,9 @@
   "css": [
     {
       "file": "styles.css",
-      "v": "261009i",
+      "v": "261009j",
       "theme": "base",
-      "note": "v261009i · 资讯相关样式（news-* / rss-* / source-row）已随功能搬入 plugins/rss/web/panel.css 并按 [data-plugin=\"rss\"] 作用域；上版：设置页导航 sticky 阈值对齐紧凑标题栏"
+      "note": "v261009j · 天气专有样式（status-dot、窄屏隐藏）已随功能搬入 plugins/weather/web/panel.css 并按 [data-plugin=\"weather\"] 作用域；上版：资讯样式搬入 plugins/rss"
     },
     {
       "file": "literature.css",
@@ -77,9 +77,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009e",
+      "v": "261009f",
       "theme": "base",
-      "note": "v261009e · 资讯（RSS）搬出内核成为插件 plugins/rss（删导航项、PAGE_META、路由分支、renderNews、设置页资讯源 tab 与 sourceRow 助手）；上版：专注计时搬出内核"
+      "note": "v261009f · 天气搬出内核成为插件 plugins/weather（删顶栏卡片、loadWeather、设置页天气 tab；新增顶栏槽位挂载 mountSlots 与 ERWPanels 槽位面板支持）；上版：资讯搬出内核"
     },
     {
       "file": "plugin-host.js",

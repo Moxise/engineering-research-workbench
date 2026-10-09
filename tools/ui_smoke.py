@@ -176,20 +176,27 @@ def main(argv: list[str] | None = None) -> int:
                 fails.append(f"ERWDom 订阅方过少（{dom_seam.get('subscribers')}）——补丁可能没接上接缝")
             notes.append(f"DOM 变更接缝：1 个 observer / {dom_seam.get('subscribers')} 个订阅方")
 
-        # 面板注册表（§6.3）：内核声明的路由 + 面板自登记的路由，都必须真的挂到侧栏上
-        panels = page.evaluate("() => (window.ERWPanels && window.ERWPanels.list ? window.ERWPanels.list() : []).map(p => p.id)")
-        panel_ids = [str(p) for p in panels]
-        nav_routes = [r for r in page.eval_on_selector_all(".nav-item", "els => els.map(e => e.dataset.route)") if r]
+        # 面板注册表（§6.3）：导航面板必须有侧栏项并可走查；槽位面板必须有挂载点
+        panels = page.evaluate(
+            "() => (window.ERWPanels && window.ERWPanels.list ? window.ERWPanels.list() : [])"
+            ".map(p => ({id: p.id, slot: p.slot || ''}))"
+        )
         if not page.evaluate("() => !!window.ERWPanels && typeof window.ERWPanels.register === 'function'"):
             fails.append("window.ERWPanels 面板注册表缺失（§6.3：功能无法自行登记导航与页面）")
-        for pid in panel_ids:
+        nav_panels = [str(p["id"]) for p in panels if not p.get("slot")]
+        slot_panels = [(str(p["id"]), str(p["slot"])) for p in panels if p.get("slot")]
+        nav_routes = [r for r in page.eval_on_selector_all(".nav-item", "els => els.map(e => e.dataset.route)") if r]
+        for pid in nav_panels:
             if pid not in nav_routes:
-                fails.append(f"面板 {pid} 已登记但未出现在侧栏导航里")
-        notes.append(f"面板注册表登记 {len(panel_ids)} 个：{panel_ids}")
+                fails.append(f"导航面板 {pid} 已登记但未出现在侧栏导航里")
+        for pid, slot in slot_panels:
+            if not page.query_selector(f'[data-erw-slot="{slot}"] [data-plugin="{pid}"]'):
+                fails.append(f"槽位面板 {pid} 未挂载到槽位 {slot}")
+        notes.append(f"面板注册表：导航面板 {nav_panels}；槽位面板 {slot_panels}")
 
         rendered: dict[str, str] = {}
-        # 走查清单 = 内核声明的路由 + 面板自登记的路由（后者从运行期取，避免另抄一份）
-        walk_routes = routes + [p for p in panel_ids if p not in routes]
+        # 走查清单 = 内核声明的路由 + 导航面板（槽位面板没有页面，不在此列）
+        walk_routes = routes + [p for p in nav_panels if p not in routes]
         for route in walk_routes:
             before = len(console)
             try:

@@ -79,13 +79,6 @@ DEFAULT_APP_CONFIG = {
     "port": 8765,
     "auto_open_browser": True,
     "workspace": "Workspace",
-    "weather": {
-        "enabled": True,
-        "location": "天津市南开区",
-        "latitude": 39.105,
-        "longitude": 117.15,
-        "timezone": "Asia/Shanghai",
-    },
     "ui": {
         "theme": "light",
         "sidebar_pinned_groups": ["core"],

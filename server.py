@@ -15,7 +15,6 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from app import config
 from app import store
 from app import todos
-from app import weather
 from app import workspace
 from app import agent
 from app import agent_tools  # v260930 · M1 Agent 工具调用层
@@ -284,12 +283,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(indexer.graph_neighborhood(root, depth))
         if path == "/api/todos":
             return self.send_json(indexer.list_todos())
-        if path == "/api/weather":
-            force = (q.get("force") or ["0"])[0] == "1"
-            return self.send_json(weather.current(force=force))
-        if path == "/api/weather/geocode":
-            name = (q.get("name") or [""])[0]
-            return self.send_json(weather.geocode(name))
         if path == "/api/search":
             query = (q.get("q") or [""])[0]
             limit = _q_int(q, "limit", 60, 1, 120)
@@ -347,7 +340,6 @@ class Handler(BaseHTTPRequestHandler):
             data = config.reload_all()
             workspace.reset_runtime_state()
             root = workspace.ensure_workspace(run_migration=False)
-            weather.clear_cache()
             if data.get("app", {}).get("workspace_migration", {}).get("enabled", True):
                 migration = workspace.migrate_legacy(root, force_scan=True)
             else:

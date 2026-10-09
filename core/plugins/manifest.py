@@ -37,6 +37,10 @@ TOOL_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 CORE_MIN_RE = re.compile(r"^v?\d+(\.\d+)*$")
 HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 
+#: 前端槽位（§6.3）：内核提供挂载点，插件把组件画进去，不改内核 DOM。
+#: 与 `web/app.js` 的 `ERWPanels.SLOTS` 对应；加槽位是**有意的动作**（须同步 PLUGIN_SPEC §6.3）。
+KNOWN_SLOTS: frozenset[str] = frozenset({"topbar"})
+
 
 def _issue(code: str, level: str, message: str, fix: str = "") -> dict[str, str]:
     out = {"code": code, "level": level, "message": message}
@@ -260,6 +264,11 @@ def validate(
                     issues.append(_issue("P016", "error", f"nav.mount `{mount}` 必须是插件目录内的相对路径", ""))
                 elif plugin_dir is not None and not (Path(plugin_dir) / mount).is_file():
                     issues.append(_issue("P016", "error", f"nav.mount 指向的文件不存在：{mount}", ""))
+                # P019 · slot：槽位面板（不走导航，画进内核给的槽位）
+                slot = str(item.get("slot") or "").strip()
+                if slot and slot not in KNOWN_SLOTS:
+                    issues.append(_issue("P019", "error", f"nav.slot `{slot}` 不是已知槽位",
+                                         "当前支持：" + " / ".join(sorted(KNOWN_SLOTS))))
 
     # P017 · ui:panel 权限与 nav 声明要一致（声明面板却不要 ui:panel 权限，多半是漏了）
     if isinstance(nav, list) and nav and "ui:panel" not in [str(p) for p in (permissions or [])]:

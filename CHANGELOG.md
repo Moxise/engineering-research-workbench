@@ -104,7 +104,14 @@
   - 7 处改写：`v260922-performance.js`（带 ignore 过滤）、`v260922-research-pages.js` 的 5 处（projects / overview-editor-tools / overview-graph / graph-performance / agent-profiles，各自保留 `root` 作用域）、`v260922-layout-bugfixes.js`。**保留** `layout-bugfixes.js` 中那个只观察单卡片行内样式的**属性观察**（语义不同，不属于本轮范围）。
   - **不变量进闸门**：`web_check` 禁止在 `dom-seam.js` 之外自建「配置含 `childList`」的 MutationObserver（负向用例 5 例已验证：自建能抓到、属性观察与注释里的提及不误报）；`ui_smoke` 在运行期断言 observer 实例 == 1、订阅方 ≥ 5。装配清单新增 `dom-seam.js` 并置于所有补丁之前（补丁在求值期就要注册）。
   - **验收**（`.scratch/tmp/verify_dom_seam.py`，8 项全通过，真浏览器）：observer 恰好 **1** 个、订阅方 **7** 个（7 处全部接上）· **作用域生效**（改侧栏不唤醒 `#main` 作用域的订阅方）· **按帧合并**（一帧 3 次变更 → 1 次回调）· **隔离生效**（故意抛异常的订阅方不影响其它，且不泄漏 console error）· **装饰等价** —— 文档分页器「1/2 页 · 共 90 条」与图谱状态条「当前加载 199 / 199」仍由接缝驱动出现。`ui_smoke` 17/17、A10 行为验证、RSS/focus 插件 E2E 全部回归通过。
-- **未做**：天气搬成插件（topbar 组件尚无扩展点，需先加 `slots` 并写进 PLUGIN_SPEC）、插件**写**工具的草稿确认流分支、MCP stdio 服务侧的插件工具、`settings_schema` 通用表单、`ctx.jobs`/`ctx.events`、`A2 剩余`、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
+- **§6/P6 第二件：把「天气」整体搬成插件，并新增顶栏槽位扩展点**：
+  - **新扩展点（槽位面板）**：`ERWPanels.register({id, slot:'topbar', renderSlot(container)})` —— 内核在顶栏提供挂载点 `#topbar-slot[data-erw-slot="topbar"]`，并给容器加 `data-plugin="<id>"`，插件只在这个容器里画东西（**不去改内核 DOM**），样式按 §2 作用域。已知槽位在 `core/plugins/manifest.KNOWN_SLOTS`（新增 `P019` 校验）与 `app.js` 的 `ERWPanels.SLOTS` 两处对齐。
+  - 新增 [`plugins/weather/`](plugins/weather/plugin.json)：`backend.py`（`app/weather.py` **原样搬入**：天气码表 / 缓存 TTL / 地名解析 / 离线降级）、`web/panel.js`（顶栏卡片 + 设置模态）、`web/panel.css`（天气专有样式）。**配置迁移**：首次运行把内核 `config/app.json` 的 `weather` 段搬进 `config/plugins/weather.json`（实测迁移到用户真实地点「上海市浦东新区」）；缓存改到 `System/Plugins/weather/`。
+  - **内核删除**：`app/weather.py`、`GET /api/weather`、`GET /api/weather/geocode`、`config.py` 的 `weather` 默认段、`app.js` 的 `loadWeather` + 设置页天气 tab + 顶栏卡片、`styles.css` 的 `.status-dot` 与窄屏隐藏规则。
+  - **顺带修掉一个真 bug（被闸门当场抓出）**：槽位面板曾被 `navGroups()` 一并塞进侧栏导航，于是冒出一个没有页面的 `#weather` 路由，并在 `navigate()` 抛 `render is not a function`。现在 `navGroups()` 跳过槽位面板、`navigate()` 用 `?.render` 守卫。
+  - **闸门同步**：`ui_smoke` 区分**导航面板**（须出现在侧栏、须可走查）与**槽位面板**（须真的挂到对应槽位）；`plugin_check` 的面板契约检查覆盖全部插件；`manifest.py` 新增 `P019`（`nav.slot` 必须是已知槽位）。
+  - **验收**（`.scratch/tmp/verify_weather_plugin.py`，16 项全通过）：插件清单含 weather（面板 + 样式 URL）· 配置路由可用且已迁移真实地点 · 内核 `/api/weather` 已 404 · **顶栏槽位容器存在且插件把自己的卡片画了进去** · 卡片文本已填充（离线降级显示「天气不可用」）· **插件样式生效**（status-dot 7px 圆点）· 点卡片弹出**插件自己的设置模态**（地点/经纬度/时区/启用 + 搜索坐标 + 保存并刷新）· 保存落盘到插件配置 · 内核 Python 零 weather 痕迹 · `index.html` 只剩槽位 · 全程 0 console error / 0 失败请求。
+- **未做**：插件**写**工具的草稿确认流分支、MCP stdio 服务侧的插件工具、`settings_schema` 通用表单、`ctx.jobs`/`ctx.events`、`A2 剩余`、`doctor --fix-*`。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

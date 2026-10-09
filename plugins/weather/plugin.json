@@ -1,0 +1,22 @@
+{
+  "id": "weather",
+  "name": "天气",
+  "version": "1.0.0",
+  "description": "顶栏实况天气卡片（Open-Meteo，无需 API Key）",
+  "api_version": 1,
+  "core_min": "v261009",
+  "kind": "inprocess",
+  "distribution": "bundled",
+  "default_enabled": true,
+  "entry": "backend.py",
+  "permissions": ["net:http", "storage:own", "config:own"],
+  "nav": [
+    { "id": "weather", "label": "天气", "mount": "web/panel.js", "style": "web/panel.css", "slot": "topbar" }
+  ],
+  "routes": [
+    { "method": "GET", "path": "current" },
+    { "method": "GET", "path": "geocode" },
+    { "method": "GET", "path": "config" },
+    { "method": "POST", "path": "config" }
+  ]
+}

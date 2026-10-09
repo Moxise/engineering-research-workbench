@@ -57,19 +57,39 @@
      目标：**内核不认识具体功能**——功能自己登记导航项、标题与渲染函数，内核只负责挂载。
      这解掉的是 P14/§6.7 红线 5「内核功能依赖某个补丁才能工作」：此前 app.js 里硬编码了
      用量计费（导航项 + PAGE_META + 路由分支 + 页面壳），删掉计费模块就会白屏。
-     面板形如：{ id, group, label, icon, eyebrow, title, before?, render(mainEl) } */
+     面板形如：{ id, group, label, icon, eyebrow, title, before?, render(mainEl) }
+     槽位面板形如：{ id, slot: 'topbar', label, renderSlot(containerEl) } —— 画进内核给的槽位 */
   const PANELS = [];
+  const SLOTS = { topbar: true };
   window.ERWPanels = {
     register(panel){
-      if(!panel || !panel.id || typeof panel.render !== 'function')
-        throw new Error('ERWPanels.register 需要 {id, render}');
+      if(!panel || !panel.id) throw new Error('ERWPanels.register 需要 {id, ...}');
       if(PANELS.some(p => p.id === panel.id)) throw new Error('面板 id 重复：' + panel.id);
+      if(panel.slot && !SLOTS[panel.slot]) throw new Error('未知槽位：' + panel.slot);
+      if(panel.slot ? typeof panel.renderSlot !== 'function' : typeof panel.render !== 'function')
+        throw new Error(panel.slot ? '槽位面板需要 renderSlot(container)' : '面板需要 render(main)');
       PANELS.push(panel);
       return panel.id;
     },
     list(){ return PANELS.slice(); },
     get(id){ return PANELS.find(p => p.id === id) || null; },
   };
+
+  /* 槽位挂载：内核把槽位容器交给槽位面板，容器上带 data-plugin=<id> 以便插件样式作用域（§2）。
+     插件只在这个容器里画东西，不去改内核 DOM。 */
+  function mountSlots(){
+    $$('[data-erw-slot]').forEach(host=>{
+      host.querySelectorAll('[data-plugin]').forEach(el=>el.remove());   /* 重挂时先清掉自己上一轮画的 */
+      PANELS.filter(p=>p.slot === host.dataset.erwSlot).forEach(p=>{
+        const box = document.createElement('span');
+        box.className = 'plugin-slot-item';
+        box.dataset.plugin = p.id;
+        host.appendChild(box);
+        try{ p.renderSlot(box); }
+        catch(err){ console.error('[panel] 槽位渲染失败 ' + p.id + '：' + (err && err.message ? err.message : err)); }
+      });
+    });
+  }
 
   const PAGE_META = {
     overview:['CORE WORK','概览'], todos:['CORE WORK','待办'], agent:['CORE WORK','科研 Agent'],
@@ -127,8 +147,10 @@
 
   function navGroups(){
     const groups = NAV_GROUPS.map(g=>({...g, items:[...g.items]}));
-    /* 面板登记项并入导航：默认追加到声明分组末尾；给 before 则插到该路由之前 */
+    /* 面板登记项并入导航：默认追加到声明分组末尾；给 before 则插到该路由之前。
+       槽位面板（如天气的顶栏卡片）不进导航 —— 它画进内核给的槽位，没有自己的页面。 */
     for(const panel of PANELS){
+      if(panel.slot) continue;
       const groupId = panel.group || 'system';
       let group = groups.find(g=>g.id===groupId);
       if(!group){ group = {id:groupId, label:panel.group_label||'扩展', items:[]}; groups.push(group); }
@@ -187,7 +209,7 @@
       else if(route==='graph') await renderGraphPage();
       else if(route==='folders') await renderFolders();
       else if(route==='settings') await renderSettings();
-      else if(window.ERWPanels.get(route)) await window.ERWPanels.get(route).render($('#main')); /* 面板登记项 */
+      else if(window.ERWPanels.get(route)?.render) await window.ERWPanels.get(route).render($('#main')); /* 面板登记项（槽位面板没有 render，不进这里） */
       else if(KIND_ROUTE[route]) await renderDocsPage(KIND_ROUTE[route]);
       else await renderOverview();
       if(seq!==state.navSeq) return false; /* v260930g9c · 已被更新导航取代：视为未完成 */
@@ -1184,7 +1206,7 @@
      （导航项 + 标题 + 渲染函数）。内核不再认识「计费」这个功能。 */
 
   async function renderSettings(){const cfg=await api('/api/config');state.config=cfg;
-    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="weather">天气</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button></aside><section class="card settings-panel" id="settings-panel"></section></div>`;
+    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button></aside><section class="card settings-panel" id="settings-panel"></section></div>`;
     $$('[data-set-tab]').forEach(b=>b.onclick=()=>{$$('[data-set-tab]').forEach(x=>x.classList.toggle('active',x===b));renderSettingsTab(b.dataset.setTab,cfg)});renderSettingsTab('general',cfg);
   }
   function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='general'){
@@ -1208,7 +1230,7 @@
       $('#condition-add').onclick=()=>{$('#condition-editor').insertAdjacentHTML('beforeend',conditionEditRow({label:'',current:0,target:1,unit:''}));wire();};
       $('#academic-save').onclick=async()=>{const graduation_conditions=$$('.condition-edit-row').map(r=>({label:$('[data-cond-label]',r).value.trim(),current:+$('[data-cond-current]',r).value||0,target:+$('[data-cond-target]',r).value||0,unit:$('[data-cond-unit]',r).value.trim()})).filter(x=>x.label);app.academic_profile={...ac,degree_name:$('#ac-degree').value.trim()||'学业进度',start_date:$('#ac-start').value,expected_end_date:$('#ac-end').value,weekly_goal_days:Math.max(1,Math.min(7,+$('#ac-weekly').value||5)),graduation_conditions};await api('/api/config/app',{method:'POST',body:app});state.config.app=app;toast('学业与毕业目标已保存');};
     }
-    else if(tab==='weather'){const w=app.weather||{};p.innerHTML=`<div class="card-head"><div><div class="card-kicker">OPEN-METEO</div><h3>天气设置</h3></div><span class="badge accent">无需 API Key</span></div><div class="form-grid"><div class="field"><label>启用天气</label><select id="w-enabled"><option value="1" ${w.enabled!==false?'selected':''}>启用</option><option value="0" ${w.enabled===false?'selected':''}>关闭</option></select></div><div class="field span-2"><label>地点名称</label><input id="w-location" value="${esc(w.location||'')}"></div><div class="field"><label>纬度</label><input id="w-lat" type="number" step="0.0001" value="${w.latitude??''}"></div><div class="field"><label>经度</label><input id="w-lon" type="number" step="0.0001" value="${w.longitude??''}"></div><div class="field span-2"><label>时区</label><input id="w-tz" value="${esc(w.timezone||'Asia/Shanghai')}"></div></div><div style="margin-top:14px;display:flex;gap:7px"><button class="secondary-btn" id="weather-geocode">根据地点搜索坐标</button><button class="primary-btn" id="weather-save">保存并刷新天气</button></div>`;$('#weather-geocode').onclick=async()=>{const r=await api('/api/weather/geocode?name='+encodeURIComponent($('#w-location').value));if(!r.results?.length)return toast('没有找到地点',true);const x=r.results[0];$('#w-lat').value=x.latitude;$('#w-lon').value=x.longitude;$('#w-tz').value=x.timezone||'auto';toast(`已匹配：${x.name} ${x.admin1||''}`)};$('#weather-save').onclick=async()=>{app.weather={...w,enabled:$('#w-enabled').value==='1',location:$('#w-location').value,latitude:+$('#w-lat').value,longitude:+$('#w-lon').value,timezone:$('#w-tz').value};await api('/api/config/app',{method:'POST',body:app});state.config.app=app;toast('天气设置已保存');loadWeather(true);};}
+
 
     else if(tab==='llm'){const llm=app.llm||{};const fallbackPresets=[{id:'default',label:'默认（不附加参数）',params:{}},{id:'qwen-low',label:'Qwen · 低思考',params:{enable_thinking:true,thinking_budget:1024}},{id:'qwen-off',label:'Qwen · 无思考',params:{enable_thinking:false}}];const presets=Array.isArray(llm.request_presets)&&llm.request_presets.length?llm.request_presets:fallbackPresets;const presetText=JSON.stringify(presets,null,2);p.innerHTML=`<div class="card-head"><div><div class="card-kicker">RESEARCH AGENT / OPENAI COMPATIBLE</div><h3>Agent 与模型接口</h3><p class="row-meta">API Key 不写入工作台配置、不会上传 git。推荐填入本地私密文件 config/secrets.json（自动注入环境变量，保存后自动生效），或直接设置系统环境变量。</p></div><span class="badge ${llm.has_api_key?'accent':'warn'}">${llm.has_api_key?'环境变量已读取':'环境变量未设置'}</span></div><div class="form-grid"><div class="field"><label>接口名称</label><input id="llm-provider" value="${esc(llm.provider_label||'OpenAI-compatible')}" placeholder="OpenAI-compatible"></div><div class="field"><label>启用 Agent</label><select id="llm-enabled"><option value="1" ${llm.enabled?'selected':''}>启用</option><option value="0" ${!llm.enabled?'selected':''}>关闭</option></select></div><div class="field"><label>协议</label><select id="llm-protocol"><option value="chat_completions" ${llm.protocol!=='responses'?'selected':''}>OpenAI-compatible Chat Completions</option><option value="responses" ${llm.protocol==='responses'?'selected':''}>OpenAI Responses API</option></select></div><div class="field span-2"><label>Base URL</label><input id="llm-base" value="${esc(llm.base_url||'https://api.openai.com/v1')}" placeholder="https://api.openai.com/v1"></div><div class="field span-2"><label>API Key 环境变量名称</label><input id="llm-key-env" value="${esc(llm.api_key_env||'OPENAI_API_KEY')}" placeholder="OPENAI_API_KEY"><span class="field-help">推荐把密钥填入项目 config/secrets.json 的 env 对象（本地私密、不上传 git，保存后自动生效）；也可以在启动工作台前设置系统环境变量。工作台不会读取后写回 Key。</span></div><div class="field span-2"><label>模型</label><input id="llm-model" value="${esc(llm.model||'')}" placeholder="模型 ID"></div><div class="field"><label>显示模型思考过程</label><select id="llm-show-reasoning"><option value="1" ${llm.show_reasoning!==false?'selected':''}>显示（接口返回时）</option><option value="0" ${llm.show_reasoning===false?'selected':''}>隐藏</option></select></div><div class="field"><label>多模态 / 截图识别</label><select id="llm-vision"><option value="1" ${llm.vision_enabled?'selected':''}>开启</option><option value="0" ${!llm.vision_enabled?'selected':''}>关闭</option></select><span class="field-help">需模型支持图片输入（如 qwen-vl / gpt-4o 系列）。开启后 PDF 阅读区 AI 面板可用「截取当前页 / 框选区域」代替选中文本，公式与表格提取更准。</span></div><div class="field"><label>超时 / 秒</label><input id="llm-timeout" type="number" min="5" max="600" value="${Number(llm.timeout||120)}"></div><div class="field"><label>最大输出 tokens（可选）</label><input id="llm-max" type="number" min="0" value="${Number(llm.max_output_tokens||0)}" placeholder="0 = 使用模型默认"></div><div class="field"><label>Temperature（可选）</label><input id="llm-temp" type="number" min="0" max="2" step="0.1" value="${llm.temperature==null?'':Number(llm.temperature)}" placeholder="留空 = 不发送"></div><div class="field"><label>默认请求模式 ID</label><input id="llm-default-preset" value="${esc(llm.default_request_preset||presets[0].id||'default')}" placeholder="default"></div><div class="field span-4"><label>动态请求模式（JSON）</label><textarea id="llm-presets" class="mono" style="min-height:280px">${esc(presetText)}</textarea><span class="field-help">默认提供“默认 / Qwen 低思考 / Qwen 无思考”三套。params 会合并到请求 JSON；可按实际接口修改 enable_thinking、thinking_budget、reasoning_effort 等字段。</span></div><div class="field span-4"><label>系统提示词</label><textarea id="llm-system" style="min-height:130px">${esc(llm.system_prompt||'')}</textarea></div></div><div style="margin-top:14px;display:flex;gap:8px"><button class="primary-btn" id="llm-save">保存模型设置</button><button class="secondary-btn" id="llm-test">测试连接</button></div>`;$('#llm-save').onclick=async()=>{let requestPresets;try{requestPresets=JSON.parse($('#llm-presets').value);if(!Array.isArray(requestPresets)||!requestPresets.length)throw new Error('必须是非空 JSON 数组');const ids=new Set();for(const item of requestPresets){if(!item||typeof item!=='object'||!String(item.id||'').trim()||typeof item.params!=='object'||Array.isArray(item.params))throw new Error('每项必须包含 id、label 和 params 对象');if(ids.has(item.id))throw new Error('预设 id 不能重复：'+item.id);ids.add(item.id)}}catch(e){toast('请求模式 JSON 无效：'+e.message,true);return}app.llm={...llm,provider_label:$('#llm-provider').value.trim()||'OpenAI-compatible',enabled:$('#llm-enabled').value==='1',protocol:$('#llm-protocol').value,base_url:$('#llm-base').value.trim(),api_key_env:$('#llm-key-env').value.trim()||'OPENAI_API_KEY',show_reasoning:$('#llm-show-reasoning').value==='1',vision_enabled:$('#llm-vision').value==='1',model:$('#llm-model').value.trim(),timeout:Math.max(5,Math.min(600,+$('#llm-timeout').value||120)),max_output_tokens:Math.max(0,+$('#llm-max').value||0),temperature:$('#llm-temp').value.trim()===''?null:Math.max(0,Math.min(2,+$('#llm-temp').value||0)),default_request_preset:$('#llm-default-preset').value.trim()||requestPresets[0].id,request_presets:requestPresets,system_prompt:$('#llm-system').value};delete app.llm.api_key;delete app.llm.has_api_key;const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;state.agentPreset=saved.llm?.default_request_preset||requestPresets[0].id;localStorage.setItem('agentRequestPreset',state.agentPreset);toast('Agent / LLM 设置已保存；API Key 将从环境变量读取')};$('#llm-test').onclick=async()=>{try{$('#llm-test').disabled=true;const r=await api('/api/agent/test',{method:'POST',body:{}});toast(r.models?.length?`连接成功 · ${r.models.slice(0,3).join(' / ')}`:'连接成功')}catch(e){toast(e.message,true)}finally{$('#llm-test').disabled=false}};}
     else if(tab==='literature'){renderLiteratureSettings(p);return}
@@ -1293,7 +1315,7 @@
 
 
   function applyTheme(theme){document.documentElement.dataset.theme=theme||'light';localStorage.setItem('theme',theme||'light');if($('#md-preview')&&state.editorMode!=='edit')setTimeout(()=>renderMarkdownPreview(),20)}
-  async function loadWeather(force=false){try{const w=await api('/api/weather'+(force?'?force=1':''));if(!w.enabled){$('#weather-text').textContent='天气关闭';return}const d=w.daily?.[0];$('#weather-text').textContent=`${w.location} · ${w.current.condition} ${w.current.temperature}° · ${d?.low ?? '—'}~${d?.high ?? '—'}°`;$('#weather-pill').title=`Open-Meteo · 体感 ${w.current.apparent}° · 降水 ${w.current.precipitation} mm`; }catch(e){$('#weather-text').textContent='天气不可用';$('#weather-pill').title=e.message;}}
+  /* v261009 · 天气已搬出内核，成为插件 plugins/weather（顶栏槽位 + 设置模态）。 */
   async function systemAction(action){ if(action==='reload'){try{await api('/api/system/reload',{method:'POST',body:{}});await loadBootstrap();toast('所有配置文件已 Reload');navigate(state.route)}catch(e){toast(e.message,true)}} else if(action==='restart'){if(!confirm('快速重启本地服务？浏览器将在约 1 秒后自动重连。'))return;try{await api('/api/system/restart',{method:'POST',body:{}})}catch{}toast('服务正在重启');setTimeout(waitForRestart,700)} }
 
   async function waitForRestart(attempt=0){
@@ -1329,6 +1351,7 @@
     /* v261009 · 先等插件宿主把面板挂进来（面板在 eval 期自登记 ERWPanels），
        再构建侧栏——否则插件的导航项要等下一次渲染才出现。 */
     try{ await window.ERWPluginHost?.ready; }catch(e){ console.warn('plugin host failed', e); }
-    await loadBootstrap();renderSidebar();loadWeather();const route=location.hash.slice(1)||'overview';await navigate(route);}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
+    mountSlots();   /* v261009 · 插件槽位（顶栏等）在导航构建前挂好 */
+    await loadBootstrap();renderSidebar();const route=location.hash.slice(1)||'overview';await navigate(route);}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
   window.addEventListener('load',init);
 })();
