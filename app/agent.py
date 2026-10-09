@@ -835,11 +835,12 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
             session["title"] = (text or "图片分析")[:36]
         session["updated"] = _now()
         _atomic_json(_session_path(session_id), session)
-    # v260930 · M1/M3 工具上下文：confirm（默认）写工具只出草稿；人设 write_mode 与页面 write_mode 取交集（更严格者胜）
+    # v261009 · 人设 write_mode 是默认值；前端可在当前会话显式覆盖为 direct/confirm。
+    # 只要页面上下文明确传入 write_mode，就以用户本次选择为准；未传时才回退人设默认。
     page_ctx = context if isinstance(context, dict) else {}
     persona_mode = str(persona.get("write_mode") or "confirm") if persona else "confirm"
     page_mode = str(page_ctx.get("write_mode") or "").strip()
-    write_mode = "direct" if persona_mode == "direct" and page_mode == "direct" else "confirm"
+    write_mode = page_mode if page_mode in ("direct", "confirm") else persona_mode
     ctx = {
         "paper_id": str(page_ctx.get("paper_id") or "").strip(),
         "write_mode": write_mode,
