@@ -285,6 +285,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 | **P3 第二件**（`core/index/`） | 索引结构迁移框架：`core/index/migrations/m0001,m0002` + `core/index/migrate.py`（默认 dry-run、备份、验证、可回滚），**替换** `_init_db()` 里的四段内联 if；`SCHEMA_VERSION` 改为读 `migrate.TARGET_VERSION`（版本单源少一处）；新增「磁盘版本高于代码 → 拒绝写入」护栏，doctor 同步报出 |
 | **A3 派生数据治理**（`core/index/maintain.py`） | 索引维护工具（checkpoint / vacuum，默认只读统计，VACUUM 前自动备份）；**实测回收 ≈49.9 MB**（35.70 MB + 21.39 MB WAL → 7.14 MB + 0），语义中性经 10 组查询 + 38 个 schema 对象比对证明；`server.py`/`client.py` 退出自动 checkpoint 防复发；doctor 新增空闲页告警 —— 并**更正了 §5.5.3 的收益假设**（删列/删边合计 < 1 MB） |
 | **P29 前端闸门**（`tools/ui_smoke.py`） | 真浏览器逐路由走查（不截图）：首屏 console error / 失败请求 / 重型库请求必须为 0，`app.js` 声明的**每个路由**都点得开且渲染出内容，`window.erwVendor` 与补丁接缝齐备。**不下载浏览器**（复用系统 Chrome/Edge 或 ms-playwright 里的 chromium）。实测：当前代码新起实例上 **17/17 路由通过、0 error、0 失败请求** —— A2/A9/A10 与 §6.3 插件面板从此可验收 |
+| **A10 首件：fetch 接缝化** | `v260922-performance.js` 不再在求值期执行 `window.fetch = ...`（P14 红线），改为提供 `window.erwFetch`，6 个模块的 `api()`（含 2 处直连）改为运行期解析 `(window.erwFetch \|\| fetch)`。行为等价经真浏览器验证（分页 1/2→2/2、图谱状态 199/199、搜索可用、0 console error）；「必须排在 app.js 之前」的旧约束作废。不变量改为静态可查：**不得给 `window.fetch` 赋值**、接缝提供方唯一、`api()` 不得绕过接缝（负向用例已验证） |
 
 | 尚未开始 | 对应动作 |
 | --- | --- |

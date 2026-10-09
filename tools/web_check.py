@@ -143,18 +143,50 @@ def check_seams() -> None:
     )
 
 
+def strip_comments(text: str) -> str:
+    """去掉 JS 注释后再做结构性扫描——否则「注释里提到 window.fetch =」会被误判成违规。"""
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+    return re.sub(r"(?m)//[^\n]*$", " ", text)
+
+
 def check_order(manifest: dict) -> None:
+    """加载顺序与 fetch 接缝的结构性不变量。
+
+    v261009 · A10 把「全局替换 window.fetch」换成了 `window.erwFetch` 显式接缝，因此这里
+    不再靠「哪个文件必须排在前面」来保证正确性，而是直接查三条硬约束：
+    1. **任何模块都不得给 `window.fetch` 赋值**（全局猴子补丁是 P14 的红线：它让补丁无法摘除，
+       还制造出假的加载顺序依赖）；
+    2. 接缝提供方**有且只有一个**（`window.erwFetch =` 只应出现在 performance 补丁里）；
+    3. 每个自带 `api()` 的模块都必须走接缝（`erwFetch`），否则会绕过分页/图谱限流/搜索取消。
+    """
     order = [item["file"] for item in manifest["js"]]
-    if "v260922-performance.js" in order and "app.js" in order:
-        if order.index("v260922-performance.js") > order.index("app.js"):
-            fail("v260922-performance.js 包装 window.fetch，必须排在 app.js 之前")
-    if order.index("vendor-lazy.js") if "vendor-lazy.js" in order else -1:
-        pass
-    for item in manifest["vendor_js"]:
-        if item["file"] == "vendor-lazy.js":
-            break
-    else:
+    files = app_js_files()
+    sources = {p.name: strip_comments(p.read_text(encoding="utf-8")) for p in files}
+
+    offenders = [name for name, text in sources.items() if re.search(r"window\.fetch\s*=", text)]
+    if offenders:
+        fail(f"禁止全局替换 window.fetch（P14 红线）：{offenders}；请改用 window.erwFetch 接缝")
+
+    providers = [name for name, text in sources.items() if re.search(r"window\.erwFetch\s*=", text)]
+    if len(providers) != 1:
+        fail(f"window.erwFetch 接缝提供方应恰好 1 个，实际 {len(providers)} 个：{providers}")
+
+    bypass = []
+    for name, text in sources.items():
+        for m in re.finditer(r"async function api\([^)]*\)\s*\{(.*?)\n\s*\}", text, re.S):
+            if "erwFetch" not in m.group(1):
+                bypass.append(name)
+                break
+    if bypass:
+        fail(f"这些模块自带 api() 却绕过接缝（会丢分页/限流/取消）：{sorted(set(bypass))}")
+
+    if "vendor-lazy.js" not in [item["file"] for item in manifest["vendor_js"]]:
         fail("vendor-lazy.js 不在 manifest 的 vendor_js 中（erwVendor 需在业务脚本前就位）")
+    if "v260922-performance.js" in order and "app.js" in order:
+        # 不再强制顺序（接缝在运行期解析），但提供方排在前面更稳：未来若有求值期请求也不会漏
+        notes.append("fetch 接缝提供方位于 app.js 之前（非强制，但更稳）"
+                     if order.index("v260922-performance.js") < order.index("app.js")
+                     else "fetch 接缝提供方排在 app.js 之后（运行期解析下仍正确，但求值期请求会漏）")
 
 
 def main(argv: list[str] | None = None) -> int:

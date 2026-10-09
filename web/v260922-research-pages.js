@@ -26,7 +26,7 @@
   async function api(url, opts={}) {
     const init={...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}};
     if(init.body && typeof init.body!=='string') init.body=JSON.stringify(init.body);
-    const res=await fetch(url,init); let data={}; try{data=await res.json()}catch{}
+    const res=await (window.erwFetch||fetch)(url,init); let data={}; try{data=await res.json()}catch{}
     if(!res.ok) throw new Error(data.message||data.error||`HTTP ${res.status}`); return data;
   }
   function toast(msg,error=false){
@@ -256,7 +256,7 @@
     const specs=[['idea',cards[0]],['note',cards[1]],['summary',cards[2]]];
     try{
       const results=await Promise.all(specs.map(async([kind])=>{
-        const res=await fetch('/api/docs?kind='+encodeURIComponent(kind));
+        const res=await (window.erwFetch||fetch)('/api/docs?kind='+encodeURIComponent(kind));
         if(!res.ok)throw new Error(`HTTP ${res.status}`);
         const data=await res.json();
         return Array.isArray(data)?data.slice(0,5):[]; /* v260922i2 · 笔记行数 6→5，压缩最近卡高度 */
@@ -337,7 +337,7 @@
   async function api(url, opts={}) {
     const init={...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}};
     if(init.body && typeof init.body!=='string') init.body=JSON.stringify(init.body);
-    const res=await fetch(url,init); let data={}; try{data=await res.json()}catch{}
+    const res=await (window.erwFetch||fetch)(url,init); let data={}; try{data=await res.json()}catch{}
     if(!res.ok) throw new Error(data.message||data.error||`HTTP ${res.status}`); return data;
   }
 
@@ -817,7 +817,7 @@
     if(!old||old.dataset.modernOverviewGraph==='1')return;
     loading=true;
     try{
-      const res=await fetch(`/api/graph/overview?limit=${MAX_NODES}`);if(!res.ok)throw new Error(`HTTP ${res.status}`);const graph=await res.json();
+      const res=await (window.erwFetch||fetch)(`/api/graph/overview?limit=${MAX_NODES}`);if(!res.ok)throw new Error(`HTTP ${res.status}`);const graph=await res.json();
       if(route()!==ROUTE||!old.isConnected)return;
       instance?.destroy();
       const canvas=old.cloneNode(false);canvas.dataset.modernOverviewGraph='1';canvas.setAttribute('aria-label','新版知识关系预览');old.replaceWith(canvas);
@@ -852,7 +852,7 @@
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
   const esc=(v='')=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const route=()=> (location.hash||'#overview').slice(1).split('?')[0];
-  async function api(url,opts={}){const init={...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}};if(init.body&&typeof init.body!=='string')init.body=JSON.stringify(init.body);const r=await fetch(url,init);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||`HTTP ${r.status}`);return d}
+  async function api(url,opts={}){const init={...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}};if(init.body&&typeof init.body!=='string')init.body=JSON.stringify(init.body);const r=await (window.erwFetch||fetch)(url,init);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||`HTTP ${r.status}`);return d}
   function toast(msg,bad=false){const root=$('#toast-stack');if(!root)return;const el=document.createElement('div');el.className='toast'+(bad?' error':'');el.textContent=msg;root.appendChild(el);setTimeout(()=>el.remove(),3200)}
 
   function installSidebarToggle(){

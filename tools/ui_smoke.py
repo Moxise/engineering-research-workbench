@@ -130,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
             fails.append(f"补丁接缝缺失：{missing_seams}")
         if not page.evaluate("() => !!window.erwVendor && typeof window.erwVendor.load === 'function'"):
             fails.append("window.erwVendor 按需加载器缺失")
+        if not page.evaluate("() => typeof window.erwFetch === 'function'"):
+            fails.append("window.erwFetch 接缝缺失（分页/图谱限流/搜索取消会静默失效）")
+        if "workbenchPerformanceFetch" in page.evaluate("() => window.fetch.toString()"):
+            fails.append("window.fetch 被全局替换了（P14 红线：补丁将无法摘除）")
 
         rendered: dict[str, str] = {}
         for route in routes:

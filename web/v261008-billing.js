@@ -16,7 +16,7 @@
   async function api(url, opts={}) {
     const init = {...opts, headers:{'Content-Type':'application/json', ...(opts.headers||{})}};
     if (init.body && typeof init.body !== 'string') init.body = JSON.stringify(init.body);
-    const res = await fetch(url, init);
+    const res = await (window.erwFetch || fetch)(url, init);
     let data = null; try { data = await res.json(); } catch { data = {}; }
     if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
     return data;

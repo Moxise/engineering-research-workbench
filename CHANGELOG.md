@@ -47,7 +47,13 @@
   - **不要求下载浏览器**：脚本复用机器上已有的 Chrome / Edge / `ms-playwright` 里的 chromium（也可用 `ERW_BROWSER` 指定），只依赖 `playwright` 这个 Python 包。
   - **实测结果**：对**用当前代码新起的实例**（备用端口 8799）走查 —— 页面标题「概览 · 科研工作台」，**17 个路由全部可渲染**、console error **0**、失败请求 **0**、首屏重型库请求 **0**；实验页标题「实验」并渲染出真实实验内容（基线对齐在真实 UI 中生效）。同一脚本对 8765 上的旧实例同样全绿。
   - 顺带核实 `tools/shot_page.py` 在本机可直接用（它自己探测 Windows/macOS/Linux 的 Chrome/Edge 路径，不依赖 playwright）：实拍一张裁剪图，`1000x700 ≈428 tokens → 521x576 ≈243 tokens`。
-- **未做**：`A2 剩余部分`（把补丁并入主题模块、`window.fetch` 包装改显式分页 API、两个 canvas 先画后弃）、`A9/A10 钩子倒置`、doctor 的修复动作（`--fix-*`）、插件运行时；`ba77ddc` 的业务改动（文献 PDF 定位、列表排序口径）只取回两个只读工具。`index-冲突-Moxise_Win11.sqlite`（6.8 MB，已损坏的冲突副本）**未删**——删文件需你确认。
+- **A10：拆掉全局 `window.fetch` 猴子补丁，改为运行期接缝**：
+  - 原先 `v260922-performance.js` 在**求值期**执行 `window.fetch = ...`：给 `/api/docs` 加分页参数并把分页信封**拆回数组**、给 `/api/graph` 加限流并改写 `/api/graph/overview`、给 `/api/search` 挂可取消的 AbortController，同时派发 `workbench:docs-page` / `workbench:graph-meta`。这正是 P14 点名的「补丁无法摘除 + 假加载顺序依赖」。
+  - 现在改为提供 `window.erwFetch` 显式接缝，各模块的 `api()` 用 `(window.erwFetch || fetch)` **运行期解析**：`app.js`、`literature.js`、`v260930-floating-agent.js`、`v261008-billing.js`、`v260922-research-pages.js`（3 处 `api()` + 2 处直连 `/api/docs`、`/api/graph/overview`）。
+  - **行为等价经真浏览器验证**（`.scratch/tmp/verify_a10.py`）：`window.fetch` 已恢复原生（`function fetch() { [native code] }`）；分页器「1/2 页 · 共 90 条」、请求带 `paged=1&page=1&page_size=50`、点「下一页」→「2/2 页」且列表内容变化；图谱状态条「当前加载 199 / 199 个知识节点」（`graphMeta` 事件仍通）；全局搜索返回结果；全程无 console error。
+  - **不变量改为静态可查**（`tools/web_check.py`）：① 任何模块**不得**给 `window.fetch` 赋值（P14 红线）；② `window.erwFetch` 提供方有且只有一个；③ 每个自带 `api()` 的模块必须走接缝（否则会静默丢分页/限流/取消）。扫描前先剥注释，负向用例已验证（代码违规能抓到、注释里提及不误报、消费方不被误计为提供方）。`tools/ui_smoke.py` 同步在运行期断言接缝存在且 `window.fetch` 未被替换。
+  - 「必须排在 `app.js` 之前」的旧约束随之作废（`app.js` 的引导挂在 `load` 事件上，任何请求都晚于全部 defer 脚本求值）；清单说明改为「非强制，但保持最先加载更稳」。
+- **未做**：`A2 剩余`（把补丁并入主题模块、两个 canvas 先画后弃）、`A9 钩子倒置`（补丁侧对内核内部的依赖、8 个 MutationObserver 的合并）、doctor 的修复动作（`--fix-*`）、插件运行时；`ba77ddc` 的业务改动只取回两个只读工具。`index-冲突-Moxise_Win11.sqlite`（6.8 MB 冲突副本）**未删**——删文件需你确认。
 - **待决（发布边界）**：`AGENTS.md` 与 `.trae/rules/知识库条目命名规范.md` **均未被 git 跟踪**（白名单 `*` 未放行），而后者正是命名规范的权威文档、上文多处引用它——与 P25「整目录不受版本保护」同类。是否放行入库需要拍板（涉及把本机作业约定与规范文档推到 origin）。
 - 注意：`ResearchWorkbench.exe` **未重新打包**；工作台与 MCP 是长驻进程，需**重启**后才加载新契约。
 

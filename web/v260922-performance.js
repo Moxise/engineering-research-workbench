@@ -21,7 +21,12 @@
   const docKey = (u) => ['kind','q','status','project','mark'].map(k => `${k}=${u.searchParams.get(k) || ''}`).join('&');
   const isDocsCollection = (u, init) => (!init?.method || String(init.method).toUpperCase() === 'GET') && u.pathname === '/api/docs';
 
-  window.fetch = async function workbenchPerformanceFetch(input, init = {}) {
+  /* v261009 · A10：原先这里是 `window.fetch = ...` —— 求值期的全局猴子补丁，
+     它同时造成一个**假的加载顺序约束**（「本文件必须排在 app.js 之前」，否则后来者
+     会捕获到未包装的 fetch）。现改为显式接缝：各模块的 api() 调 `window.erwFetch`，
+     运行期解析、缺省回退原生 fetch。于是本文件与 app.js 的先后顺序无关，
+     这块逻辑将来也能整体摘出去做插件（P6）。 */
+  const perfFetch = async function workbenchPerformanceFetch(input, init = {}) {
     let requestUrl = typeof input === 'string' ? input : input?.url;
     if (!requestUrl) return nativeFetch(input, init);
     const u = new URL(requestUrl, location.origin);
@@ -94,6 +99,9 @@
     }
     return res;
   };
+
+  /* 显式接缝：所有 api() 走它（`(window.erwFetch || fetch)(...)`），不再改 window.fetch */
+  window.erwFetch = perfFetch;
 
   function refreshCurrentDocs() {
     const search = document.querySelector('#doc-search');

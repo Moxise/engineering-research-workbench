@@ -65,33 +65,33 @@
   "js": [
     {
       "file": "v260922-performance.js",
-      "v": "261009p",
+      "v": "261009q",
       "theme": "performance",
-      "note": "v260924g · 分页文案/排版修复，版本参数防缓存；**必须排在 app.js 之前**（它包装 window.fetch）"
+      "note": "v261009q · A10：不再全局替换 window.fetch，改为提供 window.erwFetch 接缝（各模块 api() 运行期解析、缺省回退原生 fetch）；仍建议最先加载，以免未来出现求值期的请求"
     },
     {
       "file": "app.js",
-      "v": "261009a",
+      "v": "261009b",
       "theme": "base",
-      "note": "v261009a · A1：mathjax/mermaid 改按需加载；上版：侧栏新增「用量」页"
+      "note": "v261009b · A10：api() 走 window.erwFetch 接缝；上版：A1 按需加载"
     },
     {
       "file": "literature.js",
-      "v": "261009p",
+      "v": "261009b",
       "theme": "literature",
-      "note": "v260930n · 修复框选失效（move/up 未挂载）+ Esc/取消时释放截图等待；上版：ERWCapture 桥"
+      "note": "v261009b · A10：api() 走接缝；上版：修复框选失效 + Esc 释放截图等待"
     },
     {
       "file": "v260922-research-pages.js",
-      "v": "261009a",
+      "v": "261009b",
       "theme": "research-pages",
-      "note": "v261009a · A2：由 projects / overview-editor-tools / graph-performance / overview-graph / agent-profiles 五个**位置连续**的补丁按序合并，内容逐字保留；原先靠加载顺序互相覆盖，现在顺序在文件内固定。改这里之前先读 tools/web_check.py 的接缝检查（含 window.__knowledgeGraphEngineVersion 等运行期标志）"
+      "note": "v261009b · A10：三处 api() 与两处直连 /api/docs、/api/graph/overview 改走 window.erwFetch 接缝；A2：由 projects / overview-editor-tools / graph-performance / overview-graph / agent-profiles 五个**位置连续**的补丁按序合并，内容逐字保留"
     },
     {
       "file": "v260930-floating-agent.js",
-      "v": "261009q",
+      "v": "261009r",
       "theme": "agent",
-      "note": "v261009q · A1：悬浮球 MathJax 按需加载；上版：历史列表会话归档/删除+分组"
+      "note": "v261009r · A10：api() 走接缝；上版：A1 悬浮球 MathJax 按需加载"
     },
     {
       "file": "v260922-layout-bugfixes.js",
@@ -99,9 +99,9 @@
     },
     {
       "file": "v261008-billing.js",
-      "v": "261008",
+      "v": "261009b",
       "theme": "billing",
-      "note": "v261008 · 用量计费仪表盘（window.ERWBilling）"
+      "note": "v261009b · A10：api() 走接缝；上版：用量计费仪表盘（window.ERWBilling）"
     }
   ]
 }
