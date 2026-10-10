@@ -209,11 +209,17 @@ def main(argv: list[str] | None = None) -> int:
             fails.append(f"插件 {pid} 的 {where} 文件不存在：{mount}")
             continue
         text = script.read_text(encoding="utf-8")
-        if "ERWPanels.register" not in text and "ERWPanels?.register" not in text:
-            fails.append(f"插件 {pid} 的面板 {mount}（{where}）没有调用 ERWPanels.register"
-                         "（会正常加载但什么都不出现）")
+        # 面板脚本必须真的挂到某个内核接缝上，否则就是「装了却什么都不出现」的静默失败（I11）。
+        # 认可的自登记接缝：ERWPanels（导航项/槽位/设置页 tab/阅读区 tab）、
+        # ERWGraphRenderers（图谱渲染接管，v261009.13 新增——不需要导航项也能生效）。
+        seams = ("ERWPanels.register", "ERWPanels?.register",
+                 "ERWGraphRenderers.register", "ERWGraphRenderers?.register")
+        hit = next((s for s in seams if s in text), None)
+        if not hit:
+            fails.append(f"插件 {pid} 的面板 {mount}（{where}）没有自登记任何内核接缝"
+                         f"（认可：{'、'.join(seams)}）——脚本会正常加载但什么都不出现")
         else:
-            notes.append(f"面板契约通过：{pid} → {mount}（{where}）自登记 ERWPanels")
+            notes.append(f"面板契约通过：{pid} → {mount}（{where}）自登记 {hit.replace('?.', '.')}")
 
     if args.assert_core_only:
         # 额外跑一次数据冒烟：它跑在「当前装配」上，等价于「核心零插件」的功能验收（I1 的代理）

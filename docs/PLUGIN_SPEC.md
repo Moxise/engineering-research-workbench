@@ -195,6 +195,30 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | `data_root()` | 可写数据根。**只正当用于一次性迁移**（把内核时代写在别处、如 `System/Cache/*` 的数据认领进自己的命名空间）；日常请用上面的命名空间内助手 |
 | `log(id, message)` | 带插件前缀的日志 |
 
+### 6.1 前端接缝与公开数据 API（插件 UI 的接触面）
+
+插件的前端脚本（`nav[].mount` / `panel.mount`）跑在内核页面里，但**不得改内核 DOM**（P14 红线）。需要的能力一律走下面这些接缝：
+
+| 接缝 | 用途 |
+| --- | --- |
+| `window.ERWPanels.register({...})` | 侧栏导航页 / 顶栏槽位 / 设置页 tab / 阅读区 tab（见 §3 的 `nav[]`、`panel` 字段） |
+| `window.ERWContract` | 七类 kind、类别词、`kind_marks`、关系的**只读**中文契约（`kinds/kindLabels/kindLabel/entityLabel/marks/relations/relationLabel`）。插件不要再各抄一份标签表 |
+| `window.ERWMarkdown.renderInto(el, raw)` / `.normalizePaths(html)` | Markdown 渲染（marked + DOMPurify + hljs + mermaid/mathjax 按需）与 `/workspace-file/` 图片路径归一 |
+| `window.ERWGraphRenderers.register({id, graph?, overview?})` | **图谱渲染接管**：内核渲染图谱页 / 研究总览迷你图时把画布交给接管者；插件缺席或 `enhance()` 抛错时内核回退自带 `drawGraph` |
+| `window.erwFetch(url, init)` | 出网与访问内核 HTTP API（**不得**替换 `window.fetch`） |
+| `window.erwVendor.load('mathjax'\|'mermaid')` | 重型库按需加载（本地优先、CDN 兜底） |
+| `window.ERWDom.onChildList(cb, {root})` | 文档级 DOM 变更观察的唯一入口（内核合并成一个 observer） |
+| `workbench:*` / `erw-*` 自定义事件 | 内核广播（如 `llm.usage`）与模块间解耦通信 |
+
+**公开数据 API**（只读，插件可直接消费）：`/api/docs`、`/api/docs/<id>`、`/api/statuses`、`/api/projects`、`/api/dashboard`、`/api/graph`、`/api/graph/overview`、`/api/graph/neighborhood`、`/api/search`、`/api/todos`、`/api/literature`。写路径一律走内核草稿闸门，插件**不得**直写 `Workspace/`。
+
+**渲染接管契约**（`ERWGraphRenderers`）：
+
+- 形如 `{id, graph: {async enhance(canvas, ctx)}, overview: {async enhance(canvas, ctx)}}`；同一 `id` 不得重复注册，至少声明一个作用域。
+- 内核在**页面 markup 就绪后**调用 `enhance(canvas, ctx)`（`ctx = {route, host, contract}`）并 `await`：**resolve = 已接管**（内核不再画兜底图）；**throw = 没接管**（内核打印原因并回退 `drawGraph`）。
+- 取消与失败要分清：页面已切走 / 画布已被更新的一次渲染替换 → **静默 `return null`**（那不是错误，别往控制台丢 error）；取数失败 → **throw**。
+- 实例生命周期归插件自己：内核只在进入页面时喊一次，插件自行在 `hashchange` 上释放。
+
 ---
 
 ## 7. 安全与校验

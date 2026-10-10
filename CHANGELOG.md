@@ -1,5 +1,19 @@
 # Changelog
 
+## v261009.13
+
+- **知识图谱可视化搬成插件**（`plugins/knowledge-graph/`，SCOPE §2.2 附属；`docs/REFACTOR_PLAN.md` §7）。
+  - **新接缝 `window.ERWGraphRenderers`**（渲染接管，§6.3）：`graph` / `overview` 两个作用域。内核渲染图谱页与研究总览迷你图时**先问注册表**——有接管者就把画布交给它、不再画兜底图；接管者 `enhance()` 抛错或插件缺席时，内核回退自带 `drawGraph`。**内核零依赖**（删掉插件图谱页照旧可用），并且彻底消掉了此前「内核先画一遍 → 补丁 `replaceCanvas` 丢掉」的白画（`v261009.12` 那次的临时判据 `window.__knowledgeGraphEngineVersion` 也随之退役）。
+  - **新接缝 `window.ERWContract`**（契约只读视图）：七类 kind、类别词、`kind_marks`、关系的中文标签由内核统一导出，插件不再各抄一份。
+  - **新接缝 `window.ERWMarkdown`**：`renderInto(el, raw)`（与内核同一套 marked + DOMPurify + hljs + mermaid/mathjax 按需）+ `normalizePaths(html)`（`/workspace-file/` 图片路径归一）。
+  - **`plugins/knowledge-graph`** 是**纯前端插件**：`panel: {mount, style}`、`permissions: ["ui:panel"]`、无 `entry`（宿主对「没有后端的插件」是一等公民）。数据走内核公开 API（`/api/graph`、`/api/graph/overview`、`/api/docs/<id>`、`POST /api/graph/bundle`）。
+  - **内核删减**：`web/v260922-research-pages.js` 的图谱两个 IIFE（`935 → 385` 行，删 550 行）；图谱专属 CSS 从 `web/v260922-graph-performance.css` 迁到插件自带样式（内核只留图谱页 markup 的层级/尺寸，兜底渲染也要用）。
+  - **顺带修掉两处漂移**（引擎自带标签表缺 `experiment`，内核有）：① 实验节点的侧栏/搜索标签回落成英文；②「仅知识条目」按钮会把实验条目一起取消勾选。现统一取自 `ERWContract`。
+  - **验收**（`.scratch/tmp/verify_graph_plugin_migration.py`，真 Chrome，**32/32 通过**）：能力等价（718 节点 / 1854 边、18.0 万 px 已绘制、筛选联动 718→714、选中节点→侧栏+Markdown 预览、导出弹窗 24 项、2D/3D 切换）、**内核重复绘制 0 次**、**插件被拦时兜底可用且可交互**（`_graphRenderToken` 1→2）、总览迷你图接管并可跳转定位图谱节点、`/api/plugin-manager` 启停契约且**不动其他插件的启停状态**。
+  - **`ui_smoke` 抓到并修掉一个真 bug**：总览页接管时那条仍在飞的取数在导航切走后把「画布已被替换」抛成 console error → 现在「取消」与「失败」分开：页面切走/画布被换**静默返回 null**，只有取数失败才 `throw` 让内核兜底（内核侧也随之不再往已脱离文档的画布上画）。
+  - **工具**：`tools/plugin_check.py` 的面板契约从「必须调用 `ERWPanels.register`」扩展为「必须自登记**某个**内核接缝」（认可 `ERWPanels` 与 `ERWGraphRenderers`），否则仍判失败。
+  - **文档**：[`docs/PLUGIN_SPEC.md`](docs/PLUGIN_SPEC.md) 新增 §6.1「前端接缝与公开数据 API」+ 渲染接管契约；[`docs/REFACTOR_PLAN.md`](docs/REFACTOR_PLAN.md) §6.3 扩展点表补三行、§7 记一行。
+
 ## v261009.12
 
 - **A10 收口：删掉图谱页的「先画后弃」**（`docs/REFACTOR_PLAN.md` §7 A10 后半项之一，P14 双实现）。

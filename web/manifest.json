@@ -36,8 +36,9 @@
     },
     {
       "file": "v260922-graph-performance.css",
-      "v": "260924g",
-      "theme": "graph"
+      "v": "261009m",
+      "theme": "graph",
+      "note": "v261009m · 图谱可视化迁成插件（plugins/knowledge-graph）：本文件只留内核图谱页 markup 的层级/尺寸样式，插件自注入 UI 的样式随插件走"
     },
     {
       "file": "v260922-agent-profiles.css",
@@ -105,9 +106,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009j",
+      "v": "261009k",
       "theme": "base",
-      "note": "v261009j · 图谱页在 v260922 优化引擎在场时不再重复绘制（此前会被 replaceCanvas 丢弃）；引擎缺席自动回退内核绘制。上版：ERWPanels 新增 readerTab；设置页 tab 支持模块自登记"
+      "note": "v261009k · §6.3 新增三个接缝：window.ERWContract（kind/标记/关系契约）、window.ERWMarkdown（Markdown 渲染 + 图片路径归一）、window.ERWGraphRenderers（图谱渲染接管，内核 drawGraph 兜底）。上版：图谱页在引擎在场时不再重复绘制；ERWPanels 新增 readerTab"
     },
     {
       "file": "plugin-host.js",
@@ -123,9 +124,9 @@
     },
     {
       "file": "v260922-research-pages.js",
-      "v": "261009c",
+      "v": "261009n",
       "theme": "research-pages",
-      "note": "v261009c · A9：5 处文档级 MutationObserver 改走 ERWDom.onChildList（保留各自的作用域与合并）；上版 A10：api() 与直连请求走 window.erwFetch 接缝"
+      "note": "v261009n · 图谱可视化的两个补丁（graph-performance / overview-graph，共 550 行）迁成插件 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles 三个补丁"
     },
     {
       "file": "v260930-floating-agent.js",

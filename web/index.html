@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/v260922-compact-layout.css?v=261009h">
   <link rel="stylesheet" href="/v260922-overview-editor-tools.css?v=260924g">
   <link rel="stylesheet" href="/v260922-performance.css?v=260924g">
-  <link rel="stylesheet" href="/v260922-graph-performance.css?v=260924g">
+  <link rel="stylesheet" href="/v260922-graph-performance.css?v=261009m"><!-- v261009m · 图谱可视化迁成插件（plugins/knowledge-graph）：本文件只留内核图谱页 markup 的层级/尺寸样式，插件自注入 UI 的样式随插件走 -->
   <link rel="stylesheet" href="/v260922-agent-profiles.css?v=260929d">
   <link rel="stylesheet" href="/v260922-layout-bugfixes.css?v=260924g">
   <link rel="stylesheet" href="/v260930-floating-agent.css?v=260930n"><!-- v260930n · 历史列表归档/删除操作样式；上版：停止按钮样式 -->
@@ -105,10 +105,10 @@
   <!-- web:app-js:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <script defer src="/dom-seam.js?v=261009"></script><!-- v261009 · A9：共享 DOM 变更订阅（window.ERWDom.onChildList）——7 个补丁各自建的文档级 MutationObserver 收敛为 1 个；提供 root 作用域、ignore 过滤、按帧合并与回调隔离。必须在所有补丁之前加载 -->
   <script defer src="/v260922-performance.js?v=261009r"></script><!-- v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore 过滤）；上版 A10：提供 window.erwFetch 接缝，不再全局替换 window.fetch -->
-  <script defer src="/app.js?v=261009j"></script><!-- v261009j · 图谱页在 v260922 优化引擎在场时不再重复绘制（此前会被 replaceCanvas 丢弃）；引擎缺席自动回退内核绘制。上版：ERWPanels 新增 readerTab；设置页 tab 支持模块自登记 -->
+  <script defer src="/app.js?v=261009k"></script><!-- v261009k · §6.3 新增三个接缝：window.ERWContract（kind/标记/关系契约）、window.ERWMarkdown（Markdown 渲染 + 图片路径归一）、window.ERWGraphRenderers（图谱渲染接管，内核 drawGraph 兜底）。上版：图谱页在引擎在场时不再重复绘制；ERWPanels 新增 readerTab -->
   <script defer src="/plugin-host.js?v=261009c"></script><!-- v261009c · 除 nav[0] 外，还加载 manifest.panel.mount（没有导航页的 UI，如阅读区 tab） -->
   <script defer src="/literature.js?v=261009d"></script><!-- v261009d · 阅读区 tab 可扩展（笔记由插件 litnote 提供）；PDF.js 改为本地 vendor 优先、CDN 兜底，并接上本地 cmaps/标准字体 -->
-  <script defer src="/v260922-research-pages.js?v=261009c"></script><!-- v261009c · A9：5 处文档级 MutationObserver 改走 ERWDom.onChildList（保留各自的作用域与合并）；上版 A10：api() 与直连请求走 window.erwFetch 接缝 -->
+  <script defer src="/v260922-research-pages.js?v=261009n"></script><!-- v261009n · 图谱可视化的两个补丁（graph-performance / overview-graph，共 550 行）迁成插件 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles 三个补丁 -->
   <script defer src="/v260930-floating-agent.js?v=261009e"></script><!-- v261009e · 写工具集合改为从 /api/agent/tools 的 write 标记动态推导（不再硬编码插件工具名）；清掉两处文献工具名 -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->
   <script defer src="/plugin-manager.js?v=261009e"></script><!-- v261009e · 一行摘要直接写明「提供什么」（面板/工具/接口/可配置），只有工具的插件（如 litnote）一眼可辨 -->

@@ -31,9 +31,12 @@ python tools/plugin_check.py           # 隔离体检：依赖方向单向、内
 7. 核心绝不依赖任何插件：零插件时工作台必须完整可跑（不变量 I1）。
 
 > 当前阶段：内核侧的**发现 / 校验 / 依赖解析 / 执行（`register(ctx)`）**、前端面板管线
-> （`GET /api/plugins` + `/plugins-file/<id>/<rel>` + 面板自登记 `ERWPanels`，含**顶栏槽位面板**）、
+> （`GET /api/plugins` + `/plugins-file/<id>/<rel>` + 面板自登记 `ERWPanels`，含**顶栏槽位面板**与
+> **无导航页 UI** `panel.mount`）、**图谱渲染接管**（`ERWGraphRenderers`）、**内核事件**（`ctx.events`）、
 > **插件 MCP 工具接入内置 Agent**（`p_<id>__<tool>`，读工具直接执行、**写工具由内核统一走草稿确认流**）
-> 都已可用。仓库里已有三个真插件：`focus`（专注计时，纯前端）、`rss`（科研资讯，后端路由 + 自带样式）、
-> `weather`（天气，顶栏槽位 + 设置模态）。
+> 都已可用。仓库里已有六个真插件：
+> `focus`（专注计时，纯前端）、`rss`（科研资讯，后端路由 + 自带样式）、`weather`（天气，顶栏槽位 + 设置模态）、
+> `billing`（用量计费，订阅 `llm.usage` 事件 + 数据命名空间认领）、`litnote`（文献笔记编辑界面 + 两个 AI 工具）、
+> `knowledge-graph`（知识图谱可视化：图谱页渲染接管 + 总览迷你图，纯前端、无后端）。
 > **尚未实现**：MCP stdio 服务侧的插件工具、`settings_schema` 通用表单（插件目前自带设置 UI）、
-> 后台任务（`ctx.jobs`）、事件订阅（`ctx.events`）。
+> 后台任务（`ctx.jobs`）、`ctx.kinds`（自定义知识类型）。

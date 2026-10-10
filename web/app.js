@@ -101,6 +101,26 @@
     },
   };
 
+  /* v261009.13 · §6.3 渲染接管接缝：图谱可视化可由附属模块**整体接管画布**；内核只保留一份简单渲染
+     （drawGraph）作为「接管者缺席 / 接管失败」时的兜底——内核不依赖任何具体模块（P14 红线 5）。
+     注册形如 { id, graph?: {enhance(canvas, ctx)}, overview?: {enhance(canvas, ctx)} }；
+     enhance 可返回 Promise：内核 await 它，成功就不再画兜底图，抛错则自动回退兜底。
+     此前的补丁做法是「内核先画一遍 → 补丁克隆替换画布」，那次绘制无人消费（A10 白画）。 */
+  const GRAPH_RENDERERS = [];
+  window.ERWGraphRenderers = {
+    register(r){
+      if(!r || !r.id) throw new Error('ERWGraphRenderers.register 需要 {id, ...}');
+      if(!r.graph && !r.overview) throw new Error('图谱接管至少要声明 graph 或 overview 之一');
+      if(r.graph && typeof r.graph.enhance !== 'function') throw new Error('graph.enhance 必须是函数');
+      if(r.overview && typeof r.overview.enhance !== 'function') throw new Error('overview.enhance 必须是函数');
+      if(GRAPH_RENDERERS.some(x => x.id === r.id)) throw new Error('图谱接管 id 重复：' + r.id);
+      GRAPH_RENDERERS.push(r);
+      return r.id;
+    },
+    list(){ return GRAPH_RENDERERS.slice(); },
+    get(scope){ return GRAPH_RENDERERS.find(r => r[scope]) || null; },   /* scope: 'graph' | 'overview' */
+  };
+
   /* 槽位挂载：内核把槽位容器交给槽位面板，容器上带 data-plugin=<id> 以便插件样式作用域（§2）。
      插件只在这个容器里画东西，不去改内核 DOM。 */
   function mountSlots(){
@@ -145,6 +165,29 @@
   function saveCustomMarks(v){ localStorage.setItem('customMarks', JSON.stringify(v)); }
   function allMarks(){ return KIND_MARKS.concat(customMarks()); }
   function kindLabel(kind){ return KIND_LABEL[kind] || kind; }
+
+  /* v261009.13 · §6.3 契约接缝：把内核的「七类 kind / 类别词 / 标记 / 关系」视图**只读**暴露给附属模块，
+     免得插件各抄一份中文标签（此前图谱补丁与内核就各有一份）。权威声明仍在 core/contracts/。 */
+  window.ERWContract = {
+    kinds(){ return Object.keys(KIND_LABEL); },
+    kindLabels(){ return {...KIND_LABEL}; },
+    kindLabel(kind){ return kindLabel(kind); },
+    /* 图谱里的节点类型比七类多两种虚拟实体：标签节点与项目节点 */
+    entityLabel(kind){ return KIND_LABEL[kind] || ({project:'项目', tag:'标签'}[kind]) || kind; },
+    marks(){ return allMarks().map(m=>({id:m.id, icon:m.icon, label:m.label, color:m.color})); },
+    relations(){ return GRAPH_RELATION_LABELS.map(([id,label])=>({id, label})); },
+    relationLabel(id){ const hit=GRAPH_RELATION_LABELS.find(x=>x[0]===id); return hit ? hit[1] : id; },
+  };
+
+  /* v261009.13 · §6.3 Markdown 接缝：附属模块渲染笔记正文时走内核同一套
+     （marked + DOMPurify + hljs + mermaid/mathjax 按需），观感一致，且以后加渲染钩子只改一处。 */
+  window.ERWMarkdown = {
+    renderInto(el, raw){ return renderMarkdownInto(el, raw); },
+    /* v261009.13 · Workspace 相对路径图片（批注截图 / 笔记插图）归一化为 /workspace-file/：
+       renderMarkdownInto 本身不做这步（内核在笔记预览处另调），图谱节点预览需要它，
+       故把内核已有的 normalizePreviewPaths 一并暴露，免得上层再抄一份规则。 */
+    normalizePaths(html){ return normalizePreviewPaths(html); },
+  };
 
   async function api(url, opts={}) {
     const init = {...opts, headers:{'Content-Type':'application/json', ...(opts.headers||{})}};
@@ -659,9 +702,19 @@
       </div>
     </div>`;
     wireGo();
-    // 总览迷你图：v260922 的 OverviewGraph 只有在 /api/graph/overview 取数成功后才克隆替换画布，
-    // 取数失败时保留内核这层绘制，故这里不做「引擎在场就跳过」——内核绘制即它的兜底。
-    requestAnimationFrame(()=>{const oc=$('#overview-graph');if(!oc)return;if(oc.dataset.modernOverviewGraph==='1'&&window.__overviewKnowledgeGraph)return;drawGraph(oc,g,{interactive:true,mini:true,onSelect:(n)=>openGraphBundleFromNode(n)})});
+    /* v261009.13 · 总览迷你图同样优先交给接管者（window.ERWGraphRenderers 'overview'）；
+       无人接管或接管抛错 → 内核 drawGraph 兜底（重新查询画布：接管者可能已把旧画布换掉）。 */
+    requestAnimationFrame(async ()=>{
+      const oc=$('#overview-graph'); if(!oc) return;
+      const takeover=window.ERWGraphRenderers.get('overview');
+      if(takeover){
+        try{ await takeover.overview.enhance(oc, {route:'research-overview', host:$('#main'), contract:window.ERWContract}); return; }
+        catch(err){ console.error('[overview] 接管渲染失败，回退内核渲染：'+(err&&err.message?err.message:err)); }
+      }
+      const c=$('#overview-graph');
+      if(!c) return;   /* 重新查询：接管者可能已经换过画布；页面已切走则不画 */
+      drawGraph(c,g,{interactive:true,mini:true,onSelect:(n)=>openGraphBundleFromNode(n)});
+    });
   }
 
   async function renderDocsPage(kind){
@@ -1175,25 +1228,34 @@
     $('#main').innerHTML=`<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">RELATION MAP</div><h3>知识图谱</h3></div><div class="graph-view-tools"><div class="view-tabs"><button data-gview="2d" class="${state.graphView==='2d'?'active':''}">2D</button><button data-gview="3d" class="${state.graphView==='3d'?'active':''}">3D 星图</button></div><button class="secondary-btn" id="graph-fit" type="button">⤢ 全览</button></div></div>
       <div class="graph-wrap" id="graph-wrap"><div class="graph-canvas-wrap"><canvas class="graph-canvas" id="graph-canvas"></canvas><div class="graph-canvas-help">空白处拖动平移 · 3D 下 Alt/右键拖动旋转 · Ctrl+滚轮缩放</div></div><section class="card graph-preview hidden" id="graph-preview"><div class="preview-pane-head"><div><div class="card-kicker">MARKDOWN PREVIEW</div><h3 id="graph-preview-title">节点预览</h3></div><button class="ghost-btn" id="graph-preview-close" type="button">关闭</button></div><div class="preview-pane-meta" id="graph-preview-meta"></div><div class="md-preview graph-preview-body" id="graph-preview-body"></div></section><aside class="card graph-side"><h3 id="graph-node-title">选择节点</h3><div class="graph-node-info" id="graph-node-info">点击任意节点后，将高亮相邻节点与关系边。点击画布空白处可取消高亮。</div><div style="margin-top:12px"><button class="primary-btn" id="graph-bundle" disabled>整理关联 Markdown</button></div><div class="graph-filter"><strong>显示节点类别</strong><div class="graph-filter-grid">${filterKinds.map(([k,label])=>`<label><input type="checkbox" data-graph-kind="${k}" ${state.graphKinds.has(k)?'checked':''}> ${label}</label>`).join('')}</div><div class="graph-filter-actions"><button class="ghost-btn" id="graph-filter-all">全选</button><button class="ghost-btn" id="graph-filter-docs">仅知识条目</button></div></div><div class="graph-filter"><strong>关系来源</strong><div class="graph-filter-grid">${relationKinds.map(([k,label])=>`<label><input type="checkbox" data-graph-relation="${k}" ${state.graphRelations.has(k)?'checked':''}> ${label}</label>`).join('')}</div><div class="row-meta">隐藏“标签”或“项目”节点时，对应关系边也会立即从图谱和导出结果中移除。</div></div></aside></div>
     </div>`;
-    $$('[data-gview]').forEach(b=>b.onclick=()=>{state.graphView=b.dataset.gview;renderGraphCanvas();animateSubView($('.graph-canvas-wrap'))});
-    $$('[data-graph-kind]').forEach(c=>c.onchange=()=>{if(c.checked)state.graphKinds.add(c.dataset.graphKind);else state.graphKinds.delete(c.dataset.graphKind);localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()});
-    $$('[data-graph-relation]').forEach(c=>c.onchange=()=>{if(c.checked)state.graphRelations.add(c.dataset.graphRelation);else state.graphRelations.delete(c.dataset.graphRelation);localStorage.setItem('graphRelations',JSON.stringify([...state.graphRelations]));renderGraphCanvas()});
-    $('#graph-filter-all').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=true);state.graphKinds=new Set(filterKinds.map(x=>x[0]));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
-    $('#graph-filter-docs').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=!['project','tag'].includes(c.dataset.graphKind));state.graphKinds=new Set(filterKinds.map(x=>x[0]).filter(x=>!['project','tag'].includes(x)));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
-    $('#graph-bundle').onclick=()=>state.graphSelected&&openGraphBundleFromNode(state.graphSelected);
-    $('#graph-preview-close').onclick=()=>onGraphSelect(null);
-    $('#graph-fit').onclick=()=>{if(state.graphSelected)onGraphSelect(null);requestAnimationFrame(()=>$('#graph-canvas')?._graphResetView?.())};
-    renderGraphCanvas();
+    /* v261009.13 · 内核这套控件绑定与 drawGraph 只在**没有接管者**（或接管失败）时执行。
+       接管者（附属模块）注册在 window.ERWGraphRenderers，它自己绑控件、自己画。 */
+    const bindKernelGraphControls=()=>{
+      $$('[data-gview]').forEach(b=>b.onclick=()=>{state.graphView=b.dataset.gview;renderGraphCanvas();animateSubView($('.graph-canvas-wrap'))});
+      $$('[data-graph-kind]').forEach(c=>c.onchange=()=>{if(c.checked)state.graphKinds.add(c.dataset.graphKind);else state.graphKinds.delete(c.dataset.graphKind);localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()});
+      $$('[data-graph-relation]').forEach(c=>c.onchange=()=>{if(c.checked)state.graphRelations.add(c.dataset.graphRelation);else state.graphRelations.delete(c.dataset.graphRelation);localStorage.setItem('graphRelations',JSON.stringify([...state.graphRelations]));renderGraphCanvas()});
+      $('#graph-filter-all').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=true);state.graphKinds=new Set(filterKinds.map(x=>x[0]));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
+      $('#graph-filter-docs').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=!['project','tag'].includes(c.dataset.graphKind));state.graphKinds=new Set(filterKinds.map(x=>x[0]).filter(x=>!['project','tag'].includes(x)));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
+      $('#graph-bundle').onclick=()=>state.graphSelected&&openGraphBundleFromNode(state.graphSelected);
+      $('#graph-preview-close').onclick=()=>onGraphSelect(null);
+      $('#graph-fit').onclick=()=>{if(state.graphSelected)onGraphSelect(null);requestAnimationFrame(()=>$('#graph-canvas')?._graphResetView?.())};
+    };
+    const takeover=window.ERWGraphRenderers.get('graph');
+    let taken=false;
+    if(takeover){
+      try{ await takeover.graph.enhance($('#graph-canvas'), {route:'graph', host:$('#main'), contract:window.ERWContract}); taken=true; }
+      catch(err){ console.error('[graph] 接管渲染失败，回退内核渲染：'+(err&&err.message?err.message:err)); }
+    }
+    if(!taken){ bindKernelGraphControls(); renderGraphCanvas(); }
   }
   function filteredGraph(){const allowed=state.graphKinds,relations=state.graphRelations;const nodes=(state.graph?.nodes||[]).filter(n=>allowed.has(n.kind));const ids=new Set(nodes.map(n=>n.id));return {nodes,edges:(state.graph?.edges||[]).filter(e=>relations.has(e.relation)&&ids.has(e.source)&&ids.has(e.target))}}
   function hideGraphPreview(){state.graphPreviewSeq++;$('#graph-wrap')?.classList.remove('preview-open');$('#graph-preview')?.classList.add('hidden');const body=$('#graph-preview-body');if(body)body.innerHTML='';}
   function graphVirtualMarkdown(n){const g=filteredGraph(),map=new Map(g.nodes.map(x=>[x.id,x])),rels=g.edges.filter(e=>e.source===n.id||e.target===n.id);const relLabel={wikilink:'显式引用',tag:'标签关联',project:'项目归属'};const kind={...KIND_LABEL,project:'项目',tag:'标签'};const rows=rels.map(e=>{const other=map.get(e.source===n.id?e.target:e.source);return other?`- [[${other.label}]] · ${kind[other.kind]||other.kind} · ${relLabel[e.relation]||e.relation}`:''}).filter(Boolean);return `# ${n.label}\n\n> 这是一个由知识图谱自动生成的${kind[n.kind]||n.kind}节点预览。\n\n## 当前可见关联\n\n${rows.join('\n')||'- 当前筛选条件下暂无可见关联。'}\n`;}
   async function showGraphPreview(n){const wrap=$('#graph-wrap'),panel=$('#graph-preview'),body=$('#graph-preview-body');if(!wrap||!panel||!body||!n)return;const seq=++state.graphPreviewSeq;wrap.classList.add('preview-open');panel.classList.remove('hidden');$('#graph-preview-title').textContent=n.label;const kind={...KIND_LABEL,project:'项目',tag:'标签'};$('#graph-preview-meta').textContent=`${kind[n.kind]||n.kind}${nodeProjects(n).length?' · '+nodeProjects(n).join(', '):''}`;body.innerHTML='<div class="empty" style="min-height:120px">正在加载 Markdown…</div>';try{const raw=n.virtual?graphVirtualMarkdown(n):(await api('/api/docs/'+encodeURIComponent(n.id))).body||'';if(seq!==state.graphPreviewSeq||state.graphSelected?.id!==n.id)return;await renderMarkdownInto(body,raw||'*暂无正文*');requestAnimationFrame(()=>renderGraphCanvas())}catch(e){if(seq===state.graphPreviewSeq)body.innerHTML=`<div class="empty danger">预览失败：${esc(e.message)}</div>`}}
-  // 图谱优化引擎（v260922 补丁，window.__knowledgeGraphEngineVersion 在补丁加载时同步声明）在场时，
-  // 图谱页画布由引擎接管：它会 replaceCanvas 并在新画布上自行渲染/重绑交互，内核的绘制随即被丢弃（白画）。
-  // 补丁缺失或引擎初始化失败时 __knowledgeGraphEngineVersion 不存在，自动回退到内核 drawGraph 路径。
-  function graphEngineAvailable(){return !!(window.__knowledgeGraphEngine||window.__knowledgeGraphEngineVersion)}
-  function renderGraphCanvas(){ $$('[data-gview]').forEach(b=>b.classList.toggle('active',b.dataset.gview===state.graphView)); const c=$('#graph-canvas');if(!c)return;const g=filteredGraph();if(state.graphSelected&&!g.nodes.some(n=>n.id===state.graphSelected.id)){state.graphSelected=null;$('#graph-node-title').textContent='选择节点';$('#graph-node-info').textContent='当前筛选已隐藏原选中节点。';$('#graph-bundle').disabled=true;hideGraphPreview()} if(graphEngineAvailable())return; drawGraph(c,g,{mode:state.graphView,interactive:true,selectedId:state.graphSelected?.id,onSelect:onGraphSelect}); }
+  // v261009.13 · 接管者（window.ERWGraphRenderers，见 §6.3）在场时图谱页画布归它渲染：它自己克隆画布、
+  // 自己绑交互，内核若再画一遍会被丢弃（A10 白画）。无人接管或接管失败时走内核 drawGraph 兜底。
+  function graphTakeover(){ try{ return window.ERWGraphRenderers.get('graph'); }catch{ return null; } }
+  function renderGraphCanvas(){ $$('[data-gview]').forEach(b=>b.classList.toggle('active',b.dataset.gview===state.graphView)); const c=$('#graph-canvas');if(!c)return;const g=filteredGraph();if(state.graphSelected&&!g.nodes.some(n=>n.id===state.graphSelected.id)){state.graphSelected=null;$('#graph-node-title').textContent='选择节点';$('#graph-node-info').textContent='当前筛选已隐藏原选中节点。';$('#graph-bundle').disabled=true;hideGraphPreview()} if(graphTakeover())return; drawGraph(c,g,{mode:state.graphView,interactive:true,selectedId:state.graphSelected?.id,onSelect:onGraphSelect}); }
   function nodeProjects(n){return (n.projects||[]).length?n.projects:(n.project?[n.project]:[])}
   function onGraphSelect(n){state.graphSelected=n||null;if(!n){$('#graph-node-title').textContent='选择节点';$('#graph-node-info').textContent='点击任意节点后，将高亮相邻节点与关系边；点击画布空白处可取消高亮。导出严格使用当前可见节点和关系。';$('#graph-bundle').disabled=true;hideGraphPreview();renderGraphCanvas();return}$('#graph-node-title').textContent=n.label;const projects=nodeProjects(n);const tags=n.tags||[];$('#graph-node-info').innerHTML=`<div><b>类型：</b>${esc(kindLabel(n.kind)||({project:'项目',tag:'标签'}[n.kind])||n.kind)}</div><div><b>项目：</b>${esc(projects.join(', ')||'—')}</div><div><b>标签：</b>${esc(tags.join(', ')||'—')}</div><div><b>状态：</b>${esc(n.status||'—')}</div><div class="row-meta graph-selection-hint">相邻节点和边已高亮；点击空白处恢复全图。导出会继承当前图谱筛选。</div>`;$('#graph-bundle').disabled=false;showGraphPreview(n);renderGraphCanvas();}
   function drawGraph(canvas,g,opts={}){
