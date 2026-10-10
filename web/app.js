@@ -58,7 +58,8 @@
      这解掉的是 P14/§6.7 红线 5「内核功能依赖某个补丁才能工作」：此前 app.js 里硬编码了
      用量计费（导航项 + PAGE_META + 路由分支 + 页面壳），删掉计费模块就会白屏。
      面板形如：{ id, group, label, icon, eyebrow, title, before?, render(mainEl) }
-     槽位面板形如：{ id, slot: 'topbar', label, renderSlot(containerEl) } —— 画进内核给的槽位 */
+     槽位面板形如：{ id, slot: 'topbar', label, renderSlot(containerEl) } —— 画进内核给的槽位
+     设置页贡献形如：{ id, settingsTab: { label, render(containerEl) } } —— 往「设置」里加一个 tab */
   const PANELS = [];
   const SLOTS = { topbar: true };
   window.ERWPanels = {
@@ -66,13 +67,26 @@
       if(!panel || !panel.id) throw new Error('ERWPanels.register 需要 {id, ...}');
       if(PANELS.some(p => p.id === panel.id)) throw new Error('面板 id 重复：' + panel.id);
       if(panel.slot && !SLOTS[panel.slot]) throw new Error('未知槽位：' + panel.slot);
-      if(panel.slot ? typeof panel.renderSlot !== 'function' : typeof panel.render !== 'function')
-        throw new Error(panel.slot ? '槽位面板需要 renderSlot(container)' : '面板需要 render(main)');
+      /* 三项能力各自独立声明，按声明的能力挂载（不禁「面板 + 设置页」这种组合）：
+         render → 侧栏导航页；slot + renderSlot → 画进内核槽位；settingsTab → 「设置」里加一个 tab */
+      if(panel.render !== undefined && typeof panel.render !== 'function') throw new Error('render 必须是函数');
+      if(panel.slot && typeof panel.renderSlot !== 'function') throw new Error('槽位面板需要 renderSlot(container)');
+      if(panel.settingsTab && typeof panel.settingsTab.render !== 'function') throw new Error('settingsTab 需要 render(container)');
+      if(!panel.render && !panel.slot && !panel.settingsTab)
+        throw new Error('面板至少要声明 render(main) / slot+renderSlot(container) / settingsTab.render(container) 之一');
       PANELS.push(panel);
       return panel.id;
     },
     list(){ return PANELS.slice(); },
     get(id){ return PANELS.find(p => p.id === id) || null; },
+    /* 设置页 tab：面板可通过 settingsTab 贡献（内核「设置」页只负责把它们排进去） */
+    settingsTabs(){
+      return PANELS.filter(p => p.settingsTab).map(p => ({
+        id: p.settingsTab.id || p.id,
+        label: p.settingsTab.label || p.label || p.id,
+        render: p.settingsTab.render,
+      }));
+    },
   };
 
   /* 槽位挂载：内核把槽位容器交给槽位面板，容器上带 data-plugin=<id> 以便插件样式作用域（§2）。
@@ -148,9 +162,10 @@
   function navGroups(){
     const groups = NAV_GROUPS.map(g=>({...g, items:[...g.items]}));
     /* 面板登记项并入导航：默认追加到声明分组末尾；给 before 则插到该路由之前。
-       槽位面板（如天气的顶栏卡片）不进导航 —— 它画进内核给的槽位，没有自己的页面。 */
+       进导航的**只有**声明了 render 的面板——槽位面板画进内核槽位，只贡献设置页 tab 的
+       面板（如「插件」页）也不该在侧栏里多出一项。 */
     for(const panel of PANELS){
-      if(panel.slot) continue;
+      if(panel.slot || typeof panel.render !== 'function') continue;
       const groupId = panel.group || 'system';
       let group = groups.find(g=>g.id===groupId);
       if(!group){ group = {id:groupId, label:panel.group_label||'扩展', items:[]}; groups.push(group); }
@@ -1206,8 +1221,18 @@
      （导航项 + 标题 + 渲染函数）。内核不再认识「计费」这个功能。 */
 
   async function renderSettings(){const cfg=await api('/api/config');state.config=cfg;
-    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button></aside><section class="card settings-panel" id="settings-panel"></section></div>`;
-    $$('[data-set-tab]').forEach(b=>b.onclick=()=>{$$('[data-set-tab]').forEach(x=>x.classList.toggle('active',x===b));renderSettingsTab(b.dataset.setTab,cfg)});renderSettingsTab('general',cfg);
+    /* v261009.4 · 设置页 tab 由两部分组成：内核自带 + **模块自登记**（ERWPanels.settingsTab）。
+       这样「插件管理」这类页面不必在 app.js 里加分支——内核不认识具体功能（§6.3）。 */
+    const extra=window.ERWPanels.settingsTabs();
+    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button>`
+      +extra.map(t=>`<button data-set-tab="${esc(t.id)}">${esc(t.label)}</button>`).join('')
+      +`</aside><section class="card settings-panel" id="settings-panel"></section></div>`;
+    $$('[data-set-tab]').forEach(b=>b.onclick=()=>{
+      $$('[data-set-tab]').forEach(x=>x.classList.toggle('active',x===b));
+      const tab=window.ERWPanels.settingsTabs().find(t=>t.id===b.dataset.setTab);
+      if(tab){const p=$('#settings-panel');p.innerHTML='';try{tab.render(p)}catch(e){p.innerHTML=`<div class="rss-alert danger"><strong>该设置页渲染失败</strong><span>${esc(e.message)}</span></div>`}}
+      else renderSettingsTab(b.dataset.setTab,cfg);
+    });renderSettingsTab('general',cfg);
   }
   function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='general'){
       p.innerHTML=`<div class="card-head"><div><div class="card-kicker">GENERAL</div><h3>基础设置</h3></div></div><div class="form-grid"><div class="field span-2"><label>工作台名称</label><input id="set-app-name" value="${esc(app.app_name)}"></div><div class="field span-2"><label>副标题</label><input id="set-subtitle" value="${esc(app.subtitle)}"></div></div><div class="field-help" style="margin-top:10px">运行端口、监听地址、Workspace 路径和启动行为已移动到“服务与存储”，均可在页面中配置。</div><div style="margin-top:14px"><button class="primary-btn" id="save-settings">保存</button></div>`;$('#save-settings').onclick=async()=>{app.app_name=$('#set-app-name').value.trim()||'科研工作台';app.subtitle=$('#set-subtitle').value.trim();const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;toast('基础设置已保存');await loadBootstrap();};

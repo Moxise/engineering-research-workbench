@@ -497,6 +497,8 @@ plugins/<plugin_id>/
 | 知识 kind | `ctx.kinds.register(KindSpec(...))` | 仅允许 `x-<id>-<kind>`；内核必须容忍未知 kind |
 | 前端面板 | manifest `nav[]` + `mount(ctx)` | 内核按 manifest 渲染导航与挂载点；插件**不得**改内核 DOM |
 | **前端槽位** | manifest `nav[].slot` + `ERWPanels.register({slot, renderSlot})` | 内核提供挂载点（当前只有 `topbar`）并给容器加 `data-plugin="<id>"`；插件只在容器内画东西。已知槽位在 `core/plugins/manifest.KNOWN_SLOTS` 声明，新增槽位是**有意的动作** |
+| **设置页 tab** | `ERWPanels.register({id, settingsTab: {id, label, render}})` | 任何模块都能往「设置」加一个 tab（内核只负责与内置 tab 排在一起，`app.js` 不加功能分支）。**只贡献 tab 的面板不进侧栏**；`ui_smoke` 断言它出现在设置页、点开非空、且不在侧栏 |
+| **插件管理（内核页）** | 预览 `GET /api/plugins?detail=1`；启停 `POST /api/plugin-manager/<id>/enabled` | 通用能力，与具体插件解耦：预览只读清单（状态/权限/路由/面板/工具/依赖/配置接口）；配置读写**转发**给插件自己的 `/api/plugins/<id>/config`（内核不解释其内容）；启停只改 `System/plugins.json` 并热重载，**不删文件、不动数据** |
 | **搜索分区** | `ctx.search.addSection({id,label,render})` | 内核搜索框保留关键词结果，语义结果由插件注入（RAG 的位置就在这里） |
 | 设置 | manifest `settings_schema` | 内核渲染表单，值落 `config/plugins/<id>.json` |
 | 事件 | `ctx.events.on("doc.updated", cb)` | 只读载荷；回调内禁止同步长耗时 |

@@ -176,15 +176,20 @@ def main(argv: list[str] | None = None) -> int:
                 fails.append(f"ERWDom 订阅方过少（{dom_seam.get('subscribers')}）——补丁可能没接上接缝")
             notes.append(f"DOM 变更接缝：1 个 observer / {dom_seam.get('subscribers')} 个订阅方")
 
-        # 面板注册表（§6.3）：导航面板必须有侧栏项并可走查；槽位面板必须有挂载点
+        # 面板注册表（§6.3）：按**声明的能力**分类核对
+        #   render      → 导航面板：必须在侧栏里，且必须点得开
+        #   slot        → 槽位面板：必须挂到对应槽位
+        #   settingsTab → 设置页 tab：必须出现在设置页，且**不该**在侧栏多出一项
         panels = page.evaluate(
             "() => (window.ERWPanels && window.ERWPanels.list ? window.ERWPanels.list() : [])"
-            ".map(p => ({id: p.id, slot: p.slot || ''}))"
+            ".map(p => ({id: p.id, slot: p.slot || '', render: typeof p.render === 'function', "
+            "tab: p.settingsTab ? (p.settingsTab.id || p.id) : ''}))"
         )
         if not page.evaluate("() => !!window.ERWPanels && typeof window.ERWPanels.register === 'function'"):
             fails.append("window.ERWPanels 面板注册表缺失（§6.3：功能无法自行登记导航与页面）")
-        nav_panels = [str(p["id"]) for p in panels if not p.get("slot")]
+        nav_panels = [str(p["id"]) for p in panels if p["render"]]
         slot_panels = [(str(p["id"]), str(p["slot"])) for p in panels if p.get("slot")]
+        tab_panels = [(str(p["id"]), str(p["tab"])) for p in panels if p.get("tab")]
         nav_routes = [r for r in page.eval_on_selector_all(".nav-item", "els => els.map(e => e.dataset.route)") if r]
         for pid in nav_panels:
             if pid not in nav_routes:
@@ -192,7 +197,29 @@ def main(argv: list[str] | None = None) -> int:
         for pid, slot in slot_panels:
             if not page.query_selector(f'[data-erw-slot="{slot}"] [data-plugin="{pid}"]'):
                 fails.append(f"槽位面板 {pid} 未挂载到槽位 {slot}")
-        notes.append(f"面板注册表：导航面板 {nav_panels}；槽位面板 {slot_panels}")
+        for pid, tab in tab_panels:
+            if pid in nav_routes:
+                fails.append(f"{pid} 只贡献设置页 tab，却也在侧栏导航里多出了一项")
+        if tab_panels:
+            try:
+                page.goto(f"{args.base_url}/#settings", wait_until="domcontentloaded", timeout=args.timeout)
+                page.wait_for_selector("#settings-panel", timeout=args.timeout)
+                page.wait_for_timeout(400)
+                tab_ids = page.eval_on_selector_all("[data-set-tab]", "els => els.map(e => e.dataset.setTab)")
+                for pid, tab in tab_panels:
+                    if tab not in tab_ids:
+                        fails.append(f"设置页 tab「{tab}」（{pid} 贡献）没出现在设置页：{tab_ids}")
+                # 贡献的 tab 必须点得开、渲染出内容
+                for pid, tab in tab_panels:
+                    if tab in tab_ids:
+                        page.click(f'[data-set-tab="{tab}"]')
+                        page.wait_for_timeout(700)
+                        panel_len = page.eval_on_selector("#settings-panel", "e => e.innerText.trim().length")
+                        if panel_len < 20:
+                            fails.append(f"设置页 tab「{tab}」渲染为空（{panel_len} 字）")
+            except Exception as exc:
+                fails.append(f"设置页 tab 走查失败：{exc}")
+        notes.append(f"面板注册表：导航 {nav_panels}；槽位 {[(p, s) for p, s in slot_panels]}；设置页 tab {[t for _, t in tab_panels]}")
 
         rendered: dict[str, str] = {}
         # 走查清单 = 内核声明的路由 + 导航面板（槽位面板没有页面，不在此列）

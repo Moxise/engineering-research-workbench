@@ -1,0 +1,21 @@
+/* plugin-manager.css · v261009.4 —— 设置 → 插件（内核模块 web/plugin-manager.js 的样式） */
+
+.pm-card{margin-bottom:12px}
+.pm-actions{display:flex;align-items:center;gap:10px}
+.pm-switch{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.pm-meta{display:grid;gap:5px;margin-top:10px}
+.pm-meta-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px;font-size:11px;align-items:start}
+.pm-meta-label{color:var(--muted)}
+.pm-meta-row code{font:10px/1.5 Consolas,monospace;background:color-mix(in srgb,var(--line) 35%,transparent);padding:1px 5px;border-radius:5px}
+.pm-path{overflow-wrap:anywhere}
+.pm-perm{display:inline-block;font:10px/1.6 Consolas,monospace;border:1px solid var(--line);border-radius:6px;padding:0 6px;margin:0 5px 3px 0}
+.pm-panel{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:6px;padding:1px 7px;margin:0 5px 3px 0}
+.pm-panel small{color:var(--muted)}
+.pm-config{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.pm-config-head{font:600 11px/1.4 inherit;color:var(--accent);letter-spacing:.06em;margin-bottom:5px}
+.pm-config-head small{color:var(--muted);letter-spacing:0;font-weight:400}
+.pm-json{width:100%;box-sizing:border-box;margin-top:6px;font:11px/1.6 Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:var(--surface);color:inherit;resize:vertical}
+.pm-config-actions{display:flex;gap:7px;margin-top:8px}
+.pm-alert{border:1px solid color-mix(in srgb,var(--danger) 40%,var(--line));border-radius:10px;padding:10px 12px;margin:8px 0;display:grid;gap:3px;background:color-mix(in srgb,var(--danger) 6%,transparent)}
+.pm-alert strong{font-size:12px}
+.pm-alert span{font-size:10px;color:var(--muted);line-height:1.6}

@@ -14,13 +14,41 @@
       "theme": "literature",
       "note": "v260929j · 批注编辑卡片操作行（加入笔记 / 附带截图勾选）样式；上版：AI 面板截图入口与待处理截图预览样式"
     },
-    { "file": "v260922-projects.css", "v": "260924g", "theme": "projects" },
-    { "file": "v260922-compact-layout.css", "v": "261009h", "theme": "layout" },
-    { "file": "v260922-overview-editor-tools.css", "v": "260924g", "theme": "overview" },
-    { "file": "v260922-performance.css", "v": "260924g", "theme": "performance" },
-    { "file": "v260922-graph-performance.css", "v": "260924g", "theme": "graph" },
-    { "file": "v260922-agent-profiles.css", "v": "260929d", "theme": "agent" },
-    { "file": "v260922-layout-bugfixes.css", "v": "260924g", "theme": "layout" },
+    {
+      "file": "v260922-projects.css",
+      "v": "260924g",
+      "theme": "projects"
+    },
+    {
+      "file": "v260922-compact-layout.css",
+      "v": "261009h",
+      "theme": "layout"
+    },
+    {
+      "file": "v260922-overview-editor-tools.css",
+      "v": "260924g",
+      "theme": "overview"
+    },
+    {
+      "file": "v260922-performance.css",
+      "v": "260924g",
+      "theme": "performance"
+    },
+    {
+      "file": "v260922-graph-performance.css",
+      "v": "260924g",
+      "theme": "graph"
+    },
+    {
+      "file": "v260922-agent-profiles.css",
+      "v": "260929d",
+      "theme": "agent"
+    },
+    {
+      "file": "v260922-layout-bugfixes.css",
+      "v": "260924g",
+      "theme": "layout"
+    },
     {
       "file": "v260930-floating-agent.css",
       "v": "260930n",
@@ -32,6 +60,12 @@
       "v": "261008",
       "theme": "billing",
       "note": "v261008 · 用量计费仪表盘样式"
+    },
+    {
+      "file": "plugin-manager.css",
+      "v": "261009",
+      "theme": "plugin-manager",
+      "note": "v261009.4 · 设置 → 插件（内核模块 web/plugin-manager.js 的样式；走 ERWPanels.settingsTab 自登记）"
     },
     {
       "file": "vendor/github.min.css",
@@ -77,9 +111,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009f",
+      "v": "261009g",
       "theme": "base",
-      "note": "v261009f · 天气搬出内核成为插件 plugins/weather（删顶栏卡片、loadWeather、设置页天气 tab；新增顶栏槽位挂载 mountSlots 与 ERWPanels 槽位面板支持）；上版：资讯搬出内核"
+      "note": "v261009g · 设置页 tab 支持模块自登记（ERWPanels.settingsTab）——「插件」页由 web/plugin-manager.js 贡献，内核不加分支；上版：天气搬出内核"
     },
     {
       "file": "plugin-host.js",
@@ -116,6 +150,12 @@
       "v": "261009c",
       "theme": "billing",
       "note": "v261009c · §6.3：自行登记 ERWPanels 面板（导航项 + 页头 + 渲染），内核不再认识计费；上版：A10 api() 走接缝"
+    },
+    {
+      "file": "plugin-manager.js",
+      "v": "261009",
+      "theme": "plugin-manager",
+      "note": "v261009.4 · 设置 → 插件：插件预览（状态/权限/路由/面板/工具/依赖）+ 配置读写 + 启停；经 ERWPanels.settingsTab 自登记，app.js 不加分支（§6.3）"
     }
   ]
 }

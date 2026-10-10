@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from . import manifest as M
@@ -220,6 +221,28 @@ def read_install_state(workspace: Path) -> dict:
         return data
     except (OSError, json.JSONDecodeError):
         return {"schema_version": 1, "plugins": {}}
+
+
+def write_install_state(workspace: Path, plugin_id: str, enabled: bool) -> dict:
+    """把某个插件的启停意图写进 `System/plugins.json`（原子写，保留其他插件与字段）。
+
+    **只改「开不开」，不删任何文件**（§1）——停用不等于卸载：插件目录原样保留，
+    数据与配置也不动，重新启用即回到原状。
+    """
+    path = Path(workspace) / "System" / "plugins.json"
+    state = read_install_state(workspace)
+    records = state.setdefault("plugins", {})
+    record = records.get(plugin_id)
+    if not isinstance(record, dict):
+        record = {}
+    record["enabled"] = bool(enabled)
+    record["updated"] = datetime.now().isoformat(timespec="seconds")
+    records[plugin_id] = record
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return state
 
 
 def report(

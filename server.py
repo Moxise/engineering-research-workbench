@@ -157,6 +157,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/literature/import":
                 return self.handle_literature_import()
+            # v261009.4 · 插件管理（内核自己的接口，用独立命名空间以免和插件路由撞车）：
+            #   POST /api/plugin-manager/<id>/enabled  {enabled: bool}
+            if path.startswith("/api/plugin-manager/"):
+                parts = [p for p in path[len("/api/plugin-manager/"):].split("/") if p]
+                if len(parts) == 2 and parts[1] == "enabled":
+                    payload = self.read_json()
+                    res = self.set_plugin_enabled(unquote(parts[0]), bool(payload.get("enabled")))
+                    return self.send_json(res, 404 if res.get("error") == "not_found" else 200)
+                return self.send_json({"error": "not_found", "message": "路径应为 /api/plugin-manager/<id>/enabled"}, 404)
             if path.startswith("/api/plugins/"):  # v261009 · 插件路由
                 return self.handle_plugin_route("POST", path, parse_qs(parsed.query, keep_blank_values=True),
                                                 self.read_json())
@@ -264,7 +273,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/statuses":
             return self.send_json(store.all_statuses())
         if path == "/api/plugins":  # v261009 · §6.3：内核下发「可用且启用」的插件及其面板入口
-            return self.send_json(self.plugin_payload())
+            # ?detail=1 → 插件预览（设置页的插件管理页用）：多带状态/权限/路由/工具/配置接口等
+            detail = (q.get("detail") or [""])[0] in ("1", "true", "yes")
+            return self.send_json(self.plugin_payload(detail=detail))
         if path == "/api/projects":
             return self.send_json(indexer.project_names())
         if path == "/api/project-records":
@@ -561,9 +572,35 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
-    def plugin_payload(self):
-        """内核下发给前端的插件清单（§6.3）。实现见模块级 build_plugin_payload（便于单测）。"""
-        return build_plugin_payload(ROOT, workspace.ensure_workspace())
+    def plugin_payload(self, detail: bool = False):
+        """内核下发给前端的插件清单（§6.3）。实现见模块级 build_plugin_payload（便于单测）。
+
+        detail=True 用于设置页的「插件」页（预览：状态/权限/路由/工具/配置接口）。
+        """
+        return build_plugin_payload(ROOT, workspace.ensure_workspace(), detail=detail)
+
+    def set_plugin_enabled(self, plugin_id: str, enabled: bool) -> dict:
+        """启停插件：写 `System/plugins.json`（**不删文件、不动数据**），然后热重载插件集合。
+
+        热重载是安全的：`loader.load()` 每次都在新的路由表/工具表上重新执行 `register(ctx)`，
+        插件不持有跨加载的全局状态；且单个插件失败不会影响内核（实测由 plugin_check 与
+        verify_plugin_manager 覆盖）。
+        """
+        from core.plugins import registry as plugin_registry
+
+        workspace_dir = workspace.ensure_workspace()
+        candidates, _notes = plugin_registry.discover(plugin_roots(ROOT))
+        if plugin_id not in candidates:
+            return {"error": "not_found", "message": f"未知插件：{plugin_id}"}
+        plugin_registry.write_install_state(workspace_dir, plugin_id, enabled)
+        self.plugin_reload()
+        return {"ok": True, "id": plugin_id, "enabled": bool(enabled),
+                "restart_recommended": False,
+                "note": "已生效；前端刷新页面后侧栏与面板会同步（插件停用不删除任何文件与数据）"}
+
+    def plugin_reload(self) -> dict:
+        result = load_plugins(ROOT, workspace.ensure_workspace())
+        return result
 
     def handle_plugin_route(self, method, path, q, body=None):
         """插件路由分发（§6.3）：只查已加载插件的路由表，未知路径 404。
@@ -653,15 +690,19 @@ def plugin_roots(root):
 PLUGINS = {"result": None}
 
 
+def _core_version() -> str:
+    """`VERSION` 文件里的内核版本（读不到就空串，插件侧按「无版本约束」处理）。"""
+    try:
+        return (ASSET_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def load_plugins(root, workspace_dir) -> dict:
     """启动时加载插件并执行 register(ctx)（§4.2 拓扑顺序；单插件失败不影响内核）。"""
     from core.plugins import loader as plugin_loader
 
-    version = ""
-    try:
-        version = (ASSET_ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    except OSError:
-        pass
+    version = _core_version()
     result = plugin_loader.load(roots=plugin_roots(root), workspace=workspace_dir, core_version=version)
     PLUGINS["result"] = result
     for note in result.notes:
@@ -673,21 +714,29 @@ def load_plugins(root, workspace_dir) -> dict:
     return result.as_dict()
 
 
-def build_plugin_payload(root, workspace_dir) -> dict:
+def build_plugin_payload(root, workspace_dir, detail: bool = False) -> dict:
     """前端插件清单（§6.3）：只含「已校验可用 且 生效启用」的插件与其面板入口。
 
     「开不开」的判定在 `core.plugins.registry.effective_enabled`：`System/plugins.json`
     有记录用记录，没有记录用 manifest 的 `default_enabled`（随包附属默认开、可选默认关）。
+
+    `detail=True` 时**额外**给出「插件预览」所需的只读信息（设置页的插件管理页用）：
+    名称/简介、权限（带中文说明）、路由、面板、工具、依赖、是否有配置接口、是否为槽位面板等。
+    这些字段对宿主无害（宿主只读 id/nav），所以同一接口按 `?detail=1` 区分即可。
     """
+    from core.plugins import manifest as plugin_manifest
     from core.plugins import registry as plugin_registry
 
     roots = plugin_roots(root)
     candidates, notes = plugin_registry.discover(roots)
-    plugin_registry.resolve(candidates, "")
+    summary = plugin_registry.resolve(candidates, "")
     install = plugin_registry.read_install_state(workspace_dir)
+    core_version = _core_version()
     out = []
     for pid, cand in sorted(candidates.items()):
-        if cand.state != "available" or not plugin_registry.effective_enabled(cand, install):
+        manifest = cand.manifest or {}
+        enabled = plugin_registry.effective_enabled(cand, install)
+        if cand.state != "available" or (not detail and not enabled):
             continue
         nav = []
         def asset_url(rel: str) -> str:
@@ -704,7 +753,7 @@ def build_plugin_payload(root, workspace_dir) -> dict:
                 stamp = 0
             return f"/plugins-file/{pid}/{rel}?v={stamp}"
 
-        for item in (cand.manifest or {}).get("nav") or []:
+        for item in manifest.get("nav") or []:
             if not isinstance(item, dict) or not item.get("mount"):
                 continue
             entry = {
@@ -715,11 +764,46 @@ def build_plugin_payload(root, workspace_dir) -> dict:
             }
             if item.get("style"):  # 插件自带样式（须按 §2 以 [data-plugin="<id>"] 作用域）
                 entry["style_url"] = asset_url(str(item["style"]).lstrip("/"))
+            if item.get("slot"):
+                entry["slot"] = str(item["slot"])
             nav.append(entry)
-        out.append({"id": pid, "version": cand.version, "source": cand.source,
-                    "distribution": (cand.manifest or {}).get("distribution") or "",
-                    "nav": nav})
-    return {"plugins": out, "notes": notes}
+        row = {"id": pid, "version": cand.version, "source": cand.source,
+               "distribution": manifest.get("distribution") or "",
+               "nav": nav}
+        if detail:
+            perms = [str(p) for p in (manifest.get("permissions") or [])]
+            routes = []
+            for route in manifest.get("routes") or []:
+                if isinstance(route, dict) and route.get("path"):
+                    routes.append(f"{str(route.get('method') or 'GET').upper()} {route['path']}")
+            tools = [str(t) for t in (manifest.get("mcp_tools") or [])]
+            has_config = any(str(r).endswith(" config") for r in routes)
+            row.update({
+                "name": str(manifest.get("name") or pid),
+                "description": str(manifest.get("description") or ""),
+                "kind": str(manifest.get("kind") or ""),
+                "core_min": str(manifest.get("core_min") or ""),
+                "state": cand.state,
+                "enabled": enabled,
+                "default_enabled": bool(manifest.get("default_enabled", False)),
+                "permissions": [{"id": p, "label": plugin_manifest.KNOWN_PERMISSIONS.get(p, "未知权限")} for p in perms],
+                "routes": routes,
+                "mcp_tools": tools,
+                "dependencies": [str(d) for d in (manifest.get("dependencies") or [])],
+                "has_config_route": has_config,
+                "config_url": f"/api/plugins/{pid}/config" if has_config else "",
+                "nav_labels": [n["label"] for n in nav],
+                "slot_only": bool(nav) and all(n.get("slot") for n in nav),
+                "dir": str(cand.dir),
+                "blocked_by": list((summary.get("blocked") or {}).get(pid) or []),
+                "reason": str(cand.reason or ""),
+                "fix": str(cand.fix or ""),
+                "issues": [dict(i) for i in (cand.issues or [])],
+                "shadowed": str(cand.shadowed or ""),
+                "state_label": plugin_registry.STATE_LABELS.get(cand.state, cand.state),
+            })
+        out.append(row)
+    return {"plugins": out, "notes": notes, "core_version": core_version}
 
 
 def build_server(port_override: int | None = None, auto_open_browser: bool | None = None):
