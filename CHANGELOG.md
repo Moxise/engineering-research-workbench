@@ -1,5 +1,19 @@
 # Changelog
 
+## v261009.19
+
+- **三处「小账」全修**（按你的选择）：
+  - **悬浮球不再嗅探阅读区 markup**：`litContext()` 与「框选截图」入口从 `q('.lit-shell')` 改为问接缝 `window.ERWReader.available()`——内核/插件都不再靠别人的 DOM 判断状态。
+  - **悬浮球最终消息正文改走内核 `ERWMarkdown`**（代码高亮 / mermaid / MathJax / 宽表格包裹与全站一致）：只在**流式结束后**升级（流式期间每次状态刷新会重绘整列表，走重渲染会把整个对话反复 typeset）；旧的内联 MathJax 兜底保留为「内核接缝缺席」时的退路。
+  - **内核 observer 忽略清单去掉 `#erw-fab-panel`**（插件已搬走，内核不该再点名插件 DOM）。
+  - **清掉 `System/plugins.json` 里已删插件 `litnote` 的残留记录**（现为 7 条，与 7 个插件一致）。
+  - 验收（`.scratch/tmp/_check_fab_markdown_and_seam.py`，真 Chrome，**7/7**）：内核 `ERWMarkdown` 可用（表格包裹 / 代码高亮 / 数学三连）；悬浮球最终消息的待升级标记被消费（说明确实走了接缝）；**阅读区插件缺席时悬浮球照常可用且 0 console error**。
+- **新增 `docs/PLUGIN_SPEC.md` §6.2「插件能力矩阵：什么不用改内核，什么必须改内核」**（回答你的问题：现体系够不够、加插件要不要动内核）：
+  - **① 完全不用改内核**：导航页/槽位/设置页 tab/阅读区 tab、自有 HTTP 路由、给 Agent 加工具（写工具自动走草稿闸门）、自有存储与配置、订阅内核事件、读公开数据 API、内核 UI 小件、出网/重型库按需、前提插件依赖、自登记前端接缝——共 11 类，当前 7 个插件基本都落在这一类。
+  - **② 要一次性加一种「形态」**：插件接管整页 / 接管局部 / 提供常驻容器 / 插件间通信——本轮实际新增了 5 处（`ERWReader`、`ERWGraphRenderers.mount`、`overlay` 槽位、`ERWToast`、`ERWReaderAssist`），**加完同类插件不再需要动内核**。
+  - **③ 内核必须先实现的缺口（只有三件）**：`ctx.search.addSection`、`ctx.jobs`、`process` 执行层。
+  - **RAG 结论**：属③——必须补 `ctx.search.addSection` + `process` 隔离（`ctx.jobs` 可选，取决于是否要索引进度）；数据按你的决定**保留原位复用**；也给出了「纯前端轻量版（不经搜索框、用插件自己的 sqlite）」的替代路径。
+
 ## v261009.18
 
 - **图谱渲染彻底交给插件**（你的实测发现：关掉知识图谱插件后，图谱页仍画出那张难看的螺旋图——说明内核还留着旧渲染）。

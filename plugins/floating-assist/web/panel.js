@@ -51,8 +51,9 @@ async function api(url,opts={}){
 const ROUTE_LABELS={overview:"概览",todos:"待办",focus:"专注",agent:"Agent 对话",news:"资讯","research-overview":"研究 · 知识总览",ideas:"灵感",journals:"研究日志",notes:"笔记",milestones:"里程碑",summaries:"工作总结",literature:"文献",graph:"知识图谱",folders:"文件夹",settings:"设置"};
 
 function litContext(){
-  /* PDF 阅读工作区激活时（.lit-shell 存在）取当前文献/页码/选中 */
-  if(!q(".lit-shell")||!window.ERWLiterature?.context)return null;
+  /* v261009.19 · 不再嗅探阅读区 markup：问接缝 `ERWReader.available()`；
+     当前是否真有打开中的文献由 `context().paper_id` 判断。 */
+  if(!window.ERWReader?.available?.()||!window.ERWLiterature?.context)return null;
   try{const c=window.ERWLiterature.context();return c&&c.paper_id?c:null}catch{return null}
 }
 function routeName(){return (location.hash||"").replace(/^#/,"")||"overview"}
@@ -152,7 +153,7 @@ function mount(host){
   /* v260930e · 截图：当前整页立即截；框选则收起面板等用户框完再回 */
   q("#fab-shot-page").onclick=()=>{const d=window.ERWCapture?.page();if(!d){toastInPanel("仅文献阅读页可截当前页",true);return}attachImage(d)};
   q("#fab-shot-area").onclick=async()=>{
-    if(!q(".lit-shell")){toastInPanel("仅文献阅读页可框选截图",true);return}
+    if(!window.ERWReader?.available?.()){toastInPanel("仅文献阅读页可框选截图",true);return}   /* v261009.19 · 问接缝 */
     closePanel();
     const d=await window.ERWCapture.area();
     if(d){attachImage(d);openPanel();toastInPanel("已附加框选截图")}
@@ -781,13 +782,22 @@ function metaParts(m){
   const modelShown=!!model&&!(mode&&norm(mode).includes(norm(model)));
   return [persona,modelShown?model:"",mode].filter(Boolean);
 }
+/* v261009.19 · 把 `.fab-body[data-md]` 的原文交给内核 Markdown 接缝渲染，并一次性消费该属性。 */
+async function upgradeMarkdown(root){
+ const md=window.ERWMarkdown;
+ if(!md||typeof md.renderInto!=="function")return;
+ for(const el of qa(".fab-body[data-md]",root)){
+  const raw=el.getAttribute("data-md")||"";el.removeAttribute("data-md");
+  try{ await md.renderInto(el,raw); }catch(e){ /* 渲染失败则保留轻量结果 */ }
+ }
+}
 function msgHtml(m,idx){
   const who=m.role==="assistant"?"AI":"YOU";
   const meta=[...metaParts(m).map(esc),esc(fmtTime(m.created))].filter(Boolean).join(" · ");
   const live=liveStatusHtml(m);
   const body=m.__thinking
     ?(live?"":'<div class="fab-thinking"><span class="dots"><i></i><i></i><i></i></span>正在思考 / 调用工具…</div>')
-    :`<div class="fab-body">${mdRender(m.content||"")}</div>`;
+    :`<div class="fab-body"${(m.__streaming||m.__thinking)?"":` data-md="${esc(m.content||"")}"`}>${mdRender(m.content||"")}</div>`;
   const cite=(m.__thinking||m.__streaming)?"":`<button type="button" class="fab-msg-cite" data-cite="${idx}" title="引用此条消息：发送时把该条内容带给 AI">❝</button>`; /* v260930j · 消息级引用；v260930k 生成中不显示 */
   return `<article class="fab-msg ${m.role==="assistant"?"assistant":"user"}">
     <div class="fab-avatar">${who}</div>
@@ -920,6 +930,10 @@ function renderMessages(){
   const clipped=start?'<div class="fab-empty" style="padding:6px 8px">较早 '+start+' 条消息已省略渲染，可从历史对话查看</div>':"";
   root.innerHTML=clipped+rows.map((m,i)=>msgHtml(m,start+i)).join("");
   root.scrollTop=root.scrollHeight;
+  /* v261009.19 · 最终消息（非流式）的正文升级为内核 ERWMarkdown：代码高亮 / mermaid / MathJax /
+     宽表格包裹与全站一致。**只在流式结束后做**——流式期间的状态刷新会重绘整列表，那时走重渲染
+     会把整个对话的 MathJax 反复 typeset。 */
+  if(window.ERWMarkdown&&!S.messages.some(m=>m.__streaming||m.__thinking))upgradeMarkdown(root);
   /* 只对确实含 TeX 标记的消息做 MathJax，避免每次状态刷新重扫整个对话 DOM。 */
   const mathBodies=qa(".fab-body",root).filter(el=>/[\\$]|\\\\\(|\\\\\[/.test(el.textContent||""));
   if(mathBodies.length&&window.MathJax?.typesetPromise){

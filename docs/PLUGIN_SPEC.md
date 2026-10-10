@@ -227,6 +227,56 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 > 等于把附属重新变成核心（与 §5/A15 的方向相反），并且会让内核重新依赖具体功能。
 > 判定标准：**内核是否在无该插件时报错/白屏**——不是「某块 UI 是否消失」。
 
+### 6.2 插件能力矩阵：什么不用改内核，什么必须改内核
+
+> 这份表是**根因导向**的：回答「加一个新插件，要不要动内核」。结论分三类：
+> **① 完全不用改内核**（绝大多数功能）；**② 要一次性加一种"形态"**（加完这一类的插件都不用再改）；
+> **③ 要内核先把某个能力实现出来**（当前明确的缺口只有三件）。
+
+**① 不改内核就能做到（现有接缝已覆盖）**
+
+| 需求 | 用什么 |
+| --- | --- |
+| 加一个侧栏页面 / 顶栏组件 / 设置页 tab / 阅读区 tab | `ERWPanels.register` + manifest `nav[]`/`panel`（4 类自登记点） |
+| 让「始终挂在页面上」的 UI 进页面 | 浮层槽位 `overlay`（内核给 `#erw-overlay-host`），或 `topbar` |
+| 自己提供 HTTP 接口 | `ctx.routes.get/post/...` → 自动挂到 `/api/plugins/<id>/…` |
+| 给内置 Agent 加工具 | `ctx.mcp.tool(name, spec, handler)` → 对外 `p_<id>__<name>`；**写工具自动走内核草稿闸门** |
+| 存自己的数据 / 配置 | `ctx.storage`（`Workspace/Plugins/<id>`、`System/Plugins/<id>`、`System/Cache/<id>.sqlite`）、`ctx.config` |
+| 订阅内核事件 | `ctx.events.on("llm.usage"\|…)` |
+| 读内核数据 | 公开数据 API（`/api/docs`、`/api/literature`、`/api/graph`、`/api/search`、`/api/dashboard`…） |
+| 用内核的 UI 小件 | `ERWContract`（kind/标记/关系）、`ERWMarkdown`（渲染+图片路径）、`ERWToast`、`ERWMarkBadges/ERWMarkList/ERWMarkChips/ERWTagPicker` |
+| 网络 / 重型库 | `core_api.http_get`（带代理兜底）、`window.erwFetch`、`window.erwVendor.load('mathjax'\|'mermaid')` |
+| 依赖别的插件 | `requires.plugins`（拓扑排序 + 缺依赖则 blocked 并给原因） |
+| 自登记前端接缝（**插件提供、别的模块消费**） | 挂 `window.ERW*`；`web_check`/`ui_smoke` 把 `plugins/*/web/*.js` 计入提供方 |
+
+**② 需要一次性加"形态"**（加完同类插件不再需要改内核；本轮实际加过 5 个）
+
+| 形态 | 内核侧一次性成本 | 之后谁受益 |
+| --- | --- | --- |
+| 让插件**接管某个内核页面**（图谱页、阅读区） | 一个注册表 + 一处委托调用（`ERWGraphRenderers.mount`、`ERWReader`） | 同页面的替代实现（换渲染器/换阅读器） |
+| 让插件**接管页面的一部分**（总览迷你图、阅读区 tab） | 一个 `enhance(canvas, ctx)` / `readerTab` 钩子 | 所有在既有容器里加 UI 的插件 |
+| 让插件**提供页面级 UI 容器** | 一个新的 slot（如 `overlay`）+ 挂载点 | 所有"常驻页面"型 UI 插件 |
+| 让插件**之间**通信（助手↔宿主） | 一个契约（如 `ERWReaderAssist`：`tabId` + `attach(ctx)`） | 同类"宿主—扩展"组合 |
+
+**③ 内核必须先实现的能力（当前缺口，只有三件）**
+
+| 缺口 | 影响什么插件 | 状态 |
+| --- | --- | --- |
+| `ctx.search.addSection` | 往全局搜索框注入「语义结果」分区（RAG 的落点） | **未实现**（`core/plugins/context.py` 明确标注） |
+| `ctx.jobs` | 后台任务：长时索引、进度、超时、日志 | **未实现** |
+| `process` 类插件的执行层 | 独立进程/独立解释器的重型插件（模型、向量服务） | manifest 能声明 `kind:"process"`，但 loader 只跑 `inprocess` 的 `register(ctx)` |
+
+> **判断口径**：如果新插件只需要上面①里的能力 → 直接写插件、零内核改动；
+> 如果它要一种**全新的形态**（新容器/新接管点）→ 内核加一个接缝（一次性，几十行）；
+> 如果它要的能力落在③里 → 必须先把内核能力补齐，插件才能落地。
+
+**RAG 的可行性结论（2026-10-10 梳理）**：RAG 属于③而不是①——
+
+- **必须**：`ctx.search.addSection`（否则语义结果没有展示位）+ `process` 隔离（向量索引与 embedding 属重依赖，放 inprocess 会把内核进程拖住）；
+- **可选**：`ctx.jobs`（做索引进度条才需要；先做同步索引可以先不做）；
+- **数据**：本地 `.rag/` 92 MB + `rag.sqlite` 69 MB **按用户决定保留原位复用**；重建向量需要重新调用 embedding（耗时且消耗配额）；
+- **轻量替代**（若不想先补内核）：纯前端插件在**自己的页面**里做语义检索（不经搜索框），只需内核已有的公开数据 API + 插件自己的 sqlite——代价是没有搜索框分区、也没有后台任务。
+
 **公开数据 API**（只读，插件可直接消费）：`/api/docs`、`/api/docs/<id>`、`/api/statuses`、`/api/projects`、`/api/dashboard`、`/api/graph`、`/api/graph/overview`、`/api/graph/neighborhood`、`/api/search`、`/api/todos`、`/api/literature`（含 `/pdf` 的 **Range 分片**、`/annotations`、`/note`、`/storage`、`/lookup`、`/import`、`/rebuild`、`export-bibtex`）。写路径一律走内核草稿闸门，插件**不得**直写 `Workspace/`。
 
 > **纯前端插件不必扩 `core_api`**：`core_api` 是给插件**后端**（`inprocess` 的 `entry`）用的；

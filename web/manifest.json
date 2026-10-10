@@ -89,7 +89,7 @@
     },
     {
       "file": "v260922-performance.js",
-      "v": "261009r",
+      "v": "261009s",
       "theme": "performance",
       "note": "v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore 过滤）；上版 A10：提供 window.erwFetch 接缝，不再全局替换 window.fetch"
     },
