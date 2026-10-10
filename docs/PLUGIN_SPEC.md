@@ -44,7 +44,7 @@
 | 形态 | 样子 | 生效方式 |
 | --- | --- | --- |
 | **目录态**（开发/源码） | `plugins/<id>/`（含 `plugin.json`） | 直接扫描加载 |
-| **单文件包态**（分发） | `plugins/<id>-<version>.zip`（内含 `plugin.json` 在根） | **自动解包到 `plugins/<id>/`**：每个功能模块**一个独立文件夹、互不混用**（**已定、未实现**——见 §12 与 §2「解包规则」；当前 `core/plugins/loader.py` 只识别目录态） |
+| **单文件包态**（分发） | `plugins/<id>-<version>.zip`（内含 `plugin.json` 在根） | **自动解包到 `plugins/<id>/`**：每个功能模块**一个独立文件夹、互不混用**（✅ 已实现，见 §12 与 §2「解包规则」；实现 `core/plugins/unpack.py`） |
 
 `plugins/<id>/` 的标准结构：
 
@@ -61,13 +61,17 @@ plugins/weather/
 
 **解包规则（核心要求：每插件一个独立文件夹，绝不混用）**：
 
-> ⚠️ **状态：规格已定，代码未实现**（SCOPE §6 阶段 1 唯一剩余项）。当前扫描只认**目录态** `plugins/<id>/`；把 `.zip` 丢进 `plugins/` 不会解包也不会报错，只会被忽略。以下 6 条是落地时的验收口径。
+> ✅ **状态：已实现**（v261009.21，实现 `core/plugins/unpack.py`；夹具 `.scratch/tmp/verify_zip_unpack.py` 53 项、`.scratch/tmp/verify_zip_install_http.py` 27 项）。
+> **三个安装时机**：服务启动（`loader.load`）→ 打开设置页插件页（`build_plugin_payload(detail=True)`，结果以结构化 `install` 字段显示在页面上）→ CLI `python -m core.plugins list --install`。
+> **发现永远只读**：`registry.discover` / `report` 不写盘，所以 `tools/plugin_check.py` 与每个插件请求路径都不会顺带装东西；安装必须显式调 `registry.install_packages()`。
+> **额外安全上限**（规范之外的兜底）：包内条目 ≤ 20000、解压后 ≤ 512 MB、解压比 ≤ 200:1（小包不查比值）。
 
 1. **先临时后原子**：解到 `plugins/.unpack-<id>-<version>/`，全部校验通过后**原子改名**为 `plugins/<id>/` → 任何时候都不存在"半解包"状态。
 2. **一包一插件**：包内只能是一个插件的完整内容（清单在根）；一个包里塞两个插件、或把文件直接铺到 `plugins/` 根 → **拒载**。
 3. **目录名 = manifest id**：解包目录必须是 `plugins/<id>/`，与 `plugin.json` 的 `id` 一致；不一致 → 拒载（避免"文件夹叫 A、插件自称 B"的混乱）。
 4. **版本替换不合并**：`plugins/<id>/` 已存在且版本不同 → 旧目录**整体**移入 `System/Trash/plugins/<id>-<旧版本>/`，再放入新版；**禁止逐文件覆盖合并**。
 5. **不覆盖用户手改目录**：若 `plugins/<id>/` 是你自己放的目录态插件（非由 zip 解出），同名 zip 只提示冲突，不自动覆盖。
+   判定依据是目录里的标记文件 **`.erw-unpacked`**（记录 id / version / 来源包 / 解包时间）：**删掉它即视为手放目录**，从此不会被任何同名包升级；反过来，若删包后想彻底回到"未安装"，把 `plugins/<id>/` 整个删掉即可（包文件不会被本模块删除）。
 6. **路径安全**：解包落点必须严格在 `plugins/<id>/` 内——拒绝绝对路径、`..` 穿越、符号链接逃逸。
 
 ---
@@ -155,7 +159,7 @@ plugins/weather/
 
 | 动作 | 用户做什么 | 内核做什么 | 生效时机 |
 | --- | --- | --- | --- |
-| **安装** | 把目录或 `<id>-<version>.zip` 丢进 `plugins/` | 扫描 → 校验 manifest → 检查 `api_version`/依赖/冲突 → 记入 `System/plugins.json`（默认**不启用**，除非 `default_enabled: true`） | 后端需**重启**注册路由/工具；前端刷新即可见面板 |
+| **安装** | 把目录或 `<id>-<version>.zip` 丢进 `plugins/` | 扫描 → 校验 manifest → 检查 `api_version`/依赖/冲突 → 记入 `System/plugins.json`（默认**不启用**，除非 `default_enabled: true`）。**单文件包**按 §2 解包规则自动解到 `plugins/<id>/`（服务启动、打开设置页插件页、CLI `--install` 三处触发；`tools/plugin_check.py` 之类的只读审计**不会**触发） | 后端需**重启**注册路由/工具；前端刷新即可见面板 |
 | **启用** | 设置页点「启用」（或 CLI） | 校验 → 拓扑排序注册 → 写 `enabled: true` | 同上 |
 | **禁用** | 点「禁用」 | 注销路由/面板/工具 → 级联停用其依赖者 → **保留数据** → 写 `enabled: false` | 同上 |
 | **更新** | 用新版本替换目录/包 | 版本比对 → 跑 `migrations/` → 更新记录与哈希；`api_version` 不兼容则**拒绝并保留旧版** | 同上 |
@@ -165,6 +169,7 @@ plugins/weather/
 
 ```powershell
 python -m core.plugins list            # 已发现 / 已启用 / blocked / 冲突
+python -m core.plugins list --install  # 同上，但先把 plugins/ 下的单文件包解包（§2）
 python -m core.plugins check <id>      # manifest 校验 + 依赖与权限报告（不落盘）
 python -m core.plugins enable <id>     # 启用（含级联检查）
 python -m core.plugins disable <id>    # 禁用（含级联停用预览）
@@ -305,7 +310,7 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 1. `plugin.json` 存在且能通过 schema 校验（`id` 合法、`version` 语义化、`api_version` 为整数）；
 2. `api_version` 与内核兼容；`core_min` 满足；
 3. 依赖可满足、无环、无同 id 多版本冲突；
-4. 单文件包解包安全：拒绝绝对路径、`..` 穿越、符号链接逃逸（只允许包内相对路径，且落点必须严格在 `plugins/<id>/` 内，见 §2 解包规则）；
+4. 单文件包解包安全：拒绝绝对路径、`..` 穿越、符号链接逃逸（只允许包内相对路径，且落点必须严格在 `plugins/<id>/` 内，见 §2 解包规则）；**已实现**，另加条目数/解压体积/解压比上限；
 5. 可选完整性校验：包内或其旁提供 `.sha256`，与 `System/plugins.json` 记录比对；
 6. **权限清单展示**：`permissions` 会在安装/启用时用人话列出（如「可访问网络」「可写入自己的数据目录」）；声明了未支持权限 → 拒载；
 7. 冲突检查：`id`、路由前缀、工具名前缀、CSS 作用域与已启用插件重复 → 拒载。
@@ -425,4 +430,4 @@ AI 的工具**只有三种来源**，且核心默认只开第一种：
 | # | 问题 | 决定 |
 | --- | --- | --- |
 | **P-A** | 单文件包扩展名 | ✅ **先用 `.zip`**，后续再改（将来可加 `.erwp` 别名，两种都要能识别） |
-| **P-B** | 是否自动解包 | ✅ **自动解包**，但**每个功能模块一个独立文件夹、不能混用**——规则见 §2「解包规则」 |
+| **P-B** | 是否自动解包 | ✅ **自动解包**（v261009.21 已实现 `core/plugins/unpack.py`），但**每个功能模块一个独立文件夹、不能混用**——规则见 §2「解包规则」 |

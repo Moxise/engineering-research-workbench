@@ -55,3 +55,14 @@ button.pm-row:hover{border-color:var(--accent)}
 .pm-alert{border:1px solid color-mix(in srgb,var(--danger) 40%,var(--line));border-radius:10px;padding:10px 12px;margin:8px 0;display:grid;gap:3px;background:color-mix(in srgb,var(--danger) 6%,transparent)}
 .pm-alert strong{font-size:12px}
 .pm-alert span{font-size:10px;color:var(--muted);line-height:1.6}
+
+/* ---- 单文件包安装结果 / 发现期提示（中性底，靠左侧色条区分成败） ---- */
+.pm-notes{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;background:color-mix(in srgb,var(--line) 14%,transparent)}
+.pm-notes strong{font-size:12px}
+.pm-notes ul{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:4px}
+.pm-notes li{font-size:11px;line-height:1.6;padding-left:9px;border-left:3px solid var(--line)}
+.pm-notes li code{font:10px/1.5 Consolas,monospace;background:color-mix(in srgb,var(--line) 35%,transparent);padding:1px 5px;border-radius:5px}
+.pm-notes li>span{display:block;font-size:10px;color:var(--muted);line-height:1.6}
+.pm-notes li.good{border-left-color:var(--ok)}
+.pm-notes li.bad{border-left-color:var(--danger)}
+.pm-notes li.flat{border-left-color:var(--line)}

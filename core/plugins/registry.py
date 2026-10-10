@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import manifest as M
+from . import unpack as U
 
 #: 状态含义（供 CLI / 文档复用）
 STATE_LABELS = {
@@ -81,7 +82,12 @@ def default_roots(repo_root: Path | None = None) -> list[tuple[str, Path]]:
 
 
 def discover(roots: list[tuple[str, Path]] | None = None) -> tuple[dict[str, PluginCandidate], list[str]]:
-    """扫描各根目录下的 `plugins/<id>/`，返回 (候选表, 提示列表)。同名 ASSET 优先。"""
+    """扫描各根目录下的 `plugins/<id>/`，返回 (候选表, 提示列表)。同名 ASSET 优先。
+
+    **本函数只读，永不写盘**：`tools/plugin_check.py` 与每个插件请求路径（`/api/plugins/*`
+    转发、插件静态资源）都在调用它——审计工具与热路径不该顺带安装东西。安装是另一个
+    显式动作，见 `install_packages`。
+    """
     notes: list[str] = []
     found: dict[str, PluginCandidate] = {}
     seen_roots: set[Path] = set()
@@ -245,13 +251,36 @@ def write_install_state(workspace: Path, plugin_id: str, enabled: bool) -> dict:
     return state
 
 
+def install_packages(
+    roots: list[tuple[str, Path]] | None = None,
+    *,
+    workspace: Path | None = None,
+) -> list[U.UnpackOutcome]:
+    """**安装动作**：把各扫描根下的 `<id>-<version>.zip` 解包成 `plugins/<id>/`（PLUGIN_SPEC §2）。
+
+    与 `discover` 严格分开：发现的调用方（审计闸门、每个插件请求路径）不可能因为调了
+    `discover` 而写盘；安装必须显式调这个函数。当前三个调用点都是用户可见的安装时机：
+    服务启动（`loader.load`）、打开设置页插件页（`server.build_plugin_payload`）、
+    CLI `python -m core.plugins list --install`。同一根只会扫一次（与 discover 同样的去重）。
+    """
+    seen: set[Path] = set()
+    out: list[U.UnpackOutcome] = []
+    for _source, root in (roots or default_roots()):
+        real = Path(root).resolve() if Path(root).exists() else Path(root)
+        if real in seen:
+            continue
+        seen.add(real)
+        out.extend(U.unpack_all(root, workspace=workspace))
+    return out
+
+
 def report(
     *,
     roots: list[tuple[str, Path]] | None = None,
     workspace: Path | None = None,
     core_version: str = "",
 ) -> dict:
-    """一次完整盘点：候选状态 + 加载顺序 + 安装意图 + 提示。"""
+    """一次完整盘点：候选状态 + 加载顺序 + 安装意图 + 提示。**只读**（安装见 `install_packages`）。"""
     candidates, notes = discover(roots)
     summary = resolve(candidates, core_version)
     install = read_install_state(workspace) if workspace else {"plugins": {}}

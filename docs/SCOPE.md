@@ -191,7 +191,7 @@ Markdown + frontmatter 是唯一事实来源，SQLite 索引是可重建派生�
 | Doctor + 迁移框架 | ✅ 已实现：`python -m core.doctor`（只读体检）+ `VERSION` 单一版本入口 + `core/index/migrate.py`（幂等迁移） | 已实现 |
 | 取回验证工具 | ✅ 已实现：`tools/kb_smoke.py`、`tools/web_check.py`、`tools/ui_smoke.py`、`tools/plugin_check.py`、`tools/shot_page.py`、`tools/shot_prep.py` | 已实现（A13 关闭） |
 | 插件运行时 | ✅ 已实现：`core/plugins/{manifest,registry,loader,context,runtime}.py` + `python -m core.plugins list\|check\|verify`（发现/校验/拓扑/熔断） | 已实现 |
-| `.zip` 自动解包 | 放进 `plugins/` 即自动解包到 `plugins/<id>/`（每插件独立文件夹，见 PLUGIN_SPEC §2） | **未实现 —— 阶段 1 唯一剩余项**：目录态插件已可用，但 `core/plugins/loader.py` 尚无 zip 识别/解包；实测把 `.zip` 丢进扫描根会被**静默忽略**（退出码 0、无提示）；PLUGIN_SPEC §2/§12 已标注「规格已定、代码未实现」 |
+| `.zip` 自动解包 | 放进 `plugins/` 即自动解包到 `plugins/<id>/`（每插件独立文件夹，见 PLUGIN_SPEC §2） | ✅ **已实现**（v261009.21，`core/plugins/unpack.py`）：六条规则 + 路径安全/zip 炸弹上限；三处触发（服务启动、设置页插件页、CLI `--install`），`discover`/`report` 保持只读；设置页显示解包/升级/拒收/冲突逐条结果——**阶段 1 五项全部完成** |
 
 ### 阶段 2 · 拆插件（每个都须附《迁移等价性报告》）
 

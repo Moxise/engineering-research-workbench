@@ -715,6 +715,12 @@ def build_plugin_payload(root, workspace_dir, detail: bool = False) -> dict:
     from core.plugins import registry as plugin_registry
 
     roots = plugin_roots(root)
+    # §5「安装」的用户可见入口之一：打开设置页的插件页时先把 plugins/ 下的单文件包解包
+    # （PLUGIN_SPEC §2），结果作为结构化清单下发给前端展示。只在 detail（设置页）执行；
+    # 普通页面加载走只读 discover，不写盘。
+    install_rows: list[dict] = []
+    if detail:
+        install_rows = [o.as_dict() for o in plugin_registry.install_packages(roots, workspace=workspace_dir)]
     candidates, notes = plugin_registry.discover(roots)
     summary = plugin_registry.resolve(candidates, "")
     install = plugin_registry.read_install_state(workspace_dir)
@@ -797,7 +803,7 @@ def build_plugin_payload(root, workspace_dir, detail: bool = False) -> dict:
                 "state_label": plugin_registry.STATE_LABELS.get(cand.state, cand.state),
             })
         out.append(row)
-    return {"plugins": out, "notes": notes, "core_version": core_version}
+    return {"plugins": out, "notes": notes, "core_version": core_version, "install": install_rows}
 
 
 def build_server(port_override: int | None = None, auto_open_browser: bool | None = None):

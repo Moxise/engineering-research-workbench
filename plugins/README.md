@@ -7,14 +7,28 @@ plugins/
 ├─ weather/                 ← 目录态：直接扫描加载
 │  ├─ plugin.json           ← 唯一必需文件（字段见 docs/PLUGIN_SPEC.md §3）
 │  ├─ backend.py            ← 可选：register(ctx) 入口
-│  └─ web/panel.js          ← 可选：前端面板（必须自登记 window.ERWPanels）
+│  ├─ web/panel.js          ← 可选：前端面板（必须自登记 window.ERWPanels）
+│  └─ .erw-unpacked         ← 由 zip 解出的标记（决定同名包能不能升级它；手放目录没有这个文件）
 └─ weather-1.0.0.zip        ← 单文件包态：自动解包到 plugins/weather/
 ```
+
+单文件包（`<id>-<version>.zip`，`plugin.json` 必须在包根）会按 [PLUGIN_SPEC §2](../docs/PLUGIN_SPEC.md) 的六条规则解包：临时目录 → 校验 → 原子改名；旧版本整体进 `System/Trash/plugins/<id>-<版本>/`（不逐文件合并）；手放的目录**不会被覆盖**。
+
+**三个安装时机**（发现本身永远只读，`plugin_check.py` 之类的审计不会装东西）：
+
+| 时机 | 做什么 |
+| --- | --- |
+| 重启工作台 | 启动时解包，然后照常加载（后端改动本来就要重启） |
+| 打开「设置 → 插件」 | 解包并把结果显示在页面顶部（已解包 / 已升级 / 拒收 / 冲突 + 原因） |
+| `python -m core.plugins list --install` | 命令行解包并盘点 |
+
+拒收与冲突会**明确写出原因**（清单不在包根、校验不过、路径穿越、手放目录…），不会静默忽略。
 
 常用命令：
 
 ```powershell
 python -m core.plugins list            # 已发现 / 可用 / blocked / 冲突
+python -m core.plugins list --install  # 同上，但先把单文件包解包
 python -m core.plugins check <id>      # 单个插件的校验 + 依赖 + 权限报告（不落盘）
 python -m core.plugins verify          # 全库盘点
 python tools/plugin_check.py           # 隔离体检：依赖方向单向、内核可脱离 app、零插件合法

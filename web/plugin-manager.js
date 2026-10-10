@@ -270,6 +270,33 @@
     });
   }
 
+  /* 单文件包安装结果（内核 §2 解包规则）：结构化下发，前端只负责呈现。
+     拒收与冲突必须显示出来——「丢个 zip 进来毫无反应」比报错更难查。 */
+  function installHtml(items) {
+    if (!items || !items.length) return '';
+    var rows = items.map(function (it) {
+      var bad = it.action === 'rejected' || it.action === 'conflict';
+      var good = it.action === 'unpacked' || it.action === 'upgraded';
+      var who = it.id ? (it.id + (it.version ? ' v' + it.version : '')) : '';
+      return '<li class="' + (bad ? 'bad' : (good ? 'good' : 'flat')) + '">'
+        + '<code>' + esc(it.file) + '</code> '
+        + esc(it.action_label || it.action)
+        + (who ? '：<b>' + esc(who) + '</b>' : '')
+        + (it.reason ? '<span>' + esc(it.reason) + '</span>' : '')
+        + '</li>';
+    }).join('');
+    return '<div class="pm-notes"><strong>单文件包（<code>plugins/*.zip</code>）安装结果</strong>'
+      + '<ul>' + rows + '</ul></div>';
+  }
+
+  /* 其它发现期提示（同名遮蔽、依赖等） */
+  function notesHtml(notes) {
+    if (!notes || !notes.length) return '';
+    return '<div class="pm-notes"><strong>提示</strong><ul>'
+      + notes.map(function (n) { return '<li class="flat">' + esc(n) + '</li>'; }).join('')
+      + '</ul></div>';
+  }
+
   async function load(root) {
     var list = $('#pm-list', root);
     list.innerHTML = '<div class="empty">正在读取插件…</div>';
@@ -285,13 +312,17 @@
           + '所以权限、路由、工具、目录与「启用」状态都读不到（勾选框也因此不可用）。'
           + '<b>重启工作台</b>（<code>python server.py</code>）后再打开本页即可。</span></div>'
         : '';
+      var blocks = installHtml(data.install) + notesHtml(data.notes);
       if (!plugins.length) {
-        list.innerHTML = '<div class="empty">还没有发现任何插件。把插件目录（含 plugin.json）放进 <code>plugins/</code> 即可。</div>';
+        list.innerHTML = blocks
+          + '<div class="empty">还没有发现任何插件。把插件目录（含 <code>plugin.json</code>）'
+          + '或单文件包 <code>&lt;id&gt;-&lt;version&gt;.zip</code> 放进 <code>plugins/</code> 即可。</div>';
         return;
       }
       list.innerHTML = '<div class="row-meta" style="margin-bottom:10px">共 ' + plugins.length + ' 个 · 内核 '
         + esc(data.core_version || '-') + ' · 未启用则其工具与面板都不出现（I10）</div>'
         + banner
+        + blocks
         + plugins.map(cardHtml).join('');
       wire(root);
     } catch (e) {

@@ -123,14 +123,26 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("plugin_id", nargs="?")
     ap.add_argument("--plugins-root", action="append", help="扫描根，可多次；形如 <dir>[:bundled|user]")
     ap.add_argument("--workspace", help="Workspace 路径（默认按 config/app.json）")
+    ap.add_argument("--install", action="store_true",
+                    help="先把 plugins/ 下的单文件包（<id>-<version>.zip）解包再盘点"
+                         "（PLUGIN_SPEC §2；默认只读，不动磁盘）")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
+    roots = _roots(args.plugins_root)
+    workspace = _workspace(args.workspace)
+
+    install_notes: list[str] = []
+    if args.install:  # §5 安装：显式动作，与只读盘点分开（见 registry.install_packages）
+        for outcome in R.install_packages(roots, workspace=workspace):
+            install_notes.append(outcome.note())
+            print(outcome.note())
 
     report = R.report(
-        roots=_roots(args.plugins_root),
-        workspace=_workspace(args.workspace),
+        roots=roots,
+        workspace=workspace,
         core_version=_core_version(),
     )
+    report["notes"] = install_notes + report["notes"]
 
     if args.json:
         if args.action == "check" and args.plugin_id:

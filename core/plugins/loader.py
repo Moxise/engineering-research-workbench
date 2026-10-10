@@ -107,8 +107,14 @@ def load(
     core_version: str = "",
     enabled_only: bool = True,
 ) -> LoadResult:
-    """按拓扑顺序加载「可用且启用」的插件，执行它们的 `register(ctx)`。"""
+    """按拓扑顺序加载「可用且启用」的插件，执行它们的 `register(ctx)`。
+
+    顺带完成 §5 的「安装」动作：先把各根下的 `*.zip` 单文件包解包成 `plugins/<id>/`
+    （PLUGIN_SPEC §2），再扫描加载——所以「把包丢进 plugins/」在服务启动时就生效。
+    """
     result = LoadResult()
+    for outcome in R.install_packages(roots, workspace=workspace):
+        result.notes.append(outcome.note())
     candidates, notes = R.discover(roots)
     result.notes.extend(notes)
     R.resolve(candidates, core_version)
