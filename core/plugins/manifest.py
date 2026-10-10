@@ -317,6 +317,40 @@ def validate(
                 issues.append(_issue("P017", "warn", "声明了 panel 但未申请 ui:panel 权限",
                                      "把 `ui:panel` 加入 permissions，便于安装时向用户展示"))
 
+    # P021 · jobs：声明式清单（真正生效的是 register 里的 `ctx.jobs.add(...)`，见 §6.2）
+    job_list = manifest.get("jobs")
+    if job_list is not None:
+        if not isinstance(job_list, list):
+            issues.append(_issue("P021", "error", "jobs 必须是数组",
+                                 '如 `[{"id":"refresh","interval_min":30}]`'))
+        else:
+            seen_jobs: set[str] = set()
+            for item in job_list:
+                if not isinstance(item, dict):
+                    issues.append(_issue("P021", "error", "jobs 每项必须是对象", '如 `{"id":"refresh","interval_min":30}`'))
+                    continue
+                jid = str(item.get("id") or "").strip()
+                if not jid:
+                    issues.append(_issue("P021", "error", "jobs 项缺少 id", "给任务起一个短名，便于在设置页显示"))
+                elif not TOOL_RE.match(jid):
+                    issues.append(_issue("P021", "error", f"任务名 `{jid}` 不合法",
+                                         "小写字母开头，只含小写字母/数字/下划线"))
+                elif jid in seen_jobs:
+                    issues.append(_issue("P021", "error", f"任务名 `{jid}` 重复", ""))
+                else:
+                    seen_jobs.add(jid)
+                if "interval_min" in item:
+                    try:
+                        minutes = float(item.get("interval_min"))
+                    except (TypeError, ValueError):
+                        issues.append(_issue("P021", "error",
+                                             f"任务 `{jid}` 的 interval_min 必须是数字", "单位是分钟，如 30"))
+                    else:
+                        if minutes <= 0:
+                            issues.append(_issue("P021", "error",
+                                                 f"任务 `{jid}` 的 interval_min 必须 > 0（收到 {item.get('interval_min')!r}）",
+                                                 "最小 1 分钟"))
+
     return issues
 
 

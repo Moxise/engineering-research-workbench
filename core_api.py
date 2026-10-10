@@ -48,9 +48,11 @@ def data_root() -> Path:
     """可写数据根（打包态是 exe 同级，开发态是仓库根）。
 
     插件通常**不需要**它 —— 优先用 `plugin_dir` / `system_dir` / `workspace_dir` /
-    `config_path` 这些**命名空间内**的助手。它存在的正当理由只有一个：**一次性迁移**，
-    即把内核时代写在别处（如 `System/Cache/*`）的数据认领进插件自己的命名空间；
-    迁移完成后就不该再用。
+    `config_path` 这些**命名空间内**的助手。正当用途只有两个：
+
+    1. **一次性迁移**：把内核时代写在别处（如 `System/Cache/*`）的数据认领进插件自己的命名空间；
+    2. **归档/备份类插件枚举文件**（如 `plugins/backup-snapshot`）：备份天然要读到 `Workspace/**` 与
+       `config/**`，这是它的职责；但**写入仍然只该落在自己的命名空间**，除非用户显式指定了外部目标目录。
     """
     return _data_root()
 
@@ -176,6 +178,17 @@ def project_names() -> list[str]:
     return indexer.project_names()
 
 
+def todos(include_done: bool = True) -> list[dict]:
+    """待办清单（`System/todos.json`），字段与 `/api/todos` 一致：`id/title/done/project/due/priority`。
+
+    默认含已完成项；只关心待办的传 `include_done=False`。
+    """
+    from app import indexer
+
+    rows = indexer.list_todos()
+    return list(rows) if include_done else [r for r in rows if not r.get("done")]
+
+
 def dashboard() -> dict:
     """工作台总览统计（条目/项目/待办/活动计数），与 `/api/dashboard` 同源。"""
     from app import indexer
@@ -199,6 +212,20 @@ def kind_order() -> list[str]:
     from core.contracts import kinds as contracts
 
     return list(contracts.KIND_ORDER)
+
+
+def kernel_version() -> str:
+    """内核版本（`VERSION` 文件的内容，如 `v261009.24`）。
+
+    给需要写"由谁生成"这类来源信息的插件用（快照清单、导出文档、备份元数据）。
+    去掉 UTF-8 BOM 再返回；读不到时返回空串。
+    """
+    from core.plugins import manifest as _manifest
+
+    try:
+        return _manifest.read_core_version(_data_root())
+    except Exception:
+        return ""
 
 
 def config_path(plugin_id: str) -> Path:

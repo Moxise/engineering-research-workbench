@@ -9,10 +9,11 @@
 | 存储 | `ctx.storage` | 只给插件自己的路径对象（I5） |
 | 配置 | `ctx.config_read()/config_write()` | `config/plugins/<id>.json` |
 | 事件订阅 | `ctx.events.on(name, cb)` | 订阅内核广播（如 `llm.usage`），返回退订函数；不需在 manifest 里声明 |
+| 后台任务 | `ctx.jobs.add(name, cb, every_minutes=…)` | 内核调度、状态与日志；**插件不要自己起线程**（热重载会留下幽灵线程） |
 | 日志 | `ctx.log(msg)` | 自动带插件前缀 |
 
-**尚未实现**（不假装有）：`ctx.jobs`（后台任务调度）、`ctx.search.addSection`（往检索结果里加分区）、
-`process` 执行层（独立进程插件）。要用再加，并同步 PLUGIN_SPEC §6.2 的能力矩阵。
+**尚未实现**（不假装有）：`ctx.search.addSection`（往检索结果里加分区）、`process` 执行层（独立进程插件）。
+要用再加，并同步 PLUGIN_SPEC §6.2 的能力矩阵。
 
 路由处理器签名：`handler(request) -> dict | list`，其中
 `request = {"method", "path", "query": {k: [v, ...]}, "body": {...}}`。
@@ -183,7 +184,10 @@ class RawResponse:
 class PluginContext:
     """`register(ctx)` 的参数。插件只能通过它接触内核（§6）。"""
 
-    def __init__(self, plugin_id: str, manifest: dict, plugin_dir: Path) -> None:
+    def __init__(self, plugin_id: str, manifest: dict, plugin_dir: Path,
+                 scheduler=None) -> None:
+        from . import jobs as _jobs
+
         self.id = plugin_id
         self.manifest = dict(manifest or {})
         self.dir = Path(plugin_dir)
@@ -192,6 +196,8 @@ class PluginContext:
         self.mcp = McpRegistry(plugin_id)
         self.storage = PluginStorage(plugin_id, self.dir)
         self.events = EventTable(plugin_id)
+        # 调度器由 loader 装配（本轮唯一的那个）；没有它时 jobs.add 会明确报错，而不是静默丢弃
+        self.jobs = _jobs.JobTable(plugin_id, scheduler or _jobs.current() or _jobs.replace())
 
     # ---- 便捷方法（插件最常用的几件事）----
     def log(self, message: str) -> None:

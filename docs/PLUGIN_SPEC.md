@@ -123,7 +123,7 @@ plugins/weather/
 | `entry` | `process`/有后端时 ✅ | 后端入口文件 |
 | `permissions` | — | 权限清单（§7），安装/启用时展示给用户 |
 | `requires` / `provides` | — | 依赖与供给（§4） |
-| `nav` / `routes` / `mcp_tools` / `settings_schema` / `jobs` / `events` | — | 扩展点声明（注册方式与命名空间见 REFACTOR_PLAN §6.3） |
+| `nav` / `routes` / `mcp_tools` / `settings_schema` / `jobs` / `events` | — | 扩展点声明（注册方式与命名空间见 REFACTOR_PLAN §6.3）。`jobs` 是**声明式清单**（`[{"id":"auto","interval_min":1440}]`，给人看/给设置页显示），真正生效的是 `register(ctx)` 里的 `ctx.jobs.add(...)`；两者不一致只在加载时提示，不拒载 |
 | `nav[].slot` | — | **槽位面板**：声明 `slot` 后该面板**不进导航**，而是画进内核提供的槽位容器（容器带 `data-plugin="<id>"`，样式按 §2 作用域）；入口脚本用 `ERWPanels.register({id, slot, renderSlot(container)})` 自登记。**当前两个槽位**：`topbar`（顶栏一行）与 `overlay`（页面浮层，悬浮球这类"始终挂在页面上"的 UI 用它；**不要**直接往 `document.body` 塞 DOM）。已知槽位在 `core/plugins/manifest.KNOWN_SLOTS` 声明，未知槽位会被拒载（`P019`） |
 | `storage` | — | 自有派生数据路径，**只允许** `System/Cache/<id>.sqlite` 这一类 |
 
@@ -216,7 +216,7 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | `window.ERWReaderAssist.register({id, tabId, run(action,payload), attach?, fromNote?, useImage?})` | **阅读区助手**（**插件提供、插件消费**的接缝，v261009.15）：阅读区把「选中动作 / 框选截图 / 笔记 AI 整理」派发给助手插件，派发前切到它声明的 `tabId`；助手在 `attach(ctx)` 里拿到实时上下文 `{paper, refreshList, selection(), capture{page(),area()}, activate(), aiPolish()}`。阅读区因此**不认识任何具体助手**，助手停用 → AI tab 与工具条按钮一起消失。首个使用者是 [`plugins/reader-assist`](REFACTOR_PLAN.md) |
 | **`ctx.raw(body, content_type=…, filename=…)`**（后端接缝，v261009.23） | **插件产出文件的原样响应**：handler 返回它就**不做 JSON 包装**，内核直接把字节与响应头写回浏览器（`Content-Disposition` 对中文名用 RFC 5987 编码）。下载导出件、生成图表、回 CSV 都用它。首个使用者是 [`plugins/report-export`](../plugins/report-export/README.md) |
 | **槽位面板**（manifest `nav[].slot` + `ERWPanels.register({slot, renderSlot})`） | 内核给挂载点并给容器加 `data-plugin="<id>"`，插件**只在容器内**画东西。已知槽位由 `core/plugins/manifest.KNOWN_SLOTS` 声明（新增槽位是有意的动作），当前两个：`topbar`（顶栏一行，`#topbar-slot`）与 **`overlay`**（页面浮层 `#erw-overlay-host`——悬浮球这类「始终挂在页面上」的 UI 用它；**不要**直接往 `document.body` 塞 DOM） |
-| **挂载点标记 `data-plugin="<id>"`**（v261009.22） | 内核在插件自登记的容器上写这个属性：导航页 `#main`、设置页 `#settings-panel`、槽位容器（阅读区 tab 由阅读区插件自己的容器负责）。**插件 CSS 一律包在 `[data-plugin="<id>"]` 里**；每次导航/切 tab 先清掉上一轮的值，所以插件样式不会泄漏到内核页面，也不会与别的插件互踩 |
+| **挂载点标记 `data-plugin="<id>"`**（v261009.22） | 内核在插件自登记的容器上写这个属性，**值是「面板 id」**：主面板（`id` = 插件 id）→ 导航页 `#main`；设置页 tab 用 `settingsTab.id`（模板里就是插件 id）；**槽位容器用槽位面板自己的 id**（所以一个插件登记了两个面板时，CSS 要么按各自的 id 分别写，要么用前缀匹配如 `[data-plugin^="my-plugin"]`）。每次导航/切 tab 先清掉上一轮的值，插件样式不会泄漏到内核页面 |
 | `window.erwFetch(url, init)` | 出网与访问内核 HTTP API（**不得**替换 `window.fetch`） |
 | `window.erwVendor.load('mathjax'\|'mermaid')` | 重型库按需加载（本地优先、CDN 兜底） |
 | `window.ERWDom.onChildList(cb, {root})` | 文档级 DOM 变更观察的唯一入口（内核合并成一个 observer） |
@@ -254,6 +254,7 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | 给内置 Agent 加工具 | `ctx.mcp.tool(name, spec, handler)` → 对外 `p_<id>__<name>`；**写工具自动走内核草稿闸门** |
 | 存自己的数据 / 配置 | `ctx.storage`（`Workspace/Plugins/<id>`、`System/Plugins/<id>`、`System/Cache/<id>.sqlite`）、`ctx.config` |
 | 订阅内核事件 | `ctx.events.on("llm.usage"\|…)` |
+| 后台任务（定时备份、周期检查） | `ctx.jobs.add(name, cb, every_minutes=…)`（v261009.24 起，内核调度/状态/日志；插件**不要**自己起线程） |
 | 读内核数据 | 公开数据 API（`/api/docs`、`/api/literature`、`/api/graph`、`/api/search`、`/api/dashboard`…） |
 | 用内核的 UI 小件 | `ERWContract`（kind/标记/关系）、`ERWMarkdown`（渲染+图片路径）、`ERWToast`、`ERWMarkBadges/ERWMarkList/ERWMarkChips/ERWTagPicker` |
 | 网络 / 重型库 | `core_api.http_get`（带代理兜底）、`window.erwFetch`、`window.erwVendor.load('mathjax'\|'mermaid')` |
@@ -269,13 +270,13 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | 让插件**提供页面级 UI 容器** | 一个新的 slot（如 `overlay`）+ 挂载点 | 所有"常驻页面"型 UI 插件 |
 | 让插件**之间**通信（助手↔宿主） | 一个契约（如 `ERWReaderAssist`：`tabId` + `attach(ctx)`） | 同类"宿主—扩展"组合 |
 
-**③ 内核必须先实现的能力（当前缺口，只有三件）**
+**③ 内核必须先实现的能力（当前缺口，只有两件）**
 
 | 缺口 | 影响什么插件 | 状态 |
 | --- | --- | --- |
 | `ctx.search.addSection` | 往全局搜索框注入「语义结果」分区（RAG 的落点） | **未实现**（`core/plugins/context.py` 明确标注） |
-| `ctx.jobs` | 后台任务：长时索引、进度、超时、日志 | **未实现** |
 | `process` 类插件的执行层 | 独立进程/独立解释器的重型插件（模型、向量服务） | manifest 能声明 `kind:"process"`，但 loader 只跑 `inprocess` 的 `register(ctx)` |
+| ~~`ctx.jobs`~~ | 后台任务：定时备份、周期性检查、长时索引 | ✅ **已实现**（v261009.24，`core/plugins/jobs.py`）：`ctx.jobs.add(name, cb, every_minutes=…)`，内核负责调度/状态/日志；插件**不要**自己起线程。首个使用者 `plugins/backup-snapshot` |
 
 > **判断口径**：如果新插件只需要上面①里的能力 → 直接写插件、零内核改动；
 > 如果它要一种**全新的形态**（新容器/新接管点）→ 内核加一个接缝（一次性，几十行）；
@@ -284,11 +285,16 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 **RAG 的可行性结论（2026-10-10 梳理）**：RAG 属于③而不是①——
 
 - **必须**：`ctx.search.addSection`（否则语义结果没有展示位）+ `process` 隔离（向量索引与 embedding 属重依赖，放 inprocess 会把内核进程拖住）；
-- **可选**：`ctx.jobs`（做索引进度条才需要；先做同步索引可以先不做）；
+- **可选**：~~`ctx.jobs`~~（v261009.24 已实现，做索引进度条现在可以直接用）；
 - **数据**：本地 `.rag/` 92 MB + `rag.sqlite` 69 MB **按用户决定保留原位复用**；重建向量需要重新调用 embedding（耗时且消耗配额）；
 - **轻量替代**（若不想先补内核）：纯前端插件在**自己的页面**里做语义检索（不经搜索框），只需内核已有的公开数据 API + 插件自己的 sqlite——代价是没有搜索框分区、也没有后台任务。
 
 **公开数据 API**（只读，插件可直接消费）：`/api/docs`、`/api/docs/<id>`、`/api/statuses`、`/api/projects`、`/api/dashboard`、`/api/graph`、`/api/graph/overview`、`/api/graph/neighborhood`、`/api/search`、`/api/todos`、`/api/literature`（含 `/pdf` 的 **Range 分片**、`/annotations`、`/note`、`/storage`、`/lookup`、`/import`、`/rebuild`、`export-bibtex`）。写路径一律走内核草稿闸门，插件**不得**直写 `Workspace/`。
+
+**后端侧等价的只读窗口**（v261009.23 起，`core_api`）：前端用 HTTP API，插件**后端**用这些同名助手——
+`entry(doc_id)`（含正文）、`entries(kind, project=…, limit=…)`、`projects()`、`project_names()`、`todos()`、
+`dashboard()`、`kind_labels()`、`kind_order()`、`kernel_version()`。它们与 HTTP 端点**同一套查询实现**
+（实测同源同量），插件因此不必自己读 `Workspace/Knowledge/*.md`（绕过索引会看到过期或半写状态）。
 
 > **纯前端插件不必扩 `core_api`**：`core_api` 是给插件**后端**（`inprocess` 的 `entry`）用的；
 > 只有前端脚本的插件直接消费上面的公开 HTTP API 即可（`plugins/knowledge-graph`、

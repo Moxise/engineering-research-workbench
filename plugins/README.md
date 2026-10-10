@@ -36,6 +36,21 @@ python tools/new_plugin.py my-tool --name "我的工具" --desc "一句话说明
 
 > `.template/` 以点开头，**不会被当成插件**（`discover` 与两个前端体检工具都跳过点目录）。
 
+## 现有插件（10 个）
+
+| 插件 | 提供什么 | 默认 |
+| --- | --- | --- |
+| `literature-reader` | 文献阅读工作区：PDF 阅读 + 批注 + 笔记 tab + 阅读区 AI | 附属（默认开） |
+| `knowledge-graph` | 知识图谱页与总览迷你图（整页接管） | 附属 |
+| `floating-assist` | 悬浮球 AI 助手（`overlay` 浮层槽位）、人设设置 tab、工具轨迹 | 附属 |
+| `billing` | 用量计费（订阅 `llm.usage` 事件） | 附属 |
+| `focus` | 专注计时（纯前端页面） | 附属 |
+| `weather` | 天气（`topbar` 槽位 + 设置模态） | 附属 |
+| `rss` | 资讯（外部抓取 + 离线降级） | 附属 |
+| `report-export` | 报告导出：DOCX / HTML（可打印成 PDF）/ Markdown，产出文件走 `ctx.raw` | 可选 |
+| `backup-snapshot` | 备份与快照：内核后台任务（`ctx.jobs`）定时打包知识库与配置、按份数清理 | 可选 |
+| `milestone-calendar` | 日历与提醒：里程碑/待办到期视图 + `topbar` 常驻角标 | 可选 |
+
 常用命令：
 
 ```powershell

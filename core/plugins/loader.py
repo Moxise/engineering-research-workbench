@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import manifest as M
+from . import jobs
 from . import registry as R
 from . import runtime
 from .context import McpTool, PluginContext, PluginContractError, RawResponse, Route, json_safe
@@ -123,6 +124,9 @@ def load(
     # 拓扑顺序（registry.resolve 已经算好，这里重算一次保证只看可加载项）
     order, _cycle = R._blocked_within_cycles(candidates)
 
+    # 后台任务：**先停旧调度器再建新的**——热重载/停用插件时，旧任务的线程必须立刻不再被调度
+    scheduler = jobs.replace()
+
     for pid in order:
         cand = candidates[pid]
         if cand.state != "available":
@@ -138,7 +142,7 @@ def load(
         if not entry:
             continue  # 纯前端插件：没有后端要执行
 
-        ctx = PluginContext(pid, cand.manifest or {}, Path(cand.dir))
+        ctx = PluginContext(pid, cand.manifest or {}, Path(cand.dir), scheduler=scheduler)
         try:
             module = _import_entry(cand, entry)
             register = getattr(module, "register", None)
@@ -174,6 +178,19 @@ def load(
         write_tools = [t.name for t in plugin.mcp_tools if bool((t.spec or {}).get("write"))]
         if write_tools:
             result.notes.append(f"插件 {pid} 注册了写工具 {write_tools}（调用时由内核走草稿确认流）")
+
+        # 后台任务：声明一致性只提示不拦（manifest 的 `jobs` 是给人看的清单，真正生效的是 register 里的注册）
+        declared = {str(j.get("id") or "") for j in ((cand.manifest or {}).get("jobs") or [])
+                    if isinstance(j, dict)}
+        if ctx.jobs.names:
+            result.notes.append(f"插件 {pid} 注册了后台任务 {ctx.jobs.names}（内核调度，见 core/plugins/jobs.py）")
+            undeclared = [n for n in ctx.jobs.names if n not in declared]
+            if undeclared:
+                result.notes.append(f"插件 {pid} 的任务 {undeclared} 没在 plugin.json 的 jobs 里声明"
+                                    f"（建议补上，便于用户在设置页看到它）")
+
+    if scheduler.jobs:
+        scheduler.start()
 
     runtime.set_current(result)
     return result

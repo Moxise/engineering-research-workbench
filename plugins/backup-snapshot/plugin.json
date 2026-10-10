@@ -1,0 +1,37 @@
+{
+  "id": "backup-snapshot",
+  "name": "备份与快照",
+  "version": "1.0.0",
+  "description": "把知识库与配置打成时间戳快照（zip），按间隔自动执行并按份数清理；可下载、可外置目标目录",
+
+  "api_version": 1,
+  "core_min": "v261009.24",
+
+  "kind": "inprocess",
+  "distribution": "optional",
+  "default_enabled": false,
+
+  "entry": "backend.py",
+
+  "permissions": ["ui:panel", "storage:own", "config:own"],
+
+  "nav": [
+    { "id": "backup-snapshot", "label": "备份快照", "icon": "❐", "mount": "web/panel.js" }
+  ],
+  "panel": { "mount": "web/panel.js", "style": "web/panel.css" },
+
+  "routes": [
+    { "method": "GET", "path": "status" },
+    { "method": "GET", "path": "config" },
+    { "method": "POST", "path": "config" },
+    { "method": "POST", "path": "snapshot" },
+    { "method": "POST", "path": "delete" },
+    { "method": "POST", "path": "inspect" },
+    { "method": "GET", "path": "download" }
+  ],
+  "mcp_tools": ["snapshot_now", "list_snapshots"],
+
+  "jobs": [
+    { "id": "auto", "interval_min": 1440 }
+  ]
+}
