@@ -44,6 +44,17 @@ def workspace_dir(plugin_id: str) -> Path:
     return _data_root() / "Workspace" / "Plugins" / plugin_id
 
 
+def data_root() -> Path:
+    """可写数据根（打包态是 exe 同级，开发态是仓库根）。
+
+    插件通常**不需要**它 —— 优先用 `plugin_dir` / `system_dir` / `workspace_dir` /
+    `config_path` 这些**命名空间内**的助手。它存在的正当理由只有一个：**一次性迁移**，
+    即把内核时代写在别处（如 `System/Cache/*`）的数据认领进插件自己的命名空间；
+    迁移完成后就不该再用。
+    """
+    return _data_root()
+
+
 def system_dir(plugin_id: str) -> Path:
     """插件自有系统数据目录：`System/Plugins/<id>/`。"""
     return _data_root() / "Workspace" / "System" / "Plugins" / plugin_id
@@ -79,6 +90,6 @@ def log(plugin_id: str, message: str) -> None:
 
 
 __all__ = [
-    "API_VERSION", "plugin_dir", "cache_db", "workspace_dir", "system_dir",
+    "API_VERSION", "plugin_dir", "cache_db", "workspace_dir", "data_root", "system_dir",
     "config_path", "read_config", "write_config", "log",
 ]

@@ -133,8 +133,30 @@ def _fetch_source(source: dict, limit: int) -> tuple[list[dict], dict]:
                 "error": errors[-1] if errors else "unknown error", "attempts": errors[-6:]}
 
 
+def adopt_legacy_cache(ctx, target, legacy_name: str) -> None:
+    """一次性迁移：认领内核时代写在 `Workspace/System/Cache/` 的缓存。
+
+    v261009 搬出内核时漏了这一步，导致断网时行为退化（原来是「显示上次抓到的内容」，
+    变成「0 条 + 全部获取失败」）。认领一次之后，一律只用插件自己的缓存路径。
+    """
+    if target.exists():
+        return
+    try:
+        import core_api
+
+        legacy = core_api.data_root() / "Workspace" / "System" / "Cache" / legacy_name
+        if not legacy.is_file():
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(legacy.read_text(encoding="utf-8"), encoding="utf-8")
+        ctx.log(f"已认领内核旧缓存 {legacy_name}（断网时仍可显示上次成功抓到的内容）")
+    except OSError:
+        pass
+
+
 def register(ctx):
     cache_file = ctx.storage.system / "cache.json"
+    adopt_legacy_cache(ctx, cache_file, "rss_cache.json")
 
     def _read_cache() -> dict | None:
         if not cache_file.exists():

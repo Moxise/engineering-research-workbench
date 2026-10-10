@@ -61,8 +61,30 @@ def _reason(exc: Exception) -> str:
     return f"{type(exc).__name__}: {text}"[:160]
 
 
+def _adopt_legacy_cache(ctx, target) -> None:
+    """一次性迁移：认领内核时代写在 `Workspace/System/Cache/weather.json` 的缓存。
+
+    v261009 搬出内核时漏了这一步，导致断网时顶栏从「显示上次成功的实况」退化成
+    「天气不可用」。认领一次之后，一律只用插件自己的缓存路径。
+    """
+    if target.exists():
+        return
+    try:
+        import core_api
+
+        legacy = core_api.data_root() / "Workspace" / "System" / "Cache" / "weather.json"
+        if not legacy.is_file():
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(legacy.read_text(encoding="utf-8"), encoding="utf-8")
+        ctx.log("已认领内核旧缓存 weather.json（断网时仍可显示上次成功的实况）")
+    except OSError:
+        pass
+
+
 def register(ctx):
     cache_file = ctx.storage.system / "cache.json"
+    _adopt_legacy_cache(ctx, cache_file)
 
     def _cached(cache_key: str, *, max_age: float | None) -> dict | None:
         if not cache_file.exists():
@@ -81,7 +103,7 @@ def register(ctx):
         """一次性兼容：内核 `config/app.json` 里的 `weather` 段。"""
         import core_api
 
-        path = core_api._data_root() / "config" / "app.json"
+        path = core_api.data_root() / "config" / "app.json"
         if not path.is_file():
             return {}
         try:
