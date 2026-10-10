@@ -183,6 +183,18 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 
 **「打包隔离」的落地含义**（对应你的要求）：每个插件的**代码、前端、迁移、依赖声明、数据命名空间**都自包含，安装/启停/卸载互不写对方文件；插件之间**只能**通过 ① `core_api` ② 前提插件的公开接口 交互，**不允许** import 彼此的私有模块。
 
+**`core_api` 的公开面**（每加一项都是有意动作，语义写在这里）：
+
+| 成员 | 语义 |
+| --- | --- |
+| `API_VERSION` | 内核 API 版本，与 `core.plugins.manifest.SUPPORTED_API_VERSION` 同源 |
+| `plugin_dir(id)` | 插件自己的目录（只读代码 + 资源） |
+| `system_dir(id)` / `workspace_dir(id)` / `cache_db(id)` | 插件的三个数据落点：`System/Plugins/<id>/`、`Workspace/Plugins/<id>/`、`System/Cache/<id>.sqlite` |
+| `config_path(id)` / `read_config(id, default)` / `write_config(id, data)` | 插件自有配置 `config/plugins/<id>.json`（内核不解释其内容；写入是原子的） |
+| `http_get(url, timeout, headers, limit)` | **出网的推荐方式**：取字节。带代理兜底——系统代理若是**回环地址且端口没人监听**（Clash/V2Ray 没启动），本次请求自动改直连，避免所有出网请求都撞 `WinError 10061`；远程代理不受影响，超时 / DNS 失败 / 非 2xx 照原样抛 |
+| `data_root()` | 可写数据根。**只正当用于一次性迁移**（把内核时代写在别处、如 `System/Cache/*` 的数据认领进自己的命名空间）；日常请用上面的命名空间内助手 |
+| `log(id, message)` | 带插件前缀的日志 |
+
 ---
 
 ## 7. 安全与校验

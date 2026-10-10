@@ -106,12 +106,19 @@ def _candidate_urls(source: dict, limit: int) -> list[str]:
 
 
 def _download(url: str) -> bytes:
-    req = Request(url, headers={
-        "User-Agent": "Workbench/260920.2 (+local research RSS reader)",
-        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.5",
-    })
-    with urlopen(req, timeout=12) as r:
-        return r.read(MAX_BYTES)
+    # v261009.1 · 走 core_api.http_get：系统回环代理没启动时自动直连，
+    # 避免「代理死端口 → 所有源都连接被拒」把资讯整体打瘫。
+    import core_api
+
+    return core_api.http_get(
+        url,
+        timeout=12,
+        headers={
+            "User-Agent": "Workbench/260920.2 (+local research RSS reader)",
+            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.5",
+        },
+        limit=MAX_BYTES,
+    )
 
 
 def _fetch_source(source: dict, limit: int) -> tuple[list[dict], dict]:

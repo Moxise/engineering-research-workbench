@@ -10,6 +10,8 @@ import shutil
 import threading
 import time
 import urllib.request
+
+from core import net   # v261009.1 · 代理可用性判定与「死回环代理则直连」兜底
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -275,7 +277,7 @@ def _http_json(url: str, payload: dict[str, Any] | None, api_key: str, timeout: 
     headers = _api_headers(api_key, extra_headers)
     tmo = max(5, min(int(timeout or 120), 600))
     # v260929c · 响应提速：未配置系统 https 代理时走 Keep-Alive 连接池（直连复用）；配置了代理则维持 urlopen 旧路径，行为不变
-    if not urllib.request.getproxies().get("https"):
+    if net.direct_preferred("https"):   # v261009.1 · 配置的代理是「没起来的回环代理」时也走直连
         u = urlparse(url)
         host = u.hostname or ""
         port = u.port or (443 if u.scheme == "https" else 80)
@@ -437,7 +439,7 @@ def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delt
 
     endpoint = _endpoint(str(cfg["base_url"]), "/chat/completions")
     # v260930k · 直连池路径：与 _http_json 相同的 Keep-Alive 复用，但逐行读响应
-    if not urllib.request.getproxies().get("https"):
+    if net.direct_preferred("https"):   # v261009.1 · 配置的代理是「没起来的回环代理」时也走直连
         u = urlparse(endpoint)
         host = u.hostname or ""
         port = u.port or (443 if u.scheme == "https" else 80)

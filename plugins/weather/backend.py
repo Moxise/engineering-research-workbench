@@ -47,9 +47,12 @@ DEFAULT_CONFIG = {
 
 
 def _json_get(url: str, timeout: float = 7.0) -> dict:
-    req = Request(url, headers={"User-Agent": "EngineeringResearchWorkbench/1.0"})
-    with urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read(4 * 1024 * 1024).decode("utf-8"))
+    # v261009.1 · 走 core_api.http_get：系统回环代理没启动时自动直连
+    import core_api
+
+    return json.loads(core_api.http_get(
+        url, timeout=timeout, headers={"User-Agent": "EngineeringResearchWorkbench/1.0"},
+    ).decode("utf-8"))
 
 
 def _reason(exc: Exception) -> str:

@@ -55,6 +55,18 @@ def data_root() -> Path:
     return _data_root()
 
 
+def http_get(url: str, timeout: float = 8.0, headers: dict | None = None, limit: int = 8 * 1024 * 1024) -> bytes:
+    """取 URL 的内容（字节，限长）。插件出网的推荐方式。
+
+    带**代理兜底**：系统代理若指向回环地址而端口没人监听（Clash/V2Ray 没启动的常见情形），
+    本次请求自动改走直连，避免所有出网请求都撞上 `WinError 10061`；真正的远程代理不受影响，
+    超时 / DNS 失败 / 非 2xx 也照原样抛出（详见 `core/net.py`）。
+    """
+    from core import net
+
+    return net.read_url(url, timeout=timeout, headers=headers, limit=limit)
+
+
 def system_dir(plugin_id: str) -> Path:
     """插件自有系统数据目录：`System/Plugins/<id>/`。"""
     return _data_root() / "Workspace" / "System" / "Plugins" / plugin_id
@@ -91,5 +103,5 @@ def log(plugin_id: str, message: str) -> None:
 
 __all__ = [
     "API_VERSION", "plugin_dir", "cache_db", "workspace_dir", "data_root", "system_dir",
-    "config_path", "read_config", "write_config", "log",
+    "config_path", "read_config", "write_config", "http_get", "log",
 ]
