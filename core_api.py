@@ -139,6 +139,27 @@ def entry(doc_id: str) -> dict:
     return indexer.get_doc(doc_id)
 
 
+def entry_update(doc_id: str, *, body: str | None = None, **fields) -> dict:
+    """更新一条知识条目（正文 `body` 与/或白名单字段），返回更新后的完整条目。
+
+    **写操作的安全闸门在内核**：插件注册的**写工具**（`spec` 里 `"write": True`）在 confirm 模式下
+    只会生成草稿，用户确认后内核才以 direct 模式调用插件 handler（见 `app/agent_tools.execute`）。
+    所以插件 handler 里直接调本函数即可，**不要**自己再实现一套确认逻辑（插件也拿不到 `save_draft`）。
+
+    写入走内核的**校验路径**（`app/store.py` 的 `update_doc`：字段白名单取自 `core/contracts`、
+    原子写、记 `doc_update` 活动），不是"帮插件绕开规则直接改文件"。
+    条目不存在时抛 `FileNotFoundError`；没有可写内容时抛 `ValueError`。
+    """
+    from app import store
+
+    payload: dict = {k: v for k, v in fields.items() if v is not None}
+    if body is not None:
+        payload["body"] = body
+    if not payload:
+        raise ValueError("entry_update 需要 body 或至少一个可写字段")
+    return store.update_doc(doc_id, payload)
+
+
 def entries(kind: str | None = None, *, query: str = "", status: str = "", project: str = "",
             mark: str = "", tag: str = "", unowned: bool = False,
             limit: int = 200, page: int = 1) -> list[dict]:

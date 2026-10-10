@@ -376,12 +376,12 @@ def register(ctx):
 
     # ---------------------------------------------------------------- Agent 工具
 
-    def tool_snapshot(args):
+    def tool_snapshot(args, call_ctx=None):
         result = create_snapshot("agent")
         result.pop("manifest", None)
         return result
 
-    def tool_list(args):
+    def tool_list(args, call_ctx=None):
         data = list_snapshots()
         return {"dir": data["dir"], "count": data["count"], "total_bytes": data["total_bytes"],
                 "state": data["state"], "items": data["items"][:20], "config": data["config"]}

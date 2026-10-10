@@ -1,5 +1,49 @@
 # Changelog
 
+## v261009.25
+
+**数据表化按「插件」实现**（你的要求）+ 顺手修掉上一轮三个插件的真缺陷。
+
+### `plugins/metrics-table`（指标表，v1.0.0）：不动内核契约的数据表化
+- **不新增 kind**：kind 矩阵是内核契约（`core/contracts/kinds.py` 是唯一声明处），为数据表化新增 kind
+  等于把功能搬进内核（存放目录/标题前缀/状态机/正文骨架/字段契约/索引/命名校验全要改）。
+  改为**指标写在条目正文的 `metrics` 围栏块里**（`键: 值` 一行一项）——于是它自动被全文检索、
+  图谱、报告导出与备份覆盖，任何 kind 的条目都能带，零内核契约改动。
+- **汇总视图**：列 = 指标键并集（按首次出现排序）、**缺项显式标出**（单元格 `—` + 行尾缺项清单）、
+  列统计（min/max/mean、单位识别 `%`/`M`/`ms`、非数值项计数）、可按项目与类别收窄；
+  单条详情显示指标、解析警告与正文预览。
+- **导出**：CSV（带 BOM，Excel 打开中文不乱码）与 Markdown，走 `ctx.raw` 原样下载（复用 v261009.23 的接缝）。
+- **写入只有一条路**：写工具 `p_metrics-table__record_metrics`（`spec.write = true`）→ 内核 confirm 模式
+  只生成草稿，用户确认后才以 direct 模式调用 handler → handler 走**新增的** `core_api.entry_update`
+  （内核的校验写入路径：字段白名单取自 `core/contracts`、原子写、记 `doc_update` 活动）。
+  面板**不提供**"直接改条目"的按钮，只读 + 导出 + 提示。
+- **容错**：块未闭合、行无法解析、键为空都只记 `warnings` 并在页面提示；已有块未闭合时**拒绝写入**
+  （不让正文被改坏）；`merge` 保留未提到的键，`replace` 整体覆盖，正文其余部分**逐字保留**。
+
+### 顺带修掉的真缺陷（都在上一轮新插件里）
+- **插件工具签名不匹配（真 bug）**：内核用 `handler(args, call_ctx)` 调用插件工具，而我上一轮交付的
+  `report-export` / `backup-snapshot` / `milestone-calendar` 都把 handler 写成了 `def tool_x(args)`
+  ——经 Agent 调用会 `TypeError`。已全部改为 `(args, call_ctx=None)`，模板里也加了醒目注释。
+  **为什么之前没发现**：那些夹具直接调 `handler(args)`，绕过了内核的真实调用路径。
+- **夹具盲点补上**：`verify_plugin_tools.py` 扩了一节「真实插件：每个工具的 handler 都要符合内核调用约定」——
+  用 `loader.load(enabled_only=False)` 装载**全部**插件（含默认不启用的），对每个工具做
+  `inspect.signature(...).bind({}, {})` 静态判定（精确、零副作用），并检查工具元信息与 `write` 标记一致、
+  后台任务可见、**装载期间不产生快照**（先临时关掉备份插件的自动开关，事后按原样恢复配置）。
+- **`metrics-table` 自己的 bug（夹具抓到）**：替换已有块时把闭合围栏的**相对偏移**当成绝对偏移，
+  截断了正文尾部；已修并有「正文逐字保留」断言守着。
+
+### 验收（`.scratch/tmp/verify_metrics_table.py`，**47/47**）
+- 逻辑（内存注入，不碰知识库）：多块后者覆盖、注释/空行/`=` 写法、未闭合块、坏行只记警告；
+  数值拆解（百分比/科学计数/单位/千分位/非数值）；写入（追加/merge/replace/**正文逐字保留**/幂等/拒绝写）；
+  聚合（列并集与顺序、filled/missing、单位、min/max/mean、非数值计数、无指标条目排除）；CSV/MD 导出。
+- 真服务器：表格路由、单条查询、CSV/MD 下载（`ctx.raw` + RFC 5987 文件名）、写工具标记正确，
+  以及**关键安全断言**——`confirm` 模式下条目正文**一字未改**、`reject_draft` 后仍未改、夹具产生的草稿清理干净。
+- 真浏览器：页面渲染、空态给出块格式提示、导出链接、类别下拉、写入方式说明、0 console error。
+- 回归：`verify_plugin_tools`（含新节）、`verify_backup_snapshot` 52/52、`verify_calendar` 32/32、
+  `verify_report_export` 42/42、`verify_plugin_template` 49/49、`verify_zip_unpack` 58/58、
+  `verify_zip_install_http` 27/27、`verify_plugin_manager`；`web_check`、`plugin_check --assert-core-only`、
+  `ui_smoke`、`kb_smoke`、`mcp.server --selftest` 全绿；`doctor` error 0、warn 6；插件 **11 个可用**。
+
 ## v261009.24
 
 **插件生态收官：内核补上后台任务能力（`ctx.jobs`）+ 两个生态插件**（你选的「定时备份/快照」与「日历/提醒」，三个都完成了）。

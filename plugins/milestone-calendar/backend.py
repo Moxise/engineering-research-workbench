@@ -131,7 +131,7 @@ def register(ctx):
     ctx.routes.get("config", route_config_get)
     ctx.routes.post("config", route_config_post)
 
-    def tool_agenda(args):
+    def tool_agenda(args, call_ctx=None):
         args = args or {}
         data = agenda_from(_items())
         names = ("overdue", "today", "soon")

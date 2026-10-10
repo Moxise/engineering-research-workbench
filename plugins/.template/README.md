@@ -66,5 +66,6 @@ python tools/web_check.py                  # 前端静态体检（改了 web/ �
 | **产出文件并下载**（DOCX/HTML/Markdown 导出、`ctx.raw` 用法） | `plugins/report-export` |
 | **后台定时任务**（`ctx.jobs`、快照与保留策略、外部目标目录） | `plugins/backup-snapshot` |
 | **顶栏槽位角标**（`nav[].slot`、多面板 CSS 作用域） | `plugins/milestone-calendar` |
+| **写工具 + 草稿闸门**（把结构化内容写回条目正文，`core_api.entry_update`） | `plugins/metrics-table` |
 
 规范全文：[`docs/PLUGIN_SPEC.md`](../../docs/PLUGIN_SPEC.md)（§6.1 接缝、§6.2 能力矩阵、§7 安全与校验）。

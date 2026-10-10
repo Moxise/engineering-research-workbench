@@ -65,7 +65,9 @@ def register(ctx):
     ctx.routes.post("config", route_set_config)
 
     # ---- Agent 工具：读工具直接可用；写工具由内核统一走草稿确认流 ----
-    def tool_ping(args):
+    # 注意 handler 签名：内核用 `handler(args, call_ctx)` 调用（call_ctx 里有人设/写模式等调用上下文），
+    # 少写一个参数会在 Agent 调用时报 TypeError——只用一个参数时也要保留第二个形参。
+    def tool_ping(args, call_ctx=None):
         return {"pong": True, "plugin": ctx.id, "note": str((args or {}).get("note") or "")}
 
     ctx.mcp.tool("ping", {

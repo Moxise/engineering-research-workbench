@@ -515,12 +515,12 @@ def register(ctx):
     ctx.routes.get("download", download)
     ctx.routes.get("view", view)
 
-    def tool_scopes(args):
+    def tool_scopes(args, call_ctx=None):
         data = scopes()
         return {"projects": data["projects"], "kinds": data["kinds"], "total": data["total"],
                 "formats": list(FORMATS)}
 
-    def tool_export(args):
+    def tool_export(args, call_ctx=None):
         args = args or {}
         request = {"body": {"scope": {"type": str(args.get("scope_type") or "project"),
                                       "value": str(args.get("scope_value") or "")},

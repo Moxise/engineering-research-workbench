@@ -1,0 +1,31 @@
+{
+  "id": "metrics-table",
+  "name": "指标表",
+  "version": "1.0.0",
+  "description": "把条目正文里的 ```metrics 块聚合成跨实验对照表：列统计、缺项提示、CSV/Markdown 导出",
+
+  "api_version": 1,
+  "core_min": "v261009.25",
+
+  "kind": "inprocess",
+  "distribution": "optional",
+  "default_enabled": false,
+
+  "entry": "backend.py",
+
+  "permissions": ["ui:panel", "storage:own", "config:own"],
+
+  "nav": [
+    { "id": "metrics-table", "label": "指标表", "icon": "▩", "mount": "web/panel.js" }
+  ],
+  "panel": { "mount": "web/panel.js", "style": "web/panel.css" },
+
+  "routes": [
+    { "method": "GET", "path": "table" },
+    { "method": "GET", "path": "entry" },
+    { "method": "GET", "path": "export" },
+    { "method": "GET", "path": "config" },
+    { "method": "POST", "path": "config" }
+  ],
+  "mcp_tools": ["metrics_table", "record_metrics"]
+}

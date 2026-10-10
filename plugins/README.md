@@ -36,7 +36,7 @@ python tools/new_plugin.py my-tool --name "我的工具" --desc "一句话说明
 
 > `.template/` 以点开头，**不会被当成插件**（`discover` 与两个前端体检工具都跳过点目录）。
 
-## 现有插件（10 个）
+## 现有插件（11 个）
 
 | 插件 | 提供什么 | 默认 |
 | --- | --- | --- |
@@ -50,6 +50,7 @@ python tools/new_plugin.py my-tool --name "我的工具" --desc "一句话说明
 | `report-export` | 报告导出：DOCX / HTML（可打印成 PDF）/ Markdown，产出文件走 `ctx.raw` | 可选 |
 | `backup-snapshot` | 备份与快照：内核后台任务（`ctx.jobs`）定时打包知识库与配置、按份数清理 | 可选 |
 | `milestone-calendar` | 日历与提醒：里程碑/待办到期视图 + `topbar` 常驻角标 | 可选 |
+| `metrics-table` | 指标表：把条目正文 ```metrics 块聚合成跨条目对照表 + CSV/Markdown 导出（写入走草稿闸门） | 可选 |
 
 常用命令：
 

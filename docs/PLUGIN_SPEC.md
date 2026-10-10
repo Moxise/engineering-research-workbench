@@ -250,7 +250,8 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | 让「始终挂在页面上」的 UI 进页面 | 浮层槽位 `overlay`（内核给 `#erw-overlay-host`），或 `topbar` |
 | 自己提供 HTTP 接口 | `ctx.routes.get/post/...` → 自动挂到 `/api/plugins/<id>/…` |
 | 产出文件并让用户下载（导出件、图表、CSV） | `ctx.raw(bytes, content_type=…, filename=…)`（v261009.23 起；不做 JSON 包装，中文文件名按 RFC 5987 编码） |
-| 读知识条目 / 项目 / 总览统计 | `core_api.entries/entry/projects/project_names/dashboard/kind_labels`（只读窗口，与 `/api/docs` 等**同一套查询实现**；v261009.23 起） |
+| 读知识条目 / 项目 / 总览统计 | `core_api.entries/entry/projects/project_names/todos/dashboard/kind_labels/kernel_version`（只读窗口，与 `/api/docs` 等**同一套查询实现**；v261009.23 起） |
+| 写条目正文或字段（结构化内容） | `core_api.entry_update(doc_id, body=…)` + 把它注册成**写工具**（`spec.write = true`）→ 内核草稿闸门；v261009.25 起 |
 | 给内置 Agent 加工具 | `ctx.mcp.tool(name, spec, handler)` → 对外 `p_<id>__<name>`；**写工具自动走内核草稿闸门** |
 | 存自己的数据 / 配置 | `ctx.storage`（`Workspace/Plugins/<id>`、`System/Plugins/<id>`、`System/Cache/<id>.sqlite`）、`ctx.config` |
 | 订阅内核事件 | `ctx.events.on("llm.usage"\|…)` |
@@ -295,6 +296,12 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 `entry(doc_id)`（含正文）、`entries(kind, project=…, limit=…)`、`projects()`、`project_names()`、`todos()`、
 `dashboard()`、`kind_labels()`、`kind_order()`、`kernel_version()`。它们与 HTTP 端点**同一套查询实现**
 （实测同源同量），插件因此不必自己读 `Workspace/Knowledge/*.md`（绕过索引会看到过期或半写状态）。
+
+**写窗口（v261009.25 起）**：`entry_update(doc_id, body=…, **字段)` —— 改条目正文或白名单字段，
+走内核的**校验写入路径**（字段白名单取自 `core/contracts`、原子写、记 `doc_update` 活动）。
+它与 `lit_note_save` 同一模式：**安全闸门在内核**——插件把它注册成写工具（`spec.write = true`）后，
+confirm 模式下内核只会生成草稿，用户确认后才以 direct 模式调用插件 handler。插件**不要**自己实现确认流，
+也**不得**直接改 `Workspace/` 下的文件。
 
 > **纯前端插件不必扩 `core_api`**：`core_api` 是给插件**后端**（`inprocess` 的 `entry`）用的；
 > 只有前端脚本的插件直接消费上面的公开 HTTP API 即可（`plugins/knowledge-graph`、
