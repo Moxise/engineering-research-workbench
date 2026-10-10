@@ -70,8 +70,13 @@ SYSTEM_FILES: dict[str, str] = {
     "System/todos.json": "待办清单，JSON 数组",
     "System/projects.json": "项目注册表，含稳定 project_id",
     "System/Trash/<kind>/": "删除条目的回收站，删除即改名为 <YYYYMMDDHHMMSS>-<原文件名> 后移入",
+    "System/Trash/plugins/": "插件回收站（非 kind 命名空间）：插件卸载与单文件包升级时整体移入，见 PLUGIN_SPEC §2/§5",
     "System/Cache/": "派生索引（SQLite）缓存目录",
 }
+
+#: `System/Trash/` 下**非 kind** 的合法命名空间（按 PLUGIN_SPEC §2/§5 规定）。
+#: doctor 的「回收站目录漂移」检查用 `KINDS + TRASH_EXTRA` 判定，避免把插件的回收站误报成漂移。
+TRASH_EXTRA: tuple[str, ...] = ("plugins", "Literature", "Projects")
 
 KNOWLEDGE_ROOT_RULE = (
     "知识条目的**唯一权威存放位置**是 `Workspace/Knowledge/<KindDir>/<id>.md`（扁平存放，不建子目录）；"

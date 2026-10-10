@@ -19,8 +19,9 @@
 - **验收**（两个新夹具，共 80 项，全绿）：
   - `.scratch/tmp/verify_zip_unpack.py` **53/53**：正常解包/嵌套清单/落点由 id 决定/manifest 不过/缺件/版本替换进回收站/幂等/手放目录不被覆盖/无工作区拒改/穿越与盘符与符号链接/炸弹上限/僵尸临时目录/只读根/只读保证/CLI/坏包隔离。
   - `.scratch/tmp/verify_zip_install_http.py` **27/27**：启动即安装、启动后新包对普通请求不可见、设置页安装并结构化上报、二次请求幂等、手放冲突，以及**真浏览器**确认页面渲染（成功项标绿、拒收项标红带原因、高度合理、0 console error、空列表分支）。
-- **文档同步**：PLUGIN_SPEC §2 的「规格已定、未实现」横幅改为「已实现」并写明三个触发时机与安全上限、§5 安装行与 CLI、§12 P-B、§306 校验清单；SCOPE §6 阶段 1 收尾；`plugins/README.md` 补齐包态说明（标记文件、回收站、三个时机）；AGENTS.md 仓库表的 `core/plugins/` 模块清单加上 `unpack`。
-- 回归：`verify_plugin_manager`（设置页插件管理，前端被改）全部通过、`web_check`、`plugin_check --assert-core-only`、`ui_smoke` 17 路由 0 error、`kb_smoke` 全绿；`doctor` error 0；插件仍 **7 个可用**、工作树干净。
+- **顺手修掉一个自己引入的交叉缺陷**：插件升级把旧版移进 `System/Trash/plugins/<id>-<版本>/`，而 `core.doctor` 的「回收站目录漂移」检查只认 `KINDS`——插件一升级就会多出一条新告警。修法是**在契约里声明**：`core/contracts/kinds.py` 新增 `TRASH_EXTRA = ("plugins", "Literature", "Projects")`（都是代码里真实存在的非 kind 回收站命名空间：插件、文献、项目），`doctor` 改用 `KINDS + TRASH_EXTRA`（大小写不敏感）。夹具里**双向**断言：`plugins` 不算漂移、`bogus_ns` 仍被抓到——既有那条合法的 `knowledge` 告警保持不变（那是历史遗留，不该顺手抹掉）。
+- **文档同步**：PLUGIN_SPEC §2 的「规格已定、未实现」横幅改为「已实现」并写明三个触发时机与安全上限、§5 安装行与 CLI、§12 P-B、§306 校验清单；SCOPE §6 阶段 1 收尾；`plugins/README.md` 补齐包态说明（标记文件、回收站、三个时机）；AGENTS.md 仓库表的 `core/plugins/` 模块清单加上 `unpack`（本机指令文件，不入版本库）。
+- 回归：`verify_plugin_manager`（设置页插件管理，前端被改）全部通过、`web_check`、`plugin_check --assert-core-only`、`ui_smoke` 17 路由 0 error、`kb_smoke`、`mcp.server --selftest` 全绿；`doctor` error 0、warn 仍为 6（未新增）；插件仍 **7 个可用**、工作树干净。
 
 ## v261009.20
 

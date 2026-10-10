@@ -271,11 +271,12 @@ def scan_docs(ws: Path, rep: Report, index: sqlite3.Connection | None) -> dict:
 
 
 def check_workspace_hygiene(ws: Path, rep: Report) -> None:
-    # 回收站目录 vs kind 列表
+    # 回收站目录 vs kind 列表 + 契约声明的非 kind 命名空间（如插件回收站 System/Trash/plugins/）
     trash = ws / "System" / "Trash"
     if trash.is_dir():
         dirs = sorted(p.name for p in trash.iterdir() if p.is_dir())
-        stale = [d for d in dirs if d not in C.KINDS]
+        allowed = {str(k).lower() for k in C.KINDS} | {str(x).lower() for x in C.TRASH_EXTRA}
+        stale = [d for d in dirs if d.lower() not in allowed]
         rep.add("工作区·回收站目录漂移", "warn", len(stale),
                 f"不在现役 kind 中的回收站子目录：{stale}（现有：{dirs}）" if stale else f"与 kind 列表一致：{dirs}")
 
