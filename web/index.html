@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="/v260922-layout-bugfixes.css?v=260924g">
   <link rel="stylesheet" href="/v260930-floating-agent.css?v=260930n"><!-- v260930n · 历史列表归档/删除操作样式；上版：停止按钮样式 -->
   <link rel="stylesheet" href="/v261008-billing.css?v=261008"><!-- v261008 · 用量计费仪表盘样式 -->
-  <link rel="stylesheet" href="/plugin-manager.css?v=261009b"><!-- v261009.4 · 设置 → 插件（内核模块 web/plugin-manager.js 的样式；走 ERWPanels.settingsTab 自登记） -->
+  <link rel="stylesheet" href="/plugin-manager.css?v=261009c"><!-- v261009c · 统一 .pm-row 单行版式（卡片摘要行与配置行同高同样式）+ .pm-detail 详情块 -->
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
   <!-- web:css:end -->
   <script>
@@ -113,7 +113,7 @@
   <script defer src="/v260930-floating-agent.js?v=261009r"></script><!-- v261009r · A10：api() 走接缝；上版：A1 悬浮球 MathJax 按需加载 -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->
   <script defer src="/v261008-billing.js?v=261009c"></script><!-- v261009c · §6.3：自行登记 ERWPanels 面板（导航项 + 页头 + 渲染），内核不再认识计费；上版：A10 api() 走接缝 -->
-  <script defer src="/plugin-manager.js?v=261009c"></script><!-- v261009c · 配置区默认收成一行（状态 + 单行摘要 + 展开编辑），展开后才拉取配置并显示编辑器；保存后自动收起 -->
+  <script defer src="/plugin-manager.js?v=261009d"></script><!-- v261009d · 卡片默认只留一行「版本」（其余进「详情」按需展开）；配置行的展开/收起改为点同一行（去掉大「收起」按钮） -->
   <!-- web:app-js:end -->
 </body>
 </html>

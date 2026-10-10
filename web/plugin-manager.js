@@ -42,6 +42,7 @@
 
   var PLUGINS = {};   /* id -> 预览信息（配置块据此判断该插件有没有配置接口） */
   var OPEN = {};      /* id -> 配置区是否展开（默认收成一行） */
+  var DETAIL = {};    /* id -> 卡片详情（权限/路由/工具/依赖/面板/目录）是否展开 */
   var CFG = {};       /* id -> 已读取的配置（展开/收起之间复用，避免反复请求） */
   var STATE_LABEL = {
     available: ['可用', 'ok'], blocked: ['被阻塞', 'warn'],
@@ -67,6 +68,18 @@
       var where = n.slot ? ('槽位 ' + esc(n.slot)) : '导航页';
       return '<span class="pm-panel">' + esc(n.label) + ' <small>' + where + '</small></span>';
     }).join('') || '<span class="muted">无前端面板</span>';
+    /* v261009.7 · 卡片默认只留**一行**：版本号（+ 来源）；权限/路由/工具/依赖/目录/面板
+       都收进「详情」，需要时再展开——与配置区的交互一致。 */
+    var detailRows = hasDetail
+      ? metaRow('权限', perms || '<span class="muted">未声明</span>')
+        + metaRow('路由', (plugin.routes || []).map(function (r) { return '<code>' + esc(r) + '</code>'; }).join(' ') || '<span class="muted">无后端接口</span>')
+        + metaRow('工具', (plugin.mcp_tools || []).map(function (t) { return '<code>p_' + esc(plugin.id) + '__' + esc(t) + '</code>'; }).join(' ') || '<span class="muted">未注册工具</span>')
+        + metaRow('依赖', (plugin.dependencies || []).map(function (d) { return '<code>' + esc(d) + '</code>'; }).join(' ') || '<span class="muted">无</span>')
+        + metaRow('面板', panels)
+        + metaRow('目录', '<code class="pm-path">' + esc(plugin.dir || '') + '</code>')
+      : '<div class="field-help">当前后端只下发了精简清单（' + esc(Object.keys(plugin).join(' / '))
+        + '）——权限、路由、工具、目录与启用状态需要新版后端。</div>';
+    var open = !!DETAIL[plugin.id];
     return '<section class="card card-pad pm-card" data-plugin-card="' + esc(plugin.id) + '">'
       + '<div class="card-head"><div><div class="card-kicker">' + esc(plugin.kind || 'plugin') + '</div>'
       + '<h3>' + esc(plugin.name || plugin.id) + ' <small class="muted">' + esc(plugin.id) + '</small></h3>'
@@ -78,20 +91,13 @@
       + (hasDetail ? (plugin.enabled ? ' checked' : '') : ' disabled') + '> 启用</label></div></div>'
       + (hasDetail && plugin.state !== 'available' && plugin.reason
           ? '<div class="pm-alert"><strong>不可用</strong><span>' + esc(plugin.reason) + (plugin.fix ? '　建议：' + esc(plugin.fix) : '') + '</span></div>' : '')
-      + '<div class="pm-meta">'
-      + metaRow('版本', '<code>' + esc(plugin.version || '-') + '</code>　来源 <code>' + esc(plugin.source || '-') + '</code>'
-          + (plugin.distribution ? '　分发 <code>' + esc(plugin.distribution) + '</code>' : '')
-          + (plugin.core_min ? '　要求内核 <code>' + esc(plugin.core_min) + '</code>' : ''))
-      + (hasDetail
-          ? metaRow('权限', perms || '<span class="muted">未声明</span>')
-            + metaRow('路由', (plugin.routes || []).map(function (r) { return '<code>' + esc(r) + '</code>'; }).join(' ') || '<span class="muted">无后端接口</span>')
-            + metaRow('工具', (plugin.mcp_tools || []).map(function (t) { return '<code>p_' + esc(plugin.id) + '__' + esc(t) + '</code>'; }).join(' ') || '<span class="muted">未注册工具</span>')
-            + metaRow('依赖', (plugin.dependencies || []).map(function (d) { return '<code>' + esc(d) + '</code>'; }).join(' ') || '<span class="muted">无</span>')
-            + metaRow('目录', '<code class="pm-path">' + esc(plugin.dir || '') + '</code>')
-          : '<div class="field-help">当前后端只下发了精简清单（' + esc(Object.keys(plugin).join(' / '))
-            + '）——权限、路由、工具、目录与启用状态需要新版后端。</div>')
-      + metaRow('面板', panels)
-      + '</div>'
+      + '<button class="pm-row pm-row-toggle" type="button" data-plugin-detail="' + esc(plugin.id) + '"'
+      + ' title="展开查看权限 / 路由 / 工具 / 依赖 / 面板 / 目录">'
+      + '<span class="pm-row-label">版本</span>'
+      + '<code class="pm-row-main">' + esc(plugin.version || '-') + '</code>'
+      + (plugin.source ? '<span class="pm-row-sub">来源 ' + esc(plugin.source) + '</span>' : '')
+      + '<span class="pm-row-action">' + (open ? '▾ 收起详情' : '▸ 详情') + '</span></button>'
+      + '<div class="pm-detail"' + (open ? '' : ' hidden') + '>' + detailRows + '</div>'
       + '<div class="pm-config" data-plugin-config="' + esc(plugin.id) + '"></div></section>';
   }
 
@@ -138,6 +144,17 @@
         };
       });
     }
+    /* 详情展开/收起：只切那一段，不重画整页 */
+    $$('[data-plugin-detail]', root).forEach(function (btn) {
+      btn.onclick = function () {
+        var id = btn.dataset.pluginDetail;
+        DETAIL[id] = !DETAIL[id];
+        var box = btn.parentElement.querySelector('.pm-detail');
+        if (box) box.hidden = !DETAIL[id];
+        var act = btn.querySelector('.pm-row-action');
+        if (act) act.textContent = DETAIL[id] ? '▾ 收起详情' : '▸ 详情';
+      };
+    });
     $$('[data-plugin-config]', root).forEach(function (host) {
       paintConfig(host);
     });
@@ -162,9 +179,9 @@
 
     if (plugin.state === undefined) {
       /* 旧后端：连状态都没有，配置接口自然也谈不上——如实说明，别猜 */
-      host.innerHTML = '<div class="pm-config-row" title="' + esc(note) + '">'
-        + '<span class="pm-config-label">配置</span>'
-        + '<span class="pm-config-note">当前后端没有提供插件预览字段，请<b>重启工作台</b>后再看这里。</span></div>';
+      host.innerHTML = '<div class="pm-row" title="' + esc(note) + '">'
+        + '<span class="pm-row-label">配置</span>'
+        + '<span class="pm-row-note">当前后端没有提供插件预览字段，请<b>重启工作台</b>后再看这里。</span></div>';
       return;
     }
     if (!plugin.has_config_route) {
@@ -172,45 +189,46 @@
       var hint = (plugin.nav_labels || []).length
         ? '该插件没有提供配置接口——它的设置在自己的界面里：' + esc(plugin.nav_labels.join('、'))
         : '该插件没有提供配置接口，也不需要配置。';
-      host.innerHTML = '<div class="pm-config-row" title="' + esc(note) + '">'
-        + '<span class="pm-config-label">配置</span><span class="pm-config-note">' + hint + '</span></div>';
+      host.innerHTML = '<div class="pm-row" title="' + esc(note) + '">'
+        + '<span class="pm-row-label">配置</span><span class="pm-row-note">' + hint + '</span></div>';
       return;
     }
 
     if (!OPEN[id]) {
       var cfg = CFG[id];
-      host.innerHTML = '<button class="pm-config-row pm-config-toggle" type="button" data-config-toggle="' + esc(id) + '" title="' + esc(note) + '">'
-        + '<span class="pm-config-label">配置</span>'
-        + '<span class="pm-config-state">' + (cfg ? '已读取' : '未展开') + '</span>'
-        + '<code class="pm-config-summary">' + (cfg ? esc(configSummary(cfg)) : '点右侧展开后读取并编辑') + '</code>'
-        + '<span class="pm-config-hint">' + (cfg ? '展开编辑' : '读取并展开') + '</span></button>';
+      host.innerHTML = '<button class="pm-row pm-row-toggle" type="button" data-config-toggle="' + esc(id) + '" title="' + esc(note) + '">'
+        + '<span class="pm-row-label">配置</span>'
+        + '<span class="pm-row-state">' + (cfg ? '已读取' : '未展开') + '</span>'
+        + '<code class="pm-row-main pm-row-json">' + (cfg ? esc(configSummary(cfg)) : '点右侧展开后读取并编辑') + '</code>'
+        + '<span class="pm-row-action">' + (cfg ? '▸ 展开编辑' : '▸ 读取并展开') + '</span></button>';
       $('[data-config-toggle]', host).onclick = function () {
         OPEN[id] = true;
         if (CFG[id]) { paintConfig(host); return; }
-        $('.pm-config-state', host).textContent = '读取中…';
+        $('.pm-row-state', host).textContent = '读取中…';
         loadCfg(id).then(function () { paintConfig(host); })
           .catch(function (e) {
             OPEN[id] = false;
-            host.innerHTML = '<div class="pm-config-row" title="' + esc(note) + '">'
-              + '<span class="pm-config-label">配置</span><span class="pm-config-note">读取配置失败：'
+            host.innerHTML = '<div class="pm-row" title="' + esc(note) + '">'
+              + '<span class="pm-row-label">配置</span><span class="pm-row-note">读取配置失败：'
               + esc(e.message) + '（可在插件自己的界面里设置）</span></div>';
           });
       };
       return;
     }
 
-    /* 展开态：编辑器 + 操作 */
-    host.innerHTML = '<div class="pm-config-row pm-config-expanded-head">'
-      + '<span class="pm-config-label">配置</span>'
-      + '<span class="pm-config-note">当前配置（JSON，可直接编辑后保存）。</span></div>'
-      + '<textarea class="pm-json" data-config-json rows="6" spellcheck="false"></textarea>'
+    /* 展开态：**同一行**点一下就收起（不再放一个大「收起」按钮） */
+    host.innerHTML = '<button class="pm-row pm-row-toggle pm-row-open" type="button" data-config-toggle="' + esc(id) + '" title="' + esc(note) + '">'
+      + '<span class="pm-row-label">配置</span>'
+      + '<span class="pm-row-state">已展开</span>'
+      + '<span class="pm-row-note">JSON，可直接编辑后保存</span>'
+      + '<span class="pm-row-action">▾ 收起</span></button>'
+      + '<textarea class="pm-json" data-config-json rows="5" spellcheck="false"></textarea>'
       + '<div class="pm-config-actions">'
       + '<button class="secondary-btn" data-config-reload>重新读取</button>'
-      + '<button class="primary-btn" data-config-save>保存配置</button>'
-      + '<button class="ghost-btn" data-config-close>收起</button></div>';
+      + '<button class="primary-btn" data-config-save>保存配置</button></div>';
     var ta = $('[data-config-json]', host);
     ta.value = JSON.stringify(CFG[id] || {}, null, 2);
-    $('[data-config-close]', host).onclick = function () {
+    $('[data-config-toggle]', host).onclick = function () {
       OPEN[id] = false;
       paintConfig(host);
     };

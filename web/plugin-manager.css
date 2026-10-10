@@ -1,9 +1,34 @@
-/* plugin-manager.css · v261009.4 —— 设置 → 插件（内核模块 web/plugin-manager.js 的样式） */
+/* plugin-manager.css · v261009.7 —— 设置 → 插件（内核模块 web/plugin-manager.js 的样式）
+ *
+ * 版式约定：**一切默认一行**。
+ *   · 卡片：标题 + 状态/开关，下面一行「版本」，其余信息进「详情」
+ *   · 配置：一行「配置 + 状态 + 摘要 + 动作」，点这一行展开/收起
+ * 两类行共用 `.pm-row`（同高、同边框、同样的动作位），视觉一致。
+ */
 
 .pm-card{margin-bottom:12px}
 .pm-actions{display:flex;align-items:center;gap:10px}
 .pm-switch{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap}
-.pm-meta{display:grid;gap:5px;margin-top:10px}
+
+/* ---- 通用「一行」 ---- */
+.pm-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;text-align:left;
+  border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;
+  padding:5px 9px;margin-top:8px;font:inherit;min-height:30px}
+button.pm-row{cursor:pointer}
+button.pm-row:hover{border-color:var(--accent)}
+.pm-row-open{border-style:dashed}
+.pm-row-label{flex:0 0 auto;font:600 11px/1.4 inherit;color:var(--accent);letter-spacing:.06em}
+.pm-row-state{flex:0 0 auto;font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.pm-row-main{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font:10px/1.6 Consolas,monospace;color:var(--muted)}
+.pm-row-sub{flex:0 0 auto;font-size:10px;color:var(--muted)}
+.pm-row-note{flex:1 1 auto;min-width:0;font-size:10px;color:var(--muted);line-height:1.5;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pm-row-action{flex:0 0 auto;font-size:10px;color:var(--accent);white-space:nowrap}
+
+/* ---- 详情（默认隐藏） ---- */
+.pm-detail{display:grid;gap:5px;margin-top:8px;padding:0 2px}
+.pm-detail[hidden]{display:none}
 .pm-meta-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px;font-size:11px;align-items:start}
 .pm-meta-label{color:var(--muted)}
 .pm-meta-row code{font:10px/1.5 Consolas,monospace;background:color-mix(in srgb,var(--line) 35%,transparent);padding:1px 5px;border-radius:5px}
@@ -11,23 +36,11 @@
 .pm-perm{display:inline-block;font:10px/1.6 Consolas,monospace;border:1px solid var(--line);border-radius:6px;padding:0 6px;margin:0 5px 3px 0}
 .pm-panel{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:6px;padding:1px 7px;margin:0 5px 3px 0}
 .pm-panel small{color:var(--muted)}
-.pm-config{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
-/* 配置区统一只有一行（v261009.6）：标签 + 状态 + 摘要 + 动作同排；说明走 title 悬停 */
-.pm-config-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;text-align:left;
-  border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;padding:5px 9px;
-  font:inherit;min-height:30px}
-button.pm-config-row{cursor:pointer}
-button.pm-config-row:hover{border-color:var(--accent)}
-.pm-config-expanded-head{cursor:default;border-style:dashed}
-.pm-config-label{flex:0 0 auto;font:600 11px/1.4 inherit;color:var(--accent);letter-spacing:.06em}
-.pm-config-state{flex:0 0 auto;font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 5px}
-.pm-config-summary{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font:10px/1.6 Consolas,monospace;color:var(--muted)}
-.pm-config-note{flex:1 1 auto;min-width:0;font-size:10px;color:var(--muted);line-height:1.5}
-.pm-config-hint{flex:0 0 auto;font-size:10px;color:var(--accent);white-space:nowrap}
-.pm-config-head{font:600 11px/1.4 inherit;color:var(--accent);letter-spacing:.06em;margin-bottom:5px}
-.pm-config-head small{color:var(--muted);letter-spacing:0;font-weight:400}
-.pm-json{width:100%;box-sizing:border-box;margin-top:6px;font:11px/1.6 Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:var(--surface);color:inherit;resize:vertical}
+
+/* ---- 配置：展开态 ---- */
+.pm-config{margin-top:0}
+.pm-json{width:100%;box-sizing:border-box;margin-top:6px;font:11px/1.6 Consolas,monospace;
+  border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:var(--surface);color:inherit;resize:vertical}
 .pm-config-actions{display:flex;gap:7px;margin-top:8px}
 .pm-alert{border:1px solid color-mix(in srgb,var(--danger) 40%,var(--line));border-radius:10px;padding:10px 12px;margin:8px 0;display:grid;gap:3px;background:color-mix(in srgb,var(--danger) 6%,transparent)}
 .pm-alert strong{font-size:12px}

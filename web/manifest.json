@@ -63,9 +63,9 @@
     },
     {
       "file": "plugin-manager.css",
-      "v": "261009b",
+      "v": "261009c",
       "theme": "plugin-manager",
-      "note": "v261009.4 · 设置 → 插件（内核模块 web/plugin-manager.js 的样式；走 ERWPanels.settingsTab 自登记）"
+      "note": "v261009c · 统一 .pm-row 单行版式（卡片摘要行与配置行同高同样式）+ .pm-detail 详情块"
     },
     {
       "file": "vendor/github.min.css",
@@ -153,9 +153,9 @@
     },
     {
       "file": "plugin-manager.js",
-      "v": "261009c",
+      "v": "261009d",
       "theme": "plugin-manager",
-      "note": "v261009c · 配置区默认收成一行（状态 + 单行摘要 + 展开编辑），展开后才拉取配置并显示编辑器；保存后自动收起"
+      "note": "v261009d · 卡片默认只留一行「版本」（其余进「详情」按需展开）；配置行的展开/收起改为点同一行（去掉大「收起」按钮）"
     }
   ]
 }
