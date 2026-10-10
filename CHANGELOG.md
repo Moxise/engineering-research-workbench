@@ -1,5 +1,20 @@
 # Changelog
 
+## v261009.18
+
+- **图谱渲染彻底交给插件**（你的实测发现：关掉知识图谱插件后，图谱页仍画出那张难看的螺旋图——说明内核还留着旧渲染）。
+  - **删净内核的图谱实现**：`renderGraphPage` 的页面模板、筛选/选中/预览/导出、简易 `drawGraph`（2D/3D、拖拽、缩放）、邻域计算，共 **68 行**（`app.js` 1493 → **1438 行**）。`copyText` 因被 BibTeX 对话框共用而保留。
+  - **改为页面级接管**：`ERWGraphRenderers` 的 `graph.mount(host, ctx)` 由插件画**整页**（页面 markup 也搬进插件，插件 555 → **611 行**），总览迷你图仍走 `overview.enhance`。
+  - **无接管者时只给提示**：图谱页显示「知识图谱不可用：请在「设置 → 插件」里启用「知识图谱可视化」插件」，总览的迷你图卡片同样换成一行提示——**不再画任何兜底图**。
+  - 插件 `core_min` 提到 **v261009.18**：旧内核会因缺少 `mount` 而**明确拒载**（不是静默失效）；插件说明同步改写（"停用后图谱页给提示，内核不再自带兜底图"）。
+- **验收**（`.scratch/tmp/verify_graph_plugin_migration.py`，真 Chrome，**32/32**）：
+  - 插件在场：718 节点 / 1854 关系、力导向布局、筛选联动、搜索定位、节点预览、导出弹窗 **149 项**、总览迷你图可跳转定位，**内核绘制次数 0**；
+  - **插件缺席（脚本被拦）与「停用插件」两条路径都断言**：无画布、无筛选、**内核绘制 0 次**、页面明示「知识图谱不可用」、0 console error；
+  - 启停契约：停用后不再下发、重新启用回到列表、**其他插件启停状态未被改动**。
+- 回归：`verify_reader_note_tab`、`verify_reader_plugin_tools`、`verify_reader_seam` 14/14、`verify_floating_assist` 16/16、插件管理夹具、`ui_smoke` 17 路由 0 error、`web_check`、`plugin_check --assert-core-only`、`kb_smoke` 全绿；`doctor` error 0；插件 **7 个可用**。
+- 夹具：A10 时代的 `verify_graph_canvas_ownership.py` 退役（它验证的「内核兜底绘制」路径已按你的要求删除）。
+- **提示**：`Workspace/System/plugins.json` 里还留着已删除插件 `litnote` 的历史记录（`enabled:false`），无害（加载器忽略未知 id）；如需清爽可在插件页再点一次开关或我帮你清。
+
 ## v261009.17
 
 - **三个插件合并成一个「文献阅读工作区」**（按你的要求；说明里体现合并后的能力）。原 `literature-reader`（阅读区）+ `litnote`（文献笔记 + 2 个 AI 工具）+ `reader-assist`（阅读区 AI 助手）→ **一个插件** `plugins/literature-reader` **v2.0.0**，插件数 9 → **7**。

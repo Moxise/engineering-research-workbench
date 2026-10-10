@@ -95,9 +95,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009q",
+      "v": "261009r",
       "theme": "base",
-      "note": "v261009q · 新增 window.ERWToast（通用提示条接缝）与 overlay 浮层槽位（悬浮球等常驻 UI 的挂载点）；上版：ERWReader 阅读区接管"
+      "note": "v261009r · 删除内核自带的图谱渲染与交互（drawGraph/筛选/预览/导出那套）——图谱页与总览迷你图只由 plugins/knowledge-graph 提供，无插件时给启用提示；上版：ERWToast + overlay 槽位"
     },
     {
       "file": "plugin-host.js",

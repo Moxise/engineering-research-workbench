@@ -101,17 +101,18 @@
     },
   };
 
-  /* v261009.13 · §6.3 渲染接管接缝：图谱可视化可由附属模块**整体接管画布**；内核只保留一份简单渲染
-     （drawGraph）作为「接管者缺席 / 接管失败」时的兜底——内核不依赖任何具体模块（P14 红线 5）。
-     注册形如 { id, graph?: {enhance(canvas, ctx)}, overview?: {enhance(canvas, ctx)} }；
-     enhance 可返回 Promise：内核 await 它，成功就不再画兜底图，抛错则自动回退兜底。
-     此前的补丁做法是「内核先画一遍 → 补丁克隆替换画布」，那次绘制无人消费（A10 白画）。 */
+  /* v261009.13 · §6.3 渲染接管接缝；v261009.18 · 图谱可视化**整体由插件提供**（连页面 markup 也在插件里）。
+     内核不再自带渲染器：`graph.mount(host, ctx)` 由插件画整页、`overview.enhance(canvas, ctx)` 画总览迷你图；
+     接管者缺席时内核只给一条「请启用插件」的提示（用户明确要求去掉旧的那份难看兜底图）。
+     注册形如 { id, graph?: {mount(host, ctx)}, overview?: {enhance(canvas, ctx)} }；
+     两者都可返回 Promise：内核 await 它，抛错则打日志并显示提示。 */
   const GRAPH_RENDERERS = [];
   window.ERWGraphRenderers = {
     register(r){
       if(!r || !r.id) throw new Error('ERWGraphRenderers.register 需要 {id, ...}');
       if(!r.graph && !r.overview) throw new Error('图谱接管至少要声明 graph 或 overview 之一');
-      if(r.graph && typeof r.graph.enhance !== 'function') throw new Error('graph.enhance 必须是函数');
+      if(r.graph && typeof r.graph.enhance !== 'function' && typeof r.graph.mount !== 'function')
+        throw new Error('graph 需要 enhance(canvas) 或 mount(host, ctx)');
       if(r.overview && typeof r.overview.enhance !== 'function') throw new Error('overview.enhance 必须是函数');
       if(GRAPH_RENDERERS.some(x => x.id === r.id)) throw new Error('图谱接管 id 重复：' + r.id);
       GRAPH_RENDERERS.push(r);
@@ -730,18 +731,17 @@
       </div>
     </div>`;
     wireGo();
-    /* v261009.13 · 总览迷你图同样优先交给接管者（window.ERWGraphRenderers 'overview'）；
-       无人接管或接管抛错 → 内核 drawGraph 兜底（重新查询画布：接管者可能已把旧画布换掉）。 */
+    /* v261009.18 · 总览迷你图**只由接管者渲染**（用户要求：去掉内核那份难看的兜底图）。
+       没有接管者时换成一行启用提示，不再画图。 */
     requestAnimationFrame(async ()=>{
       const oc=$('#overview-graph'); if(!oc) return;
       const takeover=window.ERWGraphRenderers.get('overview');
       if(takeover){
         try{ await takeover.overview.enhance(oc, {route:'research-overview', host:$('#main'), contract:window.ERWContract}); return; }
-        catch(err){ console.error('[overview] 接管渲染失败，回退内核渲染：'+(err&&err.message?err.message:err)); }
+        catch(err){ console.error('[overview] 接管渲染失败：'+(err&&err.message?err.message:err)); }
       }
-      const c=$('#overview-graph');
-      if(!c) return;   /* 重新查询：接管者可能已经换过画布；页面已切走则不画 */
-      drawGraph(c,g,{interactive:true,mini:true,onSelect:(n)=>openGraphBundleFromNode(n)});
+      const wrap=oc.parentElement;
+      if(wrap) wrap.innerHTML='<div class="empty" style="min-height:150px"><div class="row-meta">知识关系预览不可用：请在「设置 → 插件」里启用「知识图谱可视化」插件</div></div>';
     });
   }
 
@@ -1250,74 +1250,19 @@
     $$('[data-ms-id]',stage).forEach(x=>x.onclick=async e=>{e.stopPropagation();if(moved){moved=false;return}await showMilestonePreview(x.dataset.msId)});
   }
 
-  async function renderGraphPage(){ const g=await api('/api/graph');state.graph=g;
-    const filterKinds=[['idea','灵感'],['journal','研究日志'],['note','笔记'],['experiment','实验'],['milestone','里程碑'],['summary','工作总结'],['literature','文献'],['tag','标签'],['project','项目']];
-    const relationKinds=GRAPH_RELATION_LABELS;
-    /* v261008.2 · 新增类型化关系后，老浏览器里保存的关系集合自动补齐一次，避免类型化边默认看不见 */
-    if(localStorage.getItem('graphRelationsV2')!=='1'){ relationKinds.forEach(([k])=>state.graphRelations.add(k)); localStorage.setItem('graphRelations',JSON.stringify([...state.graphRelations])); localStorage.setItem('graphRelationsV2','1'); }
-    $('#main').innerHTML=`<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">RELATION MAP</div><h3>知识图谱</h3></div><div class="graph-view-tools"><div class="view-tabs"><button data-gview="2d" class="${state.graphView==='2d'?'active':''}">2D</button><button data-gview="3d" class="${state.graphView==='3d'?'active':''}">3D 星图</button></div><button class="secondary-btn" id="graph-fit" type="button">⤢ 全览</button></div></div>
-      <div class="graph-wrap" id="graph-wrap"><div class="graph-canvas-wrap"><canvas class="graph-canvas" id="graph-canvas"></canvas><div class="graph-canvas-help">空白处拖动平移 · 3D 下 Alt/右键拖动旋转 · Ctrl+滚轮缩放</div></div><section class="card graph-preview hidden" id="graph-preview"><div class="preview-pane-head"><div><div class="card-kicker">MARKDOWN PREVIEW</div><h3 id="graph-preview-title">节点预览</h3></div><button class="ghost-btn" id="graph-preview-close" type="button">关闭</button></div><div class="preview-pane-meta" id="graph-preview-meta"></div><div class="md-preview graph-preview-body" id="graph-preview-body"></div></section><aside class="card graph-side"><h3 id="graph-node-title">选择节点</h3><div class="graph-node-info" id="graph-node-info">点击任意节点后，将高亮相邻节点与关系边。点击画布空白处可取消高亮。</div><div style="margin-top:12px"><button class="primary-btn" id="graph-bundle" disabled>整理关联 Markdown</button></div><div class="graph-filter"><strong>显示节点类别</strong><div class="graph-filter-grid">${filterKinds.map(([k,label])=>`<label><input type="checkbox" data-graph-kind="${k}" ${state.graphKinds.has(k)?'checked':''}> ${label}</label>`).join('')}</div><div class="graph-filter-actions"><button class="ghost-btn" id="graph-filter-all">全选</button><button class="ghost-btn" id="graph-filter-docs">仅知识条目</button></div></div><div class="graph-filter"><strong>关系来源</strong><div class="graph-filter-grid">${relationKinds.map(([k,label])=>`<label><input type="checkbox" data-graph-relation="${k}" ${state.graphRelations.has(k)?'checked':''}> ${label}</label>`).join('')}</div><div class="row-meta">隐藏“标签”或“项目”节点时，对应关系边也会立即从图谱和导出结果中移除。</div></div></aside></div>
-    </div>`;
-    /* v261009.13 · 内核这套控件绑定与 drawGraph 只在**没有接管者**（或接管失败）时执行。
-       接管者（附属模块）注册在 window.ERWGraphRenderers，它自己绑控件、自己画。 */
-    const bindKernelGraphControls=()=>{
-      $$('[data-gview]').forEach(b=>b.onclick=()=>{state.graphView=b.dataset.gview;renderGraphCanvas();animateSubView($('.graph-canvas-wrap'))});
-      $$('[data-graph-kind]').forEach(c=>c.onchange=()=>{if(c.checked)state.graphKinds.add(c.dataset.graphKind);else state.graphKinds.delete(c.dataset.graphKind);localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()});
-      $$('[data-graph-relation]').forEach(c=>c.onchange=()=>{if(c.checked)state.graphRelations.add(c.dataset.graphRelation);else state.graphRelations.delete(c.dataset.graphRelation);localStorage.setItem('graphRelations',JSON.stringify([...state.graphRelations]));renderGraphCanvas()});
-      $('#graph-filter-all').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=true);state.graphKinds=new Set(filterKinds.map(x=>x[0]));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
-      $('#graph-filter-docs').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=!['project','tag'].includes(c.dataset.graphKind));state.graphKinds=new Set(filterKinds.map(x=>x[0]).filter(x=>!['project','tag'].includes(x)));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
-      $('#graph-bundle').onclick=()=>state.graphSelected&&openGraphBundleFromNode(state.graphSelected);
-      $('#graph-preview-close').onclick=()=>onGraphSelect(null);
-      $('#graph-fit').onclick=()=>{if(state.graphSelected)onGraphSelect(null);requestAnimationFrame(()=>$('#graph-canvas')?._graphResetView?.())};
-    };
-    const takeover=window.ERWGraphRenderers.get('graph');
-    let taken=false;
-    if(takeover){
-      try{ await takeover.graph.enhance($('#graph-canvas'), {route:'graph', host:$('#main'), contract:window.ERWContract}); taken=true; }
-      catch(err){ console.error('[graph] 接管渲染失败，回退内核渲染：'+(err&&err.message?err.message:err)); }
+  /* v261009.18 · 知识图谱**整体由插件提供**（`plugins/knowledge-graph` 经 window.ERWGraphRenderers 注册）。
+     内核此前自带一份简易渲染（drawGraph 的螺旋图）＋筛选/选中/预览/导出，用户明确要求去掉那份难看的效果：
+     现在内核只问注册表——有接管者就把 #main 交给它的 `mount(host, ctx)`；没有就给一条启用提示。
+     相关数据面（`/api/graph`、`/api/graph/bundle` 等）仍在内核，供插件消费。 */
+  async function renderGraphPage(){
+    const takeover=(()=>{ try{ return window.ERWGraphRenderers.get('graph'); }catch{ return null } })();
+    if(takeover && typeof takeover.graph.mount === 'function'){
+      try{ await takeover.graph.mount($('#main'), {route:'graph', contract:window.ERWContract}); return }
+      catch(err){ console.error('[graph] 插件渲染失败：'+(err&&err.message?err.message:err)); }
     }
-    if(!taken){ bindKernelGraphControls(); renderGraphCanvas(); }
+    $('#main').innerHTML='<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">RELATION MAP</div><h3>知识图谱</h3></div></div>'
+      + '<div class="empty" style="min-height:220px"><div>知识图谱不可用<br><span class="row-meta">请在「设置 → 插件」里启用「知识图谱可视化」插件</span></div></div></div>';
   }
-  function filteredGraph(){const allowed=state.graphKinds,relations=state.graphRelations;const nodes=(state.graph?.nodes||[]).filter(n=>allowed.has(n.kind));const ids=new Set(nodes.map(n=>n.id));return {nodes,edges:(state.graph?.edges||[]).filter(e=>relations.has(e.relation)&&ids.has(e.source)&&ids.has(e.target))}}
-  function hideGraphPreview(){state.graphPreviewSeq++;$('#graph-wrap')?.classList.remove('preview-open');$('#graph-preview')?.classList.add('hidden');const body=$('#graph-preview-body');if(body)body.innerHTML='';}
-  function graphVirtualMarkdown(n){const g=filteredGraph(),map=new Map(g.nodes.map(x=>[x.id,x])),rels=g.edges.filter(e=>e.source===n.id||e.target===n.id);const relLabel={wikilink:'显式引用',tag:'标签关联',project:'项目归属'};const kind={...KIND_LABEL,project:'项目',tag:'标签'};const rows=rels.map(e=>{const other=map.get(e.source===n.id?e.target:e.source);return other?`- [[${other.label}]] · ${kind[other.kind]||other.kind} · ${relLabel[e.relation]||e.relation}`:''}).filter(Boolean);return `# ${n.label}\n\n> 这是一个由知识图谱自动生成的${kind[n.kind]||n.kind}节点预览。\n\n## 当前可见关联\n\n${rows.join('\n')||'- 当前筛选条件下暂无可见关联。'}\n`;}
-  async function showGraphPreview(n){const wrap=$('#graph-wrap'),panel=$('#graph-preview'),body=$('#graph-preview-body');if(!wrap||!panel||!body||!n)return;const seq=++state.graphPreviewSeq;wrap.classList.add('preview-open');panel.classList.remove('hidden');$('#graph-preview-title').textContent=n.label;const kind={...KIND_LABEL,project:'项目',tag:'标签'};$('#graph-preview-meta').textContent=`${kind[n.kind]||n.kind}${nodeProjects(n).length?' · '+nodeProjects(n).join(', '):''}`;body.innerHTML='<div class="empty" style="min-height:120px">正在加载 Markdown…</div>';try{const raw=n.virtual?graphVirtualMarkdown(n):(await api('/api/docs/'+encodeURIComponent(n.id))).body||'';if(seq!==state.graphPreviewSeq||state.graphSelected?.id!==n.id)return;await renderMarkdownInto(body,raw||'*暂无正文*');requestAnimationFrame(()=>renderGraphCanvas())}catch(e){if(seq===state.graphPreviewSeq)body.innerHTML=`<div class="empty danger">预览失败：${esc(e.message)}</div>`}}
-  // v261009.13 · 接管者（window.ERWGraphRenderers，见 §6.3）在场时图谱页画布归它渲染：它自己克隆画布、
-  // 自己绑交互，内核若再画一遍会被丢弃（A10 白画）。无人接管或接管失败时走内核 drawGraph 兜底。
-  function graphTakeover(){ try{ return window.ERWGraphRenderers.get('graph'); }catch{ return null; } }
-  function renderGraphCanvas(){ $$('[data-gview]').forEach(b=>b.classList.toggle('active',b.dataset.gview===state.graphView)); const c=$('#graph-canvas');if(!c)return;const g=filteredGraph();if(state.graphSelected&&!g.nodes.some(n=>n.id===state.graphSelected.id)){state.graphSelected=null;$('#graph-node-title').textContent='选择节点';$('#graph-node-info').textContent='当前筛选已隐藏原选中节点。';$('#graph-bundle').disabled=true;hideGraphPreview()} if(graphTakeover())return; drawGraph(c,g,{mode:state.graphView,interactive:true,selectedId:state.graphSelected?.id,onSelect:onGraphSelect}); }
-  function nodeProjects(n){return (n.projects||[]).length?n.projects:(n.project?[n.project]:[])}
-  function onGraphSelect(n){state.graphSelected=n||null;if(!n){$('#graph-node-title').textContent='选择节点';$('#graph-node-info').textContent='点击任意节点后，将高亮相邻节点与关系边；点击画布空白处可取消高亮。导出严格使用当前可见节点和关系。';$('#graph-bundle').disabled=true;hideGraphPreview();renderGraphCanvas();return}$('#graph-node-title').textContent=n.label;const projects=nodeProjects(n);const tags=n.tags||[];$('#graph-node-info').innerHTML=`<div><b>类型：</b>${esc(kindLabel(n.kind)||({project:'项目',tag:'标签'}[n.kind])||n.kind)}</div><div><b>项目：</b>${esc(projects.join(', ')||'—')}</div><div><b>标签：</b>${esc(tags.join(', ')||'—')}</div><div><b>状态：</b>${esc(n.status||'—')}</div><div class="row-meta graph-selection-hint">相邻节点和边已高亮；点击空白处恢复全图。导出会继承当前图谱筛选。</div>`;$('#graph-bundle').disabled=false;showGraphPreview(n);renderGraphCanvas();}
-  function drawGraph(canvas,g,opts={}){
-    const token=(canvas._graphRenderToken||0)+1;canvas._graphRenderToken=token;
-    const mode=opts.mode||'2d';canvas._graphCameras=canvas._graphCameras||{};const camera=canvas._graphCameras[mode]||(canvas._graphCameras[mode]={panX:0,panY:0,zoom:1,rotX:.25,rotY:0});
-    const resetCamera=()=>{camera.panX=0;camera.panY=0;camera.zoom=1;camera.rotX=.25;camera.rotY=0};canvas._graphResetView=()=>{resetCamera();paint()};
-    const dpr=Math.min(devicePixelRatio||1,2),rect=canvas.getBoundingClientRect();canvas.width=Math.max(1,rect.width*dpr);canvas.height=Math.max(1,rect.height*dpr);const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height,nodes=g.nodes.map((n,i)=>({...n,_i:i})),edges=g.edges;const byId=new Map(nodes.map(n=>[n.id,n]));
-    let drag=null,dragMoved=false,pressNode=null,selected=byId.get(opts.selectedId)||null; const R=Math.min(w,h)*(opts.mini?.28:.34);
-    nodes.forEach((n,i)=>{const a=(i/Math.max(1,nodes.length))*Math.PI*2*2.39996;const r=R*(.25+.75*Math.sqrt((i+1)/Math.max(1,nodes.length)));n.bx=Math.cos(a)*r;n.by=Math.sin(a)*r*.72;n.bz=Math.sin(a*1.7)*R*.45;});
-    function project(n){ if(mode==='3d'){const cy=Math.cos(camera.rotY),sy=Math.sin(camera.rotY),cx=Math.cos(camera.rotX),sx=Math.sin(camera.rotX);let x=n.bx*cy-n.bz*sy,z=n.bx*sy+n.bz*cy,y=n.by*cx-z*sx;z=n.by*sx+z*cx;const ss=560/(560+z);return{x:w/2+camera.panX+x*ss*camera.zoom,y:h/2+camera.panY+y*ss*camera.zoom,z,s:ss*camera.zoom}} return{x:w/2+camera.panX+n.bx*camera.zoom,y:h/2+camera.panY+n.by*camera.zoom,z:0,s:camera.zoom}; }
-    function paint(){if(canvas._graphRenderToken!==token)return;ctx.clearRect(0,0,w,h);const pos=new Map(nodes.map(n=>[n.id,project(n)]));const neighborIds=new Set();if(selected){for(const e of edges){if(e.source===selected.id)neighborIds.add(e.target);else if(e.target===selected.id)neighborIds.add(e.source)}}
-      edges.forEach(e=>{const a=pos.get(e.source),b=pos.get(e.target);if(!a||!b)return;const hi=!!selected&&(e.source===selected.id||e.target===selected.id);ctx.globalAlpha=selected?(hi?1:.12):.5;ctx.lineWidth=hi?3:1;ctx.strokeStyle=hi?getCss('--accent'):getCss('--line-strong');ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()});ctx.globalAlpha=1;
-      const sorted=[...nodes].sort((a,b)=>project(a).z-project(b).z);for(const n of sorted){const p=pos.get(n.id),isSel=selected?.id===n.id,isNei=neighborIds.has(n.id),base=n.virtual?8:6,rad=Math.max(3,(base+(isSel?4:isNei?2:0))*Math.max(.55,Math.min(1.8,p.s)));ctx.globalAlpha=selected?(isSel||isNei?1:.32):1;ctx.beginPath();ctx.arc(p.x,p.y,rad,0,Math.PI*2);ctx.fillStyle=n.kind==='project'?getCss('--accent'):kindColor(n.kind);ctx.fill();if(isSel){ctx.strokeStyle=getCss('--text');ctx.lineWidth=3;ctx.stroke()}else if(isNei){ctx.strokeStyle=getCss('--accent');ctx.lineWidth=1.8;ctx.stroke()}if(!opts.mini||nodes.length<18||isSel||isNei){ctx.font=`${isSel||isNei?'700':'400'} ${Math.max(9,(isSel?12:isNei?11:10)*Math.max(.75,Math.min(1.4,camera.zoom)))}px Microsoft YaHei`;ctx.fillStyle=isSel||isNei?getCss('--text'):getCss('--muted');ctx.fillText(truncate(n.label,isSel?22:14),p.x+rad+4,p.y+3)}}ctx.globalAlpha=1;canvas._positions=pos; }
-    function hit(x,y){let best=null,bd=22;for(const n of nodes){const p=canvas._positions?.get(n.id);if(!p)continue;const d=Math.hypot(x-p.x,y-p.y);if(d<bd){bd=d;best=n}}return best}
-    canvas.oncontextmenu=e=>{if(mode==='3d')e.preventDefault()};
-    canvas.onpointerdown=e=>{pressNode=hit(e.offsetX,e.offsetY);dragMoved=false;if(!pressNode&&!selected){drag={x:e.offsetX,y:e.offsetY,mode:(mode==='3d'&&(e.altKey||e.button===2))?'rotate':'pan'};canvas.setPointerCapture?.(e.pointerId)}else drag=null};
-    canvas.onpointermove=e=>{if(!drag)return;const dx=e.offsetX-drag.x,dy=e.offsetY-drag.y;if(Math.hypot(dx,dy)>1)dragMoved=true;if(drag.mode==='rotate'){camera.rotY+=dx*.008;camera.rotX=Math.max(-1.2,Math.min(1.2,camera.rotX+dy*.006))}else{camera.panX+=dx;camera.panY+=dy}drag.x=e.offsetX;drag.y=e.offsetY;paint()};
-    canvas.onpointerup=e=>{const n=hit(e.offsetX,e.offsetY);try{canvas.releasePointerCapture?.(e.pointerId)}catch{};const wasDrag=dragMoved;drag=null;if(!wasDrag){if(pressNode&&n?.id===pressNode.id){selected=n;paint();opts.onSelect?.(n)}else if(!pressNode){selected=null;paint();opts.onSelect?.(null)}}pressNode=null};
-    canvas.onpointercancel=e=>{drag=null;pressNode=null;try{canvas.releasePointerCapture?.(e.pointerId)}catch{}};
-    canvas.onwheel=e=>{if(!(e.ctrlKey||e.metaKey))return;e.preventDefault();const old=camera.zoom,next=Math.max(.35,Math.min(4,old*Math.exp(-e.deltaY*.0015)));if(Math.abs(next-old)<1e-4)return;const cx=e.offsetX-w/2,cy=e.offsetY-h/2,localX=(cx-camera.panX)/old,localY=(cy-camera.panY)/old;camera.zoom=next;camera.panX=cx-localX*next;camera.panY=cy-localY*next;paint()};
-    paint();
-    if(mode==='3d'&&state.config?.app?.ui?.animations&&!matchMedia('(prefers-reduced-motion: reduce)').matches){const loop=()=>{if(canvas._graphRenderToken!==token||!document.body.contains(canvas))return;if(!drag&&!selected){camera.rotY+=.0015;paint()}requestAnimationFrame(loop)};requestAnimationFrame(loop)}
-  }
-
-  function kindColor(kind){const c={idea:'#2a9d8f',journal:'#5b8def',note:'#6f7a8a',milestone:'#c6863b',summary:'#845ec2',literature:'#2673a7',tag:'#b56a9d',project:'#087f8c'};return c[kind]||getCss('--accent')}
-  function getCss(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim()}
-  function truncate(s,n){s=String(s||'');return s.length>n?s.slice(0,n)+'…':s}
-  function visibleGraphNeighborhood(rootId,depth=2){const g=filteredGraph(),nodeMap=new Map(g.nodes.map(n=>[n.id,n])),adj=new Map();for(const e of g.edges){if(!adj.has(e.source))adj.set(e.source,[]);if(!adj.has(e.target))adj.set(e.target,[]);adj.get(e.source).push([e.target,e]);adj.get(e.target).push([e.source,e])}const dist=new Map([[rootId,0]]),q=[rootId];for(let qi=0;qi<q.length;qi++){const cur=q[qi],d=dist.get(cur);if(d>=depth)continue;for(const [nxt] of adj.get(cur)||[]){if(!dist.has(nxt)){dist.set(nxt,d+1);q.push(nxt)}}}return {graph:g,nodeMap,dist};}
-  async function openGraphBundleFromNode(node){ if(!node)return; const neighborhood=visibleGraphNeighborhood(node.id,2); const selectable=[...neighborhood.dist.entries()].filter(([id,d])=>id!==node.id&&d<=2&&!neighborhood.nodeMap.get(id)?.virtual).map(([id,d])=>({...neighborhood.nodeMap.get(id),distance:d})).sort((a,b)=>a.distance-b.distance||String(a.label).localeCompare(String(b.label),'zh-CN')); const rootKindLabel={project:'项目',tag:'标签'}[node.kind]||kindLabel(node.kind); modal('整理关联 Markdown',`<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><strong>${esc(node.label)}</strong><span class="badge accent">${esc(rootKindLabel)}核心</span><label class="badge"><input type="radio" name="bundle-depth" value="1" checked> 一阶</label><label class="badge"><input type="radio" name="bundle-depth" value="2"> 二阶</label></div><div class="row-meta" style="margin-bottom:10px">候选关系只来自当前图谱中可见的节点类别与关系来源；隐藏项目/标签后，其边不会进入本次导出。</div><div style="display:flex;gap:7px;margin-bottom:10px"><button class="secondary-btn" id="bundle-all">全选</button><button class="secondary-btn" id="bundle-none">清空</button></div><div class="bundle-list" id="bundle-list">${selectable.map(x=>`<label class="bundle-item" data-distance="${x.distance}"><input type="checkbox" value="${x.id}" ${x.distance===1?'checked':''}><span class="badge">${x.distance} 阶</span><span><strong>${esc(x.label)}</strong><br><span class="row-meta">${esc(kindLabel(x.kind))} · ${esc(nodeProjects(x).join(', ')||'未归属项目')}</span></span></label>`).join('')||'<div class="empty">当前筛选条件下没有关联 Markdown</div>'}</div>`,`<button class="secondary-btn" id="bundle-cancel">取消</button><button class="primary-btn" id="bundle-generate">生成 Markdown</button>`);
-    function applyDepth(){const depth=+$('input[name="bundle-depth"]:checked').value;$$('.bundle-item').forEach(i=>{i.classList.toggle('hidden',+i.dataset.distance>depth);const cb=$('input',i);if(+i.dataset.distance>depth)cb.checked=false;});}$$('input[name="bundle-depth"]').forEach(r=>r.onchange=applyDepth);$('#bundle-all').onclick=()=>{$$('.bundle-item:not(.hidden) input').forEach(x=>x.checked=true)};$('#bundle-none').onclick=()=>{$$('.bundle-item input').forEach(x=>x.checked=false)};$('#bundle-cancel').onclick=closeModal;applyDepth();$('#bundle-generate').onclick=async()=>{const depth=+$('input[name="bundle-depth"]:checked').value,ids=$$('.bundle-item:not(.hidden) input:checked').map(x=>x.value);const activeVirtual=[...neighborhood.dist.entries()].filter(([id,d])=>d<=depth&&neighborhood.nodeMap.get(id)?.virtual).map(([id])=>id);const activeNodeIds=[node.id,...ids,...activeVirtual];const activeSet=new Set(activeNodeIds);const relations=neighborhood.graph.edges.filter(e=>activeSet.has(e.source)&&activeSet.has(e.target));const r=await api('/api/graph/bundle',{method:'POST',body:{root:node.id,selected_ids:ids,active_node_ids:activeNodeIds,relations}});showBundleResult(node,r.content)};
-  }
-  function showBundleResult(node,content){modal('关联 Markdown 已生成',`<textarea id="bundle-content" class="search-input mono" style="height:460px">${esc(content)}</textarea>`,`<button class="secondary-btn" id="bundle-copy">复制到剪贴板</button><button class="primary-btn" id="bundle-save">保存到本地</button>`);$('#bundle-copy').onclick=()=>copyText(content);$('#bundle-save').onclick=async()=>{const name=`${node.label}-关联汇总.md`;const r=await api('/api/graph/bundle/save',{method:'POST',body:{filename:name,content}});toast('已保存：'+r.path);closeModal()};}
   async function copyText(text){try{await navigator.clipboard.writeText(text);toast('已复制到剪贴板')}catch{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();toast('已复制到剪贴板')}}
 
 

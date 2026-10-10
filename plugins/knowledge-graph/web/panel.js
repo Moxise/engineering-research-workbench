@@ -351,31 +351,45 @@ if (!window.ERWGraphRenderers || typeof window.ERWGraphRenderers.register !== 'f
   OptimizedKnowledgeGraph.layoutCache = new Map();
 
   let instance=null;
-  function replaceCanvas(oldCanvas){const clone=oldCanvas.cloneNode(false);clone.width=oldCanvas.width;clone.height=oldCanvas.height;oldCanvas.replaceWith(clone);return clone}
 
-  /* 注册到内核的渲染接管接缝 window.ERWGraphRenderers（§6.3，v261009.13）：
-     内核**只在渲染图谱页时**调用 enhance 并把画布交过来，成功就不再画兜底图；
-     本函数抛错时内核会回退它自己的 drawGraph（app.js renderGraphPage）——内核不依赖本插件。 */
-  window.ERWGraphRenderers?.register?.({
-    id:'knowledge-graph',
-    graph:{
-      async enhance(canvas){
-        const old=canvas||document.querySelector('#graph-canvas');
-        if(!old) throw new Error('图谱页缺少 #graph-canvas');
-        instance?.destroy(); instance=null;
-        const next=replaceCanvas(old); next.dataset.optimizedGraph='1';
-        instance=new OptimizedKnowledgeGraph(next);
-        window.__knowledgeGraphEngine=instance;   /* 调试/测试句柄（内核不再读它） */
-        try{ await instance.init(); }
-        catch(err){
-          console.error('[knowledge-graph]',err);
-          document.querySelector('#graph-engine-status')?.replaceChildren(document.createTextNode('图谱优化引擎加载失败：'+err.message));
-          throw err;   /* 交回内核回退兜底渲染 */
-        }
-        return instance;
-      },
-    },
-  });
+  /* v261009.18 · 图谱**页面整体由本插件渲染**：内核 renderGraphPage 只问注册表，
+     有本插件就把 #main 交给 `mount(host, ctx)`（内核已不再自带渲染器——那份简易图按用户要求删掉了）。
+     markup 原先在内核 app.js 里，现随功能一起搬进插件。 */
+  const GRAPH_KINDS=[['idea','灵感'],['journal','研究日志'],['note','笔记'],['experiment','实验'],['milestone','里程碑'],['summary','工作总结'],['literature','文献'],['tag','标签'],['project','项目']];
+  const GRAPH_RELATION_FALLBACK=[['uses-knowledge','依据知识'],['uses-data','使用数据'],['cites','引用文献'],['series','同系列'],['chain-prev','上一环节'],['chain-next','下一环节'],['produces','产出汇总'],['wikilink','显式引用'],['tag','标签关联'],['project','项目归属']];
+  function lsSet(key,fallback){try{const v=JSON.parse(localStorage.getItem(key)||'null');return new Set(Array.isArray(v)?v:fallback)}catch{return new Set(fallback)}}
+  function graphMarkup(contract){
+    const kindLabels=(contract&&contract.kindLabels)?contract.kindLabels():{};
+    const rels=(contract&&contract.relations)?contract.relations():GRAPH_RELATION_FALLBACK.map(([id,label])=>({id,label}));
+    const onKinds=lsSet('graphKinds',GRAPH_KINDS.map(x=>x[0]));
+    const onRels=lsSet('graphRelations',rels.map(r=>r.id));
+    if(localStorage.getItem('graphRelationsV2')!=='1'){ try{localStorage.setItem('graphRelations',JSON.stringify(rels.map(r=>r.id)));localStorage.setItem('graphRelationsV2','1')}catch{} }
+    const view=(localStorage.getItem('graphView')||'2d');
+    return '<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">RELATION MAP</div><h3>知识图谱</h3></div>'
+      +'<div class="graph-view-tools"><div class="view-tabs"><button data-gview="2d" class="'+(view==='2d'?'active':'')+'">2D</button><button data-gview="3d" class="'+(view==='3d'?'active':'')+'">3D 星图</button></div><button class="secondary-btn" id="graph-fit" type="button">⤢ 全览</button></div></div>'
+      +'<div class="graph-wrap" id="graph-wrap"><div class="graph-canvas-wrap"><canvas class="graph-canvas" id="graph-canvas"></canvas><div class="graph-canvas-help">空白处拖动平移 · 3D 下 Alt/右键拖动旋转 · Ctrl+滚轮缩放</div></div>'
+      +'<section class="card graph-preview hidden" id="graph-preview"><div class="preview-pane-head"><div><div class="card-kicker">MARKDOWN PREVIEW</div><h3 id="graph-preview-title">节点预览</h3></div><button class="ghost-btn" id="graph-preview-close" type="button">关闭</button></div><div class="preview-pane-meta" id="graph-preview-meta"></div><div class="md-preview graph-preview-body" id="graph-preview-body"></div></section>'
+      +'<aside class="card graph-side"><h3 id="graph-node-title">选择节点</h3><div class="graph-node-info" id="graph-node-info">点击任意节点后，将高亮相邻节点与关系边。点击画布空白处可取消高亮。</div><div style="margin-top:12px"><button class="primary-btn" id="graph-bundle" disabled>整理关联 Markdown</button></div>'
+      +'<div class="graph-filter"><strong>显示节点类别</strong><div class="graph-filter-grid">'+GRAPH_KINDS.map(([k,label])=>'<label><input type="checkbox" data-graph-kind="'+k+'" '+(onKinds.has(k)?'checked':'')+'> '+(kindLabels[k]||label)+'</label>').join('')+'</div><div class="graph-filter-actions"><button class="ghost-btn" id="graph-filter-all">全选</button><button class="ghost-btn" id="graph-filter-docs">仅知识条目</button></div></div>'
+      +'<div class="graph-filter"><strong>关系来源</strong><div class="graph-filter-grid">'+rels.map(r=>'<label><input type="checkbox" data-graph-relation="'+esc(r.id)+'" '+(onRels.has(r.id)?'checked':'')+'> '+esc(r.label)+'</label>').join('')+'</div><div class="row-meta">隐藏“标签”或“项目”节点时，对应关系边也会立即从图谱和导出结果中移除。</div></div></aside></div></div>';
+  }
+  function mountGraph(host, ctx){
+    if(!host) throw new Error('内核没有给出挂载容器');
+    host.innerHTML=graphMarkup((ctx&&ctx.contract)||window.ERWContract||null);
+    const canvas=host.querySelector('#graph-canvas');
+    if(!canvas) throw new Error('图谱页缺少 #graph-canvas');
+    instance?.destroy(); instance=null;
+    canvas.dataset.optimizedGraph='1';
+    instance=new OptimizedKnowledgeGraph(canvas);
+    window.__knowledgeGraphEngine=instance;   /* 调试/测试句柄 */
+    return instance.init().catch(err=>{
+      console.error('[knowledge-graph]',err);
+      const st=host.querySelector('#graph-engine-status');
+      if(st) st.replaceChildren(document.createTextNode('图谱引擎加载失败：'+err.message));
+      throw err;
+    });
+  }
+  window.ERWGraphRenderers?.register?.({ id:'knowledge-graph', graph:{ mount: mountGraph } });
 
   /* 实例生命周期归插件自己：内核只在进入图谱页时喊 enhance，离开页面由这里释放。 */
   window.addEventListener('hashchange',()=>{ if(route()!=='graph'){ instance?.destroy(); instance=null; } });
