@@ -105,9 +105,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009i",
+      "v": "261009j",
       "theme": "base",
-      "note": "v261009i · ERWPanels 新增 readerTab（阅读区 tab 自登记）；设置页 tab 支持模块自登记"
+      "note": "v261009j · 图谱页在 v260922 优化引擎在场时不再重复绘制（此前会被 replaceCanvas 丢弃）；引擎缺席自动回退内核绘制。上版：ERWPanels 新增 readerTab；设置页 tab 支持模块自登记"
     },
     {
       "file": "plugin-host.js",

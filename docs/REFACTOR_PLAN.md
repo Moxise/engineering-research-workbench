@@ -347,7 +347,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 | A7 层级解耦 | `perf_index_query` 不再 import `agent`；私有跨模块调用改公开 API | P12 |
 | A8 导入期副作用清零 | `config` 的 `load_secrets/reload_all` 移入显式 `init()`，由 `build_server()` 调用；解开顺序炸弹 | P13/P21，插件隔离前提 |
 | A9 前端接缝改契约 | 15 个 `window.ERW*` + 5 个自定义事件 + 6 个 MutationObserver → 统一注册表 + `ctx` 契约 | §6.3 |
-| A10 消除双实现 | 删 canvas 先画后弃；`window.fetch` 包装改为显式分页 API | P14 |
+| A10 消除双实现 | 删 canvas 先画后弃 ✅ **图谱页已删**（`graphEngineAvailable()`：引擎在场内核不再白画，补丁缺席自动回退；实测内核绘制次数 1→0，`.scratch/tmp/verify_graph_canvas_ownership.py` 19/19）；`#research-overview` 迷你图那层**刻意保留**（取数失败时是兜底）。**待办**：`window.fetch` 包装改为显式分页 API | P14 |
 | **A11 摘掉悬空工具** ✅ 已执行 | `kb_retrieve` 已从 `mcp/tools_workspace.py` 的 `TOOLS` / `HANDLERS` / 实现中移除（工具数 26 → 25，`--selftest` problems 为空）；**待办**：给自检加「工具实现可导入」探测，否则同类悬空注册仍抓不到（I10） | P23 止血完成 |
 | **A12 RAG 本地数据处置** | 161 MB（`.rag/` 92 MB + `rag.sqlite` 69.2 MB）现在**无用但可复用**（源码在 `feature/rag-v261009`）：① 保留 ② 清理省 161 MB ③ 做插件时原位复用 —— 见 §8-D6 | P24 |
 | **A0 定基线** ✅ 已定（v3.1） | 内核基线 = `feature/slim-workbench-v261009`；RAG 分支的未推送提交已推上 origin；`main` 落后 204 个提交的合并策略仍待定 | P27，基线定了后续动作才有共同前提 |

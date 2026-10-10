@@ -1,5 +1,17 @@
 # Changelog
 
+## v261009.12
+
+- **A10 收口：删掉图谱页的「先画后弃」**（`docs/REFACTOR_PLAN.md` §7 A10 后半项之一，P14 双实现）。
+  - 现象（实测确认）：`#graph` 路由下，`app.js` 的 `renderGraphCanvas()` 先在自己的画布上画一遍整图，随后 v260922 的 `OptimizedKnowledgeGraph` 用 `replaceCanvas()` 换掉这块画布、在**新画布**上重画，并顺手覆盖 `[data-gview]` / `[data-graph-kind]` / `[data-graph-relation]` / `#graph-filter-all` / `#graph-filter-docs` / `#graph-bundle` 的处理器与 `selectNode → 侧栏/预览` 路径 —— 内核这一次绘制**没有任何消费者**，纯浪费。
+  - 改法：`app.js` 新增 `graphEngineAvailable()`，判据是补丁在加载期同步声明的接缝 `window.__knowledgeGraphEngineVersion`（或实例 `window.__knowledgeGraphEngine`）。引擎在场 → 内核不再绘制（视图按钮的 active 态与选中态记账仍保留）；**补丁被裁掉或未加载时自动回退**到原 `drawGraph` 路径，行为不变。
+  - 实测（`.scratch/tmp/verify_graph_canvas_ownership.py`，**19/19 通过**，真 Chrome）：
+    - 内核在本路径上取 `2d` 上下文的次数：`1 → 0`（同一探针里把补丁脚本请求 abort 掉，兜底路径计数 `2`、`_graphRenderToken=1`、画布 96 519 px 有内容 —— 证明计数器灵敏且回退可用）；
+    - 引擎侧不受影响：接管画布（`optimizedGraph=1`）、718 节点、画布 165 792 px 有内容、`#graph` 无 console error；
+    - 一轮交互（切 2D/3D、全选、只看文档、逐个勾选）后内核绘制次数**仍为 0**，引擎继续渲染（544 节点 / 93 926 px）。
+  - `#research-overview` 的迷你图**刻意保留**内核这层绘制：v260922 的 `OverviewGraph` 只在 `/api/graph/overview` 取数成功后才克隆替换画布，取数失败时内核的绘制就是它的兜底（代码注释已写明）。
+  - `web/manifest.json` 的 `app.js` 缓存键 `261009i → 261009j`，`index.html` 随 `web_manifest.py --write` 重建。
+
 ## v261009.11
 
 - **§5.2 附属：文献笔记的「编辑界面」也搬成插件**（SCOPE §2.2 的另一半；工具部分 `v261009.9` 已搬）。
