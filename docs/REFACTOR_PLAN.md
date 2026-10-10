@@ -353,7 +353,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 | A9 前端接缝改契约 | 15 个 `window.ERW*` + 5 个自定义事件 + 6 个 MutationObserver → 统一注册表 + `ctx` 契约 | §6.3 |
 | A10 消除双实现 | 删 canvas 先画后弃 ✅ **图谱页已删**（`graphEngineAvailable()`：引擎在场内核不再白画，补丁缺席自动回退；实测内核绘制次数 1→0，`.scratch/tmp/verify_graph_canvas_ownership.py` 19/19）；`#research-overview` 迷你图那层**刻意保留**（取数失败时是兜底）。**待办**：`window.fetch` 包装改为显式分页 API | P14 |
 | **A11 摘掉悬空工具** ✅ 已执行 | `kb_retrieve` 已从 `mcp/tools_workspace.py` 的 `TOOLS` / `HANDLERS` / 实现中移除（工具数 26 → 25，`--selftest` problems 为空）；**待办**：给自检加「工具实现可导入」探测，否则同类悬空注册仍抓不到（I10） | P23 止血完成 |
-| **A12 RAG 本地数据处置** | 161 MB（`.rag/` 92 MB + `rag.sqlite` 69.2 MB）现在**无用但可复用**（源码在 `feature/rag-v261009`）：① 保留 ② 清理省 161 MB ③ 做插件时原位复用 —— 见 §8-D6 | P24 |
+| **A12 RAG 本地数据处置** | 161 MB（`.rag/` 92 MB + `rag.sqlite` 69.2 MB）现在**无用但可复用**（源码在 `feature/rag-v261009`）：① 保留 ② 清理省 161 MB ③ 做插件时原位复用 —— 见 §8-D6。**接入可行性结论（v261009.16 核实）**：RAG 作为插件**现在做不了**，缺三件内核能力——`ctx.search.addSection`（搜索框注入语义结果）、`ctx.jobs`（索引后台任务与进度）、`process` 类插件的隔离运行（`core/plugins/loader.py` 目前只跑 `inprocess` 的 `register(ctx)`）；这三件都是**内核侧新接缝**，得先实现并写进 PLUGIN_SPEC，才轮得到把 RAG 服务端搬过来。另外还差一个你的决定：那 161 MB 是「保留原位复用 / 清掉重建 / 只留 SQLite 不留向量目录」。在决定之前，我**没动**这些数据 | P24 |
 | **A0 定基线** ✅ 已定（v3.1） | 内核基线 = `feature/slim-workbench-v261009`；RAG 分支的未推送提交已推上 origin；`main` 落后 204 个提交的合并策略仍待定 | P27，基线定了后续动作才有共同前提 |
 | **A13 取回验证工具**（v3 新增） | 从 `feature/rag-v261009` / `feature/ai-assistant-v260930` 取回 `tools/kb_smoke.py`、`tools/shot_page.py`（并评估 `shot_prep.py`、`rag_check.py`），恢复「改动后必跑冒烟」；顺带修 `AGENTS.md` 的引用 | P26/P29，精简的安全网 |
 | **A14 上游对齐**（v3 新增） | 先读 `upstream/feature/custom-knowledge-types`（对应 §8-D2）与两条上游 RAG 分支，再定插件契约的 kind 扩展设计 | P30，避免重复造 |
