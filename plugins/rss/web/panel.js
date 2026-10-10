@@ -138,16 +138,16 @@
       + '<div style="display:flex;gap:8px"><button class="secondary-btn" id="news-settings">资讯源设置</button>'
       + '<button class="primary-btn" id="news-refresh"' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? '抓取中…' : '强制刷新') + '</button></div></div>'
       + stale + failure + statusHtml()
-      + '<div class="news-grid">' + (items.length
+      + (state.showSettings ? settingsHtml(lastCfg) : '')   /* v261009.2 · 设置放在列表**上方**：
+          放在 72 张卡片下面时，点按钮后设置出现在屏幕外，看起来像「点了没反应」 */
+      + '<div class="news-grid">' + (state.loading && !items.length ? '<div class="empty">正在抓取资讯源…</div>' : (items.length
           ? items.map(function (n) {
               return '<article class="card news-card"><div class="news-meta">' + esc(n.source) + ' · ' + esc(n.published || '') + '</div>'
                 + '<h3><a href="' + esc(n.url) + '" target="_blank" rel="noopener">' + esc(n.title) + '</a></h3>'
                 + '<p>' + esc(n.summary || '') + '</p></article>';
             }).join('')
-          : '<div class="empty">' + (state.loading ? '正在抓取资讯源…'
-              : (filter ? '该资讯源暂无条目，点击上方「≡ 全部」查看其他内容。' : '当前没有可显示的资讯。请查看上方源状态与诊断信息。')) + '</div>')
-      + '</div></div>'
-      + (state.showSettings ? settingsHtml(lastCfg) : '');
+          : '<div class="empty">' + (filter ? '该资讯源暂无条目，点击上方「≡ 全部」查看其他内容。' : '当前没有可显示的资讯。请查看上方源状态与诊断信息。') + '</div>'))
+      + '</div></div>';
   }
 
   function paint() {
@@ -167,10 +167,18 @@
     var settings = $('#news-settings');
     if (settings) settings.onclick = function () {
       state.showSettings = !state.showSettings;
-      if (state.showSettings && !lastCfg) loadCfg().then(paint);
-      else paint();
+      if (state.showSettings && !lastCfg) loadCfg().then(function () { paint(); reveal(); });
+      else { paint(); if (state.showSettings) reveal(); }
     };
     if (state.showSettings) wireSettings();
+  }
+
+  /* 展开设置后把它滚到可见处：列表很长时设置在上方也可能在视野外 */
+  function reveal() {
+    var panel = $('#rss-settings-panel');
+    if (panel && panel.scrollIntoView) {
+      try { panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { panel.scrollIntoView(); }
+    }
   }
 
   async function loadCfg() {
@@ -194,9 +202,17 @@
       state.loading = false;
       if (state.route !== 'news') return;
       $('#main').innerHTML = '<div class="card card-pad" data-plugin="rss"><div class="card-head"><div><div class="card-kicker">RSS / INFORMATION</div><h3>资讯</h3></div>'
-        + '<button class="secondary-btn" id="news-refresh">重试</button></div>'
-        + '<div class="rss-alert danger"><strong>资讯接口调用失败</strong><span>' + esc(e.message) + '</span></div></div>';
+        + '<div style="display:flex;gap:8px"><button class="secondary-btn" id="news-settings">资讯源设置</button>'
+        + '<button class="secondary-btn" id="news-refresh">重试</button></div></div>'
+        + '<div class="rss-alert danger"><strong>资讯接口调用失败</strong><span>' + esc(e.message) + '</span></div>'
+        + (state.showSettings ? settingsHtml(lastCfg) : '') + '</div>';
       $('#news-refresh').onclick = function () { load(true); };
+      $('#news-settings').onclick = function () {
+        state.showSettings = !state.showSettings;
+        if (state.showSettings && !lastCfg) loadCfg().then(function () { load(false); });
+        else load(false);
+      };
+      if (state.showSettings) { wireSettings(); reveal(); }
     }
   }
 

@@ -690,6 +690,20 @@ def build_plugin_payload(root, workspace_dir) -> dict:
         if cand.state != "available" or not plugin_registry.effective_enabled(cand, install):
             continue
         nav = []
+        def asset_url(rel: str) -> str:
+            """插件资源 URL，带**缓存键**（文件 mtime）。
+
+            内核自己的 JS/CSS 由装配清单的 `v` 参数充当缓存键（`app.js?v=…`）；插件资源此前
+            没有，浏览器可能一直用旧的面板脚本——改了插件前端、刷新却还是旧行为。这里按文件
+            mtime 拼 `?v=`：文件一变键就变，浏览器必然重新取。
+            """
+            target = Path(cand.dir) / rel
+            try:
+                stamp = int(target.stat().st_mtime)
+            except OSError:
+                stamp = 0
+            return f"/plugins-file/{pid}/{rel}?v={stamp}"
+
         for item in (cand.manifest or {}).get("nav") or []:
             if not isinstance(item, dict) or not item.get("mount"):
                 continue
@@ -697,10 +711,10 @@ def build_plugin_payload(root, workspace_dir) -> dict:
                 "id": str(item.get("id") or pid),
                 "label": str(item.get("label") or pid),
                 "icon": str(item.get("icon") or ""),
-                "url": f"/plugins-file/{pid}/{str(item['mount']).lstrip('/')}",
+                "url": asset_url(str(item["mount"]).lstrip("/")),
             }
             if item.get("style"):  # 插件自带样式（须按 §2 以 [data-plugin="<id>"] 作用域）
-                entry["style_url"] = f"/plugins-file/{pid}/{str(item['style']).lstrip('/')}"
+                entry["style_url"] = asset_url(str(item["style"]).lstrip("/"))
             nav.append(entry)
         out.append({"id": pid, "version": cand.version, "source": cand.source,
                     "distribution": (cand.manifest or {}).get("distribution") or "",
