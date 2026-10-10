@@ -21,6 +21,13 @@ plugins/__ID__/
 
 ## 改四步就能变成你的插件
 
+0. **（建议）给插件加一张演示预览**：`plugin.json` 里的 `preview` 已经写好骨架——
+   改 `summary`（一句话讲清解决什么问题）、`features`（能做什么），再把一张截图放进
+   `web/preview.png`（元素级截图：只截这个插件自己的界面区域，1x、宽 ≤760、高 ≤700），
+   然后在 `preview.screens` 里写上 `["web/preview.png"]`。
+   之后用户只要在「设置 → 插件」里**把鼠标移到你这个插件上**，就能看到摘要 + 功能点 + 截图，
+   不用读文档。规范见 [PLUGIN_SPEC §3](../docs/PLUGIN_SPEC.md)。
+
 1. **改 `plugin.json`**：`id`（= 目录名，小写字母/数字/短横线）与 `name`（界面显示名）、`description`；
    不需要的扩展点（`nav` / `panel` / `routes` / `mcp_tools`）删掉即可，删干净不会报错。
 2. **改 `backend.py` 的 `register(ctx)`**：留下你要的路由与工具。写工具在 `spec` 里加 `"write": True`，

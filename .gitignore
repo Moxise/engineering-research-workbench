@@ -61,6 +61,8 @@
 !plugins/**/*.html
 !plugins/**/*.json
 !plugins/**/*.md
+# 插件设置页的「演示预览」截图（manifest 的 preview.screens 引用），随插件一起进版本库
+!plugins/**/web/preview*.png
 plugins/**/data/
 plugins/**/.cache/
 

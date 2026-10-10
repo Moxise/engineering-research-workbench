@@ -808,8 +808,7 @@ def build_plugin_payload(root, workspace_dir, detail: bool = False) -> dict:
                     routes.append(f"{str(route.get('method') or 'GET').upper()} {route['path']}")
             tools = [str(t) for t in (manifest.get("mcp_tools") or [])]
             has_config = any(str(r).endswith(" config") for r in routes)
-            row.update({
-                "name": str(manifest.get("name") or pid),
+            row.update({                "name": str(manifest.get("name") or pid),
                 "description": str(manifest.get("description") or ""),
                 "kind": str(manifest.get("kind") or ""),
                 "core_min": str(manifest.get("core_min") or ""),
@@ -824,6 +823,10 @@ def build_plugin_payload(root, workspace_dir, detail: bool = False) -> dict:
                 "config_url": f"/api/plugins/{pid}/config" if has_config else "",
                 "nav_labels": [n["label"] for n in nav],
                 "slot_only": bool(nav) and all(n.get("slot") for n in nav),
+                # v261009.27 · 插件自己在 plugin.json 里声明的「演示预览」：内核只负责呈现，不认识具体插件
+                # （摘要 / 功能点 / 哪里能找到它 / 截图；截图 URL 带缓存键，图片改了必然重新取）
+                # 只在**真有内容**时下发：空对象在 JS 里是真值，会把"没声明预览"的插件也画出一行
+                "preview": _plugin_preview(manifest, asset_url) or None,
                 "dir": str(cand.dir),
                 "blocked_by": list((summary.get("blocked") or {}).get(pid) or []),
                 "reason": str(cand.reason or ""),
@@ -834,6 +837,34 @@ def build_plugin_payload(root, workspace_dir, detail: bool = False) -> dict:
             })
         out.append(row)
     return {"plugins": out, "notes": notes, "core_version": core_version, "install": install_rows}
+
+
+def _plugin_preview(manifest: dict, asset_url) -> dict:
+    """把 manifest 里的 `preview` 整理成前端可渲染的形状（只做形状校验，坏数据不抛异常）。
+
+    约定（PLUGIN_SPEC §3）：`preview = {summary, features[], where, screens[]}`——
+    **由插件自己声明**，内核不知道任何具体插件；缺了就是没有预览，列表照常可用。
+    """
+    raw = manifest.get("preview")
+    if not isinstance(raw, dict):
+        return {}
+    # 形状不对就当没有：**不要把字符串当数组迭代**（"不是数组" 会变成 ['不','是','数','组']）
+    raw_features = raw.get("features")
+    features = ([str(f).strip() for f in raw_features if str(f).strip()]
+                if isinstance(raw_features, list) else [])
+    raw_screens = raw.get("screens")
+    screens = []
+    for shot in (raw_screens if isinstance(raw_screens, list) else []):
+        rel = str(shot or "").strip().lstrip("/")
+        if rel and ".." not in rel.split("/"):
+            screens.append({"rel": rel, "url": asset_url(rel)})
+    out = {
+        "summary": str(raw.get("summary") or "").strip(),
+        "features": features[:8],
+        "where": str(raw.get("where") or "").strip(),
+        "screens": screens[:4],
+    }
+    return out if (out["summary"] or out["features"] or out["screens"]) else {}
 
 
 def build_server(port_override: int | None = None, auto_open_browser: bool | None = None):

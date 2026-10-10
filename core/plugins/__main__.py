@@ -107,6 +107,15 @@ def cmd_check(report: dict, pid: str) -> int:
         print(f"  路由（内核会挂到 /api/plugins/{row['id']}/ 下）：{row['routes']}")
     if row["mcp_tools"]:
         print("  MCP 工具（对外名加前缀）：" + ", ".join(f"p_{row['id']}__{t}" for t in row["mcp_tools"]))
+    pv = row.get("preview") or {}
+    if pv:
+        print("  演示预览（设置页悬停/点击卡片时显示）：")
+        if pv.get("summary"):
+            print(f"    摘要：{pv['summary']}")
+        for f in pv.get("features") or []:
+            print(f"    · {f}")
+        shots = pv.get("screens") or []
+        print("    截图：" + ("、".join(shots) if shots else "（未提供）"))
     if row["issues"]:
         print("  校验项：")
         for i in row["issues"]:

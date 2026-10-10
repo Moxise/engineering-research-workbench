@@ -108,7 +108,15 @@
       + '<span class="pm-row-sub">' + esc(providesText) + '</span>'
       + '<span class="pm-row-action">' + (open ? '▾ 收起详情' : '▸ 详情') + '</span></button>'
       + '<div class="pm-detail"' + (open ? '' : ' hidden') + '>' + detailRows + '</div>'
-      + '<div class="pm-config" data-plugin-config="' + esc(plugin.id) + '"></div></section>';
+      + '<div class="pm-config" data-plugin-config="' + esc(plugin.id) + '"></div>'
+      + (hasDetail && hasPreview(plugin)
+          ? '<button class="pm-row pm-row-preview" type="button" data-plugin-preview="' + esc(plugin.id) + '"'
+            + ' title="悬停即看演示预览；点击可固定">'
+            + '<span class="pm-row-label">预览</span>'
+            + '<span class="pm-row-main">' + esc(plugin.preview.summary || '看它能做什么').slice(0, 46) + '</span>'
+            + '<span class="pm-row-action">悬停 / 点击</span></button>'
+          : '')
+      + '</section>';
   }
 
   function render(root) {
@@ -168,6 +176,133 @@
     $$('[data-plugin-config]', root).forEach(function (host) {
       paintConfig(host);
     });
+    wirePreview(root);
+  }
+
+  /* ---------- 演示预览浮层（v261009.27） ----------
+     预览内容**由插件自己在 plugin.json 的 preview 里声明**（摘要 / 功能点 / 在哪里找到它 / 截图），
+     内核只负责呈现——所以内核仍然不认识任何具体插件，没声明 preview 的插件这一行就不出现。
+
+     交互：鼠标移到插件卡片或「预览」行上就浮出；点击「预览」行**固定**（再点或按 Esc / 点别处解除）；
+     浮层贴卡片右侧（放不下就贴下方），滚动时收起，避免遮挡与错位。 */
+  var PREVIEW = { id: '', pinned: false, el: null, anchor: null, hideTimer: 0 };
+
+  /* 有内容才算「有预览」：后端可能下发空对象（`{}` 在 JS 里是真值），不能只看字段存在 */
+  function hasPreview(plugin) {
+    var pv = (plugin && plugin.preview) || null;
+    if (!pv) return false;
+    return !!(pv.summary || (pv.features || []).length || (pv.screens || []).length);
+  }
+
+  function previewHtml(plugin) {
+    var pv = plugin.preview || {};
+    var shots = (pv.screens || []).map(function (s) {
+      return '<a class="pm-shot" href="' + esc(s.url) + '" target="_blank" rel="noopener"'
+        + ' title="点击在新标签打开原图">'
+        + '<img src="' + esc(s.url) + '" alt="' + esc(plugin.name || plugin.id) + ' 预览截图" loading="lazy">'
+        + '</a>';
+    }).join('');
+    var features = (pv.features || []).length
+      ? '<ul class="pm-pv-feats">' + pv.features.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>'
+      : '';
+    return '<div class="pm-pv-head"><b>' + esc(plugin.name || plugin.id) + '</b>'
+      + badge(plugin.state) + '<code>v' + esc(plugin.version || '-') + '</code>'
+      + '<span class="pm-pv-close" data-pv-close="1" title="关闭（Esc）">×</span></div>'
+      + (pv.summary ? '<div class="pm-pv-sum">' + esc(pv.summary) + '</div>' : '')
+      + (pv.where ? '<div class="pm-pv-where">在哪找：' + esc(pv.where) + '</div>' : '')
+      + features
+      + (shots ? '<div class="pm-pv-shots">' + shots + '</div>'
+              : '<div class="pm-pv-noshot">（插件没提供截图；下面就是它的能力清单）</div>')
+      + '<div class="pm-pv-foot">'
+      + (plugin.enabled ? '<span class="ok">已启用</span>' : '<span class="warn">未启用</span>——启用后才能看到它的页面/面板')
+      + (plugin.mcp_tools && plugin.mcp_tools.length
+          ? '　工具：' + plugin.mcp_tools.map(function (t) { return '<code>p_' + esc(plugin.id) + '__' + esc(t) + '</code>'; }).join(' ')
+          : '')
+      + '</div>';
+  }
+
+  function hidePreview() {
+    PREVIEW.id = '';
+    PREVIEW.pinned = false;
+    PREVIEW.anchor = null;
+    if (PREVIEW.el) { PREVIEW.el.remove(); PREVIEW.el = null; }
+  }
+
+  /** 把浮层贴到卡片右侧（放不下就贴左侧、再不行贴下方），并保证不越出视口。 */
+  function positionPreview(box, anchor) {
+    var rect = anchor.getBoundingClientRect();
+    var w = box.offsetWidth || 380;
+    var h = box.offsetHeight || 300;
+    var left = rect.right + 12;
+    if (left + w > window.innerWidth - 8) left = Math.max(8, rect.left - w - 12);
+    if (left < 8) left = 8;
+    var top = Math.min(Math.max(8, rect.top), Math.max(8, window.innerHeight - h - 8));
+    box.style.left = left + 'px';
+    box.style.top = top + 'px';
+  }
+
+  /* 滚动时**跟随卡片**而不是直接收起：page.hover()/scrollIntoView 这类程序化滚动
+     会先滚动再触发 mouseenter——之前「一滚就收」会让浮层刚建出来就被自己收掉（实测踩到）。 */
+  function onPreviewScroll() {
+    if (!PREVIEW.el || !PREVIEW.anchor) return;
+    var rect = PREVIEW.anchor.getBoundingClientRect();
+    if (!PREVIEW.anchor.isConnected || rect.bottom < 0 || rect.top > window.innerHeight) {
+      hidePreview();
+      return;
+    }
+    positionPreview(PREVIEW.el, PREVIEW.anchor);
+  }
+
+  function showPreview(id, anchor, pinned) {
+    var plugin = PLUGINS[id];
+    if (!hasPreview(plugin)) return;
+    if (PREVIEW.id === id && PREVIEW.pinned && !pinned) return;   // 已固定：悬停不要抢
+    if (PREVIEW.el) PREVIEW.el.remove();
+    var box = document.createElement('div');
+    box.className = 'pm-preview';
+    box.innerHTML = previewHtml(plugin);
+    document.body.appendChild(box);
+    PREVIEW.id = id;
+    PREVIEW.pinned = !!pinned || PREVIEW.pinned;
+    PREVIEW.el = box;
+    PREVIEW.anchor = anchor;
+    box.style.width = Math.min(430, Math.max(300, window.innerWidth - 40)) + 'px';
+    positionPreview(box, anchor);
+    positionPreview(box, anchor);        // 第二遍：拿到真实高度后再夹一次，避免越出视口底部
+    box.onmouseenter = function () { clearTimeout(PREVIEW.hideTimer); };
+    box.onmouseleave = function () { if (!PREVIEW.pinned) PREVIEW.hideTimer = setTimeout(hidePreview, 160); };
+    box.querySelector('[data-pv-close]').onclick = hidePreview;
+  }
+
+  function wirePreview(root) {
+    window.removeEventListener('scroll', onPreviewScroll, true);
+    document.removeEventListener('keydown', onPreviewKey);
+    document.removeEventListener('click', onPreviewOutside, true);
+    $$('[data-plugin-preview]', root).forEach(function (btn) {
+      var id = btn.dataset.pluginPreview;
+      var card = btn.closest('.pm-card') || btn;
+      var enter = function () { clearTimeout(PREVIEW.hideTimer); if (!PREVIEW.pinned) showPreview(id, card, false); };
+      var leave = function () { if (!PREVIEW.pinned) PREVIEW.hideTimer = setTimeout(hidePreview, 220); };
+      card.addEventListener('mouseenter', enter);
+      card.addEventListener('mouseleave', leave);
+      btn.addEventListener('focus', enter);
+      btn.onclick = function (event) {
+        event.stopPropagation();
+        if (PREVIEW.pinned && PREVIEW.id === id) { hidePreview(); return; }
+        showPreview(id, card, true);
+      };
+    });
+    window.addEventListener('scroll', onPreviewScroll, true);
+    document.addEventListener('keydown', onPreviewKey);
+    document.addEventListener('click', onPreviewOutside, true);
+  }
+
+  function onPreviewKey(event) { if (event.key === 'Escape') hidePreview(); }
+
+  function onPreviewOutside(event) {
+    if (!PREVIEW.el) return;
+    if (PREVIEW.el.contains(event.target) || (event.target.closest && event.target.closest('[data-plugin-preview]'))) return;
+    hidePreview();
   }
 
   /* ---------- 配置区：默认**收成一行**，要改再展开（v261009.6） ----------
@@ -272,8 +407,7 @@
 
   /* 单文件包安装结果（内核 §2 解包规则）：结构化下发，前端只负责呈现。
      拒收与冲突必须显示出来——「丢个 zip 进来毫无反应」比报错更难查。 */
-  function installHtml(items) {
-    if (!items || !items.length) return '';
+  function installHtml(items) {    if (!items || !items.length) return '';
     var rows = items.map(function (it) {
       var bad = it.action === 'rejected' || it.action === 'conflict';
       var good = it.action === 'unpacked' || it.action === 'upgraded';

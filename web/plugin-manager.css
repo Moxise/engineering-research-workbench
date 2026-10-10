@@ -66,3 +66,27 @@ button.pm-row:hover{border-color:var(--accent)}
 .pm-notes li.good{border-left-color:var(--ok)}
 .pm-notes li.bad{border-left-color:var(--danger)}
 .pm-notes li.flat{border-left-color:var(--line)}
+
+/* ---- 演示预览（v261009.27）：内容由插件 manifest 的 preview 声明，这里只负责呈现 ---- */
+.pm-row-preview{margin-top:6px}
+.pm-row-preview:hover .pm-row-action{color:var(--accent)}
+.pm-preview{
+  position:fixed;z-index:60;max-height:min(78vh,720px);overflow:auto;
+  border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+  background:var(--surface);box-shadow:var(--shadow);display:grid;gap:9px;
+}
+.pm-preview .pm-pv-head{display:flex;align-items:center;gap:8px;font-size:13px}
+.pm-preview .pm-pv-head code{font:10px/1.6 Consolas,monospace;color:var(--muted)}
+.pm-preview .pm-pv-close{margin-left:auto;cursor:pointer;color:var(--muted);font-size:15px;line-height:1;padding:0 3px}
+.pm-preview .pm-pv-close:hover{color:var(--danger)}
+.pm-preview .pm-pv-sum{font-size:12px;line-height:1.75}
+.pm-preview .pm-pv-where{font-size:11px;color:var(--accent)}
+.pm-preview .pm-pv-feats{margin:0;padding-left:18px;font-size:11.5px;line-height:1.85}
+.pm-preview .pm-pv-shots{display:grid;gap:8px}
+.pm-preview .pm-shot{display:block;border:1px solid var(--line);border-radius:8px;overflow:hidden;line-height:0}
+.pm-preview .pm-shot img{width:100%;height:auto;display:block}
+.pm-preview .pm-pv-noshot{font-size:10.5px;color:var(--muted)}
+.pm-preview .pm-pv-foot{font-size:10.5px;color:var(--muted);line-height:1.8;border-top:1px solid var(--line);padding-top:7px}
+.pm-preview .pm-pv-foot .ok{color:var(--ok)}
+.pm-preview .pm-pv-foot .warn{color:var(--warning)}
+.pm-preview .pm-pv-foot code{font:10px/1.5 Consolas,monospace;background:color-mix(in srgb,var(--line) 35%,transparent);padding:1px 5px;border-radius:5px;margin-right:3px}

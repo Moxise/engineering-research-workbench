@@ -9,13 +9,45 @@
   "distribution": "bundled",
   "default_enabled": true,
   "entry": "backend.py",
-  "permissions": ["net:http", "storage:own", "config:own", "ui:panel"],
+  "permissions": [
+    "net:http",
+    "storage:own",
+    "config:own",
+    "ui:panel"
+  ],
   "nav": [
-    { "id": "news", "label": "资讯", "icon": "◎", "mount": "web/panel.js", "style": "web/panel.css" }
+    {
+      "id": "news",
+      "label": "资讯",
+      "icon": "◎",
+      "mount": "web/panel.js",
+      "style": "web/panel.css"
+    }
   ],
   "routes": [
-    { "method": "GET", "path": "feed" },
-    { "method": "GET", "path": "config" },
-    { "method": "POST", "path": "config" }
-  ]
+    {
+      "method": "GET",
+      "path": "feed"
+    },
+    {
+      "method": "GET",
+      "path": "config"
+    },
+    {
+      "method": "POST",
+      "path": "config"
+    }
+  ],
+  "preview": {
+    "summary": "订阅 RSS/Atom 源，在侧栏「资讯」页聚合阅读",
+    "features": [
+      "多源订阅，按时间聚合展示",
+      "抓取失败与离线降级如实显示原因",
+      "源列表与条数上限存在插件自己的配置里"
+    ],
+    "where": "侧栏 → 资讯",
+    "screens": [
+      "web/preview.png"
+    ]
+  }
 }

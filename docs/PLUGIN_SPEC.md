@@ -126,6 +126,24 @@ plugins/weather/
 | `nav` / `routes` / `mcp_tools` / `settings_schema` / `jobs` / `events` | — | 扩展点声明（注册方式与命名空间见 REFACTOR_PLAN §6.3）。`jobs` 是**声明式清单**（`[{"id":"auto","interval_min":1440}]`，给人看/给设置页显示），真正生效的是 `register(ctx)` 里的 `ctx.jobs.add(...)`；两者不一致只在加载时提示，不拒载 |
 | `nav[].slot` | — | **槽位面板**：声明 `slot` 后该面板**不进导航**，而是画进内核提供的槽位容器（容器带 `data-plugin="<id>"`，样式按 §2 作用域）；入口脚本用 `ERWPanels.register({id, slot, renderSlot(container)})` 自登记。**当前两个槽位**：`topbar`（顶栏一行）与 `overlay`（页面浮层，悬浮球这类"始终挂在页面上"的 UI 用它；**不要**直接往 `document.body` 塞 DOM）。已知槽位在 `core/plugins/manifest.KNOWN_SLOTS` 声明，未知槽位会被拒载（`P019`） |
 | `storage` | — | 自有派生数据路径，**只允许** `System/Cache/<id>.sqlite` 这一类 |
+| `preview` | — | **演示预览**（v261009.27）：`{summary, features[], where, screens[]}`。设置页悬停/点击插件卡片时显示，让用户不看文档就知道这个插件干什么。**由插件自己声明**——内核只负责呈现，不认识任何具体插件；没声明这一行就不出现（形状不对只给 `P022` 警告，不拒载）。`screens` 是插件目录内的相对路径（约定放 `plugins/<id>/web/preview.png`），内核会带缓存键下发，图片改了浏览器必然重新取 |
+
+**演示预览怎么写**（可选，但强烈建议随插件一起给）：
+
+```json
+"preview": {
+  "summary": "一句话：这个插件解决什么问题（不超过 ~40 字最好读）",
+  "features": ["功能点 1（能做什么，而不是内部怎么实现）", "功能点 2"],
+  "where": "在哪里能找到它，如「侧栏 → 指标表」或「顶栏角标」",
+  "screens": ["web/preview.png"]
+}
+```
+
+- 截图**建议用元素级截图**（只截插件自己的界面区域）：1x、宽 ≤760px、高 ≤700px，PNG；
+  放在 `plugins/<id>/web/preview.png`（`.gitignore` 已为 `plugins/**/web/preview*.png` 放行）；
+- 截图是**给它自己看的证明**：设置页里点开就能确认这个插件长什么样，而不是只读一行描述；
+- 没截图也能写 `preview`（只显示摘要与功能点），此时面板会注明"插件没提供截图"。
+
 
 ---
 

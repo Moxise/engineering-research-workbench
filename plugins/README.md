@@ -36,6 +36,10 @@ python tools/new_plugin.py my-tool --name "我的工具" --desc "一句话说明
 
 > `.template/` 以点开头，**不会被当成插件**（`discover` 与两个前端体检工具都跳过点目录）。
 
+**演示预览**：每个插件的 `plugin.json` 可以声明 `preview`（摘要 / 功能点 / 在哪里找到它 / 截图），
+在「设置 → 插件」里**鼠标移到插件卡片上**就能看到——不看文档也知道这个插件干什么。
+规范见 [PLUGIN_SPEC §3](../docs/PLUGIN_SPEC.md)。
+
 ## 现有插件（11 个）
 
 | 插件 | 提供什么 | 默认 |

@@ -14,5 +14,18 @@
   "panel": {
     "mount": "web/panel.js",
     "style": "web/panel.css"
+  },
+  "preview": {
+    "summary": "知识图谱页与总览迷你图：力导向布局、筛选、节点预览、导出",
+    "features": [
+      "图谱页整页由本插件渲染（内核不再自带渲染；停用后图谱页只显示启用提示）",
+      "力导向布局，按类别/关系/标记筛选，搜索定位节点",
+      "点节点看预览、跳转条目、从节点导出知识包",
+      "总览页的迷你图（overview.enhance）"
+    ],
+    "where": "侧栏 → 知识图谱；总览页的迷你图",
+    "screens": [
+      "web/preview.png"
+    ]
   }
 }

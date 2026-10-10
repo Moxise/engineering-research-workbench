@@ -1,5 +1,40 @@
 # Changelog
 
+## v261009.27
+
+**插件设置页的「演示预览」**：鼠标移到插件卡片（或点击「预览」行）即可看到这个插件的**摘要 + 功能点 + 界面截图**，不用读文档。
+
+### 内核侧（只负责呈现，仍然不认识任何具体插件）
+- `plugin.json` 新增可选字段 **`preview`**：`{summary, features[], where, screens[]}`（PLUGIN_SPEC §3）。
+  校验为 `P022`**警告**级（形状不对只提示、不拒载）；截图路径必须是插件目录内的相对路径且文件存在，否则给警告。
+- `/api/plugins?detail=1` 下发 `preview`（截图 URL 走既有 `asset_url`，**带文件 mtime 缓存键**——换了截图浏览器必然重新取）；
+  仅在真有内容时下发：空对象在 JS 里是真值，会把"没声明预览"的插件也画出一行（实测踩到并修）。
+- 设置页 UI：卡片多一行「预览」；**悬停浮出**、**点击固定**、再点/Esc/点浮层外收起；
+  浮层贴卡片右侧（放不下转左侧，并夹在视口内），**滚动时跟随卡片**（移出视野才收起）——
+  一开始写成"一滚就收"，结果 `hover` 先把卡片滚进视野、浮层刚建出来就被自己收掉（夹具抓到的真 bug）。
+- CLI `python -m core.plugins check <id>` 也打印预览摘要与功能点，作者能自查。
+- **未启用的插件同样能预览**（这正是最需要预览的时候），浮层里明确标注"未启用"。
+- 顺手修 `tools/web_check.py`：把 `mouseenter`/`mouseleave` 等标准 UI 事件加入白名单——
+  此前它把标准事件误报成「没人派发的自定义事件」。
+
+### 插件侧：11 个插件都补了预览
+每个 `plugin.json` 写清 `summary`（一句话讲清解决什么问题）、`features`（能做什么，3–6 条）、
+`where`（在哪找），并用 **Playwright 元素级截图**生成 `web/preview.png`：只截该插件自己的界面区域，
+1x、宽 ≤760px、高 ≤700px（超高取顶部），元素级截图后按像素统计确认不是空白页。11 张共约 1.3 MB。
+- `.gitignore` 放行 `plugins/**/web/preview*.png`（否则截图进不了版本库，别人装了就看不到预览）。
+- 两个特例的处理：**槽位类插件**（顶栏天气）只截元素会得到一条 32px 细条，改为截它所在的顶部区域；
+  **浮层类插件**（悬浮球）先点开球再截它的面板；**接管型插件**（图谱、阅读区）分别截图谱页与阅读区。
+
+### 验收
+- 新增 `.scratch/tmp/verify_plugin_preview.py` **19/19**：11 个插件都下发 `preview`、11 张截图 HTTP 200；
+  真浏览器里悬停出浮层（含插件名/摘要/功能点/**图片真实解码** naturalWidth>0/"在哪找"）、
+  移开消失、点击固定、Esc 收起、**未启用插件也能预览并提示未启用**、
+  **删掉 preview 的对照组不出现预览行**、全程 0 console error、`plugins.json` 未被改动。
+- 回归：`verify_plugin_tools`、`verify_metrics_table` 63/63、`verify_plugin_template` 49/49、
+  `verify_report_export`、`verify_backup_snapshot` 52/52、`verify_calendar` 32/32、
+  `verify_zip_unpack` 58/58、`verify_zip_install_http` 27/27、`verify_plugin_manager`；
+  `web_check`、`plugin_check --assert-core-only`、`ui_smoke`、`kb_smoke`、`doctor`、`mcp.server --selftest` 全绿。
+
 ## v261009.26
 
 **指标表重做：直接读你现有的正文表格**（上一版要求先改写正文，所以打开是空表——你说「没看出作用」是对的）。

@@ -8,13 +8,45 @@
   "kind": "inprocess",
   "distribution": "bundled",
   "default_enabled": true,
-  "permissions": ["ui:panel", "storage:own"],
+  "permissions": [
+    "ui:panel",
+    "storage:own"
+  ],
   "entry": "backend.py",
-  "panel": { "mount": "web/panel.js", "style": "web/panel.css" },
-  "mcp_tools": ["context", "note_write"],
+  "panel": {
+    "mount": "web/panel.js",
+    "style": "web/panel.css"
+  },
+  "mcp_tools": [
+    "context",
+    "note_write"
+  ],
   "routes": [
-    { "method": "GET", "path": "note" },
-    { "method": "POST", "path": "note" },
-    { "method": "POST", "path": "note-image" }
-  ]
+    {
+      "method": "GET",
+      "path": "note"
+    },
+    {
+      "method": "POST",
+      "path": "note"
+    },
+    {
+      "method": "POST",
+      "path": "note-image"
+    }
+  ],
+  "preview": {
+    "summary": "在条目页直接读 PDF、划选批注、写文献笔记，并在阅读区里用 AI 整理",
+    "features": [
+      "点文献条目的 PDF 徽章即进入阅读工作区（阅读区由本插件接管；停用后该入口消失）",
+      "划选/框选批注：批注随附件数据保存，可在列表回看",
+      "「笔记」tab：与知识库同一份正文，支持粘贴图片",
+      "阅读区 AI：选中内容做翻译/总结/提问，多模态截图问图（用内核的 LLM 设置）",
+      "两个 Agent 工具：读当前文献上下文、写文献笔记（写操作走内核草稿确认）"
+    ],
+    "where": "文献列表 → 点条目/PDF 徽章；批注与笔记在阅读区内",
+    "screens": [
+      "web/preview.png"
+    ]
+  }
 }

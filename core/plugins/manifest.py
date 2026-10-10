@@ -351,6 +351,37 @@ def validate(
                                                  f"任务 `{jid}` 的 interval_min 必须 > 0（收到 {item.get('interval_min')!r}）",
                                                  "最小 1 分钟"))
 
+    # P022 · preview：插件设置页的「演示预览」（可选；只做形状校验，缺图给 warn 不拒载）
+    preview = manifest.get("preview")
+    if preview is not None:
+        if not isinstance(preview, dict):
+            issues.append(_issue("P022", "warn", "preview 必须是对象",
+                                 '如 `{"summary":"一句话","features":["能做A","能做B"],"screens":["web/preview.png"]}`'))
+        else:
+            if "summary" in preview and not isinstance(preview.get("summary"), str):
+                issues.append(_issue("P022", "warn", "preview.summary 必须是字符串", "一两句话说明这个插件解决什么问题"))
+            features = preview.get("features")
+            if features is not None and not isinstance(features, list):
+                issues.append(_issue("P022", "warn", "preview.features 必须是数组", '如 `["功能点 1","功能点 2"]`'))
+            elif isinstance(features, list):
+                bad = [f for f in features if not isinstance(f, str)]
+                if bad:
+                    issues.append(_issue("P022", "warn", "preview.features 每项必须是字符串", str(bad[:3])))
+            where = preview.get("where")
+            if where is not None and not isinstance(where, str):
+                issues.append(_issue("P022", "warn", "preview.where 必须是字符串", "写清在哪里能找到它，如「侧栏 → 指标表」"))
+            screens = preview.get("screens")
+            if screens is not None and not isinstance(screens, list):
+                issues.append(_issue("P022", "warn", "preview.screens 必须是数组", '如 `["web/preview.png"]`'))
+            elif isinstance(screens, list):
+                for shot in screens:
+                    rel = str(shot or "").strip()
+                    if not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
+                        issues.append(_issue("P022", "warn", f"preview.screens `{shot}` 必须是插件目录内的相对路径", ""))
+                    elif plugin_dir is not None and not (Path(plugin_dir) / rel).is_file():
+                        issues.append(_issue("P022", "warn", f"preview.screens 指向的图片不存在：{rel}",
+                                             "把截图放进插件目录（如 web/preview.png）"))
+
     return issues
 
 

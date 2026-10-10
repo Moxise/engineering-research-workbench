@@ -63,6 +63,11 @@ class PluginCandidate:
             "permissions": list((self.manifest or {}).get("permissions") or []),
             "requires": [d.get("id") if isinstance(d, dict) else d
                          for d in ((self.manifest or {}).get("requires") or {}).get("plugins", [])],
+            # 演示预览（可选，插件自己声明；内核只呈现）：CLI 里一并显示，便于作者核对
+            "preview": ({"summary": str(pv.get("summary") or ""),
+                         "features": [str(f) for f in (pv.get("features") or []) if isinstance(f, str)],
+                         "screens": [str(s) for s in (pv.get("screens") or []) if isinstance(s, str)]}
+                        if isinstance(pv := (self.manifest or {}).get("preview"), dict) else {}),
         }
 
 

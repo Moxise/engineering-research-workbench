@@ -41,6 +41,10 @@ BROWSER_EVENTS = {
     "mouseup", "wheel", "focus", "blur", "submit", "animationend", "transitionend",
     "abort", "error", "readystatechange", "visibilitychange", "contextmenu", "pointerenter",
     "pointerleave", "touchstart", "touchmove", "touchend", "online", "offline", "storage",
+    # v261009.27 · 补上鼠标进出与其余标准 UI 事件：它们不需要"派发方"，
+    # 缺了会让 web_check 把标准事件误报成「没人派发的自定义事件」（实测 mouseenter/mouseleave 踩到）
+    "mouseenter", "mouseleave", "mouseover", "mouseout", "dblclick", "select", "reset",
+    "focusin", "focusout", "invalid", "play", "pause", "ended", "canplay", "timeupdate",
 }
 
 #: 派发自定义事件：`new CustomEvent("x")` 与 `new Event("x")` 两种写法都要认

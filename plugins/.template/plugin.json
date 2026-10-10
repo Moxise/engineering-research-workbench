@@ -25,5 +25,14 @@
     { "method": "GET", "path": "config" },
     { "method": "POST", "path": "config" }
   ],
-  "mcp_tools": ["ping"]
+  "mcp_tools": ["ping"],
+
+  "preview": {
+    "summary": "一句话说明这个插件解决什么问题",
+    "features": [
+      "功能点 1（能做什么，而不是内部怎么实现）",
+      "功能点 2"
+    ],
+    "where": "在哪里能找到它，如「侧栏 → __NAME__」"
+  }
 }
