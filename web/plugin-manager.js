@@ -57,9 +57,10 @@
   }
 
   function cardHtml(plugin) {
+    var hasDetail = plugin.state !== undefined;   /* 旧后端只返回精简清单（无 state/enabled/…） */
     var perms = (plugin.permissions || []).map(function (p) {
       return '<span class="pm-perm" title="' + esc(p.label) + '">' + esc(p.id) + '</span>';
-    }).join('') || '<span class="muted">未声明</span>';
+    }).join('');
     var panels = (plugin.nav || []).map(function (n) {
       var where = n.slot ? ('槽位 ' + esc(n.slot)) : '导航页';
       return '<span class="pm-panel">' + esc(n.label) + ' <small>' + where + '</small></span>';
@@ -68,20 +69,26 @@
       + '<div class="card-head"><div><div class="card-kicker">' + esc(plugin.kind || 'plugin') + '</div>'
       + '<h3>' + esc(plugin.name || plugin.id) + ' <small class="muted">' + esc(plugin.id) + '</small></h3>'
       + (plugin.description ? '<div class="row-meta">' + esc(plugin.description) + '</div>' : '') + '</div>'
-      + '<div class="pm-actions">' + badge(plugin.state)
-      + '<label class="pm-switch"><input type="checkbox" data-plugin-toggle="' + esc(plugin.id) + '"' + (plugin.enabled ? ' checked' : '') + '> 启用</label></div></div>'
-      + (plugin.state !== 'available' && plugin.reason
+      + '<div class="pm-actions">'
+      + (hasDetail ? badge(plugin.state) : '<span class="badge">未知</span>')
+      + '<label class="pm-switch"' + (hasDetail ? '' : ' title="当前后端不支持启停接口：请重启工作台"') + '>'
+      + '<input type="checkbox" data-plugin-toggle="' + esc(plugin.id) + '"'
+      + (hasDetail ? (plugin.enabled ? ' checked' : '') : ' disabled') + '> 启用</label></div></div>'
+      + (hasDetail && plugin.state !== 'available' && plugin.reason
           ? '<div class="pm-alert"><strong>不可用</strong><span>' + esc(plugin.reason) + (plugin.fix ? '　建议：' + esc(plugin.fix) : '') + '</span></div>' : '')
       + '<div class="pm-meta">'
       + metaRow('版本', '<code>' + esc(plugin.version || '-') + '</code>　来源 <code>' + esc(plugin.source || '-') + '</code>'
           + (plugin.distribution ? '　分发 <code>' + esc(plugin.distribution) + '</code>' : '')
           + (plugin.core_min ? '　要求内核 <code>' + esc(plugin.core_min) + '</code>' : ''))
-      + metaRow('权限', perms)
-      + metaRow('路由', (plugin.routes || []).map(function (r) { return '<code>' + esc(r) + '</code>'; }).join(' ') || '<span class="muted">无后端接口</span>')
+      + (hasDetail
+          ? metaRow('权限', perms || '<span class="muted">未声明</span>')
+            + metaRow('路由', (plugin.routes || []).map(function (r) { return '<code>' + esc(r) + '</code>'; }).join(' ') || '<span class="muted">无后端接口</span>')
+            + metaRow('工具', (plugin.mcp_tools || []).map(function (t) { return '<code>p_' + esc(plugin.id) + '__' + esc(t) + '</code>'; }).join(' ') || '<span class="muted">未注册工具</span>')
+            + metaRow('依赖', (plugin.dependencies || []).map(function (d) { return '<code>' + esc(d) + '</code>'; }).join(' ') || '<span class="muted">无</span>')
+            + metaRow('目录', '<code class="pm-path">' + esc(plugin.dir || '') + '</code>')
+          : '<div class="field-help">当前后端只下发了精简清单（' + esc(Object.keys(plugin).join(' / '))
+            + '）——权限、路由、工具、目录与启用状态需要新版后端。</div>')
       + metaRow('面板', panels)
-      + metaRow('工具', (plugin.mcp_tools || []).map(function (t) { return '<code>p_' + esc(plugin.id) + '__' + esc(t) + '</code>'; }).join(' ') || '<span class="muted">未注册工具</span>')
-      + metaRow('依赖', (plugin.dependencies || []).map(function (d) { return '<code>' + esc(d) + '</code>'; }).join(' ') || '<span class="muted">无</span>')
-      + metaRow('目录', '<code class="pm-path">' + esc(plugin.dir || '') + '</code>')
       + '</div>'
       + '<div class="pm-config" data-plugin-config="' + esc(plugin.id) + '"></div></section>';
   }
@@ -118,26 +125,36 @@
   }
 
   function wire(root) {
-    $$('[data-plugin-toggle]', root).forEach(function (box) {
-      box.onchange = async function () {
-        var id = box.dataset.pluginToggle;
-        box.disabled = true;
-        try {
-          var res = await api('/api/plugin-manager/' + encodeURIComponent(id) + '/enabled',
-            { method: 'POST', body: { enabled: box.checked } });
-          toast((box.checked ? '已启用 ' : '已停用 ') + id + '（刷新页面后侧栏同步）');
-          if (res && res.note) console.info('[plugins] ' + res.note);
-        } catch (e) {
-          box.checked = !box.checked;
-          toast('切换失败：' + e.message, true);
-        } finally {
-          box.disabled = false;
-        }
-      };
-    });
+    var stale = Object.keys(PLUGINS).length > 0
+      && Object.keys(PLUGINS).every(function (id) { return PLUGINS[id].state === undefined; });
+    if (!stale) {
+      $$('[data-plugin-toggle]', root).forEach(function (box) {
+        box.onchange = async function () {
+          var id = box.dataset.pluginToggle;
+          box.disabled = true;
+          try {
+            var res = await api('/api/plugin-manager/' + encodeURIComponent(id) + '/enabled',
+              { method: 'POST', body: { enabled: box.checked } });
+            toast((box.checked ? '已启用 ' : '已停用 ') + id + '（刷新页面后侧栏同步）');
+            if (res && res.note) console.info('[plugins] ' + res.note);
+          } catch (e) {
+            box.checked = !box.checked;
+            toast('切换失败：' + e.message, true);
+          } finally {
+            box.disabled = false;
+          }
+        };
+      });
+    }
     $$('[data-plugin-config]', root).forEach(function (host) {
       var id = host.dataset.pluginConfig;
       var plugin = PLUGINS[id] || {};
+      if (plugin.state === undefined) {
+        /* 旧后端：连状态都没有，配置接口自然也谈不上——如实说明，别猜 */
+        host.innerHTML = '<div class="pm-config-head">配置</div><div class="field-help">'
+          + '当前后端没有提供插件预览字段（权限 / 路由 / 配置接口），请**重启工作台**后再看这里。</div>';
+        return;
+      }
       if (!plugin.has_config_route) {
         /* 没有配置接口就直接说明，不发无谓的请求（也可能是 404 噪音） */
         var hint = (plugin.nav_labels || []).length
@@ -188,12 +205,20 @@
       var plugins = data.plugins || [];
       PLUGINS = {};
       plugins.forEach(function (p) { PLUGINS[p.id] = p; });
+      var stale = plugins.length > 0 && plugins[0].state === undefined;
+      var banner = stale
+        ? '<div class="pm-alert"><strong>后端版本较旧，本页信息不完整</strong>'
+          + '<span>当前后端只下发了 <code>' + esc(Object.keys(plugins[0]).join(' / ')) + '</code>，'
+          + '所以权限、路由、工具、目录与「启用」状态都读不到（勾选框也因此不可用）。'
+          + '<b>重启工作台</b>（<code>python server.py</code>）后再打开本页即可。</span></div>'
+        : '';
       if (!plugins.length) {
         list.innerHTML = '<div class="empty">还没有发现任何插件。把插件目录（含 plugin.json）放进 <code>plugins/</code> 即可。</div>';
         return;
       }
       list.innerHTML = '<div class="row-meta" style="margin-bottom:10px">共 ' + plugins.length + ' 个 · 内核 '
-        + esc(data.core_version || '-') + ' · 全部在跑才能保证「未启用则工具不出现」的一致语义（I10）</div>'
+        + esc(data.core_version || '-') + ' · 未启用则其工具与面板都不出现（I10）</div>'
+        + banner
         + plugins.map(cardHtml).join('');
       wire(root);
     } catch (e) {

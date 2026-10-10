@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="/favicon.png?v=260923">
   <link rel="apple-touch-icon" href="/favicon.png?v=260923">
   <!-- web:css:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
-  <link rel="stylesheet" href="/styles.css?v=261009j"><!-- v261009j · 天气专有样式（status-dot、窄屏隐藏）已随功能搬入 plugins/weather/web/panel.css 并按 [data-plugin="weather"] 作用域；上版：资讯样式搬入 plugins/rss -->
+  <link rel="stylesheet" href="/styles.css?v=261009k"><!-- v261009k · 笔记卡片的时间标签默认右对齐（无项目名时也贴右）；上版：天气样式搬出内核 -->
   <link rel="stylesheet" href="/literature.css?v=260929j"><!-- v260929j · 批注编辑卡片操作行（加入笔记 / 附带截图勾选）样式；上版：AI 面板截图入口与待处理截图预览样式 -->
   <link rel="stylesheet" href="/v260922-projects.css?v=260924g">
   <link rel="stylesheet" href="/v260922-compact-layout.css?v=261009h">
@@ -113,7 +113,7 @@
   <script defer src="/v260930-floating-agent.js?v=261009r"></script><!-- v261009r · A10：api() 走接缝；上版：A1 悬浮球 MathJax 按需加载 -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->
   <script defer src="/v261008-billing.js?v=261009c"></script><!-- v261009c · §6.3：自行登记 ERWPanels 面板（导航项 + 页头 + 渲染），内核不再认识计费；上版：A10 api() 走接缝 -->
-  <script defer src="/plugin-manager.js?v=261009"></script><!-- v261009.4 · 设置 → 插件：插件预览（状态/权限/路由/面板/工具/依赖）+ 配置读写 + 启停；经 ERWPanels.settingsTab 自登记，app.js 不加分支（§6.3） -->
+  <script defer src="/plugin-manager.js?v=261009b"></script><!-- v261009b · 旧后端只下发精简清单时明确报「请重启工作台」，不再显示为「权限未声明/无接口」；启停勾选框在旧后端上禁用并说明原因 -->
   <!-- web:app-js:end -->
 </body>
 </html>

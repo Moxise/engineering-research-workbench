@@ -4,9 +4,9 @@
   "css": [
     {
       "file": "styles.css",
-      "v": "261009j",
+      "v": "261009k",
       "theme": "base",
-      "note": "v261009j · 天气专有样式（status-dot、窄屏隐藏）已随功能搬入 plugins/weather/web/panel.css 并按 [data-plugin=\"weather\"] 作用域；上版：资讯样式搬入 plugins/rss"
+      "note": "v261009k · 笔记卡片的时间标签默认右对齐（无项目名时也贴右）；上版：天气样式搬出内核"
     },
     {
       "file": "literature.css",
@@ -153,9 +153,9 @@
     },
     {
       "file": "plugin-manager.js",
-      "v": "261009",
+      "v": "261009b",
       "theme": "plugin-manager",
-      "note": "v261009.4 · 设置 → 插件：插件预览（状态/权限/路由/面板/工具/依赖）+ 配置读写 + 启停；经 ERWPanels.settingsTab 自登记，app.js 不加分支（§6.3）"
+      "note": "v261009b · 旧后端只下发精简清单时明确报「请重启工作台」，不再显示为「权限未声明/无接口」；启停勾选框在旧后端上禁用并说明原因"
     }
   ]
 }
