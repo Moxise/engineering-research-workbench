@@ -80,6 +80,16 @@
       : '<div class="field-help">当前后端只下发了精简清单（' + esc(Object.keys(plugin).join(' / '))
         + '）——权限、路由、工具、目录与启用状态需要新版后端。</div>';
     var open = !!DETAIL[plugin.id];
+    /* v261009.10 · 一行摘要里直接写明「**提供什么**」：面板 / 工具 / 路由。
+       此前只有「版本 + 来源」，像 litnote 这种**只有工具、没有页面**的插件
+       在列表里看不出用途（用户反馈「没看到文献工具插件」）。 */
+    var provides = [];
+    if (plugin.slot_only) provides.push('顶栏组件');
+    else if ((plugin.nav_labels || []).length) provides.push('面板 ' + plugin.nav_labels.join('、'));
+    if ((plugin.mcp_tools || []).length) provides.push(plugin.mcp_tools.length + ' 个 AI 工具');
+    if ((plugin.routes || []).length) provides.push(plugin.routes.length + ' 条接口');
+    if (plugin.has_config_route) provides.push('可配置');
+    var providesText = provides.length ? provides.join(' · ') : '纯后端/无扩展点';
     return '<section class="card card-pad pm-card" data-plugin-card="' + esc(plugin.id) + '">'
       + '<div class="card-head"><div><div class="card-kicker">' + esc(plugin.kind || 'plugin') + '</div>'
       + '<h3>' + esc(plugin.name || plugin.id) + ' <small class="muted">' + esc(plugin.id) + '</small></h3>'
@@ -95,7 +105,7 @@
       + ' title="展开查看权限 / 路由 / 工具 / 依赖 / 面板 / 目录">'
       + '<span class="pm-row-label">版本</span>'
       + '<code class="pm-row-main">' + esc(plugin.version || '-') + '</code>'
-      + (plugin.source ? '<span class="pm-row-sub">来源 ' + esc(plugin.source) + '</span>' : '')
+      + '<span class="pm-row-sub">' + esc(providesText) + '</span>'
       + '<span class="pm-row-action">' + (open ? '▾ 收起详情' : '▸ 详情') + '</span></button>'
       + '<div class="pm-detail"' + (open ? '' : ' hidden') + '>' + detailRows + '</div>'
       + '<div class="pm-config" data-plugin-config="' + esc(plugin.id) + '"></div></section>';

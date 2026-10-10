@@ -217,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             return self.send_json({
                 "ok": True,
-                "version": (ASSET_ROOT / "VERSION").read_text(encoding="utf-8").strip(),
+                "version": _core_version(),
                 "index": indexer.status(),
             })
         if path == "/api/config":
@@ -674,11 +674,15 @@ PLUGINS = {"result": None}
 
 
 def _core_version() -> str:
-    """`VERSION` 文件里的内核版本（读不到就空串，插件侧按「无版本约束」处理）。"""
-    try:
-        return (ASSET_ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
+    """`VERSION` 文件里的内核版本（读不到就空串，插件侧按「无版本约束」处理）。
+
+    统一走 `core.plugins.manifest.read_core_version`：它**去掉 UTF-8 BOM**。
+    带 BOM 时 `core_min` 比较会全线失败，所有插件被误判为「内核版本过低」而阻塞
+    （实测：服务启动后插件路由全 404，而 CLI 因另有一处去 BOM 看起来正常）。
+    """
+    from core.plugins import manifest as plugin_manifest
+
+    return plugin_manifest.read_core_version(ASSET_ROOT)
 
 
 def load_plugins(root, workspace_dir) -> dict:

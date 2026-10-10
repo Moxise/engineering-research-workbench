@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def _core_version() -> str:
     try:
-        return (ROOT / "VERSION").read_text(encoding="utf-8").strip().lstrip("\ufeff")
+        return M.read_core_version(ROOT)
     except OSError:
         return ""
 

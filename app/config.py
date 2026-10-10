@@ -391,9 +391,12 @@ def _clean_assist(assist: Any) -> dict[str, Any]:
 def _clean_personas(personas: Any) -> list[dict[str, Any]]:
     """v260930 · M3 Agent 人设归一化：id/name/system_prompt/tools/write_mode/request_preset/temperature。
     内置 reader/executor 不可删除、始终存在；用户对内置人设的编辑（提示词/白名单/写模式）优先于内置默认；
-    自定义人设跟在后面。tools 白名单按 agent_tools 的工具面过滤（含已启用插件注册的工具）。"""
-    from . import agent_tools
-    valid_tools = set(agent_tools.all_tool_names())
+    自定义人设跟在后面。
+
+    tools 白名单**按原样保留**（只做旧名→新名映射与去重）——不按「当前可用」裁剪。
+    当前可用的工具集合在使用时过滤（`agent.py` 的 allowed 过滤），这样插件停用/未加载时
+    白名单里的条目不会被写回磁盘时抹掉，重新启用即自动恢复。"""
+    from . import agent_tools  # noqa: F401  保持导入：调用方与历史行为都经过它
     #: 工具搬家时的**旧名 → 新名**别名（用户已保存的人设白名单据此迁移，避免悄悄丢能力）
     LEGACY_TOOL_ALIASES = {
         "lit_context": "p_litnote__context",
@@ -409,13 +412,15 @@ def _clean_personas(personas: Any) -> list[dict[str, Any]]:
 
     def _clean(pid: str, item: dict[str, Any], is_builtin: bool) -> dict[str, Any]:
         # v261009.9 · 工具搬家后，用户已保存的白名单里可能还是旧名——按别名映射到新名，
-        # 避免「功能搬成插件」悄悄让人设丢掉一项能力（迁移等价性）。插件停用时新名不在
-        # valid_tools 里，会自然被过滤掉（优雅退化，不报错）。
+        # 避免「功能搬成插件」悄悄让人设丢掉一项能力（迁移等价性）。
+        # v261009.11 · **不再按「当前可用」裁剪**：清洗结果会被 reload_all() 写回磁盘，
+        # 于是任何一次「临时不可用」（插件被阻塞/未加载）都会**永久**删掉白名单条目。
+        # 未知名字在使用时过滤即可（`agent.py` 的 allowed 过滤），保留它才能优雅恢复。
         raw_tools = item.get("tools") if isinstance(item.get("tools"), list) else []
         tools: list[str] = []
         for t in raw_tools:
             name = LEGACY_TOOL_ALIASES.get(str(t), str(t))
-            if name in valid_tools and name not in tools:
+            if name and name not in tools:
                 tools.append(name)
         if not tools:
             tools = list(builtin_defaults[pid]["tools"]) if pid in builtin_defaults else ["kb_search", "kb_read"]  # 空白名单回退安全默认（v261009.9：只回退**核心**工具）

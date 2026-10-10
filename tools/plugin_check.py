@@ -28,6 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from core.plugins import manifest as M  # noqa: E402
 from core.plugins import registry as R  # noqa: E402
 
 #: 允许 import 插件的白名单（目前应为空：内核不认识任何具体插件）
@@ -77,7 +78,7 @@ def empty_set_report() -> dict:
     return R.report(
         roots=[("bundled", tmp / "bundled"), ("user", tmp / "user")],
         workspace=None,
-        core_version=(ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else "",
+        core_version=M.read_core_version(ROOT) if (ROOT / "VERSION").is_file() else "",
     )
 
 
@@ -111,7 +112,20 @@ def main(argv: list[str] | None = None) -> int:
 
     # 一次发现，供下面几组插件侧检查共用
     candidates, _notes2 = R.discover()
-    R.resolve(candidates, (ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else "")
+    R.resolve(candidates, M.read_core_version(ROOT) if (ROOT / "VERSION").is_file() else "")
+
+    # 内核版本文件必须「无 BOM」——带 BOM 会让 core_min 比较全线失败，所有插件被误判为
+    # 「内核版本过低」而阻塞（实测事故：服务启动后插件路由全 404，而 CLI 看起来正常）
+    version_path = ROOT / "VERSION"
+    if version_path.is_file():
+        raw = version_path.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf"):
+            fails.append("VERSION 带 UTF-8 BOM：会让 core_min 比较失败、所有插件被判为「内核版本过低」。"
+                         "请以无 BOM 的 UTF-8 重写（Python 的 write_bytes / .NET UTF8Encoding($false)）")
+        elif not M.read_core_version(ROOT):
+            fails.append("VERSION 读出来是空串：插件版本门槛会被整体跳过（请检查文件内容）")
+        else:
+            notes.append(f"内核版本 {M.read_core_version(ROOT)}（无 BOM）")
 
     # core_api 必须真的入库：它是插件的唯一门面，落在仓库根（不在 core/** 通配里），
     # 很容易被 .gitignore 的白名单漏掉——那样克隆下来插件全废（本轮真踩过一次）。
@@ -170,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 notes.append(f"插件 {pid} 声明的 {len(declared)} 个工具都能在入口里找到注册")
 
-    real = R.report(workspace=None, core_version=(ROOT / "VERSION").read_text(encoding="utf-8").strip())
+    real = R.report(workspace=None, core_version=M.read_core_version(ROOT))
     notes.append(f"当前 plugins/ 实况：发现 {len(real['plugins'])} 个，可用 {real['available']}，"
                  f"blocked {real['blocked']}，rejected {real['rejected']}，冲突 {real['conflict']}")
 

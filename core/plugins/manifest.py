@@ -49,6 +49,23 @@ def _issue(code: str, level: str, message: str, fix: str = "") -> dict[str, str]
     return out
 
 
+def read_core_version(root) -> str:
+    """读 `VERSION` 文件作为内核版本（**去掉 UTF-8 BOM**，读不到返回空串）。
+
+    为什么要单独一个函数：`VERSION` 曾被 PowerShell 以带 BOM 的 UTF-8 写出，
+    变成 `"\\ufeffv261009.9"`，于是 `core_min` 比较全线失败、**所有插件被判为
+    「内核版本过低」而阻塞**（实测：服务启动后插件路由全 404，而 CLI 因为另有一处
+    `lstrip("\\ufeff")` 看起来一切正常）。集中在这里处理，所有读取方共用。
+    """
+    from pathlib import Path
+
+    try:
+        raw = (Path(root) / "VERSION").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    return raw.lstrip("\ufeff").strip()
+
+
 def version_tuple(text: str) -> tuple[int, ...]:
     """把 `v261009.0` / `1.0.0` 归一成可比较的整数元组。"""
     raw = str(text or "").strip().lstrip("vV")
