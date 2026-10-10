@@ -126,6 +126,81 @@ def system_dir(plugin_id: str) -> Path:
     return _data_root() / "Workspace" / "System" / "Plugins" / plugin_id
 
 
+# ---- 知识条目 / 项目 / 总览（只读；v261009.23 起插件可用的数据窗口）----
+# 插件要用知识库数据时**走这里**（与前端 `/api/docs`、`/api/projects` 同一套查询实现），
+# **不要**自己去读 `Workspace/Knowledge/*.md`：那是核心的数据结构，绕过索引会看到过期或半写的状态（§6 隔离）。
+
+def entry(doc_id: str) -> dict:
+    """取一条知识条目的完整内容（**含 `body` 正文**）。找不到时抛 `FileNotFoundError`。"""
+    from app import indexer
+
+    return indexer.get_doc(doc_id)
+
+
+def entries(kind: str | None = None, *, query: str = "", status: str = "", project: str = "",
+            mark: str = "", tag: str = "", unowned: bool = False,
+            limit: int = 200, page: int = 1) -> list[dict]:
+    """列出知识条目（只含元数据与摘要，**不含正文**）。
+
+    字段与 `/api/docs` 一致（`id/kind/title/status/projects/tags/marks/updated/created/pinned/…`）。
+    需要正文就按 id 逐条 `entry(doc_id)` —— 列表刻意不返回正文：一次拉几百条正文很慢，
+    而且多数调用方（列表、统计、筛选）根本用不上。
+    """
+    from app import indexer
+
+    want = max(1, int(limit or 1))
+    out: list[dict] = []
+    cursor = max(1, int(page or 1))
+    while len(out) < want:
+        chunk = indexer.list_docs(kind, query, status, project, mark, tag=tag, unowned=unowned,
+                                  page=cursor, page_size=min(want - len(out), 200), paged=True)
+        rows = list((chunk or {}).get("items") or [])
+        out.extend(rows)
+        if not rows or not (chunk or {}).get("next_page"):
+            break
+        cursor = int(chunk["next_page"])
+    return out[:want]
+
+
+def projects() -> list[dict]:
+    """项目注册表（含 `project_id`/名称/状态/计数），与 `/api/project-records` 同源。"""
+    from app import indexer
+
+    return indexer.project_records()
+
+
+def project_names() -> list[str]:
+    """项目名列表（与 `/api/projects` 同源）。"""
+    from app import indexer
+
+    return indexer.project_names()
+
+
+def dashboard() -> dict:
+    """工作台总览统计（条目/项目/待办/活动计数），与 `/api/dashboard` 同源。"""
+    from app import indexer
+
+    return indexer.dashboard()
+
+
+def kind_labels() -> dict[str, str]:
+    """七类 kind 的中文标签（`{"note": "笔记", …}`）。
+
+    插件**不要**自己再抄一份标签表（前端有等价的 `window.ERWContract.kindLabels()`）：
+    权威声明在 `core/contracts/kinds.py`，这里只是把它原样递给插件。
+    """
+    from core.contracts import kinds as contracts
+
+    return dict(contracts.KIND_LABELS)
+
+
+def kind_order() -> list[str]:
+    """kind 的契约顺序（报告、目录、统计按它排列，保证各插件输出一致）。"""
+    from core.contracts import kinds as contracts
+
+    return list(contracts.KIND_ORDER)
+
+
 def config_path(plugin_id: str) -> Path:
     """插件自有配置：`config/plugins/<id>.json`（内核不解释其内容）。"""
     return _data_root() / "config" / "plugins" / f"{plugin_id}.json"

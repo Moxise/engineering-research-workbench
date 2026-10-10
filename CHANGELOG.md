@@ -1,5 +1,30 @@
 # Changelog
 
+## v261009.23
+
+**第一个生态插件：`plugins/report-export`（报告导出）+ 它需要的内核接缝**（你选的「报告导出 DOCX/PDF」）。
+
+### 交付文档：三种格式，零第三方依赖
+- **DOCX**：用**标准库**写 OOXML（`zipfile` + 手写 `word/document.xml` / `styles.xml` / core props）。理由是本机实测**运行时 Python（Miniforge）没有 `python-docx`**，也没有 LibreOffice——若依赖它们，插件就必须让用户先装东西，违背「丢进去就能用」。`.docx` 本质是装 XML 的 ZIP，标准库足以写出 Word/WPS/LibreOffice 都能正常打开的文档。
+- **HTML → PDF**：同一份内容渲染成自包含 HTML（带打印样式），页面提供「打印 / 另存为 PDF」，`view?print=1` 自动唤起打印。中文与字体交给系统处理，效果比任何纯 Python 方案都好，同样零依赖。
+- **Markdown**：便于再加工（贴进别的工具、进版本库、被 diff）。
+- 报告内容：范围（项目 / 某类条目 / 全部）→ 按**契约顺序**分章 → 每条目（标题 + 状态/项目/标签/日期 + 正文的轻量降级渲染）。正文 Markdown 只做"能读懂"的降级（标题/列表/引用/代码块/段落/表格行），保真度交给 HTML 与 Markdown 格式。
+
+### 内核侧新增两个接缝（都是纯增量，`api_version` 不变）
+1. **`ctx.raw(body, content_type=…, filename=…)`**（`core/plugins/context.py` + `loader.dispatch` + `server.send_raw`）：插件路由的**原样响应**——此前插件路由只能返回 JSON，`json_safe` 会把 `bytes` 变成字符串，**插件根本无法产出文件**（导出、备份下载、图表都是这一类）。现在 handler 返回 `ctx.raw(...)` 时不包装，内核直接写字节与响应头，中文文件名按 RFC 5987（`filename*=UTF-8''…`）编码。
+2. **`core_api` 只读数据窗口**（`entry` / `entries` / `projects` / `project_names` / `dashboard` / `kind_labels` / `kind_order`）：与 `lit_*` 同一模式，把知识条目、项目、总览统计与**契约里的中文标签**递给插件。此前插件要用知识库数据只能自己读 `Workspace/Knowledge/*.md`（绕过索引会看到过期/半写状态）。实测与 HTTP 公开 API **同源同量**：`entries()` 199 = `/api/docs` 199，按类别 25/67 一致，跨页 130 条无重复。
+   - `kind_labels()` 的意义与前端 `ERWContract` 相同：插件**不要**再抄一份中文标签表，权威声明仍在 `core/contracts/kinds.py`。
+
+### 插件本身
+- **页面**：侧栏「报告导出」（自登记在「研究 · 知识」组，图谱之前）——范围选择、选项（收录正文/元信息/分章节/上限）、预览清单、三个导出按钮、下载与打印链接。样式全部落在 `[data-plugin="report-export"]` 内。
+- **Agent 工具**：`p_report-export__list_scopes`（列范围与格式）、`p_report-export__export_report`（按范围导出并返回文件名与目录）。
+- **只写自己**：导出件落在 `Workspace/Plugins/report-export/exports/`，不改任何知识条目，因此**不是写工具**、不走草稿闸门；下载/预览做路径安全校验（只允许导出目录内的文件，拒绝 `..`、盘符、子目录）。
+- 顺手修：报告文件名原先含空格与 `·`，返回的 URL 也没做百分号编码（会造成 `URL can't contain control characters`）——现在文件名归一为 `标题-时间戳.ext`，URL 一律百分号编码。
+
+### 验收（`.scratch/tmp/verify_report_export.py`，**42/42**）
+- 范围取数与 `core_api` 逐项对齐；三格式导出；**DOCX 用带 python-docx 的捆绑解释器做独立裁判**（能打开、段落数与条目量相称、用到 Heading 样式）+ OOXML 部件齐备 + `document.xml` 是合法 XML；`ctx.raw` 的 Content-Type / RFC 5987 / 字节一致 / 不带 JSON 包装；4 种越权下载路径全部被拒且不泄漏文件；真浏览器走查（导航项、范围、预览、页内导出、0 console error）；收尾把 `plugins.json`、`config/plugins/*`、`Workspace/Plugins/*` **按原样恢复**并断言。
+- 回归：全套闸门（`plugin_check --assert-core-only`、`web_check`、`ui_smoke`、`kb_smoke`、`doctor`）与既有夹具（`verify_plugin_template` 49/49、`verify_zip_unpack` 58/58、`verify_zip_install_http` 27/27）全绿；插件 **8 个可用**。
+
 ## v261009.22
 
 **插件生态地基：模板 + 脚手架 + 挂载点作用域 + 兼容性承诺**（回答你的四个问题，逐条给了实测证据）。

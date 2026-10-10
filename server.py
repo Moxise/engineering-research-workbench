@@ -77,6 +77,25 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_raw(self, raw):
+        """v261009.23 · 原样响应：插件用 `ctx.raw(...)` 返回的字节直接写回（下载/导出/HTML 预览）。
+
+        Content-Disposition 用 `filename*=UTF-8''…` 编码：报告文件名是中文，用裸 filename=
+        在部分浏览器上会乱码。
+        """
+        from urllib.parse import quote
+
+        self.send_response(int(getattr(raw, "status", 200) or 200))
+        self.send_header("Content-Type", getattr(raw, "content_type", "") or "application/octet-stream")
+        self.send_header("Content-Length", str(len(raw.body)))
+        self.send_header("Cache-Control", "no-store")
+        name = str(getattr(raw, "filename", "") or "")
+        if name:
+            self.send_header("Content-Disposition",
+                             f"attachment; filename*=UTF-8''{quote(name)}")
+        self.end_headers()
+        self.wfile.write(raw.body)
+
     def _send_agent_stream(self, payload):  # v260930k · 方案 A：Agent 对话 SSE 流式端点。
         """事件序列：round(新一轮 LLM 请求) → delta*(文本片段) → ... → done(完整响应,与旧 JSON 同构) / error。
         长回答的等待被拆成「相邻片段之间 ≤timeout」，不再出现整段 120s 超时。"""
@@ -592,11 +611,14 @@ class Handler(BaseHTTPRequestHandler):
         """
         from core.plugins import loader as plugin_loader
         from core.plugins import runtime as plugin_runtime
+        from core.plugins.context import RawResponse
 
         result = plugin_runtime.current()
         if result is None:
             return self.send_json({"error": "not_ready", "message": "插件尚未加载"}, 503)
         status, payload = plugin_loader.dispatch(result, method, path, q, body)
+        if isinstance(payload, RawResponse):   # v261009.23 · 插件产出文件：原样写回，不做 JSON 包装
+            return self.send_raw(payload)
         return self.send_json(payload, status)
 
     def serve_plugin_file(self, rel):

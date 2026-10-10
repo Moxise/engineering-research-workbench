@@ -165,6 +165,21 @@ class EventTable:
         return unsubscribe
 
 
+@dataclass
+class RawResponse:
+    """插件路由的**原样响应**：二进制/HTML/CSV 这类不能当 JSON 发出去的东西。
+
+    用法（插件侧）：`return ctx.raw(data, content_type="application/pdf", filename="x.pdf")`。
+    内核的 `dispatch` 见到它就**不做 JSON 包装**，直接把字节与头写回浏览器——
+    这是「插件产出文件」这一类插件的通用出口（报告导出、备份下载、图表导出…）。
+    """
+
+    body: bytes
+    content_type: str = "application/octet-stream"
+    filename: str = ""
+    status: int = 200
+
+
 class PluginContext:
     """`register(ctx)` 的参数。插件只能通过它接触内核（§6）。"""
 
@@ -181,6 +196,13 @@ class PluginContext:
     # ---- 便捷方法（插件最常用的几件事）----
     def log(self, message: str) -> None:
         core_api.log(self.id, message)
+
+    def raw(self, body: bytes | str, *, content_type: str = "application/octet-stream",
+            filename: str = "", status: int = 200) -> RawResponse:
+        """原样响应：`raw` 内容直接写回浏览器（`str` 按 UTF-8 编码）。见 `RawResponse`。"""
+        data = body.encode("utf-8") if isinstance(body, str) else bytes(body)
+        return RawResponse(body=data, content_type=content_type, filename=str(filename or ""),
+                           status=int(status or 200))
 
     def config_read(self, default: dict | None = None) -> dict:
         return core_api.read_config(self.id, default)

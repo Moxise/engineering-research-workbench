@@ -63,5 +63,6 @@ python tools/web_check.py                  # 前端静态体检（改了 web/ �
 | 常驻浮层 UI（悬浮球） | `plugins/floating-assist` |
 | 接管整个内核页面（图谱） | `plugins/knowledge-graph` |
 | 多 tab、给别的插件提供接缝 | `plugins/literature-reader` |
+| **产出文件并下载**（DOCX/HTML/Markdown 导出、`ctx.raw` 用法） | `plugins/report-export` |
 
 规范全文：[`docs/PLUGIN_SPEC.md`](../../docs/PLUGIN_SPEC.md)（§6.1 接缝、§6.2 能力矩阵、§7 安全与校验）。

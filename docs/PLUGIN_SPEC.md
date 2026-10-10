@@ -214,6 +214,7 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | `window.ERWGraphRenderers.register({id, graph?: {mount(host, ctx)}, overview?: {enhance(canvas, ctx)}})` | **图谱渲染接管**（v261009.18 起是**页面级**）：内核渲染图谱页时把 `#main` 交给 `graph.mount(host, ctx)`（**页面 markup 也由插件产出**），总览迷你图走 `overview.enhance(canvas, ctx)`；内核**不再自带任何图谱渲染器**——接管者缺席或抛错时只显示「知识图谱不可用：请启用插件」提示（旧的简易兜底图已按用户要求删除） |
 | `window.ERWReader.register({id, open(paperId?), openByAttachment(att), context?()})` | **阅读区接管**：内核在文献列表页点「PDF 阅读工作区」或点附件徽章时调它。无接管者时内核**不显示该入口**，并在用户试图打开时给明确提示（"阅读区不可用：请启用…"），文献列表/元数据条目页照常可用。首个使用者是 [`plugins/literature-reader`](REFACTOR_PLAN.md) |
 | `window.ERWReaderAssist.register({id, tabId, run(action,payload), attach?, fromNote?, useImage?})` | **阅读区助手**（**插件提供、插件消费**的接缝，v261009.15）：阅读区把「选中动作 / 框选截图 / 笔记 AI 整理」派发给助手插件，派发前切到它声明的 `tabId`；助手在 `attach(ctx)` 里拿到实时上下文 `{paper, refreshList, selection(), capture{page(),area()}, activate(), aiPolish()}`。阅读区因此**不认识任何具体助手**，助手停用 → AI tab 与工具条按钮一起消失。首个使用者是 [`plugins/reader-assist`](REFACTOR_PLAN.md) |
+| **`ctx.raw(body, content_type=…, filename=…)`**（后端接缝，v261009.23） | **插件产出文件的原样响应**：handler 返回它就**不做 JSON 包装**，内核直接把字节与响应头写回浏览器（`Content-Disposition` 对中文名用 RFC 5987 编码）。下载导出件、生成图表、回 CSV 都用它。首个使用者是 [`plugins/report-export`](../plugins/report-export/README.md) |
 | **槽位面板**（manifest `nav[].slot` + `ERWPanels.register({slot, renderSlot})`） | 内核给挂载点并给容器加 `data-plugin="<id>"`，插件**只在容器内**画东西。已知槽位由 `core/plugins/manifest.KNOWN_SLOTS` 声明（新增槽位是有意的动作），当前两个：`topbar`（顶栏一行，`#topbar-slot`）与 **`overlay`**（页面浮层 `#erw-overlay-host`——悬浮球这类「始终挂在页面上」的 UI 用它；**不要**直接往 `document.body` 塞 DOM） |
 | **挂载点标记 `data-plugin="<id>"`**（v261009.22） | 内核在插件自登记的容器上写这个属性：导航页 `#main`、设置页 `#settings-panel`、槽位容器（阅读区 tab 由阅读区插件自己的容器负责）。**插件 CSS 一律包在 `[data-plugin="<id>"]` 里**；每次导航/切 tab 先清掉上一轮的值，所以插件样式不会泄漏到内核页面，也不会与别的插件互踩 |
 | `window.erwFetch(url, init)` | 出网与访问内核 HTTP API（**不得**替换 `window.fetch`） |
@@ -248,6 +249,8 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | 加一个侧栏页面 / 顶栏组件 / 设置页 tab / 阅读区 tab | `ERWPanels.register` + manifest `nav[]`/`panel`（4 类自登记点） |
 | 让「始终挂在页面上」的 UI 进页面 | 浮层槽位 `overlay`（内核给 `#erw-overlay-host`），或 `topbar` |
 | 自己提供 HTTP 接口 | `ctx.routes.get/post/...` → 自动挂到 `/api/plugins/<id>/…` |
+| 产出文件并让用户下载（导出件、图表、CSV） | `ctx.raw(bytes, content_type=…, filename=…)`（v261009.23 起；不做 JSON 包装，中文文件名按 RFC 5987 编码） |
+| 读知识条目 / 项目 / 总览统计 | `core_api.entries/entry/projects/project_names/dashboard/kind_labels`（只读窗口，与 `/api/docs` 等**同一套查询实现**；v261009.23 起） |
 | 给内置 Agent 加工具 | `ctx.mcp.tool(name, spec, handler)` → 对外 `p_<id>__<name>`；**写工具自动走内核草稿闸门** |
 | 存自己的数据 / 配置 | `ctx.storage`（`Workspace/Plugins/<id>`、`System/Plugins/<id>`、`System/Cache/<id>.sqlite`）、`ctx.config` |
 | 订阅内核事件 | `ctx.events.on("llm.usage"\|…)` |

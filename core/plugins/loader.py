@@ -26,7 +26,7 @@ from pathlib import Path
 from . import manifest as M
 from . import registry as R
 from . import runtime
-from .context import McpTool, PluginContext, PluginContractError, Route, json_safe
+from .context import McpTool, PluginContext, PluginContractError, RawResponse, Route, json_safe
 
 
 @dataclass
@@ -183,7 +183,8 @@ def dispatch(result: LoadResult, method: str, path: str, query: dict, body: dict
     """按路由表分发一次插件请求。返回 (状态码, 载荷)。
 
     handler 抛异常 → 500 且**只影响该次请求**，错误信息带插件 id（便于排障），
-    内核继续服务。
+    内核继续服务。handler 返回 `ctx.raw(...)`（`RawResponse`）时**不做 JSON 包装**，
+    由 HTTP 层原样写回——插件产出文件（下载、导出、图表）靠它。
     """
     route = result.route_map.get((method.upper(), path))
     if route is None:
@@ -194,4 +195,6 @@ def dispatch(result: LoadResult, method: str, path: str, query: dict, body: dict
     except Exception as exc:
         return 500, {"error": type(exc).__name__, "plugin": route.plugin_id,
                      "message": str(exc)}
+    if isinstance(payload, RawResponse):
+        return payload.status, payload
     return 200, json_safe(payload if payload is not None else {"ok": True})
