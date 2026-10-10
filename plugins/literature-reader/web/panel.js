@@ -1,8 +1,36 @@
+/* literature-reader · 文献 PDF 阅读工作区（从内核 web/literature.js 原样迁出，v261009.14）
+ *
+ * 归属边界（SCOPE §2.1 C6，2026-10-10 反转旧决定）：
+ *   本插件 = 阅读区的**全部 UI**（左栏文献列表、PDF 视图、批注、AI tab、插件 tab、截图桥）；
+ *   内核 = 文献**数据与文件服务**（`/api/literature/*`、PDF 的 Range 分片、批注 JSON 与删批注时的
+ *          Preview 级联清理、笔记真值在 `literature` 知识条目）+ **文献列表/元数据条目页**
+ *          （与笔记/灵感共用 `renderDocsPage`）。
+ *   所以本文件**只走 HTTP**（`window.erwFetch`）：不碰 `Workspace/`、不 import 内核模块、不碰数据口径。
+ *
+ * 用到的内核接缝：
+ *   · `window.ERWReader`（app.js §6.3）——内核在文献列表页点「PDF 阅读工作区」或点附件徽章时调本插件；
+ *   · `window.ERWPanels.readerTabs()` 插件阅读区 tab；`ERWMarkBadges/ERWMarkList/ERWMarkChips/ERWTagPicker`
+ *     标记与标签 UI；`ERWVisionEnabled`/`ERWAssistCustomActions` AI 面板；`window.ERWToast` 提示；
+ *   · 对外保留 `window.ERWLiterature`（context/start/openByAttachment）与 `window.ERWCapture`（截图桥）：
+ *     悬浮球助手与「阅读中知识关联」按原样消费，不必改；
+ *   · PDF.js 仍用内核 vendor 树 `/vendor/pdfjs/**`（与 mermaid/mathjax 同类的公开 vendor 路径），
+ *     本地优先、CDN 兜底——不复制进插件目录，避免 1.4 MB 重复。
+ */
 (()=>{
 "use strict";
 const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp=v=>Math.max(0,Math.min(1,v));
+/* v261009.13 · 修一个一直静默的 bug：本文件此前直接调 `toast(...)`，但 `toast` **从来不是全局**
+   （app.js 里那个是 IIFE 闭包私有的），运行时实测 `typeof toast === "undefined"` ——
+   于是「批注加入笔记」的两条错误路径一进就 ReferenceError，用户看到的是「点了没反应」。
+   现在走内核的 `window.ERWToast`（悬浮球模块提供），没有时自己往 `#toast-stack` 放一条。 */
+function toast(msg,error=false){
+ if(typeof window.ERWToast==="function"){try{window.ERWToast(msg,error);return}catch{}}
+ const stack=q("#toast-stack");if(!stack)return;
+ const el=document.createElement("div");el.className="toast"+(error?" error":"");el.textContent=msg;
+ stack.appendChild(el);setTimeout(()=>el.remove(),3200);
+}
 const PDF_RENDER_RADIUS=4; /* v261009p · 仅保留当前页前后少量已渲染 canvas，防长 PDF 内存随滚动线性增长 */
 const PDF_DPR_CAP=2;       /* 高 DPI 屏限制离屏像素规模；视觉清晰度基本不变，显存/内存峰值显著下降 */
 const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],annByPage:new Map(),trimTimer:null,ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
@@ -624,6 +652,10 @@ async function openByAttachment(att){
  await start();await openPaper(hit.id);
 }
 window.ERWLiterature={start,openByAttachment,context:()=>({paper_id:S.paper?.id||"",title:S.paper?.title||"",page:S.current||1,selection:S.pending?.kind==="text"?String(S.pending.text||""):"",page_text:pageText(S.current||1)})}; /* v260930 · M2 悬浮球上下文桥：当前文献/页码/PDF 选中文本；v260930c · M4 增加当前页文本层正文（术语提取输入） */
+/* v261009.14 · 注册到内核的阅读区接缝 `window.ERWReader`（app.js §6.3）：
+   内核只在文献列表页点「PDF 阅读工作区」或点附件徽章时调它；没有接管者时内核不显示入口。
+   本插件是纯前端插件（无 entry），脚本由宿主经 `panel.mount` 加载。 */
+window.ERWReader?.register?.({ id:'literature-reader', open:()=>start(), openByAttachment, context:()=>window.ERWLiterature.context() });
 /* v260930e · 悬浮球截图桥：page()=截当前整页；area()=进入框选模式，resolve 框选区域截图（外部接管联动） */
 window.ERWCapture={
  page:()=>S.pdf?pageDataUrl():"",

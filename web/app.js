@@ -121,6 +121,30 @@
     get(scope){ return GRAPH_RENDERERS.find(r => r[scope]) || null; },   /* scope: 'graph' | 'overview' */
   };
 
+  /* v261009.14 · §6.3 阅读区接管接缝：PDF 阅读工作区（打开/翻页/缩放/批注/AI tab/插件 tab）可由附属模块提供。
+     内核只保留文献**数据与文件服务**（`/api/literature/*`、PDF 与 `Annotations/`）与**文献列表条目页**
+     （与笔记/灵感共用的 `renderDocsPage`）；没有接管者时列表页照常可用，只是「PDF 阅读工作区」入口
+     不出现、点附件徽章给一条明确提示（SCOPE §2.1 C6：2026-10-10 起阅读区改为附属插件）。
+     注册形如 `{id, open(paperId?), openByAttachment(attachment), context?()}`。 */
+  const READER_MISSING = '阅读区不可用：请在「设置 → 插件」里启用「文献阅读工作区」';
+  const READERS = [];
+  window.ERWReader = {
+    register(r){
+      if(!r || !r.id) throw new Error('ERWReader.register 需要 {id, ...}');
+      if(typeof r.open !== 'function') throw new Error('阅读区接管需要 open(paperId)');
+      if(typeof r.openByAttachment !== 'function') throw new Error('阅读区接管需要 openByAttachment(attachment)');
+      if(READERS.some(x => x.id === r.id)) throw new Error('阅读区接管 id 重复：' + r.id);
+      READERS.push(r);
+      return r.id;
+    },
+    list(){ return READERS.slice(); },
+    get(){ return READERS[0] || null; },
+    available(){ return READERS.length > 0; },
+    context(){ try{ return this.get()?.context?.() || null; }catch{ return null; } },
+    async open(paperId){ const r=this.get(); if(!r) throw new Error(READER_MISSING); return r.open(paperId); },
+    async openByAttachment(att){ const r=this.get(); if(!r) throw new Error(READER_MISSING); return r.openByAttachment(att); },
+  };
+
   /* 槽位挂载：内核把槽位容器交给槽位面板，容器上带 data-plugin=<id> 以便插件样式作用域（§2）。
      插件只在这个容器里画东西，不去改内核 DOM。 */
   function mountSlots(){
@@ -730,24 +754,26 @@
     if(docs.length) selectDoc(docs[0].id); else showEmptyEditor(kind);
   }
   /* v260929 · 文献列表页 → PDF 阅读工作区入口：编辑中先提示保存；进入后清选中态，
-     工作区头部自带返回按钮（literature.js shell），返回时重新渲染文献列表 */
+     工作区头部自带返回按钮（literature.js shell），返回时重新渲染文献列表。
+     v261009.13 · 改走 ERWReader 接缝：没有阅读区接管者时给明确提示（而不是静默无反应）。 */
   async function openLiteratureWorkspace(){
-    if(!window.ERWLiterature){toast('PDF 阅读工作区未加载',true);return}
     if(state.dirty){toast('请先保存当前条目',true);return}
-    state.selectedDoc=null; await window.ERWLiterature.start();
+    state.selectedDoc=null;
+    try{ await window.ERWReader.open(); }
+    catch(err){ toast(err&&err.message?err.message:String(err), true); }
   }
   /* v260929 · 附件入口统一：徽章点击一律跳 PDF 阅读区（原新窗口直开功能并入工作区）；
      未登记的附件先自动单条登记（迁移入 Knowledge/Literature/PDF/）再重试，仍失败才提示 */
   async function openAttachmentInWorkspace(d){
-    if(!window.ERWLiterature)throw new Error('PDF 阅读工作区未加载');
+    if(!window.ERWReader.available())throw new Error(READER_MISSING);
     if(state.dirty)throw new Error('请先保存当前条目');
     if(!d||!d.attachment)throw new Error('该条目未配置 PDF 附件');
-    try{await window.ERWLiterature.openByAttachment(d.attachment);return}
+    try{await window.ERWReader.openByAttachment(d.attachment);return}
     catch(e){
       const r=await api('/api/literature/rebuild',{method:'POST',body:{doc_id:d.id}});
       const att=r.attachment||d.attachment;
       if(!att)throw new Error('附件文件不存在或无法登记到 PDF 工作区');
-      try{await window.ERWLiterature.openByAttachment(att);return}
+      try{await window.ERWReader.openByAttachment(att);return}
       catch(e2){throw new Error('附件文件不存在或无法登记到 PDF 工作区')}
     }
   }
@@ -759,7 +785,7 @@
     toast(`重建完成：补关联 ${r.linked||0} 篇，新登记 ${r.registered||0} 篇，补建条目 ${r.ensured||0} 篇`);
     if(state.route==='settings')renderSettings();else renderDocsPage('literature');
   }
-  function docsShell(kind,docs,projects){return `<div class="docs-layout"><aside class="card doc-list-panel"><div class="doc-filter"><div style="display:flex;gap:6px"><input class="search-input" id="doc-search" placeholder="搜索标题、正文、标签、项目、分类…"><button class="secondary-btn" id="new-doc">＋</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><select class="search-input" id="doc-status"><option value="">全部状态</option>${(state.statuses[kind]||[]).map(s=>`<option>${esc(s)}</option>`).join('')}</select><select class="search-input" id="doc-project"><option value="">全部项目</option><option value="__unowned__">未归属项目（通用基础）</option>${projects.map(p=>`<option>${esc(p)}</option>`).join('')}</select><select class="search-input" id="doc-mark" style="grid-column:span 2"><option value="">全部分类</option>${allMarks().map(k=>`<option value="${esc(k.id)}">${esc(k.icon)} ${esc(k.label)}</option>`).join('')}</select><div style="grid-column:span 2;display:flex;gap:6px;align-items:center"><input class="search-input" id="doc-tag" list="doc-tag-list" placeholder="按标签精确筛选（可输入）"><label class="row-meta" style="display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" id="doc-unowned">仅未归属</label></div><datalist id="doc-tag-list">${(state.tagOptions||[]).map(t=>`<option value="${esc(t)}"></option>`).join('')}</datalist></div>${kind==='literature'?'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="secondary-btn" id="export-bib">批量导出 BibTeX</button><button class="secondary-btn" id="open-lit-workspace">PDF 阅读工作区</button></div>':''}</div><div class="doc-list" id="doc-list">${docItems(docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"></section></div>`}
+  function docsShell(kind,docs,projects){return `<div class="docs-layout"><aside class="card doc-list-panel"><div class="doc-filter"><div style="display:flex;gap:6px"><input class="search-input" id="doc-search" placeholder="搜索标题、正文、标签、项目、分类…"><button class="secondary-btn" id="new-doc">＋</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><select class="search-input" id="doc-status"><option value="">全部状态</option>${(state.statuses[kind]||[]).map(s=>`<option>${esc(s)}</option>`).join('')}</select><select class="search-input" id="doc-project"><option value="">全部项目</option><option value="__unowned__">未归属项目（通用基础）</option>${projects.map(p=>`<option>${esc(p)}</option>`).join('')}</select><select class="search-input" id="doc-mark" style="grid-column:span 2"><option value="">全部分类</option>${allMarks().map(k=>`<option value="${esc(k.id)}">${esc(k.icon)} ${esc(k.label)}</option>`).join('')}</select><div style="grid-column:span 2;display:flex;gap:6px;align-items:center"><input class="search-input" id="doc-tag" list="doc-tag-list" placeholder="按标签精确筛选（可输入）"><label class="row-meta" style="display:flex;gap:4px;align-items:center;white-space:nowrap"><input type="checkbox" id="doc-unowned">仅未归属</label></div><datalist id="doc-tag-list">${(state.tagOptions||[]).map(t=>`<option value="${esc(t)}"></option>`).join('')}</datalist></div>${kind==='literature'?`<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="secondary-btn" id="export-bib">批量导出 BibTeX</button>${window.ERWReader.available()?'<button class="secondary-btn" id="open-lit-workspace">PDF 阅读工作区</button>':''}</div>`:''}</div><div class="doc-list" id="doc-list">${docItems(docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"></section></div>`}
   function markBadges(d){return (d.kind_marks||[]).slice(0,4).map(id=>{const c=allMarks().find(k=>k.id===id);if(!c)return '';const col=esc(c.color);return `<span class="badge mark-badge" style="color:${col};border-color:${col};background:${col}1a">${esc(c.icon)} ${esc(c.label)}</span>`}).join('')}
   /* v260929 · 暴露给 PDF 阅读工作区复用同一套标记徽章渲染，避免标记目录二次维护 */
   window.ERWMarkBadges = markBadges;

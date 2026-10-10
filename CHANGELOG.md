@@ -1,5 +1,20 @@
 # Changelog
 
+## v261009.14
+
+- **阅读区整体搬成插件**（`plugins/literature-reader/`；**反转** SCOPE §2.1 C6 原先的「阅读进核心」决定——只有启用该插件才能使用阅读区）。
+  - **新接缝 `window.ERWReader`**（§6.3）：`register({id, open, openByAttachment, context?})` + `available()`。内核在文献列表页点「PDF 阅读工作区」或点附件徽章时经它调用；**没有接管者时入口不出现**，用户试图打开时给一条明确提示（"阅读区不可用：请在「设置 → 插件」里启用「文献阅读工作区」"），而**文献列表/元数据条目页照常可用**（核心不依赖阅读区）。
+  - **插件是纯前端**（`panel: {mount, style}`、`ui:panel`、无 `entry`、无后端）：`web/literature.js`（642 行）+ `literature.css`（134 行）整体迁出内核。**文献数据与文件服务全留内核**——`/api/literature/*`（含 PDF 的 **Range 206 分片**）、批注 JSON 与**删批注时的 Preview 级联清理**、笔记真值在 `literature` 条目、`/workspace-file/`、`/api/agent/assist`。因此**无需扩 `core_api`、无数据安全风险**：风险最大的那几处（文件服务、级联删除、双载体真值、Workspace 外绝对路径）都没动。
+  - **顺带修掉一个一直静默的 bug**：内核 `literature.js` 的两处 `toast(...)` 引用的 `toast` **从来不是全局**（`app.js` 里那个是 IIFE 闭包私有，运行时实测 `typeof toast === "undefined"`）——「批注加入笔记」的两条错误路径一进就 `ReferenceError`，用户看到的是"点了没反应"。插件自带提示实现（优先 `window.ERWToast`，否则往 `#toast-stack` 放一条）。
+  - **内核 CSS 不再引用插件 markup**：紧凑密度下那条 `html[data-density="compact"] .lit-shell{…}` 随阅读区一起搬进插件样式。
+  - **验收**：`.scratch/tmp/verify_reader_seam.py` **14/14**（有接管者 → 入口在、进得去、tab 就绪、PDF 3 个 canvas、`context()` 可用；**无接管者 → 入口消失 + 明确提示 + 列表页照常**）；`.scratch/tmp/verify_reader_note_tab.py` **22/22**（阅读区 tab 行 `info/annotations/notes/ai`、笔记同源 6914 字、插件路由写入并可还原、停用 litnote 后 tab 优雅消失）；`ui_smoke` 17 路由 0 error；`web_check` / `plugin_check --assert-core-only` / `kb_smoke` / `doctor`（error 0）全绿。
+  - **环境说明（不是回归）**：验收时本机 LLM 配额用尽（上游 429 → 内核 400），「AI 整理」那一步的 LLM 调用断言按环境**跳过并点名**，tab 切换仍照常断言。
+- **工具口径随之放宽到「插件也算装配的一部分」**（否则内核精简越多、闸门越假）：
+  - `tools/web_check.py`：自定义事件的**派发方**与 `window.ERW*` 的**提供方**都改为「内核 + `plugins/*/web/*.js`」一起判（阅读区搬走后 `erw-lit-page/-selection` 由插件派发、`ERWLiterature`/`ERWCapture` 由插件提供）。**负向用例**（`.scratch/tmp/verify_web_check_negative.py`：注入一个无人定义的接缝 + 一个无人派发的事件）仍被如实抓出。
+  - `tools/ui_smoke.py`：装配自洽性同样把插件前端脚本计入提供方。
+  - `tools/plugin_check.py`：面板契约的自登记接缝清单加入 `ERWReader`。
+  - 夹具卫生：验收脚本的「前置启用 bundled 插件」改为**尊重用户在设置里明确停用的插件**，theme 类夹具（litnote）改为**进入时快照、收尾还原**（本轮真踩过：夹具把用户关掉的 litnote 又打开）。
+
 ## v261009.13
 
 - **知识图谱可视化搬成插件**（`plugins/knowledge-graph/`，SCOPE §2.2 附属；`docs/REFACTOR_PLAN.md` §7）。

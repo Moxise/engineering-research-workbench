@@ -144,3 +144,7 @@ html[data-density="compact"] .lit-head-actions .ghost-btn{min-height:26px;paddin
 .lit-ai-foot{display:flex;gap:6px;flex-wrap:wrap}
 .lit-ai-foot .primary-btn,.lit-ai-foot .secondary-btn{min-height:28px;padding:0 12px;font-size:12px}
 @keyframes lit-ai-pulse{0%,100%{opacity:.55}50%{opacity:1}}
+
+/* v261009o · 从内核 web/v260922-compact-layout.css 迁入：紧凑密度下阅读区高度补偿
+   （此前内核 CSS 引用插件的 `.lit-shell`；阅读区整体搬进本插件后，这条规则随它一起走）。 */
+html[data-density="compact"] .lit-shell{height:calc(100vh - 94px)}

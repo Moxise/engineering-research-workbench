@@ -205,12 +205,22 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | `window.ERWContract` | 七类 kind、类别词、`kind_marks`、关系的**只读**中文契约（`kinds/kindLabels/kindLabel/entityLabel/marks/relations/relationLabel`）。插件不要再各抄一份标签表 |
 | `window.ERWMarkdown.renderInto(el, raw)` / `.normalizePaths(html)` | Markdown 渲染（marked + DOMPurify + hljs + mermaid/mathjax 按需）与 `/workspace-file/` 图片路径归一 |
 | `window.ERWGraphRenderers.register({id, graph?, overview?})` | **图谱渲染接管**：内核渲染图谱页 / 研究总览迷你图时把画布交给接管者；插件缺席或 `enhance()` 抛错时内核回退自带 `drawGraph` |
+| `window.ERWReader.register({id, open(paperId?), openByAttachment(att), context?()})` | **阅读区接管**：内核在文献列表页点「PDF 阅读工作区」或点附件徽章时调它。无接管者时内核**不显示该入口**，并在用户试图打开时给明确提示（"阅读区不可用：请启用…"），文献列表/元数据条目页照常可用。首个使用者是 [`plugins/literature-reader`](REFACTOR_PLAN.md) |
 | `window.erwFetch(url, init)` | 出网与访问内核 HTTP API（**不得**替换 `window.fetch`） |
 | `window.erwVendor.load('mathjax'\|'mermaid')` | 重型库按需加载（本地优先、CDN 兜底） |
 | `window.ERWDom.onChildList(cb, {root})` | 文档级 DOM 变更观察的唯一入口（内核合并成一个 observer） |
 | `workbench:*` / `erw-*` 自定义事件 | 内核广播（如 `llm.usage`）与模块间解耦通信 |
+| `window.ERWToast(msg, error?)` / `window.ERWMarkBadges/ERWMarkList/ERWMarkChips/ERWTagPicker` / `ERWVisionEnabled` / `ERWAssistCustomActions` | 提示条与「标记 / 标签 / 多模态开关 / 自定义 AI 动作」这类内核 UI 小件（由内核模块提供；插件**不要**自己再造一套，也别依赖它们一定存在——调用处做空值保护） |
 
-**公开数据 API**（只读，插件可直接消费）：`/api/docs`、`/api/docs/<id>`、`/api/statuses`、`/api/projects`、`/api/dashboard`、`/api/graph`、`/api/graph/overview`、`/api/graph/neighborhood`、`/api/search`、`/api/todos`、`/api/literature`。写路径一律走内核草稿闸门，插件**不得**直写 `Workspace/`。
+**公开数据 API**（只读，插件可直接消费）：`/api/docs`、`/api/docs/<id>`、`/api/statuses`、`/api/projects`、`/api/dashboard`、`/api/graph`、`/api/graph/overview`、`/api/graph/neighborhood`、`/api/search`、`/api/todos`、`/api/literature`（含 `/pdf` 的 **Range 分片**、`/annotations`、`/note`、`/storage`、`/lookup`、`/import`、`/rebuild`、`export-bibtex`）。写路径一律走内核草稿闸门，插件**不得**直写 `Workspace/`。
+
+> **纯前端插件不必扩 `core_api`**：`core_api` 是给插件**后端**（`inprocess` 的 `entry`）用的；
+> 只有前端脚本的插件直接消费上面的公开 HTTP API 即可（`plugins/knowledge-graph`、
+> `plugins/literature-reader` 都是这个形态，无 `entry`、无后端）。
+>
+> **重型 vendor 库仍在内核 `web/vendor/`**：PDF.js（`/vendor/pdfjs/**`，含 worker / cmaps / standard_fonts，
+> 本地优先 + CDN 兜底）与 mermaid / mathjax / marked / DOMPurify / highlight.js 一样，属**公开 vendor 路径**——
+> 插件页面可直接引用，不要把 MB 级副本塞进插件目录。
 
 **渲染接管契约**（`ERWGraphRenderers`）：
 

@@ -9,20 +9,15 @@
       "note": "v261009k · 笔记卡片的时间标签默认右对齐（无项目名时也贴右）；上版：天气样式搬出内核"
     },
     {
-      "file": "literature.css",
-      "v": "260929j",
-      "theme": "literature",
-      "note": "v260929j · 批注编辑卡片操作行（加入笔记 / 附带截图勾选）样式；上版：AI 面板截图入口与待处理截图预览样式"
-    },
-    {
       "file": "v260922-projects.css",
       "v": "260924g",
       "theme": "projects"
     },
     {
       "file": "v260922-compact-layout.css",
-      "v": "261009h",
-      "theme": "layout"
+      "v": "261009o",
+      "theme": "layout",
+      "note": "v261009o · 紧凑密度下 PDF 阅读区高度那条 `html[data-density=\"compact\"] .lit-shell` 随阅读区插件走（挪进 plugins/literature-reader/web/panel.css），内核不再引用插件 markup"
     },
     {
       "file": "v260922-overview-editor-tools.css",
@@ -106,21 +101,15 @@
     },
     {
       "file": "app.js",
-      "v": "261009k",
+      "v": "261009l",
       "theme": "base",
-      "note": "v261009k · §6.3 新增三个接缝：window.ERWContract（kind/标记/关系契约）、window.ERWMarkdown（Markdown 渲染 + 图片路径归一）、window.ERWGraphRenderers（图谱渲染接管，内核 drawGraph 兜底）。上版：图谱页在引擎在场时不再重复绘制；ERWPanels 新增 readerTab"
+      "note": "v261009l · 新增 window.ERWReader（阅读区接管：PDF 阅读工作区可由插件提供，无接管者时列表页照常、入口不出现）；上版 §6.3 新增 ERWContract / ERWMarkdown / ERWGraphRenderers 三个接缝"
     },
     {
       "file": "plugin-host.js",
       "v": "261009c",
       "theme": "plugin-host",
       "note": "v261009c · 除 nav[0] 外，还加载 manifest.panel.mount（没有导航页的 UI，如阅读区 tab）"
-    },
-    {
-      "file": "literature.js",
-      "v": "261009d",
-      "theme": "literature",
-      "note": "v261009d · 阅读区 tab 可扩展（笔记由插件 litnote 提供）；PDF.js 改为本地 vendor 优先、CDN 兜底，并接上本地 cmaps/标准字体"
     },
     {
       "file": "v260922-research-pages.js",

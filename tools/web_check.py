@@ -109,6 +109,10 @@ def check_manifest() -> dict:
 
 def check_seams() -> None:
     files = app_js_files()
+    # v261009.14 · 插件前端脚本与内核同处一个页面：**自定义事件的派发方可能在插件里**
+    # （阅读区搬成 plugins/literature-reader 后，erw-lit-page/-selection 就由它派发）。
+    # 故事件完备性按「内核 + 插件」一起判，插件里的派发方也算数。
+    plugin_files = sorted((ROOT / "plugins").glob("*/web/*.js")) if (ROOT / "plugins").is_dir() else []
     defined: dict[str, set[str]] = {}
     consumed: dict[str, set[str]] = {}
     dispatched: dict[str, set[str]] = {}
@@ -126,16 +130,26 @@ def check_seams() -> None:
         for ev in set(re.findall(r"addEventListener\(\s*['\"]([\w:.-]+)", text)):
             listened.setdefault(ev, set()).add(name)
 
+    for path in plugin_files:
+        text = path.read_text(encoding="utf-8")
+        name = f"plugins/{path.parent.parent.name}/{path.name}"
+        # 插件也能**提供**接缝：如 plugins/literature-reader 提供 window.ERWLiterature / ERWCapture
+        # 给悬浮球消费（依赖方向仍是插件→内核：内核只认 window.ERWReader 注册表，不认识具体插件）
+        for sym in set(re.findall(r"window\.(ERW[\w$]*)\s*=", text)):
+            defined.setdefault(sym, set()).add(name)
+        for ev in set(_DISPATCH.findall(text)):
+            dispatched.setdefault(ev, set()).add(name)
+
     for sym, users in sorted(consumed.items()):
         if sym in defined:
             continue
         # 由其它层提供（原生外壳注入 / 后端页面）的例外在此登记
-        fail(f"window.{sym} 被 {', '.join(sorted(users))} 消费，但 web/ 里没有定义方")
+        fail(f"window.{sym} 被 {', '.join(sorted(users))} 消费，但 web/ 与 plugins/ 里都没有定义方")
 
     for ev, users in sorted(listened.items()):
         if ev in BROWSER_EVENTS or ev in dispatched:
             continue
-        fail(f"自定义事件 {ev} 被 {', '.join(sorted(users))} 监听，但 web/ 里没有派发方")
+        fail(f"自定义事件 {ev} 被 {', '.join(sorted(users))} 监听，但 web/ 与 plugins/ 里都没有派发方")
 
     notes.append(
         f"接缝：定义 {len(defined)} 个 window.ERW*、消费 {len(consumed)} 个；"

@@ -57,10 +57,16 @@ def seam_report() -> tuple[list[str], list[str], list[str]]:
     判据是**装配自洽**而不是「运行期一定已赋值」：`window.ERWCurrentDoc` 这类是**状态型**
     接缝（打开条目后才赋值），首屏为空是正常的；而「某模块消费了一个没人提供的接缝」
     无论运行期状态如何都是装配错误。提供方按整份装配汇总（跨模块提供也算数）。
+
+    v261009.14 · **插件前端脚本也算装配的一部分**：阅读区搬进 plugins/literature-reader 之后，
+    `window.ERWLiterature` / `window.ERWCapture` 由插件提供、悬浮球（内核模块）消费；
+    内核只认 `window.ERWReader` 注册表，不认识具体插件，故依赖方向仍然成立。
     """
     consumed: set[str] = set()
     provided: set[str] = set()
-    for path in assembled_js():
+    scripts = list(assembled_js())
+    scripts += sorted((ROOT / "plugins").glob("*/web/*.js")) if (ROOT / "plugins").is_dir() else []
+    for path in scripts:
         text = path.read_text(encoding="utf-8")
         text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
         text = re.sub(r"(?m)//[^\n]*$", " ", text)
