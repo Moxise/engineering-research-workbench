@@ -7,8 +7,18 @@
  */
 
 .pm-card{margin-bottom:12px}
-.pm-actions{display:flex;align-items:center;gap:10px}
+.pm-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .pm-switch{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap}
+
+/* v261009.15 · 长说明不得挤走状态与开关（第三方插件的 description 可能很长）：
+   卡片头左侧允许收缩（min-width:0），说明最多两行省略号，超长 token 也换行；
+   完整说明挂 title（鼠标悬停可看全文，信息不丢）。见 docs/PLUGIN_SPEC.md §3 的 description 字段。
+   注意：内核全局 `.row-meta` 是 `white-space:nowrap`（单行省略），这里必须显式改回 normal 才会折行。 */
+.pm-card .card-head{align-items:flex-start}
+.pm-card .card-head>:first-child{min-width:0;flex:1 1 auto}
+.pm-card .card-head h3{overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
+.pm-card .card-head .row-meta{margin-top:2px;line-height:1.5;white-space:normal;overflow:hidden;overflow-wrap:anywhere;
+  max-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 
 /* ---- 通用「一行」 ---- */
 .pm-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;text-align:left;

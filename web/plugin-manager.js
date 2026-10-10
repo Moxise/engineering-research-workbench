@@ -93,7 +93,7 @@
     return '<section class="card card-pad pm-card" data-plugin-card="' + esc(plugin.id) + '">'
       + '<div class="card-head"><div><div class="card-kicker">' + esc(plugin.kind || 'plugin') + '</div>'
       + '<h3>' + esc(plugin.name || plugin.id) + ' <small class="muted">' + esc(plugin.id) + '</small></h3>'
-      + (plugin.description ? '<div class="row-meta">' + esc(plugin.description) + '</div>' : '') + '</div>'
+      + (plugin.description ? '<div class="row-meta" title="' + esc(plugin.description) + '">' + esc(plugin.description) + '</div>' : '') + '</div>'
       + '<div class="pm-actions">'
       + (hasDetail ? badge(plugin.state) : '<span class="badge">未知</span>')
       + '<label class="pm-switch"' + (hasDetail ? '' : ' title="当前后端不支持启停接口：请重启工作台"') + '>'

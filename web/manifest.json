@@ -53,9 +53,9 @@
     },
     {
       "file": "plugin-manager.css",
-      "v": "261009c",
+      "v": "261009p",
       "theme": "plugin-manager",
-      "note": "v261009c · 统一 .pm-row 单行版式（卡片摘要行与配置行同高同样式）+ .pm-detail 详情块"
+      "note": "v261009p · 长说明不再挤走状态/开关：卡片头左侧 min-width:0、说明「两行省略 + 悬停看全文」（覆盖内核 .row-meta 的 nowrap）；上版：统一 .pm-row 单行版式 + .pm-detail 详情块"
     },
     {
       "file": "vendor/github.min.css",
@@ -131,9 +131,9 @@
     },
     {
       "file": "plugin-manager.js",
-      "v": "261009e",
+      "v": "261009p",
       "theme": "plugin-manager",
-      "note": "v261009e · 一行摘要直接写明「提供什么」（面板/工具/接口/可配置），只有工具的插件（如 litnote）一眼可辨"
+      "note": "v261009p · 说明文字挂 title（长说明两行省略后可悬停看全文）；上版：一行摘要直接写明「提供什么」"
     }
   ]
 }

@@ -2,12 +2,17 @@
   "id": "knowledge-graph",
   "name": "知识图谱可视化",
   "version": "1.0.0",
-  "description": "图谱页的优化渲染（力导向大图布局 / Focus+Context / 搜索定位 / 节点预览 / 导出）与研究总览页的迷你知识关系图。纯前端插件：数据走内核 /api/graph、/api/graph/overview、/api/docs/<id>、POST /api/graph/bundle",
+  "description": "图谱页的优化渲染（筛选 / 搜索定位 / 节点预览 / 导出）与研究总览的迷你关系图。纯前端插件；停用后图谱页回退内核渲染，仍可用。",
   "api_version": 1,
   "core_min": "v261009.13",
   "kind": "inprocess",
   "distribution": "bundled",
   "default_enabled": true,
-  "permissions": ["ui:panel"],
-  "panel": { "mount": "web/panel.js", "style": "web/panel.css" }
+  "permissions": [
+    "ui:panel"
+  ],
+  "panel": {
+    "mount": "web/panel.js",
+    "style": "web/panel.css"
+  }
 }

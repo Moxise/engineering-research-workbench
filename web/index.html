@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="/v260922-agent-profiles.css?v=260929d">
   <link rel="stylesheet" href="/v260922-layout-bugfixes.css?v=260924g">
   <link rel="stylesheet" href="/v260930-floating-agent.css?v=260930n"><!-- v260930n · 历史列表归档/删除操作样式；上版：停止按钮样式 -->
-  <link rel="stylesheet" href="/plugin-manager.css?v=261009c"><!-- v261009c · 统一 .pm-row 单行版式（卡片摘要行与配置行同高同样式）+ .pm-detail 详情块 -->
+  <link rel="stylesheet" href="/plugin-manager.css?v=261009p"><!-- v261009p · 长说明不再挤走状态/开关：卡片头左侧 min-width:0、说明「两行省略 + 悬停看全文」（覆盖内核 .row-meta 的 nowrap）；上版：统一 .pm-row 单行版式 + .pm-detail 详情块 -->
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
   <!-- web:css:end -->
   <script>
@@ -109,7 +109,7 @@
   <script defer src="/v260922-research-pages.js?v=261009n"></script><!-- v261009n · 图谱可视化的两个补丁（graph-performance / overview-graph，共 550 行）迁成插件 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles 三个补丁 -->
   <script defer src="/v260930-floating-agent.js?v=261009e"></script><!-- v261009e · 写工具集合改为从 /api/agent/tools 的 write 标记动态推导（不再硬编码插件工具名）；清掉两处文献工具名 -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->
-  <script defer src="/plugin-manager.js?v=261009e"></script><!-- v261009e · 一行摘要直接写明「提供什么」（面板/工具/接口/可配置），只有工具的插件（如 litnote）一眼可辨 -->
+  <script defer src="/plugin-manager.js?v=261009p"></script><!-- v261009p · 说明文字挂 title（长说明两行省略后可悬停看全文）；上版：一行摘要直接写明「提供什么」 -->
   <!-- web:app-js:end -->
 </body>
 </html>

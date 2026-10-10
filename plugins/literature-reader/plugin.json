@@ -2,7 +2,7 @@
   "id": "literature-reader",
   "name": "文献阅读工作区",
   "version": "1.1.0",
-  "description": "PDF 阅读工作区：打开/翻页/缩放/跳页、批注增改删、阅读区 tab 宿主。纯前端插件——文献数据与文件服务全在内核 /api/literature/*；并提供阅读区助手接缝 window.ERWReaderAssist（AI 面板等助手能力由独立插件注册，v261009.15）。禁用后文献列表/元数据页照常可用，只是不出现「PDF 阅读工作区」入口",
+  "description": "PDF 阅读工作区：打开 / 翻页 / 缩放 / 跳页、批注增改删、阅读区 tab 宿主。文献数据与文件服务在内核；停用后文献列表页照常可用。",
   "api_version": 1,
   "core_min": "v261009.14",
   "kind": "inprocess",
