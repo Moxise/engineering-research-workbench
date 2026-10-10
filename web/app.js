@@ -68,12 +68,14 @@
       if(PANELS.some(p => p.id === panel.id)) throw new Error('面板 id 重复：' + panel.id);
       if(panel.slot && !SLOTS[panel.slot]) throw new Error('未知槽位：' + panel.slot);
       /* 三项能力各自独立声明，按声明的能力挂载（不禁「面板 + 设置页」这种组合）：
-         render → 侧栏导航页；slot + renderSlot → 画进内核槽位；settingsTab → 「设置」里加一个 tab */
+         render → 侧栏导航页；slot + renderSlot → 画进内核槽位；settingsTab → 「设置」里加一个 tab；
+         readerTab → 文献阅读区右侧加一个 tab */
       if(panel.render !== undefined && typeof panel.render !== 'function') throw new Error('render 必须是函数');
       if(panel.slot && typeof panel.renderSlot !== 'function') throw new Error('槽位面板需要 renderSlot(container)');
       if(panel.settingsTab && typeof panel.settingsTab.render !== 'function') throw new Error('settingsTab 需要 render(container)');
-      if(!panel.render && !panel.slot && !panel.settingsTab)
-        throw new Error('面板至少要声明 render(main) / slot+renderSlot(container) / settingsTab.render(container) 之一');
+      if(panel.readerTab && typeof panel.readerTab.render !== 'function') throw new Error('readerTab 需要 render(container, context)');
+      if(!panel.render && !panel.slot && !panel.settingsTab && !panel.readerTab)
+        throw new Error('面板至少要声明 render(main) / slot+renderSlot(container) / settingsTab.render(container) / readerTab.render(container, context) 之一');
       PANELS.push(panel);
       return panel.id;
     },
@@ -85,6 +87,16 @@
         id: p.settingsTab.id || p.id,
         label: p.settingsTab.label || p.label || p.id,
         render: p.settingsTab.render,
+      }));
+    },
+    /* 文献阅读区 tab：面板可通过 readerTab 贡献（阅读器只负责把它们排进右侧 tab 行）。
+       阅读器会传入上下文 {paper, refreshList, aiPolish}，见 literature.js。 */
+    readerTabs(){
+      return PANELS.filter(p => p.readerTab).map(p => ({
+        id: p.readerTab.id || p.id,
+        label: p.readerTab.label || p.label || p.id,
+        title: p.readerTab.title || '',
+        render: p.readerTab.render,
       }));
     },
   };

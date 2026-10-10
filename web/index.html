@@ -105,9 +105,9 @@
   <!-- web:app-js:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <script defer src="/dom-seam.js?v=261009"></script><!-- v261009 · A9：共享 DOM 变更订阅（window.ERWDom.onChildList）——7 个补丁各自建的文档级 MutationObserver 收敛为 1 个；提供 root 作用域、ignore 过滤、按帧合并与回调隔离。必须在所有补丁之前加载 -->
   <script defer src="/v260922-performance.js?v=261009r"></script><!-- v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore 过滤）；上版 A10：提供 window.erwFetch 接缝，不再全局替换 window.fetch -->
-  <script defer src="/app.js?v=261009h"></script><!-- v261009h · 设置页 tab 支持模块自登记（ERWPanels.settingsTab）；用量计费已搬成插件（导航项由插件登记）；上版：天气搬出内核 -->
-  <script defer src="/plugin-host.js?v=261009b"></script><!-- v261009b · 支持 nav.style（插件自带样式按 §2 以 [data-plugin] 作用域）；按 /api/plugins 清单加载面板，面板自登记 ERWPanels；单插件失败不影响内核（I4）且原因明示（I11） -->
-  <script defer src="/literature.js?v=261009b"></script><!-- v261009b · A10：api() 走接缝；上版：修复框选失效 + Esc 释放截图等待 -->
+  <script defer src="/app.js?v=261009i"></script><!-- v261009i · ERWPanels 新增 readerTab（阅读区 tab 自登记）；设置页 tab 支持模块自登记 -->
+  <script defer src="/plugin-host.js?v=261009c"></script><!-- v261009c · 除 nav[0] 外，还加载 manifest.panel.mount（没有导航页的 UI，如阅读区 tab） -->
+  <script defer src="/literature.js?v=261009d"></script><!-- v261009d · 阅读区 tab 可扩展（笔记由插件 litnote 提供）；PDF.js 改为本地 vendor 优先、CDN 兜底，并接上本地 cmaps/标准字体 -->
   <script defer src="/v260922-research-pages.js?v=261009c"></script><!-- v261009c · A9：5 处文档级 MutationObserver 改走 ERWDom.onChildList（保留各自的作用域与合并）；上版 A10：api() 与直连请求走 window.erwFetch 接缝 -->
   <script defer src="/v260930-floating-agent.js?v=261009e"></script><!-- v261009e · 写工具集合改为从 /api/agent/tools 的 write 标记动态推导（不再硬编码插件工具名）；清掉两处文献工具名 -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->

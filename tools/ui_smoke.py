@@ -183,13 +183,15 @@ def main(argv: list[str] | None = None) -> int:
         panels = page.evaluate(
             "() => (window.ERWPanels && window.ERWPanels.list ? window.ERWPanels.list() : [])"
             ".map(p => ({id: p.id, slot: p.slot || '', render: typeof p.render === 'function', "
-            "tab: p.settingsTab ? (p.settingsTab.id || p.id) : ''}))"
+            "tab: p.settingsTab ? (p.settingsTab.id || p.id) : '', "
+            "rtab: p.readerTab ? (p.readerTab.id || p.id) : ''}))"
         )
         if not page.evaluate("() => !!window.ERWPanels && typeof window.ERWPanels.register === 'function'"):
             fails.append("window.ERWPanels 面板注册表缺失（§6.3：功能无法自行登记导航与页面）")
         nav_panels = [str(p["id"]) for p in panels if p["render"]]
         slot_panels = [(str(p["id"]), str(p["slot"])) for p in panels if p.get("slot")]
         tab_panels = [(str(p["id"]), str(p["tab"])) for p in panels if p.get("tab")]
+        reader_tabs = [(str(p["id"]), str(p["rtab"])) for p in panels if p.get("rtab")]
         nav_routes = [r for r in page.eval_on_selector_all(".nav-item", "els => els.map(e => e.dataset.route)") if r]
         for pid in nav_panels:
             if pid not in nav_routes:
@@ -197,9 +199,9 @@ def main(argv: list[str] | None = None) -> int:
         for pid, slot in slot_panels:
             if not page.query_selector(f'[data-erw-slot="{slot}"] [data-plugin="{pid}"]'):
                 fails.append(f"槽位面板 {pid} 未挂载到槽位 {slot}")
-        for pid, tab in tab_panels:
+        for pid, tab in tab_panels + reader_tabs:
             if pid in nav_routes:
-                fails.append(f"{pid} 只贡献设置页 tab，却也在侧栏导航里多出了一项")
+                fails.append(f"{pid} 只贡献 tab（设置页/阅读区），却也在侧栏导航里多出了一项")
         if tab_panels:
             try:
                 page.goto(f"{args.base_url}/#settings", wait_until="domcontentloaded", timeout=args.timeout)
@@ -219,7 +221,8 @@ def main(argv: list[str] | None = None) -> int:
                             fails.append(f"设置页 tab「{tab}」渲染为空（{panel_len} 字）")
             except Exception as exc:
                 fails.append(f"设置页 tab 走查失败：{exc}")
-        notes.append(f"面板注册表：导航 {nav_panels}；槽位 {[(p, s) for p, s in slot_panels]}；设置页 tab {[t for _, t in tab_panels]}")
+        notes.append(f"面板注册表：导航 {nav_panels}；槽位 {slot_panels}；"
+                     f"设置页 tab {[t for _, t in tab_panels]}；阅读区 tab {[t for _, t in reader_tabs]}")
 
         rendered: dict[str, str] = {}
         # 走查清单 = 内核声明的路由 + 导航面板（槽位面板没有页面，不在此列）

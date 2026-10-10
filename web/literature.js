@@ -8,11 +8,21 @@ const PDF_DPR_CAP=2;       /* 高 DPI 屏限制离屏像素规模；视觉清晰
 const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],annByPage:new Map(),trimTimer:null,ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
 
 async function api(url,opts={}){const r=await (window.erwFetch||fetch)(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
+/* v261009.12 · PDF.js 优先用**本地 vendor**（`web/vendor/pdfjs/`）：核心阅读器不该依赖 CDN——
+   网络受限时原本**打不开任何 PDF**。本地缺失或脚本损坏才回退 CDN；同时把 cmap 与标准字体
+   路径也指向本地（中文 PDF 缺字形的根因就是没配这两项 + 没有本地 cmaps/standard_fonts）。 */
+const PDFJS_VER="3.11.174";
+const PDFJS_LOCAL={script:"/vendor/pdfjs/build/pdf.min.js",worker:"/vendor/pdfjs/build/pdf.worker.min.js",cmaps:"/vendor/pdfjs/cmaps/",fonts:"/vendor/pdfjs/standard_fonts/"};
+const PDFJS_CDN="https://cdn.jsdelivr.net/npm/pdfjs-dist@"+PDFJS_VER+"/build/";
+async function loadScriptOnce(src){return new Promise((ok,bad)=>{const s=document.createElement("script");s.src=src;s.onload=ok;s.onerror=()=>bad(new Error("加载失败："+src));document.head.appendChild(s)})}
 async function ensurePdfJs(){
  if(window.pdfjsLib)return;
- await new Promise((ok,bad)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";s.onload=ok;s.onerror=bad;document.head.appendChild(s)});
+ let used="local";
+ try{ await loadScriptOnce(PDFJS_LOCAL.script); }              /* 本地优先，不发探测请求 */
+ catch(e){ used="cdn"; await loadScriptOnce(PDFJS_CDN+"pdf.min.js"); }
  if(!window.pdfjsLib)throw new Error("PDF.js 加载失败");
- window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+ window.pdfjsLib.GlobalWorkerOptions.workerSrc=used==="local"?PDFJS_LOCAL.worker:PDFJS_CDN+"pdf.worker.min.js";
+ window.__pdfjsLocal=used==="local";
 }
 /* v260929 · 阅读区列表条目统一为文献列表页风格（.doc-item 同构）：标题→摘要→徽章行→项目+日期
    徽章行 = 阅读状态 + 收藏 + 分类标记；附件徽章去掉（点击条目本身即打开 PDF，徽章冗余）
@@ -53,7 +63,7 @@ async function openPaper(id){
  ]);
  S.paper=paper;S.annotations=Array.isArray(annotations)?annotations:[];rebuildAnnotationIndex();
  q("#lit-reader-empty").hidden=true;q("#lit-reader-live").hidden=false;side();loadList().catch(()=>{}) /* v260929 · 列表刷新仅更新徽章，不阻塞 PDF 加载 */;
- try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
+ try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024,...(window.__pdfjsLocal?{cMapUrl:PDFJS_LOCAL.cmaps,cMapPacked:true,standardFontDataUrl:PDFJS_LOCAL.fonts}:{})}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
  catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
 function releasePageCanvas(r){
@@ -450,11 +460,35 @@ async function annToNote(){
   loadList().catch(()=>{});
  }catch(e){if(btn){btn.textContent="失败";setTimeout(()=>btn&&(btn.textContent="加入笔记"),1500)}toast(e?.message||String(e),true)}
 }
-function side(){const p=S.paper;q("#lit-side").innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button><button data-tab="ai" title="AI 翻译 / 总结 / 整理 / 笔记润色">AI</button></div><div id="lit-side-body"></div>';qa("[data-tab]").forEach(b=>b.onclick=()=>{if(b.dataset.tab!=="annotations")S.selectedAnn=null;qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});sideTab("info")}
+/* v261009.12 · 阅读区 tab 可扩展：内核只提供「信息 / 批注 / AI」，
+   「笔记」由插件经 ERWPanels.readerTab 贡献（SCOPE §2.2：阅读进核心、笔记进附属）。
+   插件停用时该 tab 自然消失，阅读器其余部分不受影响。 */
+function readerTabList(){
+ return (window.ERWPanels?.readerTabs?.()||[]).map(t=>({id:t.id,label:t.label,title:t.title||"",render:t.render}));
+}
+function side(){
+ const tabs=[{id:"info",label:"信息"},{id:"annotations",label:"批注"},...readerTabList(),{id:"ai",label:"AI",title:"AI 翻译 / 总结 / 整理 / 笔记润色"}];
+ q("#lit-side").innerHTML='<div class="lit-side-tabs">'+tabs.map((t,i)=>'<button class="'+(i===0?"active":"")+'" data-tab="'+esc(t.id)+'"'+(t.title?' title="'+esc(t.title)+'"':'')+'>'+esc(t.label)+'</button>').join('')+'</div><div id="lit-side-body"></div>';
+ qa("[data-tab]").forEach(b=>b.onclick=()=>{if(b.dataset.tab!=="annotations")S.selectedAnn=null;qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});
+ sideTab("info");
+}
 function sideTab(tab){
  const root=q("#lit-side-body"),p=S.paper;
  if(tab==="info"){root.innerHTML='<div class="lit-info"><label>题名<input id="li-title" value="'+esc(p.title)+'"></label><label>作者<input id="li-authors" value="'+esc(p.authors||"")+'"></label><div class="lit-two"><label>年份<input id="li-year" value="'+esc(p.year||"")+'"></label><label>阅读状态<select id="li-status"><option '+(p.reading_status==="未读"?"selected":"")+'>未读</option><option '+(p.reading_status==="在读"?"selected":"")+'>在读</option><option '+(p.reading_status==="已读"?"selected":"")+'>已读</option></select></label></div><label class="lit-marks-label">分类标记</label><div class="mark-chip-box" id="li-marks"></div><label class="lit-marks-label">标签</label><div class="project-picker-row"><div class="project-chip-box" id="li-tags"></div><button type="button" class="secondary-btn project-add-btn" id="li-tag-add" title="添加标签：可勾选已有或输入新标签">＋</button></div><label>期刊 / 会议<input id="li-venue" value="'+esc(p.venue||"")+'"></label><div class="lit-two"><label>DOI<input id="li-doi" value="'+esc(p.doi||"")+'"></label><label>Cite Key<input id="li-cite" value="'+esc(p.cite_key||"")+'"></label></div><label class="lit-favorite"><input type="checkbox" id="li-favorite" '+(p.favorite?"checked":"")+'> 收藏此文献</label><button class="primary-btn" id="li-save">保存信息</button></div>';q("#li-save").onclick=saveInfo;renderLiMarks();paintLiTags(p.tags||[])}
- else if(tab==="annotations")annList();else if(tab==="ai")aiPanel();else note();
+ else if(tab==="annotations")annList();
+ else if(tab==="ai")aiPanel();
+ else {
+   const t=readerTabList().find(x=>x.id===tab);
+   if(t){ try{ t.render(root,{paper:p,refreshList:()=>loadList().catch(()=>{}),aiPolish:(text)=>aiPolishFromNote(text)}); }
+          catch(e){ root.innerHTML='<div class="empty danger">该 tab 渲染失败：'+esc(e?.message||String(e))+'</div>'; } }
+   else root.innerHTML='<div class="empty">未知的阅读区 tab：'+esc(tab)+'</div>';
+ }
+}
+/* 把「当前笔记交给 AI 整理润色」交给阅读器的 AI tab（与搬出前同一行为） */
+function aiPolishFromNote(text){
+ const t=String(text||"").trim();
+ if(!t){S.ai={...S.ai,text:"",result:"",error:"笔记为空：先写点内容，或回到 PDF 选中段落用「AI 整理」生成。",busy:false};switchTab("ai");aiPanel();return}
+ S.ai={...S.ai,text:t,instruction:"",result:"",error:"",busy:false};switchTab("ai");runAssist("polish","");
 }
 /* v260929 · PDF 阅读区 AI 助手：选中文本 → 翻译/总结/整理/自定义指令，结果可追加/替换到文献笔记（条目正文同源） */
 function switchTab(tab){qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab===tab))}
@@ -566,17 +600,9 @@ function annList(){
  qa("[data-open-ann]").forEach(x=>x.onclick=e=>{if(e.target.closest("[data-del]"))return;jumpToAnnotation(+x.dataset.page,x.dataset.openAnn)});
  qa("[data-del]").forEach(b=>b.onclick=async()=>{const page=+b.dataset.page;await api("/api/literature/"+S.paper.id+"/annotations/"+b.dataset.del,{method:"DELETE"});removeAnnotationLocal(b.dataset.del,page);paint(page);if(S.selectedAnn?.id===b.dataset.del)S.selectedAnn=null;annList()});
 }
-/* v260929f · 笔记插图：选本地图片 → 落盘笔记图片目录 → 光标处插入 Markdown 图片引用（路径口径与附件一致） */
+/* v261009.12 · 「笔记」tab 已搬成插件（plugins/litnote）：内核不再有 note()/saveNote()。
+   `insertAtCursor` 保留——「批注加入笔记」等核心流程仍用它。 */
 function insertAtCursor(ta,text){if(!ta)return;const s=ta.selectionStart??ta.value.length,e=ta.selectionEnd??s;ta.value=ta.value.slice(0,s)+text+ta.value.slice(e);const p=s+text.length;ta.focus();ta.setSelectionRange(p,p)}
-async function uploadNoteImage(file){
- const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result));r.onerror=()=>rej(new Error("读取图片失败"));r.readAsDataURL(file)});
- return api("/api/literature/note-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({paper_id:S.paper.id,data_url:dataUrl})});
-}
-async function note(){const root=q("#lit-side-body"),d=await api("/api/literature/"+S.paper.id+"/note");root.innerHTML='<textarea class="lit-note" id="lit-note" placeholder="Markdown 文献笔记…（与知识库条目正文同源，文献编辑器里看到的是同一份）">'+esc(d.content||"")+'</textarea><div class="lit-note-actions"><span>与知识库条目正文同源 · Ctrl+S 保存</span><span style="display:flex;gap:6px"><button type="button" class="secondary-btn" id="lit-note-img" title="上传图片到笔记图片目录，并在光标处插入 Markdown 图片引用">插入图片</button><input type="file" id="lit-note-img-file" accept="image/png,image/jpeg,image/webp" hidden><button type="button" class="secondary-btn" id="lit-note-ai" title="把当前笔记交给 AI 整理润色，结果在 AI 面板确认后写入">AI 整理</button><button class="primary-btn" id="lit-note-save">保存笔记</button></span></div>';q("#lit-note-save").onclick=saveNote;
- const imgBtn=q("#lit-note-img"),imgFile=q("#lit-note-img-file");
- if(imgBtn&&imgFile){imgBtn.onclick=()=>imgFile.click();imgFile.onchange=async()=>{const f=imgFile.files&&imgFile.files[0];imgFile.value="";if(!f)return;imgBtn.disabled=true;const old=imgBtn.textContent;imgBtn.textContent="上传中…";try{const r=await uploadNoteImage(f);insertAtCursor(q("#lit-note"),"!["+(r.filename||"图片")+"]("+(r.path||"")+")")}catch(e){toast(e?.message||String(e),true)}finally{imgBtn.disabled=false;imgBtn.textContent=old}}}
- q("#lit-note-ai").onclick=()=>{const t=q("#lit-note").value.trim();if(!t){S.ai={...S.ai,text:"",result:"",error:"笔记为空：先写点内容，或回到 PDF 选中段落用「AI 整理」生成。",busy:false};switchTab("ai");aiPanel();return}S.ai={...S.ai,text:t,instruction:"",result:"",error:"",busy:false};switchTab("ai");runAssist("polish","")}}
-async function saveNote(){await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:q("#lit-note").value})});loadList().catch(()=>{}) /* v260929 · 保存后刷新左栏（摘要取自同一份正文） */}
 function throttle(fn,ms){let wait=false;return(...a)=>{if(wait)return;wait=true;fn(...a);setTimeout(()=>wait=false,ms)}}
 
 async function start(){shell();await loadList()}

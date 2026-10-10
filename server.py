@@ -757,6 +757,13 @@ def build_plugin_payload(root, workspace_dir, detail: bool = False) -> dict:
         row = {"id": pid, "version": cand.version, "source": cand.source,
                "distribution": manifest.get("distribution") or "",
                "nav": nav}
+        # v261009.12 · 没有导航页的 UI（只贡献阅读区/设置页 tab、或只是槽位组件）：
+        # 宿主也按这个字段加载面板脚本，否则插件前端永远不会被注册（如 litnote 的阅读区「笔记」tab）。
+        panel = manifest.get("panel")
+        if isinstance(panel, dict) and panel.get("mount"):
+            row["panel_url"] = asset_url(str(panel["mount"]).lstrip("/"))
+            if panel.get("style"):
+                row["panel_style_url"] = asset_url(str(panel["style"]).lstrip("/"))
         if detail:
             perms = [str(p) for p in (manifest.get("permissions") or [])]
             routes = []

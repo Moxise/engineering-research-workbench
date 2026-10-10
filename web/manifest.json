@@ -105,21 +105,21 @@
     },
     {
       "file": "app.js",
-      "v": "261009h",
+      "v": "261009i",
       "theme": "base",
-      "note": "v261009h · 设置页 tab 支持模块自登记（ERWPanels.settingsTab）；用量计费已搬成插件（导航项由插件登记）；上版：天气搬出内核"
+      "note": "v261009i · ERWPanels 新增 readerTab（阅读区 tab 自登记）；设置页 tab 支持模块自登记"
     },
     {
       "file": "plugin-host.js",
-      "v": "261009b",
+      "v": "261009c",
       "theme": "plugin-host",
-      "note": "v261009b · 支持 nav.style（插件自带样式按 §2 以 [data-plugin] 作用域）；按 /api/plugins 清单加载面板，面板自登记 ERWPanels；单插件失败不影响内核（I4）且原因明示（I11）"
+      "note": "v261009c · 除 nav[0] 外，还加载 manifest.panel.mount（没有导航页的 UI，如阅读区 tab）"
     },
     {
       "file": "literature.js",
-      "v": "261009b",
+      "v": "261009d",
       "theme": "literature",
-      "note": "v261009b · A10：api() 走接缝；上版：修复框选失效 + Esc 释放截图等待"
+      "note": "v261009d · 阅读区 tab 可扩展（笔记由插件 litnote 提供）；PDF.js 改为本地 vendor 优先、CDN 兜底，并接上本地 cmaps/标准字体"
     },
     {
       "file": "v260922-research-pages.js",

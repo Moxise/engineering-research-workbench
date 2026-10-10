@@ -111,6 +111,16 @@ def lit_annotations(paper_id: str, page: int | None = None) -> list:
     return literature.get_annotations(paper_id, page)
 
 
+def lit_note_image(paper_id: str, data_url: str) -> dict:
+    """把 data_url 图片落盘到**笔记图片目录**，返回路径口径与附件一致的引用（供笔记 Markdown 使用）。
+
+    与核心阅读器「插入图片」走的是同一个核心实现（`literature.save_note_image`）。
+    """
+    from app import literature
+
+    return literature.save_note_image(paper_id, data_url)
+
+
 def system_dir(plugin_id: str) -> Path:
     """插件自有系统数据目录：`System/Plugins/<id>/`。"""
     return _data_root() / "Workspace" / "System" / "Plugins" / plugin_id
@@ -148,5 +158,5 @@ def log(plugin_id: str, message: str) -> None:
 __all__ = [
     "API_VERSION", "plugin_dir", "cache_db", "workspace_dir", "data_root", "system_dir",
     "config_path", "read_config", "write_config", "http_get", "log",
-    "lit_list", "lit_item", "lit_note", "lit_note_save", "lit_annotations",
+    "lit_list", "lit_item", "lit_note", "lit_note_save", "lit_annotations", "lit_note_image",
 ]

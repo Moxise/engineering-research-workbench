@@ -27,8 +27,35 @@ def _clip(text: str, limit: int = _MAX_BODY_CHARS) -> str:
 
 
 def register(ctx):
-    """只注册工具（这是计划的「插件工具包」形态），不注册路由与面板。"""
+    """注册工具 + 阅读区「笔记」tab 需要的三个接口。"""
     import core_api
+
+    # ---- 阅读区「笔记」tab 的数据面（面板只跟自己的路由打交道）----
+    def route_note_get(request):
+        q = request.get("query") or {}
+        paper_id = str((q.get("paper_id") or [""])[0])
+        if not paper_id:
+            raise ValueError("paper_id 不能为空")
+        return {"paper_id": paper_id, "content": core_api.lit_note(paper_id)}
+
+    def route_note_post(request):
+        body = request.get("body") or {}
+        paper_id = str(body.get("paper_id") or "")
+        if not paper_id:
+            raise ValueError("paper_id 不能为空")
+        return core_api.lit_note_save(paper_id, str(body.get("content") or ""))
+
+    def route_note_image(request):
+        body = request.get("body") or {}
+        paper_id = str(body.get("paper_id") or "")
+        data_url = str(body.get("data_url") or "")
+        if not data_url:
+            raise ValueError("data_url 不能为空")
+        return core_api.lit_note_image(paper_id, data_url)
+
+    ctx.routes.get("note", route_note_get)
+    ctx.routes.post("note", route_note_post)
+    ctx.routes.post("note-image", route_note_image)
 
     def tool_context(args, call_ctx):
         paper_id = str((args or {}).get("paper_id") or (call_ctx or {}).get("paper_id") or "").strip()
@@ -87,4 +114,4 @@ def register(ctx):
         "write": True,
     }, tool_note_write)
 
-    ctx.log("文献笔记插件已注册（工具 p_litnote__context / p_litnote__note_write）")
+    ctx.log("文献笔记插件已注册（工具 p_litnote__context / p_litnote__note_write；阅读区「笔记」tab）")

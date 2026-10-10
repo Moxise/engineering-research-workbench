@@ -58,11 +58,15 @@
     host.plugins = (data && data.plugins) || [];
     for (var i = 0; i < host.plugins.length; i++) {
       var plugin = host.plugins[i] || {};
+      /* 面板脚本来源两种：nav[0]（有导航页的插件）与 panel_url（**没有导航页**的 UI——
+         只贡献阅读区/设置页 tab 或槽位组件，如 litnote 的「笔记」tab）。都没有就跳过。 */
       var nav = (plugin.nav || [])[0];
-      if (!nav || !nav.url) continue;
+      var scriptUrl = (nav && nav.url) || plugin.panel_url || '';
+      var styleUrl = (nav && nav.style_url) || plugin.panel_style_url || '';
+      if (!scriptUrl) continue;
       try {
-        if (nav.style_url) loadStyle(nav.style_url); /* 插件自带样式，按 §2 作用域 */
-        await loadScript(nav.url);
+        if (styleUrl) loadStyle(styleUrl); /* 插件自带样式，按 §2 作用域 */
+        await loadScript(scriptUrl);
         host.loaded.push(plugin.id);
       } catch (err) {
         var reason = (err && err.message) ? err.message : String(err);

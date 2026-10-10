@@ -292,6 +292,31 @@ def validate(
         issues.append(_issue("P017", "warn", "声明了 nav 面板但未申请 ui:panel 权限",
                              "把 `ui:panel` 加入 permissions，便于安装时向用户展示"))
 
+    # P020 · panel：**没有导航页**的 UI（例如只往阅读区/设置页贡献 tab，或只是槽位组件）。
+    #       宿主按这个字段加载面板脚本；它与 nav[] 可并存，也可以单独存在。
+    panel = manifest.get("panel")
+    if panel is not None:
+        if not isinstance(panel, dict):
+            issues.append(_issue("P020", "error", "panel 必须是对象",
+                                 '如 `{"mount":"web/panel.js","style":"web/panel.css"}`'))
+        else:
+            pmount = str(panel.get("mount") or "").strip()
+            if not pmount:
+                issues.append(_issue("P020", "error", "panel 缺少 mount", "指向面板脚本，如 `web/panel.js`"))
+            elif Path(pmount).is_absolute() or ".." in Path(pmount).parts:
+                issues.append(_issue("P020", "error", f"panel.mount `{pmount}` 必须是插件目录内的相对路径", ""))
+            elif plugin_dir is not None and not (Path(plugin_dir) / pmount).is_file():
+                issues.append(_issue("P020", "error", f"panel.mount 指向的文件不存在：{pmount}", ""))
+            pstyle = str(panel.get("style") or "").strip()
+            if pstyle:
+                if Path(pstyle).is_absolute() or ".." in Path(pstyle).parts:
+                    issues.append(_issue("P020", "error", f"panel.style `{pstyle}` 必须是插件目录内的相对路径", ""))
+                elif plugin_dir is not None and not (Path(plugin_dir) / pstyle).is_file():
+                    issues.append(_issue("P020", "error", f"panel.style 指向的文件不存在：{pstyle}", ""))
+            if "ui:panel" not in [str(p) for p in (permissions or [])]:
+                issues.append(_issue("P017", "warn", "声明了 panel 但未申请 ui:panel 权限",
+                                     "把 `ui:panel` 加入 permissions，便于安装时向用户展示"))
+
     return issues
 
 

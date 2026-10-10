@@ -42,6 +42,7 @@
 !web/**/*.json
 !web/favicon.png
 
+
 # ==========================================================
 # MCP 工具层（v261009 教训：不在白名单 → 回滚时整目录不受保护）
 # ==========================================================
@@ -93,3 +94,16 @@ _timing_*
 # 字节码与运行缓存永不入库（放最后，覆盖上面的放行规则）
 __pycache__/
 *.pyc
+
+# 本地 vendor 的 PDF.js（核心阅读器不该依赖 CDN；A1「按需且不依赖网络」）
+# 注意 ① `build/` 那条忽略规则是给构建产物的，会误伤这里的 build 目录，必须整目录重新放行；
+#      ② 目录被忽略时，里层的 `!` 规则无效，所以要逐级放行；
+#      ③ 这些规则必须放在**文件末尾**——gitignore 是"后面的规则优先"。
+!web/vendor/pdfjs/
+!web/vendor/pdfjs/build/
+!web/vendor/pdfjs/build/pdf.min.js
+!web/vendor/pdfjs/build/pdf.worker.min.js
+!web/vendor/pdfjs/cmaps/
+!web/vendor/pdfjs/cmaps/**
+!web/vendor/pdfjs/standard_fonts/
+!web/vendor/pdfjs/standard_fonts/**
