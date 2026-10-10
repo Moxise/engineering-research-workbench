@@ -181,17 +181,17 @@ Markdown + frontmatter 是唯一事实来源，SQLite 索引是可重建派生�
 
 ## 6. 未来规划（Roadmap：以下均为**尚未实现**）
 
-> 已实现的按 §2.1 现状；本节只列**还没做**的。落地顺序与验收见 [REFACTOR_PLAN §7](REFACTOR_PLAN.md)。
+> 已实现的按 §2.1 现状；本节列**还没做**的，阶段 1/2 保留成行仅为记录状态（✅ = 已落地）。落地顺序与验收见 [REFACTOR_PLAN §7](REFACTOR_PLAN.md)。
 
 ### 阶段 1 · 地基（不加新功能，纯结构）
 
 | 项 | 内容 | 状态 |
 | --- | --- | --- |
-| 契约单一源 | `core/contracts/` 统一 kind / 字段 / 状态机 / 骨架，消灭 3 处副本与 2 套校验 | 未实现 |
-| Doctor + 迁移框架 | `python -m core.doctor`；版本单一入口；可回滚迁移 | 未实现 |
-| 取回验证工具 | `tools/kb_smoke.py`、`tools/shot_page.py`（现不在本分支，在 git 里） | 未实现（A13） |
-| 插件运行时 | manifest 扫描/校验、注册表、依赖拓扑、隔离熔断、`python -m core.plugins` CLI | 未实现 |
-| `.zip` 自动解包 | 放进 `plugins/` 即自动解包到 `plugins/<id>/`（每插件独立文件夹，见 PLUGIN_SPEC §2） | 未实现 |
+| 契约单一源 | ✅ 已实现：`core/contracts/{kinds,naming,validate}.py` 是唯一声明处；`app/store.py` 直接引用，`mcp/constraints.py` 退化为门面（`from core.contracts.kinds import *`） | 已实现 |
+| Doctor + 迁移框架 | ✅ 已实现：`python -m core.doctor`（只读体检）+ `VERSION` 单一版本入口 + `core/index/migrate.py`（幂等迁移） | 已实现 |
+| 取回验证工具 | ✅ 已实现：`tools/kb_smoke.py`、`tools/web_check.py`、`tools/ui_smoke.py`、`tools/plugin_check.py`、`tools/shot_page.py`、`tools/shot_prep.py` | 已实现（A13 关闭） |
+| 插件运行时 | ✅ 已实现：`core/plugins/{manifest,registry,loader,context,runtime}.py` + `python -m core.plugins list\|check\|verify`（发现/校验/拓扑/熔断） | 已实现 |
+| `.zip` 自动解包 | 放进 `plugins/` 即自动解包到 `plugins/<id>/`（每插件独立文件夹，见 PLUGIN_SPEC §2） | **未实现 —— 阶段 1 唯一剩余项**：目录态插件已可用，但 `core/plugins/loader.py` 尚无 zip 识别/解包；实测把 `.zip` 丢进扫描根会被**静默忽略**（退出码 0、无提示）；PLUGIN_SPEC §2/§12 已标注「规格已定、代码未实现」 |
 
 ### 阶段 2 · 拆插件（每个都须附《迁移等价性报告》）
 
@@ -199,10 +199,10 @@ Markdown + frontmatter 是唯一事实来源，SQLite 索引是可重建派生�
 | --- | --- | --- |
 | **文献阅读工作区（PDF + 批注 + 笔记 + 阅读区 AI）** | ✅ 已迁 `plugins/literature-reader` **v2.0.0**（v261009.14 起为插件；**v261009.17 合并**原 litnote + reader-assist，插件数 9→7） | 附属（反转 D-C；合并后仍是一个开关） |
 | 文献笔记（编辑界面 + `context` / `note_write` 两个 AI 工具） | ✅ 已并入 `plugins/literature-reader`（工具名变为 `p_literature-reader__*`，旧名走 `LEGACY_TOOL_ALIASES` 兼容） | 附属 |
-| 专注计时 | `web/app.js`（0 路由） | 附属 |
-| 天气 | `app/weather.py`（2 路由） | 附属 |
-| RSS 资讯 | `app/rss.py`（1 路由） | 附属 |
-| 用量计费 | `app/billing.py`（5 路由）+ `v261008-billing.js` | 附属 |
+| 专注计时 | ✅ 已迁 `plugins/focus`（自登记 `ERWPanels` 面板；内核仅留一行历史注释） | 附属 |
+| 天气 | ✅ 已迁 `plugins/weather`（顶栏槽位 + 设置模态；配置落 `config/plugins/weather.json`） | 附属 |
+| RSS 资讯 | ✅ 已迁 `plugins/rss`（后端走 `/api/plugins/rss/*`，配置落 `config/plugins/rss.json`） | 附属 |
+| 用量计费 | ✅ 已迁 `plugins/billing`（自登记面板：导航项 + 标题 + 渲染） | 附属 |
 | 悬浮球助手 | ✅ 已迁 `plugins/floating-assist`（v261009.16，浮层槽位 `overlay`） | 附属 |
 | 阅读区 AI 助手 + 多模态截图 | ✅ 已并入 `plugins/literature-reader` **v2.0.0**（v261009.15 先做插件，v261009.17 合并；截图入口随悬浮球/阅读区，多模态开关设置留内核） | 附属 |
 | 工具轨迹时间线 | ✅ 已迁 `plugins/floating-assist`（`window.ERWFabTimeline`，内核 Agent 消息**空值保护消费**） | 附属 |

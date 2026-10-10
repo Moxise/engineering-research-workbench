@@ -1,5 +1,20 @@
 # Changelog
 
+## v261009.20
+
+**完成情况审计（回答「检查任务完成情况」）+ 文档漂移修正。**
+
+- **审计方法**：把 SCOPE §6 路线图的 5 个阶段逐行拿去实测（契约单一源 / doctor / 验证工具 / 插件运行时 / `.zip` 解包 / 四插件归属 / AI 边界），而不是只看文档自述。
+- **发现并修正 8 行文档漂移**（活儿早干完了，文档还写「未实现」）：
+  - **阶段 1 五项里 4 项**（契约单一源、Doctor + 迁移框架、取回验证工具、插件运行时）实测均已落地 —— 例：`app/store.py:18-20` 直接 `from core.contracts import …`，`mcp/constraints.py:10` 退化为门面，`python -m core.doctor` / `core.plugins list|check|verify` 均可用，`tools/` 六个闸门脚本齐备 → 状态改为「已实现」。
+  - **阶段 2 四行**（专注计时 / 天气 / RSS / 用量计费）仍写旧位置 `web/app.js`、`app/weather.py`、`app/rss.py`、`app/billing.py` —— 实测这四个文件**都已不存在**，功能在 `plugins/{focus,weather,rss,billing}`，内核只剩一行历史注释（`app.js:623/721/1276/1399`）→ 改为 `✅ 已迁 plugins/<id>`。
+- **发现唯一真缺口：`.zip` 自动解包「规格完整、代码零实现」。**
+  - 全仓搜 `zipfile|\.zip|extractall` 在 `core/`（含 `core/plugins/*.py` 七个文件）**命中 0 次**：`loader.py` 只识别目录态。
+  - **实测行为**（临时扫描根，未动真插件目录）：造一个 `hello-1.0.0.zip`（`plugin.json` 在根）放进 `--plugins-root` → 输出「未发现任何插件」、**退出码 0、无任何提示** —— 用户丢个 zip 进来是**完全静默**的，比报错更糟。
+  - 已在 `docs/PLUGIN_SPEC.md` §2「解包规则」加状态横幅、§2 形态表与 §12 P-B 标注「**已定、未实现**」，`docs/SCOPE.md` §6 阶段 1 标为「**唯一剩余项**」。
+- **AI 边界核对（回答你对「内核只做 AI 设置」那条）**：实测**你的描述已经是现状，无需改代码** —— ① AI 设置全部在 `config/app.json` 的 `llm` 段（`enabled / personas×3 / system_prompt / vision_enabled / assist`×10 键）；② `config/plugins/` 下只有 `weather.json`、`rss.json`（各自业务数据），**没有任何插件自存 AI 设置**；③ 插件是*消费*内核设置：`floating-assist/web/panel.js:340` 读 `/api/config` 取人设、`:1229` 把人设写回 `/api/config/app`，`literature-reader` 走内核 `ERWVisionEnabled` / `ERWAssistCustomActions` 接缝且 LLM 调用走内核 `POST /api/agent/assist`；④ 内核侧 AI 工具**恰为 4 个** `kb_*`，其余（`context` / `note_write`）在文献插件里。
+- 状态：插件 **7 个可用 · 0 blocked / rejected / 冲突**；`doctor` error 0；工作树干净。
+
 ## v261009.19
 
 - **三处「小账」全修**（按你的选择）：
