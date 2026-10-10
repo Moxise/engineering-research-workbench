@@ -24,6 +24,18 @@ plugins/
 
 拒收与冲突会**明确写出原因**（清单不在包根、校验不过、路径穿越、手放目录…），不会静默忽略。
 
+## 想自己写一个插件？
+
+```powershell
+python tools/new_plugin.py my-tool --name "我的工具" --desc "一句话说明它干什么"
+```
+
+从 [`plugins/.template/`](.template/) 生成一个**能直接跑**的最小插件（导航页 + 设置页 tab + 两个路由 +
+一个 Agent 工具 + 自有配置），并先校验再落盘。照它改**不需要修改内核任何一行**——
+上手步骤、接缝清单、兼容性承诺见 [PLUGIN_SPEC §13](../docs/PLUGIN_SPEC.md)。
+
+> `.template/` 以点开头，**不会被当成插件**（`discover` 与两个前端体检工具都跳过点目录）。
+
 常用命令：
 
 ```powershell

@@ -300,6 +300,11 @@
     /* v260923u · 切页不再先清空主区为 LOADING：保留旧页面内容直到新页数据就绪后一次性替换，
      * 消除「白一下→加载→跳变」的重新加载感。navSeq 序号守卫：快速连点时丢弃过期渲染的收尾动画/错误覆盖。 */
     const seq=state.navSeq=(state.navSeq||0)+1;
+    const mainEl=$('#main');
+    /* v261009.22 · 挂载点标记：内核在插件自登记的容器上写 data-plugin=<id>，插件样式才能按
+       §2 作用域（此前只有槽位容器带这个属性，导航页/设置 tab 拿不到，§2 的规则对它们落不了地）。
+       每次导航先清掉上一轮的值，避免插件 CSS 泄漏到内核页面。 */
+    if(mainEl) delete mainEl.dataset.plugin;
     try {
       if(route==='overview') await renderOverview();
       else if(route==='todos') await renderTodos();
@@ -308,7 +313,11 @@
       else if(route==='graph') await renderGraphPage();
       else if(route==='folders') await renderFolders();
       else if(route==='settings') await renderSettings();
-      else if(window.ERWPanels.get(route)?.render) await window.ERWPanels.get(route).render($('#main')); /* 面板登记项（槽位面板没有 render，不进这里） */
+      else if(window.ERWPanels.get(route)?.render){
+        const panel=window.ERWPanels.get(route);
+        if(mainEl) mainEl.dataset.plugin=panel.id;
+        await panel.render(mainEl); /* 面板登记项（槽位面板没有 render，不进这里） */
+      }
       else if(KIND_ROUTE[route]) await renderDocsPage(KIND_ROUTE[route]);
       else await renderOverview();
       if(seq!==state.navSeq) return false; /* v260930g9c · 已被更新导航取代：视为未完成 */
@@ -1286,8 +1295,10 @@
     $$('[data-set-tab]').forEach(b=>b.onclick=()=>{
       $$('[data-set-tab]').forEach(x=>x.classList.toggle('active',x===b));
       const tab=window.ERWPanels.settingsTabs().find(t=>t.id===b.dataset.setTab);
-      if(tab){const p=$('#settings-panel');p.innerHTML='';try{tab.render(p)}catch(e){p.innerHTML=`<div class="rss-alert danger"><strong>该设置页渲染失败</strong><span>${esc(e.message)}</span></div>`}}
-      else renderSettingsTab(b.dataset.setTab,cfg);
+      const p=$('#settings-panel');
+      /* v261009.22 · 插件自登记的设置 tab 也带 data-plugin=<id>（与导航页、槽位一致）；内核 tab 清掉 */
+      if(tab){p.innerHTML='';p.dataset.plugin=tab.id;try{tab.render(p)}catch(e){p.innerHTML=`<div class="rss-alert danger"><strong>该设置页渲染失败</strong><span>${esc(e.message)}</span></div>`}}
+      else {delete p.dataset.plugin; renderSettingsTab(b.dataset.setTab,cfg);}
     });renderSettingsTab('general',cfg);
   }
   function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='general'){

@@ -1,0 +1,29 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "__DESC__",
+
+  "api_version": 1,
+  "core_min": "__CORE_MIN__",
+
+  "kind": "inprocess",
+  "distribution": "optional",
+  "default_enabled": false,
+
+  "entry": "backend.py",
+
+  "permissions": ["ui:panel", "storage:own", "config:own"],
+
+  "nav": [
+    { "id": "__ID__", "label": "__NAME__", "icon": "__ICON__", "mount": "web/panel.js" }
+  ],
+  "panel": { "mount": "web/panel.js", "style": "web/panel.css" },
+
+  "routes": [
+    { "method": "GET", "path": "hello" },
+    { "method": "GET", "path": "config" },
+    { "method": "POST", "path": "config" }
+  ],
+  "mcp_tools": ["ping"]
+}

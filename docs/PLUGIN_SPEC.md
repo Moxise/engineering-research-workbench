@@ -54,7 +54,7 @@ plugins/weather/
 ├─ backend.py           # 可选：register(ctx) 入口
 ├─ web/
 │  ├─ panel.js          # 可选：export mount(ctx) / unmount()
-│  └─ panel.css         # 可选：必须以 [data-plugin="weather"] 作用域
+│  └─ panel.css         # 可选：必须以 [data-plugin="weather"] 作用域（内核给挂载容器打这个属性）
 ├─ migrations/          # 可选：自有数据迁移（NNNN_*.py）
 └─ README.md
 ```
@@ -215,6 +215,7 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | `window.ERWReader.register({id, open(paperId?), openByAttachment(att), context?()})` | **阅读区接管**：内核在文献列表页点「PDF 阅读工作区」或点附件徽章时调它。无接管者时内核**不显示该入口**，并在用户试图打开时给明确提示（"阅读区不可用：请启用…"），文献列表/元数据条目页照常可用。首个使用者是 [`plugins/literature-reader`](REFACTOR_PLAN.md) |
 | `window.ERWReaderAssist.register({id, tabId, run(action,payload), attach?, fromNote?, useImage?})` | **阅读区助手**（**插件提供、插件消费**的接缝，v261009.15）：阅读区把「选中动作 / 框选截图 / 笔记 AI 整理」派发给助手插件，派发前切到它声明的 `tabId`；助手在 `attach(ctx)` 里拿到实时上下文 `{paper, refreshList, selection(), capture{page(),area()}, activate(), aiPolish()}`。阅读区因此**不认识任何具体助手**，助手停用 → AI tab 与工具条按钮一起消失。首个使用者是 [`plugins/reader-assist`](REFACTOR_PLAN.md) |
 | **槽位面板**（manifest `nav[].slot` + `ERWPanels.register({slot, renderSlot})`） | 内核给挂载点并给容器加 `data-plugin="<id>"`，插件**只在容器内**画东西。已知槽位由 `core/plugins/manifest.KNOWN_SLOTS` 声明（新增槽位是有意的动作），当前两个：`topbar`（顶栏一行，`#topbar-slot`）与 **`overlay`**（页面浮层 `#erw-overlay-host`——悬浮球这类「始终挂在页面上」的 UI 用它；**不要**直接往 `document.body` 塞 DOM） |
+| **挂载点标记 `data-plugin="<id>"`**（v261009.22） | 内核在插件自登记的容器上写这个属性：导航页 `#main`、设置页 `#settings-panel`、槽位容器（阅读区 tab 由阅读区插件自己的容器负责）。**插件 CSS 一律包在 `[data-plugin="<id>"]` 里**；每次导航/切 tab 先清掉上一轮的值，所以插件样式不会泄漏到内核页面，也不会与别的插件互踩 |
 | `window.erwFetch(url, init)` | 出网与访问内核 HTTP API（**不得**替换 `window.fetch`） |
 | `window.erwVendor.load('mathjax'\|'mermaid')` | 重型库按需加载（本地优先、CDN 兜底） |
 | `window.ERWDom.onChildList(cb, {root})` | 文档级 DOM 变更观察的唯一入口（内核合并成一个 observer） |
@@ -431,3 +432,69 @@ AI 的工具**只有三种来源**，且核心默认只开第一种：
 | --- | --- | --- |
 | **P-A** | 单文件包扩展名 | ✅ **先用 `.zip`**，后续再改（将来可加 `.erwp` 别名，两种都要能识别） |
 | **P-B** | 是否自动解包 | ✅ **自动解包**（v261009.21 已实现 `core/plugins/unpack.py`），但**每个功能模块一个独立文件夹、不能混用**——规则见 §2「解包规则」 |
+
+---
+
+## 13. 上手：从模板到可用插件（不改内核）
+
+### 13.1 一句话回答四个问题
+
+| 问题 | 结论 | 靠什么成立 | 可执行证据 |
+| --- | --- | --- | --- |
+| **① 内核预留了接入基础，按标准放进目录就能用** | ✅ 成立 | 目录即发现（§1 两个来源）；清单校验/依赖拓扑/命名空间隔离/单文件包解包都在内核侧 | `python -m core.plugins list`；`.scratch/tmp/verify_zip_unpack.py` |
+| **② 有模板，照它开发不用改内核** | ✅ 成立 | `plugins/.template/` + `tools/new_plugin.py` | `.scratch/tmp/verify_plugin_template.py` ①（脚手架）/②（占位符与校验） |
+| **③ 加插件不用动内核 UI** | ✅ 成立 | 4 类自登记点（导航页 / 设置页 tab / 阅读区 tab / 槽位）+ 挂载点带 `data-plugin=<id>` 做样式作用域 | 同一夹具 ⑦：真浏览器里新页面与新 tab 可用、切回内核页面属性被清掉、0 console error |
+| **④ 内核可改，且改一次不会废掉所有插件** | ⚠️ **有边界**，见 §13.3 | `api_version`（不匹配**明确拒载**，不是静默失效）、`core_min`、接缝只增不删、模板即回归夹具 | 夹具 ④（内核源码零引用）+ ⑨（装不上的插件在设置页如实可见） |
+
+**③ 的边界要说清**：这里的"不动内核 UI"指**新增功能不需要改内核**。如果新插件要往**既有内核页面内部**塞东西（例如在文献列表页加一个按钮），那必须有内核先声明一个接缝——这属于 §6.2 的第 ② 类（一次性加一种"形态"），是**有意设计**的：内核不认识具体功能，插件也不能改内核 DOM。
+
+### 13.2 三步做出一个插件
+
+```powershell
+# ① 生成（会校验一遍，通过才落盘；默认拒绝覆盖已存在目录）
+python tools/new_plugin.py my-tool --name "我的工具" --desc "一句话说明它干什么"
+
+# ② 改三个文件：backend.py（路由/工具/配置）、web/panel.js（界面）、web/panel.css（样式）
+#    不需要动内核任何文件——内核源码里不该出现你插件的 id
+
+# ③ 验证 → 重启 → 启用
+python -m core.plugins list
+python -m core.plugins check my-tool
+python tools/plugin_check.py      # 改了插件后端就跑
+python tools/web_check.py         # 改了插件前端就跑
+```
+
+**模板里有什么**（都带占位符，`new_plugin.py` 会替换成你的 id / 名字 / 最低内核版本）：
+
+| 文件 | 演示了什么 |
+| --- | --- |
+| `plugin.json` | 清单：权限、导航项、`panel.style`、`routes`、`mcp_tools`；`core_min` 默认取**当前内核版本** |
+| `backend.py` | `register(ctx)`：`ctx.routes.get/post`、`ctx.mcp.tool`、`ctx.config_read/write`、`ctx.log` |
+| `web/panel.js` | 自登记导航页 + 设置页 tab；`window.erwFetch` 调自己的后端；`ERWContract`/`ERWToast` 空值保护 |
+| `web/panel.css` | 全部选择器落在 `[data-plugin="<id>"]` 里（否则样式会泄漏到内核页面） |
+| `README.md` | 改哪四步、怎么验证、隔离边界、7 个真实插件的"想看什么就看哪个"索引 |
+
+**挂载点与样式作用域**：内核会给插件自登记的容器写 `data-plugin="<id>"` —— 导航页（`#main`）、
+设置页（`#settings-panel`）、槽位容器；每次导航/切 tab 先清掉上一轮的值，所以插件 CSS **不会**
+泄漏到内核页面。阅读区 tab 的容器由阅读区插件自己提供，同样按此约定加属性。
+
+**生成新插件用到的目录约定**（`new_plugin.py` 会自动遵守）：
+
+1. 目录名必须等于 `plugin.json` 的 `id`（否则 P018 拒载）；
+2. 渲染与校验在 `<plugins>/.staging/<id>/` 里做，通过后原子改名为 `<plugins>/<id>/`——不会留下半成品被扫描器读到；
+3. `--force` 重做时，旧目录整体挪到 `<plugins>/.backup-<id>-<时间戳>/`（不删除、不与新文件合并）；
+4. 一律写 **UTF-8 无 BOM**（带 BOM 会让 `plugin.json` 解析失败、`core_min` 比较全线失败）。
+
+### 13.3 兼容性承诺：内核怎么改才不"一改废掉所有插件"
+
+| 规则 | 说明 |
+| --- | --- |
+| **`api_version` 只在破坏性变更时 +1** | 它代表"插件所依赖的内核 API 版本"，不是内核版本。**新增**接缝、新增字段、新增槽位都**不动** `api_version`；只有"旧插件按老写法必然走不通"（删改已有接缝语义、改签名）才 +1，并在 CHANGELOG 里明写迁移方法。 |
+| **不匹配就明确拒载** | `api_version` 不符 → `rejected` 并给出「升级内核或换插件版本」（I7）。刻意不做"尽力而为"的兼容：静默半坏比拒绝更贵。 |
+| **接缝只增不删** | §6.1 里的接缝即使没人用也不删；确要下线，先在 §6.1 标注「已弃用」并保留至少一个大版本。 |
+| **`core_min` 是插件侧的下限** | 插件声明"至少需要哪个内核"；内核版本高于它就一直可用（`v261009.22` 满足 `v261009`）。反向（内核低于插件要求）→ `rejected` 且理由写在设置页上。 |
+| **内核改动必须过插件回归** | `tools/plugin_check.py`（依赖方向/零插件可跑）+ `tools/web_check.py`（接缝提供方/消费方是否齐备）+ `ui_smoke.py`（真浏览器 17 路由）+ **`.scratch/tmp/verify_plugin_template.py`**（模板生成的插件端到端 49 项）。改了 `core/plugins/` 或 `web/` 的接缝层就把这几个跑一遍。 |
+| **模板即夹具** | `plugins/.template/` 不只是示例：夹具每次都从它生成一个真插件跑端到端。所以模板一旦随内核演进而失效，回归会红——这比"文档说没问题"可靠。 |
+
+**已知仍需改内核的情况**（不是缺陷，是边界）：想新增一种"形态"（让插件接管整页 / 接管局部 / 提供常驻容器 / 插件间通信契约）见 §6.2 ②；想让内核先实现某个能力（`ctx.search.addSection`、`ctx.jobs`、`process` 执行层）见 §6.2 ③。
+

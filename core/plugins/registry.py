@@ -284,6 +284,13 @@ def report(
     candidates, notes = discover(roots)
     summary = resolve(candidates, core_version)
     install = read_install_state(workspace) if workspace else {"plugins": {}}
+    # §1 的诚实补一句：plugins.json 里可能留着「插件目录早已删掉」的记录（装卸试过、手删目录…）。
+    # 不报出来就会出现「同名插件一装上就自动是启用状态」这种看不见的继承。
+    records = set((install.get("plugins") or {}).keys())
+    orphans = sorted(records - set(candidates))
+    if orphans:
+        notes.append(f"System/plugins.json 里有 {len(orphans)} 条记录对应的插件已不存在（可删可留，"
+                     f"不影响运行）：{orphans}")
     rows = []
     for pid in sorted(candidates):
         row = candidates[pid].as_dict()

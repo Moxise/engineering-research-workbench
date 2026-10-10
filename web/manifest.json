@@ -95,9 +95,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009r",
+      "v": "261009t",
       "theme": "base",
-      "note": "v261009r · 删除内核自带的图谱渲染与交互（drawGraph/筛选/预览/导出那套）——图谱页与总览迷你图只由 plugins/knowledge-graph 提供，无插件时给启用提示；上版：ERWToast + overlay 槽位"
+      "note": "v261009t · 插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）；上版：删除内核自带的图谱渲染与交互"
     },
     {
       "file": "plugin-host.js",

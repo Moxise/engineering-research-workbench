@@ -65,7 +65,9 @@ def seam_report() -> tuple[list[str], list[str], list[str]]:
     consumed: set[str] = set()
     provided: set[str] = set()
     scripts = list(assembled_js())
-    scripts += sorted((ROOT / "plugins").glob("*/web/*.js")) if (ROOT / "plugins").is_dir() else []
+    # 点目录（如 plugins/.template 模板）不是插件：与 registry.discover 同一规则，不参与接缝统计
+    scripts += sorted(p for p in (ROOT / "plugins").glob("*/web/*.js")
+                      if not p.parent.parent.name.startswith(".")) if (ROOT / "plugins").is_dir() else []
     for path in scripts:
         text = path.read_text(encoding="utf-8")
         text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)

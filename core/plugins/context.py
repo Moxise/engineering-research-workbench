@@ -8,10 +8,11 @@
 | MCP 工具 | `ctx.mcp.tool(name, spec, handler)` | 裸名；对外名由内核加 `p_<id>__` |
 | 存储 | `ctx.storage` | 只给插件自己的路径对象（I5） |
 | 配置 | `ctx.config_read()/config_write()` | `config/plugins/<id>.json` |
+| 事件订阅 | `ctx.events.on(name, cb)` | 订阅内核广播（如 `llm.usage`），返回退订函数；不需在 manifest 里声明 |
 | 日志 | `ctx.log(msg)` | 自动带插件前缀 |
 
-**尚未实现**（不假装有）：`ctx.jobs`（后台任务调度）、`ctx.events`（事件订阅）、
-`ctx.search.addSection`。要用再加，并同步 PLUGIN_SPEC。
+**尚未实现**（不假装有）：`ctx.jobs`（后台任务调度）、`ctx.search.addSection`（往检索结果里加分区）、
+`process` 执行层（独立进程插件）。要用再加，并同步 PLUGIN_SPEC §6.2 的能力矩阵。
 
 路由处理器签名：`handler(request) -> dict | list`，其中
 `request = {"method", "path", "query": {k: [v, ...]}, "body": {...}}`。

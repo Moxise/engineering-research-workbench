@@ -112,7 +112,10 @@ def check_seams() -> None:
     # v261009.14 · 插件前端脚本与内核同处一个页面：**自定义事件的派发方可能在插件里**
     # （阅读区搬成 plugins/literature-reader 后，erw-lit-page/-selection 就由它派发）。
     # 故事件完备性按「内核 + 插件」一起判，插件里的派发方也算数。
-    plugin_files = sorted((ROOT / "plugins").glob("*/web/*.js")) if (ROOT / "plugins").is_dir() else []
+    # `plugins/.template` 这类点目录不是插件（与 registry.discover 同一规则）：不参与接缝统计，
+    # 否则模板里的示例脚本会被当成"提供方"，把真实的缺口掩盖掉。
+    plugin_files = sorted(p for p in (ROOT / "plugins").glob("*/web/*.js")
+                          if not p.parent.parent.name.startswith(".")) if (ROOT / "plugins").is_dir() else []
     defined: dict[str, set[str]] = {}
     consumed: dict[str, set[str]] = {}
     dispatched: dict[str, set[str]] = {}

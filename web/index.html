@@ -106,7 +106,7 @@
   <!-- web:app-js:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <script defer src="/dom-seam.js?v=261009"></script><!-- v261009 · A9：共享 DOM 变更订阅（window.ERWDom.onChildList）——7 个补丁各自建的文档级 MutationObserver 收敛为 1 个；提供 root 作用域、ignore 过滤、按帧合并与回调隔离。必须在所有补丁之前加载 -->
   <script defer src="/v260922-performance.js?v=261009s"></script><!-- v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore 过滤）；上版 A10：提供 window.erwFetch 接缝，不再全局替换 window.fetch -->
-  <script defer src="/app.js?v=261009r"></script><!-- v261009r · 删除内核自带的图谱渲染与交互（drawGraph/筛选/预览/导出那套）——图谱页与总览迷你图只由 plugins/knowledge-graph 提供，无插件时给启用提示；上版：ERWToast + overlay 槽位 -->
+  <script defer src="/app.js?v=261009t"></script><!-- v261009t · 插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）；上版：删除内核自带的图谱渲染与交互 -->
   <script defer src="/plugin-host.js?v=261009c"></script><!-- v261009c · 除 nav[0] 外，还加载 manifest.panel.mount（没有导航页的 UI，如阅读区 tab） -->
   <script defer src="/v260922-research-pages.js?v=261009q"></script><!-- v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-settings-rendered 广播）随悬浮球模块搬成插件 plugins/floating-assist；图谱两补丁已迁成 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->

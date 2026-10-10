@@ -722,14 +722,22 @@ def build_plugin_payload(root, workspace_dir, detail: bool = False) -> dict:
     if detail:
         install_rows = [o.as_dict() for o in plugin_registry.install_packages(roots, workspace=workspace_dir)]
     candidates, notes = plugin_registry.discover(roots)
-    summary = plugin_registry.resolve(candidates, "")
-    install = plugin_registry.read_install_state(workspace_dir)
+    # v261009.22 · 预览必须用**真实**内核版本解析：此前传空串会把 core_min 检查跳过，
+    # 于是 core_min 不匹配的插件在设置页显示「可用」，启用后却被加载器拒载（静默失效）。
     core_version = _core_version()
+    summary = plugin_registry.resolve(candidates, core_version)
+    install = plugin_registry.read_install_state(workspace_dir)
     out = []
     for pid, cand in sorted(candidates.items()):
         manifest = cand.manifest or {}
         enabled = plugin_registry.effective_enabled(cand, install)
-        if cand.state != "available" or (not detail and not enabled):
+        # v261009.22 · 设置页（detail）必须**如实列出装不上的插件**及其原因（rejected/blocked/conflict）——
+        # 此前一律跳过，于是 core_min 不匹配或缺依赖的插件在页面上完全消失，用户只看到"还没发现任何插件"，
+        # 而 CLI 却能报出原因。普通清单（无 detail，供脚本宿主加载）仍只给「可用且启用」，免得前端去加载装不上的插件。
+        if cand.state != "available":
+            if not detail:
+                continue
+        elif not detail and not enabled:
             continue
         nav = []
         def asset_url(rel: str) -> str:

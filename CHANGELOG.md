@@ -1,5 +1,32 @@
 # Changelog
 
+## v261009.22
+
+**插件生态地基：模板 + 脚手架 + 挂载点作用域 + 兼容性承诺**（回答你的四个问题，逐条给了实测证据）。
+
+### ① 内核预留接入基础 —— 已成立（实测）
+- 从零生成一个全新插件，**内核源码零改动**即可被发现、启用、提供导航页/设置页 tab/HTTP 路由/Agent 工具/自有配置。夹具用「内核源码里搜不到该插件 id 与显示名」来证明这一点（`.scratch/tmp/verify_plugin_template.py` ④）。
+
+### ② 插件模板 —— 新增
+- **`plugins/.template/`**：一个**能直接跑**的最小插件（5 个文件），演示清单字段、`register(ctx)`、自登记导航页 + 设置页 tab、`window.erwFetch` 调自己的后端、`ERWContract`/`ERWToast` 空值保护、`[data-plugin]` 样式作用域；`README.md` 同时是模板说明书与新插件的起点（改哪四步、怎么验证、隔离边界、7 个真实插件的阅读索引）。
+- **`tools/new_plugin.py`**：`python tools/new_plugin.py my-tool --name "我的工具"`。渲染占位符（`__ID__`/`__NAME__`/`__DESC__`/`__ICON__`/`__CORE_MIN__`）、**先临时后原子**（渲染到 `.staging/<id>/`、用安装期同一套校验器验过才改名）、默认拒绝覆盖、`--force` 把旧目录整体挪进 `.backup-*`（不删不合并）、`--dry-run` 不落盘、一律写 UTF-8 无 BOM。`--core-min` 默认取**当前内核版本**。
+- 点目录约定：`.template` 不会被当成插件（`discover` 本来就跳过点目录；这次让 `tools/web_check.py` 与 `tools/ui_smoke.py` 也跳过，否则模板里的示例脚本会被算成"接缝提供方"，掩盖真实缺口）。
+
+### ③ 加入插件不动内核 UI —— 已成立，并补齐一处规则落地
+- **挂载点带 `data-plugin=<id>`**（`web/app.js`）：此前只有**槽位容器**有这个属性，而 §2 要求 `panel.css` 按它作用域——导航页（拿到的是内核共用 `#main`）与设置页 tab 根本拿不到，那条规则对它们**落不了地**。现在导航页 `#main`、设置页 `#settings-panel` 也带该属性，且**每次导航/切 tab 先清掉上一轮的值**（插件 CSS 不许泄漏到内核页面）。
+- 夹具用 computed style 反向验证：插件 CSS 的 `borderTopWidth` 真的生效（拿不到属性的旧行为会是 `0px`），切回内核 tab/页面后属性被清掉、0 console error。
+
+### ④ 内核可扩展、改动不"一改废掉全部插件" —— 写明边界 + 补两个真缺陷
+- **PLUGIN_SPEC §13.3「兼容性承诺」**：`api_version` 只在破坏性变更时 +1（新增接缝/字段/槽位都不动它）；不匹配**明确拒载**而非尽力而为；接缝只增不删；`core_min` 是插件侧下限； **`plugins/.template/` 即回归夹具**——模板随内核演进而失效时夹具会红，比"文档说没问题"可靠。
+- **修缺陷 A（预览会说谎）**：设置页预览接口用**空版本号**解析候选（`resolve(candidates, "")` 跳过了 `core_min` 检查），于是"内核版本过低"的插件在设置页显示**可用**，启用后却被加载器拒载（静默失效）。改为用真实内核版本解析。
+- **修缺陷 B（装不上的插件从页面消失）**：`/api/plugins?detail=1` 一律跳过非 `available` 的候选，导致内部版本过高/缺依赖的插件在插件页**完全看不见**（用户只看到"还没发现任何插件"），而 CLI 明明给得出原因；前端 `cardHtml` 本来就写好了显示 `state/reason`。现在 detail 模式的载荷如实列出 `rejected/blocked/conflict` 及原因，普通清单（脚本宿主用）仍只给"可用且启用"。
+- **顺手修文档漂移**：`core/plugins/context.py` 的模块说明还写着 `ctx.events`「尚未实现」，而它早已实现且 billing 正在用——插件作者最先读的就是这段，已改为列出真实缺口（`ctx.jobs`/`ctx.search.addSection`/`process` 执行层）。
+- **`verify` 顺带诚实**：`core.plugins.report` 现在会提示 `System/plugins.json` 里"插件已不存在"的孤儿记录（否则同名插件重装后会**默默继承**启用状态）。
+
+### 验收
+- 新增 `.scratch/tmp/verify_plugin_template.py` **49/49**：脚手架（生成/占位符/无 BOM/校验/拒绝覆盖/`--force` 备份/dry-run）+ 零内核引用 + 真服务器（发现→默认未启用→未启用时路由 404→启用→路由/工具/配置齐备）+ 真浏览器 12 项 + 收尾清理（含按原样恢复 `System/plugins.json`）。
+- 回归：`verify_zip_unpack` 58/58、`verify_zip_install_http` 27/27、`verify_plugin_manager`、`web_check`、`plugin_check --assert-core-only`、`ui_smoke` 17 路由、`kb_smoke`、`mcp.server --selftest` 全绿；`doctor` error 0、warn 仍 6；插件 **7 个可用**；`web/index.html` 缓存键已同步（app.js → `261009t`）。
+
 ## v261009.21
 
 **补上阶段 1 的最后一项：单文件包（`.zip`）自动解包**（你选的「完整实现」）。至此 SCOPE §6 阶段 1「地基」五项全部完成。
