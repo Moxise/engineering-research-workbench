@@ -1,5 +1,16 @@
 # Changelog
 
+## v261009.15
+
+- **阅读区 AI 助手拆成独立插件**（`plugins/reader-assist/`，你要的「只有开启 AI 助手，阅读区才出现 AI 功能选项」）。
+  - **阅读区不再硬编码 AI**：`{id:"ai"}` 从 tab 行删掉、`sideTab` 的 `ai` 分支删掉、`S.ai` 状态与 `aiPanel/runAssist/mdLite/noteApply` 整段（75 行）搬走——阅读区现在**不认识 AI 这个概念**，只知道「有个助手接缝」。
+  - **新接缝 `window.ERWReaderAssist`**（**插件提供、插件消费**，v261009.15 首例）：阅读区把三条入口派发给助手插件 —— ① 选中文本 → 工具条「AI 翻译/总结/整理」`run(action,{text})`；② 框选完成（多模态开启）→ 自动切到助手 tab；③ 「笔记」tab 的「AI 整理」`fromNote(text)`。派发前阅读区先切到助手声明的 `tabId`，并在打开文献时经 `attach(ctx)` 把**实时上下文**交过去（`{paper, refreshList, selection(), capture{page(),area()}, activate(), aiPolish()}`）——这是验收里抓到的设计缺口：不预交上下文时，助手从工具条被触发会把面板画进别人的 tab。
+  - **门控**：工具条的三个 AI 按钮与「AI」tab 都只在助手可用时出现；助手停用时点任何 AI 入口给一条明确提示（"AI 助手不可用：请在「设置 → 插件」里启用「阅读区 AI 助手」"），阅读区其余功能与「笔记」tab 不受影响。
+  - 插件声明 `requires: {plugins:[{id:"literature-reader"}]}`（它的 tab 挂在阅读区上），加载仍有两次兜底重试，避免顺序意外导致静默失效。
+  - **结果区渲染改用内核接缝 `window.ERWMarkdown`**（与全站一致，含代码高亮/mermaid/mathjax），内核接缝缺席时回退插件自带的轻量 Markdown 渲染。
+  - **验收**（`.scratch/tmp/verify_reader_assist.py`，真 Chrome，**16/16**）：启用 → 助手已注册、tab 行含「AI」、工具条 3 个 AI 按钮、`run()`/`fromNote()` 都切到 AI tab 且面板显示出待处理内容、PDF 画布仍在、无非配额类 console error；**停用（脚本被拦）→ 无 AI tab、无 AI 按钮、阅读区其余功能照常**。回归：阅读区接缝 14/14、阅读区+笔记端到端 22/22、`web_check` / `ui_smoke`（17 路由 0 error）/ `plugin_check` 全绿。
+  - 环境说明：本机 LLM 配额仍用尽（上游 429 → 内核 400），验收对 assist 的断言只要求「面板有反应（结果或错误）」，不依赖模型输出。
+
 ## v261009.14
 
 - **阅读区整体搬成插件**（`plugins/literature-reader/`；**反转** SCOPE §2.1 C6 原先的「阅读进核心」决定——只有启用该插件才能使用阅读区）。

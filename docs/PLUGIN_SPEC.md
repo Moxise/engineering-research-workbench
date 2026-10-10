@@ -206,6 +206,7 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | `window.ERWMarkdown.renderInto(el, raw)` / `.normalizePaths(html)` | Markdown 渲染（marked + DOMPurify + hljs + mermaid/mathjax 按需）与 `/workspace-file/` 图片路径归一 |
 | `window.ERWGraphRenderers.register({id, graph?, overview?})` | **图谱渲染接管**：内核渲染图谱页 / 研究总览迷你图时把画布交给接管者；插件缺席或 `enhance()` 抛错时内核回退自带 `drawGraph` |
 | `window.ERWReader.register({id, open(paperId?), openByAttachment(att), context?()})` | **阅读区接管**：内核在文献列表页点「PDF 阅读工作区」或点附件徽章时调它。无接管者时内核**不显示该入口**，并在用户试图打开时给明确提示（"阅读区不可用：请启用…"），文献列表/元数据条目页照常可用。首个使用者是 [`plugins/literature-reader`](REFACTOR_PLAN.md) |
+| `window.ERWReaderAssist.register({id, tabId, run(action,payload), attach?, fromNote?, useImage?})` | **阅读区助手**（**插件提供、插件消费**的接缝，v261009.15）：阅读区把「选中动作 / 框选截图 / 笔记 AI 整理」派发给助手插件，派发前切到它声明的 `tabId`；助手在 `attach(ctx)` 里拿到实时上下文 `{paper, refreshList, selection(), capture{page(),area()}, activate(), aiPolish()}`。阅读区因此**不认识任何具体助手**，助手停用 → AI tab 与工具条按钮一起消失。首个使用者是 [`plugins/reader-assist`](REFACTOR_PLAN.md) |
 | `window.erwFetch(url, init)` | 出网与访问内核 HTTP API（**不得**替换 `window.fetch`） |
 | `window.erwVendor.load('mathjax'\|'mermaid')` | 重型库按需加载（本地优先、CDN 兜底） |
 | `window.ERWDom.onChildList(cb, {root})` | 文档级 DOM 变更观察的唯一入口（内核合并成一个 observer） |

@@ -1,13 +1,18 @@
 {
   "id": "literature-reader",
   "name": "文献阅读工作区",
-  "version": "1.0.0",
-  "description": "PDF 阅读工作区：打开/翻页/缩放/跳页、批注（高亮/下划线/框选/墨水/便签）增改删、阅读区 AI 助手 tab、插件阅读区 tab、截图桥。纯前端插件——文献数据与文件服务（含 PDF 的 Range 分片、批注 JSON 与级联清理、笔记真值在 literature 条目）全部留在内核 /api/literature/*，本插件只做 UI。禁用后文献列表/元数据页照常可用，只是不出现「PDF 阅读工作区」入口",
+  "version": "1.1.0",
+  "description": "PDF 阅读工作区：打开/翻页/缩放/跳页、批注增改删、阅读区 tab 宿主。纯前端插件——文献数据与文件服务全在内核 /api/literature/*；并提供阅读区助手接缝 window.ERWReaderAssist（AI 面板等助手能力由独立插件注册，v261009.15）。禁用后文献列表/元数据页照常可用，只是不出现「PDF 阅读工作区」入口",
   "api_version": 1,
   "core_min": "v261009.14",
   "kind": "inprocess",
   "distribution": "bundled",
   "default_enabled": true,
-  "permissions": ["ui:panel"],
-  "panel": { "mount": "web/panel.js", "style": "web/panel.css" }
+  "permissions": [
+    "ui:panel"
+  ],
+  "panel": {
+    "mount": "web/panel.js",
+    "style": "web/panel.css"
+  }
 }

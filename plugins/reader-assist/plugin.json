@@ -1,0 +1,14 @@
+{
+  "id": "reader-assist",
+  "name": "阅读区 AI 助手",
+  "version": "1.0.0",
+  "description": "阅读区 AI 面板：选中段落 → 翻译/总结/整理/自定义指令，结果可追加/替换到文献笔记；多模态截图（整页 / 框选区域）；「笔记」tab 的「AI 整理」也走本插件。纯前端插件——LLM 调用仍走内核 /api/agent/assist。停用后阅读区不出现 AI tab 与 AI 工具条按钮，其余功能不受影响",
+  "api_version": 1,
+  "core_min": "v261009.14",
+  "kind": "inprocess",
+  "distribution": "bundled",
+  "default_enabled": true,
+  "permissions": ["ui:panel"],
+  "requires": { "plugins": [{ "id": "literature-reader" }] },
+  "panel": { "mount": "web/panel.js", "style": "web/panel.css" }
+}

@@ -74,7 +74,7 @@ async function loadList(){
  qa("[data-paper]").forEach(e=>e.onclick=()=>openPaper(e.dataset.paper));
 }
 function shell(){
- q("#main").innerHTML='<div class="lit-shell"><aside class="card doc-list-panel lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><div class="lit-head-actions"><button class="ghost-btn" id="lit-back">← 返回文献列表</button><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><div class="doc-filter"><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-mark"><option value="">全部分类</option></select></div></div><div class="doc-list lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-copy" disabled title="Ctrl+C">复制</button><span class="lit-sep"></span><button data-ai="translate" disabled title="将选中文本交给 AI 翻译为中文">AI 翻译</button><button data-ai="summarize" disabled title="将选中文本交给 AI 总结要点">AI 总结</button><button data-ai="organize" disabled title="将选中文本交给 AI 整理为知识笔记">AI 整理</button><span class="lit-sep"></span><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
+ q("#main").innerHTML='<div class="lit-shell"><aside class="card doc-list-panel lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><div class="lit-head-actions"><button class="ghost-btn" id="lit-back">← 返回文献列表</button><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><div class="doc-filter"><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-mark"><option value="">全部分类</option></select></div></div><div class="doc-list lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-copy" disabled title="Ctrl+C">复制</button><span class="lit-sep"></span>'+(window.ERWReaderAssist?.available?.()?'<button data-ai="translate" disabled title="将选中文本交给 AI 翻译为中文">AI 翻译</button><button data-ai="summarize" disabled title="将选中文本交给 AI 总结要点">AI 总结</button><button data-ai="organize" disabled title="将选中文本交给 AI 整理为知识笔记">AI 整理</button>':'')+'<span class="lit-sep"></span><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
  q("#lit-upload").onclick=()=>q("#lit-file").click();q("#lit-file").onchange=e=>upload(e.target.files?.[0]);
  q("#lit-back").onclick=()=>window.dispatchEvent(new Event("erw-lit-back")); /* v260929 · 返回文献列表：经事件通知 app.js 重新渲染列表页（hash 未变不触发路由） */
  let t;q("#lit-search").oninput=()=>{clearTimeout(t);t=setTimeout(loadList,160)};q("#lit-status").onchange=loadList;q("#lit-mark").onchange=loadList;
@@ -103,7 +103,7 @@ function reset(){
  S.generation++;S.observer?.disconnect();clearTimeout(S.trimTimer);
  S.pages.forEach(r=>releasePageCanvas(r));S.pages.clear();
  S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.areaResolver=null;
- S.annotations=[];S.annByPage.clear();S.ai={text:"",image:"",result:"",error:"",busy:false,instruction:""}
+ S.annotations=[];S.annByPage.clear()
 } /* v261009p · 切文献时主动释放 PDF canvas / 文本几何 */
 function rebuildAnnotationIndex(){
  S.annByPage.clear();
@@ -381,10 +381,10 @@ function areaStart(e){
  const up=()=>{document.removeEventListener("mousemove",move,true);document.removeEventListener("mouseup",up,true);S.area=false;qa(".lit-interaction-layer").forEach(el=>el.onmousedown=null);toolbar();const rs=S.areaResolver;S.areaResolver=null;if(rs){rs(areaPreviewDataUrl(S.pending))}else{openAiTabForArea()}}; /* v260930e · 框选完成：外部接管（悬浮球截图）优先于阅读区 AI 面板联动 */
  document.addEventListener("mousemove",move,true);document.addEventListener("mouseup",up,true); /* v260930n · 修复框选失效：move/up 此前定义后未挂载，拖动与松开无人监听，选区不出现 */
 }
-function openAiTabForArea(){ /* v260929d · 框选完成后联动：多模态开启时自动切到 AI 面板，「用框选区域」截图按钮立即出现 */
-  const vis=window.ERWVisionEnabled?window.ERWVisionEnabled():false;if(!vis)return;
-  const aiBtn=qa('[data-tab]').find(b=>b.dataset.tab==="ai");if(!aiBtn)return;
-  S.selectedAnn=null;qa('[data-tab]').forEach(x=>x.classList.toggle("active",x===aiBtn));sideTab("ai");
+function openAiTabForArea(){ /* v261009.15 · 框选完成后的联动：多模态开启**且有 AI 助手接管者**时，切到它贡献的 tab */
+ const vis=window.ERWVisionEnabled?window.ERWVisionEnabled():false;if(!vis)return;
+ const a=assist();if(!a)return;
+ S.selectedAnn=null;switchTab(a.tabId);sideTab(a.tabId);
 }
 async function undo(){const op=S.undo.pop();if(!op)return;await api("/api/literature/"+S.paper.id+"/annotations/"+op.id,{method:"DELETE"});removeAnnotationLocal(op.id,op.page);paint(op.page);toolbar();annList()}
 function paint(n){
@@ -495,98 +495,69 @@ function readerTabList(){
  return (window.ERWPanels?.readerTabs?.()||[]).map(t=>({id:t.id,label:t.label,title:t.title||"",render:t.render}));
 }
 function side(){
- const tabs=[{id:"info",label:"信息"},{id:"annotations",label:"批注"},...readerTabList(),{id:"ai",label:"AI",title:"AI 翻译 / 总结 / 整理 / 笔记润色"}];
+ const tabs=[{id:"info",label:"信息"},{id:"annotations",label:"批注"},...readerTabList()]; /* AI / 笔记等 tab 全由插件经 ERWPanels.readerTab 贡献 */
  q("#lit-side").innerHTML='<div class="lit-side-tabs">'+tabs.map((t,i)=>'<button class="'+(i===0?"active":"")+'" data-tab="'+esc(t.id)+'"'+(t.title?' title="'+esc(t.title)+'"':'')+'>'+esc(t.label)+'</button>').join('')+'</div><div id="lit-side-body"></div>';
  qa("[data-tab]").forEach(b=>b.onclick=()=>{if(b.dataset.tab!=="annotations")S.selectedAnn=null;qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});
  sideTab("info");
+ /* v261009.15 · 把「实时上下文」在打开文献时就交给每个阅读区助手（而不是等它的 tab 被渲染）：
+    否则助手在用户从工具条/笔记 tab 触发时还没有 activate，面板会在别人的 tab 里画出来。 */
+ (window.ERWReaderAssist?.list?.()||[]).forEach(a=>{ try{ a.attach&&a.attach(assistCtx(a.tabId)) }catch(e){ console.error('[reader] 助手 attach 失败 '+a.id+'：'+(e?.message||e)) } });
 }
 function sideTab(tab){
  const root=q("#lit-side-body"),p=S.paper;
  if(tab==="info"){root.innerHTML='<div class="lit-info"><label>题名<input id="li-title" value="'+esc(p.title)+'"></label><label>作者<input id="li-authors" value="'+esc(p.authors||"")+'"></label><div class="lit-two"><label>年份<input id="li-year" value="'+esc(p.year||"")+'"></label><label>阅读状态<select id="li-status"><option '+(p.reading_status==="未读"?"selected":"")+'>未读</option><option '+(p.reading_status==="在读"?"selected":"")+'>在读</option><option '+(p.reading_status==="已读"?"selected":"")+'>已读</option></select></label></div><label class="lit-marks-label">分类标记</label><div class="mark-chip-box" id="li-marks"></div><label class="lit-marks-label">标签</label><div class="project-picker-row"><div class="project-chip-box" id="li-tags"></div><button type="button" class="secondary-btn project-add-btn" id="li-tag-add" title="添加标签：可勾选已有或输入新标签">＋</button></div><label>期刊 / 会议<input id="li-venue" value="'+esc(p.venue||"")+'"></label><div class="lit-two"><label>DOI<input id="li-doi" value="'+esc(p.doi||"")+'"></label><label>Cite Key<input id="li-cite" value="'+esc(p.cite_key||"")+'"></label></div><label class="lit-favorite"><input type="checkbox" id="li-favorite" '+(p.favorite?"checked":"")+'> 收藏此文献</label><button class="primary-btn" id="li-save">保存信息</button></div>';q("#li-save").onclick=saveInfo;renderLiMarks();paintLiTags(p.tags||[])}
  else if(tab==="annotations")annList();
- else if(tab==="ai")aiPanel();
  else {
    const t=readerTabList().find(x=>x.id===tab);
-   if(t){ try{ t.render(root,{paper:p,refreshList:()=>loadList().catch(()=>{}),aiPolish:(text)=>aiPolishFromNote(text)}); }
+   if(t){ try{ t.render(root,assistCtx(t.id)); }
           catch(e){ root.innerHTML='<div class="empty danger">该 tab 渲染失败：'+esc(e?.message||String(e))+'</div>'; } }
    else root.innerHTML='<div class="empty">未知的阅读区 tab：'+esc(tab)+'</div>';
  }
 }
-/* 把「当前笔记交给 AI 整理润色」交给阅读器的 AI tab（与搬出前同一行为） */
-function aiPolishFromNote(text){
- const t=String(text||"").trim();
- if(!t){S.ai={...S.ai,text:"",result:"",error:"笔记为空：先写点内容，或回到 PDF 选中段落用「AI 整理」生成。",busy:false};switchTab("ai");aiPanel();return}
- S.ai={...S.ai,text:t,instruction:"",result:"",error:"",busy:false};switchTab("ai");runAssist("polish","");
-}
-/* v260929 · PDF 阅读区 AI 助手：选中文本 → 翻译/总结/整理/自定义指令，结果可追加/替换到文献笔记（条目正文同源） */
+/* v261009.15 · 阅读区助手接缝：AI 面板（翻译/总结/整理/润色/自定义 + 截图多模态）已拆成独立插件
+   `plugins/reader-assist`。阅读区**不再硬编码 AI tab**（tab 由插件经 ERWPanels.readerTab 贡献），
+   这里只保留「把动作派发给接管者」的三条入口；没有接管者时给一条明确提示，其余功能不受影响。
+
+   本插件对外的公开接口 `window.ERWReaderAssist`（与 `window.ERWLiterature`/`ERWCapture` 同类）：
+   助手插件注册 `{id, tabId, run(action,payload), fromNote?(text), useImage?(dataUrl)}`，
+   阅读区在派发前先切到 `tabId`（插件才拿得到渲染容器与上下文）。 */
+const ASSISTS=[];
+window.ERWReaderAssist={
+ register(r){
+  if(!r||!r.id) throw new Error('ERWReaderAssist.register 需要 {id, tabId, run}');
+  if(!r.tabId) throw new Error('阅读区助手需要 tabId（它贡献的 readerTab id）');
+  if(typeof r.run!=='function') throw new Error('阅读区助手需要 run(action, payload)');
+  if(ASSISTS.some(x=>x.id===r.id)) throw new Error('阅读区助手 id 重复：'+r.id);
+  ASSISTS.push(r); return r.id;
+ },
+ list(){return ASSISTS.slice()},
+ get(){return ASSISTS[0]||null},
+ available(){return ASSISTS.length>0},
+};
+const ASSIST_MISSING="AI 助手不可用：请在「设置 → 插件」里启用「阅读区 AI 助手」";
+function assist(){ try{ return window.ERWReaderAssist?.get?.()||null }catch{ return null } }
 function switchTab(tab){qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab===tab))}
-function aiFromSelection(action){if(!(S.pending?.kind==="text"&&S.pending?.text))return;switchTab("ai");runAssist(action,"")}
-const AI_LABELS={translate:"AI 翻译中…",summarize:"AI 总结中…",organize:"AI 整理中…",polish:"AI 润色笔记中…",custom:"AI 处理中…"};
-async function runAssist(action,instruction,label){ /* v260929b · label：按钮文字，自定义动作据此显示「AI xxx中…」；v260929c · image：截图代替/伴随文本 */
- if(S.ai.busy)return;
- const fresh=S.pending?.kind==="text"?String(S.pending.text||""):"";
- const src=fresh||S.ai.text||"";
- const img=S.ai.image||"";
- if(!src&&!img){S.ai={...S.ai,text:"",result:"",busy:false,error:"没有可处理的内容：请先在 PDF 中选中文字、截取页面/框选区域，或在「笔记」页用 AI 整理已有笔记。"};aiPanel();return}
- S.ai={...S.ai,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):"",result:"",error:"",busy:true,busyLabel:AI_LABELS[action]||(label?"AI "+label+"中…":"AI 处理中…")};aiPanel();
- try{const d=await api("/api/agent/assist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):"",...(img?{image:img}:{})})});S.ai={...S.ai,result:String(d.content||""),error:"",busy:false}}
- catch(e){S.ai={...S.ai,error:String(e?.message||e),result:"",busy:false}}
- aiPanel();
+/* 交给阅读区助手的**实时上下文**：paper / 刷新列表 / 当前选区 / 截图能力 / 把自己切到前台的 activate。
+   两处都传同一份：① 助手自己的 tab 被渲染时；② 打开文献时经 `attach` 预交（这样它从工具条或
+   「笔记」tab 被触发时也拿得到 activate，不会把面板画在别人的 tab 里）。 */
+function assistCtx(tabId){
+ return {
+  paper:S.paper,
+  refreshList:()=>loadList().catch(()=>{}),
+  selection:()=>({kind:S.pending?.kind||"",text:String(S.pending?.text||"")}),
+  capture:{page:()=>pageDataUrl(),area:()=>areaPreviewDataUrl(S.pending,1400,1200,.86)},
+  aiPolish:(text)=>withAssist(a=>a.fromNote?a.fromNote(String(text||'')):a.run('polish',{text:String(text||'')})),
+  activate:()=>{const cur=(q("[data-tab].active")||{}).dataset?.tab;switchTab(tabId);if(cur!==tabId)sideTab(tabId);},
+ };
 }
-function mdLite(s){ /* 结果区轻量 Markdown 渲染：所有模型输出先转义，再拼受控标签，避免同源 XSS */
- const lines=String(s||"").split(/\r?\n/);let out="",inList=false,inCode=false;
- const inline=t=>esc(t).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>");
- for(const raw of lines){
-  const t=raw.trimEnd();
-  if(t.trim().startsWith("```")){if(inList){out+="</ul>";inList=false}out+=inCode?"</code></pre>":"<pre><code>";inCode=!inCode;continue}
-  if(inCode){out+=esc(raw)+"\n";continue}
-  const h=t.match(/^(#{1,6})\s+(.*)$/);
-  if(h){if(inList){out+="</ul>";inList=false}out+="<h4>"+inline(h[2])+"</h4>";continue}
-  const li=t.match(/^\s*[-*·]\s+(.*)$/);
-  if(li){if(!inList){out+="<ul>";inList=true}out+="<li>"+inline(li[1])+"</li>";continue}
-  if(!t.trim()){if(inList){out+="</ul>";inList=false}continue}
-  if(inList){out+="</ul>";inList=false}
-  out+="<p>"+inline(t)+"</p>";
- }
- if(inList)out+="</ul>";if(inCode)out+="</code></pre>";
- return out;
+/* 派发前先切到该插件贡献的 tab：插件要拿到渲染容器与上下文才能画（否则 run 无处可写） */
+function withAssist(act){
+ const a=assist();
+ if(!a){toast(ASSIST_MISSING,true);return false}
+ try{ switchTab(a.tabId); sideTab(a.tabId); act(a); return true }
+ catch(e){ toast(e?.message||String(e),true); return false }
 }
-function aiPanel(){
- const root=q("#lit-side-body");if(!root)return;const a=S.ai;
- const cas=window.ERWAssistCustomActions?window.ERWAssistCustomActions():[]; /* v260929b · 设置中维护的自定义阅读动作，与固定四动作并列 */
- const vis=window.ERWVisionEnabled?window.ERWVisionEnabled():false; /* v260929c · 多模态开关：开启才显示截图入口 */
- const srcHtml=a.image?'<img class="lit-ai-img" src="'+esc(a.image)+'" alt="待处理截图">'+(a.text?'<div class="lit-ai-src-text">'+esc(a.text.slice(0,600))+(a.text.length>600?"…":"")+'</div>':"")
-  :'<div class="lit-ai-src-text">'+(a.text?esc(a.text.slice(0,600))+(a.text.length>600?"…":""):'<i>暂无。选中文字后点工具栏「AI 翻译 / 总结 / 整理」'+(vis?'，或点下方「📷 截取当前页」用截图代替选中文本':'')+'；也可在「笔记」页点「AI 整理」。</i>')+'</div>';
- root.innerHTML='<div class="lit-ai">'
- +'<div class="lit-ai-src"><span class="lit-ai-src-head">待处理内容</span>'+srcHtml+'</div>'
- +(vis?'<div class="lit-ai-capture"><button type="button" class="secondary-btn" id="lit-ai-cap-page" title="把当前整页截图交给 AI（多模态），代替选中文本，公式/表格提取更准">📷 截取当前页</button>'+(S.pending?.kind==="area"?'<button type="button" class="secondary-btn" id="lit-ai-cap-area" title="把当前框选区域截图交给 AI">用框选区域</button>':"")+(a.image?'<button type="button" class="ghost-btn danger" id="lit-ai-cap-clear" title="移除截图，回到纯文本模式">移除截图</button>':"")+'</div>':"")
- +'<div class="lit-ai-actions"><button type="button" class="secondary-btn" data-aia="translate">翻译</button><button type="button" class="secondary-btn" data-aia="summarize">总结</button><button type="button" class="secondary-btn" data-aia="organize">整理</button><button type="button" class="secondary-btn" data-aia="polish" title="处理当前待处理内容为润色后的笔记">润色</button>'+cas.map(x=>'<button type="button" class="secondary-btn" data-aia="'+esc(x.id)+'" title="'+esc(String(x.prompt||"").slice(0,100))+'">'+esc(x.name)+'</button>').join('')+'</div>'
- +'<div class="lit-ai-custom"><input id="lit-ai-instr" placeholder="自定义指令，如：解释这段公式推导…" value="'+esc(a.instruction||"")+'"><button type="button" class="primary-btn" id="lit-ai-run">运行</button></div>'
- +(a.busy?'<div class="lit-ai-result busy">'+esc(a.busyLabel||"AI 处理中…")+'</div>'
-  :(a.result?'<div class="lit-ai-result">'+mdLite(a.result)+'</div><div class="lit-ai-foot"><button type="button" class="primary-btn" id="lit-ai-append" title="把 AI 结果追加到该文献笔记（条目正文）末尾">追加到笔记</button><button type="button" class="secondary-btn" id="lit-ai-replace" title="用 AI 结果整体替换该文献笔记（条目正文）">替换笔记</button><button type="button" class="secondary-btn" id="lit-ai-copy">复制</button></div>'
-  :(a.error?'<div class="lit-ai-result err">'+esc(a.error)+'</div>':'')))
- +'</div>';
- qa("[data-aia]").forEach(b=>b.onclick=()=>runAssist(b.dataset.aia,"",b.textContent)); /* v260929b · 传按钮文字作 label，固定四动作仍由 AI_LABELS 优先 */
- const capP=q("#lit-ai-cap-page");if(capP)capP.onclick=()=>{const d=pageDataUrl();if(!d){S.ai={...S.ai,error:"当前页尚未渲染完成，请稍候再试"};aiPanel();return}S.ai={...S.ai,image:d,result:"",error:""};aiPanel()}; /* v260929c · 整页截图 */
- const capA=q("#lit-ai-cap-area");if(capA)capA.onclick=()=>{const d=areaPreviewDataUrl(S.pending,1400,1200,.86);if(d){S.ai={...S.ai,image:d,result:"",error:""};aiPanel()}}; /* v260929c · 框选区域截图（高清档） */
- const capX=q("#lit-ai-cap-clear");if(capX)capX.onclick=()=>{S.ai={...S.ai,image:""};aiPanel()}; /* v260929c · 移除截图 */
- const run=q("#lit-ai-run");if(run)run.onclick=()=>{const v=q("#lit-ai-instr")?.value||"";S.ai.instruction=v;if(!v.trim()){S.ai={...S.ai,error:"请先输入自定义指令（如：解释这段公式推导）"};aiPanel();return}runAssist("custom",v)};
- const ap=q("#lit-ai-append");if(ap)ap.onclick=()=>noteApply("append");
- const rp=q("#lit-ai-replace");if(rp)rp.onclick=()=>noteApply("replace");
- const cp=q("#lit-ai-copy");if(cp)cp.onclick=async()=>{try{await navigator.clipboard.writeText(S.ai.result||"");cp.textContent="已复制";setTimeout(()=>cp&&(cp.textContent="复制"),900)}catch{}};
-}
-async function noteApply(mode){ /* AI 结果写入文献笔记（= 条目 md 正文）：append 追加 / replace 整体替换 */
- if(!S.paper||!S.ai.result)return;
- const btn=q(mode==="replace"?"#lit-ai-replace":"#lit-ai-append");if(btn){btn.disabled=true;btn.textContent="写入中…"}
- try{
-  const d=await api("/api/literature/"+S.paper.id+"/note");
-  const cur=String(d.content||"");
-  const next=mode==="replace"?S.ai.result:cur.replace(/\s+$/,"")+(cur.trim()?"\n\n":"")+S.ai.result+"\n";
-  await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:next})});
-  if(btn){btn.textContent="已写入 ✓";setTimeout(()=>btn&&(btn.textContent=mode==="replace"?"替换笔记":"追加到笔记"),1200)}
-  loadList().catch(()=>{});
- }catch(e){if(btn){btn.textContent="失败";setTimeout(()=>btn&&(btn.textContent=mode==="replace"?"替换笔记":"追加到笔记"),1500)}alert(e?.message||e)}
-}
+function aiFromSelection(action){ if(!(S.pending?.kind==="text"&&S.pending?.text))return; withAssist(a=>a.run(action,{text:String(S.pending.text)})) }
 async function saveInfo(){const p={title:q("#li-title").value,authors:q("#li-authors").value,year:q("#li-year").value,reading_status:q("#li-status").value,tags:liTags(),venue:q("#li-venue").value,doi:q("#li-doi").value,cite_key:q("#li-cite").value,favorite:q("#li-favorite").checked,kind_marks:qa("#li-marks .mark-chip.on").map(b=>b.dataset.mark)};S.paper=await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});await loadList()}
 /* v260929 · 阅读区信息栏「分类标记」chips：与编辑区同款渲染（复用 app.js 的 ERWMarkChips），保存时随 saveInfo 写回条目 md */
 function renderLiMarks(){

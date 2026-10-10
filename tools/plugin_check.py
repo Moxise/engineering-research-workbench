@@ -211,10 +211,12 @@ def main(argv: list[str] | None = None) -> int:
         text = script.read_text(encoding="utf-8")
         # 面板脚本必须真的挂到某个内核接缝上，否则就是「装了却什么都不出现」的静默失败（I11）。
         # 认可的自登记接缝：ERWPanels（导航项/槽位/设置页 tab/阅读区 tab）、
-        # ERWGraphRenderers（图谱渲染接管）、ERWReader（阅读区接管）——后两者不需要导航项也能生效。
+        # ERWGraphRenderers（图谱渲染接管）、ERWReader / ERWReaderAssist（阅读区与其助手）——
+        # 后三者不需要导航项也能生效。
         seams = ("ERWPanels.register", "ERWPanels?.register",
                  "ERWGraphRenderers.register", "ERWGraphRenderers?.register",
-                 "ERWReader.register", "ERWReader?.register")
+                 "ERWReader.register", "ERWReader?.register",
+                 "ERWReaderAssist.register", "ERWReaderAssist?.register")
         hit = next((s for s in seams if s in text), None)
         if not hit:
             fails.append(f"插件 {pid} 的面板 {mount}（{where}）没有自登记任何内核接缝"
