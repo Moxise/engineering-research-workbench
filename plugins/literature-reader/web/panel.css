@@ -122,3 +122,34 @@ html[data-density="compact"] .lit-head-actions .ghost-btn{min-height:26px;paddin
 /* v261009o · 从内核 web/v260922-compact-layout.css 迁入：紧凑密度下阅读区高度补偿
    （此前内核 CSS 引用插件的 `.lit-shell`；阅读区整体搬进本插件后，这条规则随它一起走）。 */
 html[data-density="compact"] .lit-shell{height:calc(100vh - 94px)}
+
+/* reader-assist · 阅读区 AI 面板样式（从 plugins/literature-reader/web/panel.css 原样迁出，v261009.15）
+ *
+ * 类名仍是 `.lit-ai-*`：面板渲染在阅读区的侧栏容器里，沿用同一命名便于与阅读区样式表对照；
+ * 本文件随插件启停加载（plugin.json 的 panel.style），停用后这些规则随之消失。 */
+.lit-ai{display:grid;gap:8px}
+.lit-ai-src{display:grid;gap:4px}
+.lit-ai-src-head{font-size:11px;color:var(--muted)}
+.lit-ai-src-text{max-height:96px;overflow:auto;font-size:11px;line-height:1.5;color:var(--muted);border:1px dashed var(--border);border-radius:6px;padding:6px 8px;white-space:pre-wrap;word-break:break-word}
+.lit-ai-img{width:100%;display:block;border:1px solid var(--border);border-radius:6px} /* v260929c · 待处理截图预览 */
+.lit-ai-capture{display:flex;gap:6px;flex-wrap:wrap} /* v260929c · 截图入口（多模态开启时显示） */
+.lit-ai-capture .secondary-btn{min-height:28px;padding:0 12px;font-size:12px}
+.lit-ai-capture .ghost-btn{min-height:28px;padding:0 10px;font-size:12px}
+.lit-ai-actions{display:flex;gap:6px;flex-wrap:wrap}
+.lit-ai-actions .secondary-btn{min-height:28px;padding:0 12px;font-size:12px}
+.lit-ai-custom{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center}
+.lit-ai-custom input{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:inherit}
+.lit-ai-custom .primary-btn{min-height:34px;padding:0 14px;white-space:nowrap}
+.lit-ai-result{border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface);font-size:12px;line-height:1.65;overflow:auto;max-height:calc(100vh - 430px);min-height:120px;word-break:break-word}
+.lit-ai-result.busy{color:var(--muted);display:grid;place-items:center;animation:lit-ai-pulse 1.2s ease-in-out infinite}
+.lit-ai-result.err{border-color:#e53935;color:#c62828}
+.lit-ai-result h4{margin:.55em 0 .25em;font-size:12px}
+.lit-ai-result p{margin:.35em 0}
+.lit-ai-result ul{margin:.4em 0;padding-left:1.25em}
+.lit-ai-result li{margin:2px 0}
+.lit-ai-result code{font-family:Consolas,monospace;background:var(--surface-3);padding:1px 4px;border-radius:4px}
+.lit-ai-result pre{background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:8px;overflow:auto}
+.lit-ai-result pre code{background:transparent;padding:0}
+.lit-ai-foot{display:flex;gap:6px;flex-wrap:wrap}
+.lit-ai-foot .primary-btn,.lit-ai-foot .secondary-btn{min-height:28px;padding:0 12px;font-size:12px}
+@keyframes lit-ai-pulse{0%,100%{opacity:.55}50%{opacity:1}}

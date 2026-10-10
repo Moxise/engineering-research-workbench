@@ -345,7 +345,7 @@ async function ensurePersonas(force){
 function currentPersona(){return (S.personas||[]).find(p=>p.id===S.personaId)||S.personas?.[0]||null}
 /* v260930g · 写入能力保障：当前人设无写工具时，写类动作自动切到有写工具的人设（默认执行助手） */
 /* v261009.9 · 写工具集合**动态**来自服务端（/api/agent/tools 的 write 标记）：
-   内核写工具是初始值，插件注册的写工具（如 p_litnote__note_write）在取到清单后补进来——
+   内核写工具是初始值，插件注册的写工具（如 p_literature-reader__note_write）在取到清单后补进来——
    内核模块不该硬编码插件工具名。 */
 const WRITE_TOOLS=["kb_create_entry","kb_update_entry"];
 function syncWriteTools(tools){

@@ -1,5 +1,19 @@
 # Changelog
 
+## v261009.17
+
+- **三个插件合并成一个「文献阅读工作区」**（按你的要求；说明里体现合并后的能力）。原 `literature-reader`（阅读区）+ `litnote`（文献笔记 + 2 个 AI 工具）+ `reader-assist`（阅读区 AI 助手）→ **一个插件** `plugins/literature-reader` **v2.0.0**，插件数 9 → **7**。
+  - 前端 `panel.js` = 三段 IIFE 拼接（阅读区 645 行 + 笔记 tab 136 行 + AI 面板 249 行 → **1049 行**）；`panel.css` 合并（154 行）；后端 `backend.py` 并入（2 个 AI 工具 + 3 条 note 路由）。
+  - **插件说明按你的要求写清三块能力**：PDF 打开·翻页·缩放·跳页、批注增改删、阅读区「笔记」tab + 两个 AI 工具、阅读区「AI」tab（含多模态截图与写回笔记）。
+  - `panel.mount` 仍是单一入口；`ERWReaderAssist` 接缝保留（现在由同一个插件内部提供与消费，仍对外暴露，将来可再拆）。
+- **⚠️ 合并的等价性风险已处理**：插件 id 变了 → 插件工具前缀从 `p_litnote__*` 变成 `p_literature-reader__*`，**已保存的人设白名单会静默丢能力**（v261009.9 真踩过一次）。处理：
+  - `app/config.py` 的 `LEGACY_TOOL_ALIASES` 增加四条映射（`lit_context` / `lit_note_write` / `p_litnote__context` / `p_litnote__note_write` → 新名），旧配置照旧生效；
+  - 内置「阅读助手」人设的默认工具名直接写成 `p_literature-reader__context`；
+  - 夹具断言「人设里没有旧工具名」「内核源码里旧工具名只出现在别名映射行」。
+- **验收**：`.scratch/tmp/verify_reader_note_tab.py`（已对齐合并）**全部通过**——合并后**三块能力在同一插件里**（`readerTab` = `info/annotations/notes/ai` 且 AI 助手已注册）、**停用后阅读区不可用**（无接管者、入口不出现、无残留 tab）而**文献列表页照常**（50 行）；`.scratch/tmp/verify_reader_plugin_tools.py`（原 litnote 夹具改名对齐）**全部通过**——2 个插件工具在工具面、写工具仍走内核草稿闸门、停用后工具消失、内核工具恰好 4 个、旧工具名只存在于别名映射。
+- 回归：`verify_reader_seam` 14/14、`verify_floating_assist` 16/16、`verify_graph_plugin_migration` 32/32、插件管理夹具、`ui_smoke` 17 路由 0 error、`web_check`、`plugin_check --assert-core-only`、`kb_smoke` 全绿；`doctor` error 0。
+- 夹具退役：`verify_reader_assist.py` 删除（AI 不再是可独立停用的插件；它的两条核心断言——AI tab 存在 + 派发切前台——已并入阅读区夹具）。
+
 ## v261009.16
 
 - **悬浮球 AI 助手整体搬成插件**（`plugins/floating-assist/`，1222 行 JS + 323 行 CSS 迁出内核）——**一次覆盖 6 个附属项**（SCOPE §2.2）：

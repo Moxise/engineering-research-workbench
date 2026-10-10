@@ -197,14 +197,14 @@ Markdown + frontmatter 是唯一事实来源，SQLite 索引是可重建派生�
 
 | 插件 | 现状位置 | 默认 |
 | --- | --- | --- |
-| 文献阅读工作区（PDF + 批注 + AI tab） | `web/literature.js`（642 行）+ `literature.css` + `app.js` 的 `openLiteratureWorkspace` | 附属（**v261009.13 起**，反转 D-C） |
-| 文献笔记 | `lit_context` / `lit_note_write` + `Notes/` 编辑器 | 附属（其「笔记」tab 由**阅读区插件**渲染 → 仅在阅读区插件启用时可见；**不设硬 `requires`**，否则连两个 AI 工具一起被停掉） |
+| **文献阅读工作区（PDF + 批注 + 笔记 + 阅读区 AI）** | ✅ 已迁 `plugins/literature-reader` **v2.0.0**（v261009.14 起为插件；**v261009.17 合并**原 litnote + reader-assist，插件数 9→7） | 附属（反转 D-C；合并后仍是一个开关） |
+| 文献笔记（编辑界面 + `context` / `note_write` 两个 AI 工具） | ✅ 已并入 `plugins/literature-reader`（工具名变为 `p_literature-reader__*`，旧名走 `LEGACY_TOOL_ALIASES` 兼容） | 附属 |
 | 专注计时 | `web/app.js`（0 路由） | 附属 |
 | 天气 | `app/weather.py`（2 路由） | 附属 |
 | RSS 资讯 | `app/rss.py`（1 路由） | 附属 |
 | 用量计费 | `app/billing.py`（5 路由）+ `v261008-billing.js` | 附属 |
 | 悬浮球助手 | ✅ 已迁 `plugins/floating-assist`（v261009.16，浮层槽位 `overlay`） | 附属 |
-| 阅读区 AI 助手 + 多模态截图 | ✅ 已迁 `plugins/reader-assist`（v261009.15；截图入口随悬浮球/阅读区，开关设置留内核） | 附属 |
+| 阅读区 AI 助手 + 多模态截图 | ✅ 已并入 `plugins/literature-reader` **v2.0.0**（v261009.15 先做插件，v261009.17 合并；截图入口随悬浮球/阅读区，多模态开关设置留内核） | 附属 |
 | 工具轨迹时间线 | ✅ 已迁 `plugins/floating-assist`（`window.ERWFabTimeline`，内核 Agent 消息**空值保护消费**） | 附属 |
 | 阅读中知识关联 | ✅ 已迁 `plugins/floating-assist`（`/api/kb/related` + 阅读区 `context()`） | 附属 |
 | 会话历史回看（悬浮球 🕘） | ✅ 已迁 `plugins/floating-assist`（Agent 页会话列表属核心对话，留内核） | 附属 |

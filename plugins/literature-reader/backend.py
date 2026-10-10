@@ -5,8 +5,8 @@
 
 | 搬出前（内核工具） | 搬出后（插件工具） | 说明 |
 | --- | --- | --- |
-| `lit_context` | `p_litnote__context` | 读：文献元信息 + 批注数 + 笔记全文 |
-| `lit_note_write` | `p_litnote__note_write` | 写：追加或替换文献笔记 |
+| `lit_context` | `p_literature-reader__context` | 读：文献元信息 + 批注数 + 笔记全文 |
+| `lit_note_write` | `p_literature-reader__note_write` | 写：追加或替换文献笔记 |
 
 **写工具的安全闸门在内核**（本插件不实现确认逻辑）：声明 `write: true` 后，
 confirm 模式下内核只生成草稿、用户确认后才以 direct 模式调用本 handler 真正落盘
@@ -114,4 +114,4 @@ def register(ctx):
         "write": True,
     }, tool_note_write)
 
-    ctx.log("文献笔记插件已注册（工具 p_litnote__context / p_litnote__note_write；阅读区「笔记」tab）")
+    ctx.log("文献阅读工作区插件已注册（工具 p_literature-reader__context / p_literature-reader__note_write；阅读区「笔记」tab）")

@@ -220,7 +220,7 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | --- | --- | --- | --- |
 | `window.ERWFabTimeline` | `plugins/floating-assist` | `app.js` 的 Agent 消息气泡（工具轨迹块） | 该块**静默不渲染**，消息照常显示 |
 | `window.ERWLiterature` / `window.ERWCapture` | `plugins/literature-reader` | 悬浮球上下文/截图桥、阅读区助手 | 阅读相关动作不可用，其余照常 |
-| `window.ERWReaderAssist` | `plugins/literature-reader` | `plugins/reader-assist`（插件↔插件） | AI 助手注册失败并打一条 console.error |
+| `window.ERWReaderAssist` | `plugins/literature-reader` | 同插件内的 AI 面板（v261009.17 合并后为例：**同一插件内部**提供与消费，仍对外暴露，将来可再拆） | AI 面板不注册并在控制台说明 |
 
 > **不要把这类可选 UI 块搬回内核**。「零插件可跑」（I1）的含义是*工作台与核心流程可用*，
 > 不是*每个可选 UI 块都必须在场*；守卫 + 明确退化即可。把某一附属的渲染代码塞回内核，

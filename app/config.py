@@ -398,14 +398,18 @@ def _clean_personas(personas: Any) -> list[dict[str, Any]]:
     白名单里的条目不会被写回磁盘时抹掉，重新启用即自动恢复。"""
     from . import agent_tools  # noqa: F401  保持导入：调用方与历史行为都经过它
     #: 工具搬家时的**旧名 → 新名**别名（用户已保存的人设白名单据此迁移，避免悄悄丢能力）
+    #: v261009.17 · 文献笔记/阅读区 AI 助手并入「文献阅读工作区」后，插件工具前缀从
+    #: `p_litnote__*` 变为 `p_literature-reader__*`；四种旧写法都指向新名。
     LEGACY_TOOL_ALIASES = {
-        "lit_context": "p_litnote__context",
-        "lit_note_write": "p_litnote__note_write",
+        "lit_context": "p_literature-reader__context",
+        "lit_note_write": "p_literature-reader__note_write",
+        "p_litnote__context": "p_literature-reader__context",
+        "p_litnote__note_write": "p_literature-reader__note_write",
     }
     builtin_defaults = {
-        # v261009.9 · 文献工具已搬成插件（plugins/litnote）：这里用**对外名**引用它，
+        # v261009.9 · 文献工具已搬成插件（v261009.17 起并入「文献阅读工作区」）：这里用**对外名**引用它，
         # 插件未启用时该名字会被 all_tool_names() 过滤掉，人设自动退化为纯知识库工具。
-        "reader": {"name": "阅读助手", "system_prompt": "你是严谨的科研阅读助手。回答优先基于知识库检索结果与用户提供的文献上下文；擅长解释概念、总结要点、对比方法。你不修改任何知识库内容，检索不到时明确说明。", "tools": ["kb_search", "kb_read", "p_litnote__context"], "write_mode": "confirm"},
+        "reader": {"name": "阅读助手", "system_prompt": "你是严谨的科研阅读助手。回答优先基于知识库检索结果与用户提供的文献上下文；擅长解释概念、总结要点、对比方法。你不修改任何知识库内容，检索不到时明确说明。", "tools": ["kb_search", "kb_read", "p_literature-reader__context"], "write_mode": "confirm"},
         "executor": {"name": "执行助手", "system_prompt": "你是科研工作台的执行助手。用户交代任务后主动检索知识库、查重、生成条目/笔记草稿并等待确认；写知识条目前必须遵守命名规范（知识-<类别>-<名称>），命中同名条目改为增补。完成后简洁汇报做了什么、产出了哪些草稿。", "tools": list(agent_tools.all_tool_names()), "write_mode": "confirm"},
         "archivist": {"name": "术语建档员", "system_prompt": ARCHIVIST_PROMPT, "tools": list(agent_tools.all_tool_names()), "write_mode": "confirm"},
     }
