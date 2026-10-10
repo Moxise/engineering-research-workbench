@@ -46,12 +46,6 @@
       "theme": "layout"
     },
     {
-      "file": "v260930-floating-agent.css",
-      "v": "260930n",
-      "theme": "agent",
-      "note": "v260930n · 历史列表归档/删除操作样式；上版：停止按钮样式"
-    },
-    {
       "file": "plugin-manager.css",
       "v": "261009p",
       "theme": "plugin-manager",
@@ -101,9 +95,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009l",
+      "v": "261009q",
       "theme": "base",
-      "note": "v261009l · 新增 window.ERWReader（阅读区接管：PDF 阅读工作区可由插件提供，无接管者时列表页照常、入口不出现）；上版 §6.3 新增 ERWContract / ERWMarkdown / ERWGraphRenderers 三个接缝"
+      "note": "v261009q · 新增 window.ERWToast（通用提示条接缝）与 overlay 浮层槽位（悬浮球等常驻 UI 的挂载点）；上版：ERWReader 阅读区接管"
     },
     {
       "file": "plugin-host.js",
@@ -113,15 +107,9 @@
     },
     {
       "file": "v260922-research-pages.js",
-      "v": "261009n",
+      "v": "261009q",
       "theme": "research-pages",
-      "note": "v261009n · 图谱可视化的两个补丁（graph-performance / overview-graph，共 550 行）迁成插件 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles 三个补丁"
-    },
-    {
-      "file": "v260930-floating-agent.js",
-      "v": "261009e",
-      "theme": "agent",
-      "note": "v261009e · 写工具集合改为从 /api/agent/tools 的 write 标记动态推导（不再硬编码插件工具名）；清掉两处文献工具名"
+      "note": "v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-settings-rendered 广播）随悬浮球模块搬成插件 plugins/floating-assist；图谱两补丁已迁成 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles"
     },
     {
       "file": "v260922-layout-bugfixes.js",

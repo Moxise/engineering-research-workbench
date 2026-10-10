@@ -61,7 +61,7 @@
      槽位面板形如：{ id, slot: 'topbar', label, renderSlot(containerEl) } —— 画进内核给的槽位
      设置页贡献形如：{ id, settingsTab: { label, render(containerEl) } } —— 往「设置」里加一个 tab */
   const PANELS = [];
-  const SLOTS = { topbar: true };
+  const SLOTS = { topbar: true, overlay: true };
   window.ERWPanels = {
     register(panel){
       if(!panel || !panel.id) throw new Error('ERWPanels.register 需要 {id, ...}');
@@ -226,6 +226,10 @@
     const el = document.createElement('div'); el.className = 'toast' + (error?' error':''); el.textContent = message;
     $('#toast-stack').appendChild(el); setTimeout(()=>el.remove(), 3200);
   }
+  /* v261009.16 · 通用 UI 接缝：提示条。此前 5 个模块各写一份 toast（app.js / research-pages /
+     plugin-manager / floating-agent / literature），插件也没有稳定入口；内核这份从此对外可用，
+     插件优先用它、缺失时自行兜底（ERWToast 缺席不该报错）。 */
+  window.ERWToast = toast;
 
   function modal(title, bodyHtml, footerHtml='') {
     $('#modal-title').textContent = title; $('#modal-body').innerHTML = bodyHtml; $('#modal-footer').innerHTML = footerHtml;

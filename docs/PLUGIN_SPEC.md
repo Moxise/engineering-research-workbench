@@ -118,7 +118,7 @@ plugins/weather/
 | `permissions` | — | 权限清单（§7），安装/启用时展示给用户 |
 | `requires` / `provides` | — | 依赖与供给（§4） |
 | `nav` / `routes` / `mcp_tools` / `settings_schema` / `jobs` / `events` | — | 扩展点声明（注册方式与命名空间见 REFACTOR_PLAN §6.3） |
-| `nav[].slot` | — | **槽位面板**：声明 `slot`（当前支持 `topbar`）后该面板**不进导航**，而是画进内核提供的槽位容器（容器带 `data-plugin="<id>"`，样式按 §2 作用域）；入口脚本用 `ERWPanels.register({id, slot, renderSlot(container)})` 自登记。未知槽位会被拒载（`P019`） |
+| `nav[].slot` | — | **槽位面板**：声明 `slot` 后该面板**不进导航**，而是画进内核提供的槽位容器（容器带 `data-plugin="<id>"`，样式按 §2 作用域）；入口脚本用 `ERWPanels.register({id, slot, renderSlot(container)})` 自登记。**当前两个槽位**：`topbar`（顶栏一行）与 `overlay`（页面浮层，悬浮球这类"始终挂在页面上"的 UI 用它；**不要**直接往 `document.body` 塞 DOM）。已知槽位在 `core/plugins/manifest.KNOWN_SLOTS` 声明，未知槽位会被拒载（`P019`） |
 | `storage` | — | 自有派生数据路径，**只允许** `System/Cache/<id>.sqlite` 这一类 |
 
 ---
@@ -207,11 +207,25 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 | `window.ERWGraphRenderers.register({id, graph?, overview?})` | **图谱渲染接管**：内核渲染图谱页 / 研究总览迷你图时把画布交给接管者；插件缺席或 `enhance()` 抛错时内核回退自带 `drawGraph` |
 | `window.ERWReader.register({id, open(paperId?), openByAttachment(att), context?()})` | **阅读区接管**：内核在文献列表页点「PDF 阅读工作区」或点附件徽章时调它。无接管者时内核**不显示该入口**，并在用户试图打开时给明确提示（"阅读区不可用：请启用…"），文献列表/元数据条目页照常可用。首个使用者是 [`plugins/literature-reader`](REFACTOR_PLAN.md) |
 | `window.ERWReaderAssist.register({id, tabId, run(action,payload), attach?, fromNote?, useImage?})` | **阅读区助手**（**插件提供、插件消费**的接缝，v261009.15）：阅读区把「选中动作 / 框选截图 / 笔记 AI 整理」派发给助手插件，派发前切到它声明的 `tabId`；助手在 `attach(ctx)` 里拿到实时上下文 `{paper, refreshList, selection(), capture{page(),area()}, activate(), aiPolish()}`。阅读区因此**不认识任何具体助手**，助手停用 → AI tab 与工具条按钮一起消失。首个使用者是 [`plugins/reader-assist`](REFACTOR_PLAN.md) |
+| **槽位面板**（manifest `nav[].slot` + `ERWPanels.register({slot, renderSlot})`） | 内核给挂载点并给容器加 `data-plugin="<id>"`，插件**只在容器内**画东西。已知槽位由 `core/plugins/manifest.KNOWN_SLOTS` 声明（新增槽位是有意的动作），当前两个：`topbar`（顶栏一行，`#topbar-slot`）与 **`overlay`**（页面浮层 `#erw-overlay-host`——悬浮球这类「始终挂在页面上」的 UI 用它；**不要**直接往 `document.body` 塞 DOM） |
 | `window.erwFetch(url, init)` | 出网与访问内核 HTTP API（**不得**替换 `window.fetch`） |
 | `window.erwVendor.load('mathjax'\|'mermaid')` | 重型库按需加载（本地优先、CDN 兜底） |
 | `window.ERWDom.onChildList(cb, {root})` | 文档级 DOM 变更观察的唯一入口（内核合并成一个 observer） |
 | `workbench:*` / `erw-*` 自定义事件 | 内核广播（如 `llm.usage`）与模块间解耦通信 |
 | `window.ERWToast(msg, error?)` / `window.ERWMarkBadges/ERWMarkList/ERWMarkChips/ERWTagPicker` / `ERWVisionEnabled` / `ERWAssistCustomActions` | 提示条与「标记 / 标签 / 多模态开关 / 自定义 AI 动作」这类内核 UI 小件（由内核模块提供；插件**不要**自己再造一套，也别依赖它们一定存在——调用处做空值保护） |
+
+**内核消费的插件提供接缝**（v261009.16 起，全部经 `?.`／`typeof` 守卫）：
+
+| 接缝 | 提供方 | 内核消费点 | 插件缺席时 |
+| --- | --- | --- | --- |
+| `window.ERWFabTimeline` | `plugins/floating-assist` | `app.js` 的 Agent 消息气泡（工具轨迹块） | 该块**静默不渲染**，消息照常显示 |
+| `window.ERWLiterature` / `window.ERWCapture` | `plugins/literature-reader` | 悬浮球上下文/截图桥、阅读区助手 | 阅读相关动作不可用，其余照常 |
+| `window.ERWReaderAssist` | `plugins/literature-reader` | `plugins/reader-assist`（插件↔插件） | AI 助手注册失败并打一条 console.error |
+
+> **不要把这类可选 UI 块搬回内核**。「零插件可跑」（I1）的含义是*工作台与核心流程可用*，
+> 不是*每个可选 UI 块都必须在场*；守卫 + 明确退化即可。把某一附属的渲染代码塞回内核，
+> 等于把附属重新变成核心（与 §5/A15 的方向相反），并且会让内核重新依赖具体功能。
+> 判定标准：**内核是否在无该插件时报错/白屏**——不是「某块 UI 是否消失」。
 
 **公开数据 API**（只读，插件可直接消费）：`/api/docs`、`/api/docs/<id>`、`/api/statuses`、`/api/projects`、`/api/dashboard`、`/api/graph`、`/api/graph/overview`、`/api/graph/neighborhood`、`/api/search`、`/api/todos`、`/api/literature`（含 `/pdf` 的 **Range 分片**、`/annotations`、`/note`、`/storage`、`/lookup`、`/import`、`/rebuild`、`export-bibtex`）。写路径一律走内核草稿闸门，插件**不得**直写 `Workspace/`。
 

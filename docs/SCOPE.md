@@ -203,11 +203,15 @@ Markdown + frontmatter 是唯一事实来源，SQLite 索引是可重建派生�
 | 天气 | `app/weather.py`（2 路由） | 附属 |
 | RSS 资讯 | `app/rss.py`（1 路由） | 附属 |
 | 用量计费 | `app/billing.py`（5 路由）+ `v261008-billing.js` | 附属 |
-| 悬浮球助手 | `web/v260930-floating-agent.js`（1145 行） | 附属 |
-| 阅读区 AI 助手 + 多模态截图 | `agent.assist`、`ERWCapture` | 附属 |
-| 工具轨迹时间线 | v261008b 的 timing 渲染 | 附属 |
-| 术语建档流水线 | archivist 人设 + 建档 SOP | 附属 |
-| 知识图谱可视化 / 里程碑 3D | `v260922-*` 补丁 | 附属 |
+| 悬浮球助手 | ✅ 已迁 `plugins/floating-assist`（v261009.16，浮层槽位 `overlay`） | 附属 |
+| 阅读区 AI 助手 + 多模态截图 | ✅ 已迁 `plugins/reader-assist`（v261009.15；截图入口随悬浮球/阅读区，开关设置留内核） | 附属 |
+| 工具轨迹时间线 | ✅ 已迁 `plugins/floating-assist`（`window.ERWFabTimeline`，内核 Agent 消息**空值保护消费**） | 附属 |
+| 阅读中知识关联 | ✅ 已迁 `plugins/floating-assist`（`/api/kb/related` + 阅读区 `context()`） | 附属 |
+| 会话历史回看（悬浮球 🕘） | ✅ 已迁 `plugins/floating-assist`（Agent 页会话列表属核心对话，留内核） | 附属 |
+| 写模式开关（direct 直写 UI） | ✅ UI 已迁 `plugins/floating-assist`；**执行侧（草稿确认闸门）留内核**——安全不变式不交插件 | 附属 |
+| AI 助手人设编辑器（UI） | ✅ 已迁 `plugins/floating-assist`（其设置页 tab）；**人设解析/工具白名单/写模式判定留内核** `app/config.py`+`app/agent.py`（属安全边界） | 附属 |
+| 术语建档流水线 | ✅ 随悬浮球模块迁出（archivist 人设 + 建档 SOP + 快捷动作） | 附属 |
+| 知识图谱可视化 / 里程碑 3D | ✅ 图谱已迁 `plugins/knowledge-graph`（v261009.13）；里程碑 3D 时间线留在内核（属研究主页面） | 附属 |
 
 ### 阶段 3 · 数据表化（对应 D-A）
 

@@ -34,11 +34,13 @@ python tools/plugin_check.py           # 隔离体检：依赖方向单向、内
 > （`GET /api/plugins` + `/plugins-file/<id>/<rel>` + 面板自登记 `ERWPanels`，含**顶栏槽位面板**与
 > **无导航页 UI** `panel.mount`）、**图谱渲染接管**（`ERWGraphRenderers`）、**内核事件**（`ctx.events`）、
 > **插件 MCP 工具接入内置 Agent**（`p_<id>__<tool>`，读工具直接执行、**写工具由内核统一走草稿确认流**）
-> 都已可用。仓库里已有八个真插件：
+> 都已可用。仓库里已有九个真插件：
 > `focus`（专注计时，纯前端）、`rss`（科研资讯，后端路由 + 自带样式）、`weather`（天气，顶栏槽位 + 设置模态）、
 > `billing`（用量计费，订阅 `llm.usage` 事件 + 数据命名空间认领）、`litnote`（文献笔记编辑界面 + 两个 AI 工具）、
 > `knowledge-graph`（知识图谱可视化：图谱页渲染接管 + 总览迷你图，纯前端、无后端）、
 > `literature-reader`（PDF 阅读工作区：`ERWReader` 接管 + 阅读区助手接缝 `ERWReaderAssist`，纯前端；
-> 文献数据与文件服务仍在内核）、`reader-assist`（阅读区 AI 助手：AI tab 由它贡献，停用即消失）。
+> 文献数据与文件服务仍在内核）、`reader-assist`（阅读区 AI 助手：AI tab 由它贡献，停用即消失）、
+> `floating-assist`（悬浮球 AI 助手：浮层槽位 `overlay`；含工具轨迹时间线、阅读中知识关联、
+> 会话回看、写模式开关 UI、AI 助手人设编辑器）。
 > **尚未实现**：MCP stdio 服务侧的插件工具、`settings_schema` 通用表单（插件目前自带设置 UI）、
-> 后台任务（`ctx.jobs`）、`ctx.kinds`（自定义知识类型）。
+> 后台任务（`ctx.jobs`）、`ctx.search.addSection`（RAG 的位置）、`ctx.kinds`（自定义知识类型）。

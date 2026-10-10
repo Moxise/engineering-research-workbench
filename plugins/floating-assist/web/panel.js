@@ -1,3 +1,19 @@
+/* floating-assist · 悬浮球 AI 助手（从内核 web/v260930-floating-agent.js 原样迁出，v261009.16）
+ *
+ * 本插件一次覆盖 6 个附属能力（SCOPE §2.2）：
+ *   · 悬浮球助手（拖动/选区气泡/上下文注入/流式对话）
+ *   · 工具轨迹时间线（`window.ERWFabTimeline`，内核 Agent 消息气泡里的工具轨迹块消费它）
+ *   · 阅读中知识关联（`#fab-related`，调内核 `POST /api/kb/related`，输入取阅读区 `ERWLiterature.context()`）
+ *   · 会话历史回看（🕘，走内核 `/api/agent/sessions*`）
+ *   · 写模式开关（"写工具直接落盘"）；**执行侧仍在内核**——草稿确认闸门是内核的安全不变式，
+ *     插件只提供开关 UI 与随请求带上 write_mode
+ *   · AI 助手人设编辑器（本插件贡献一个**设置页 tab**；人设的解析与生效仍在内核
+ *     app/config.py + app/agent.py，配置存内核 app.json，插件只做 UI）
+ *
+ * 接缝：`ERWPanels.register({slot:'overlay'})`（内核浮层挂载点）、`ERWPanels.settingsTab`、
+ * `window.ERWToast`（内核提示条）、`window.erwFetch`、`window.ERWCapture` / `window.ERWLiterature`
+ * （阅读区插件提供，均做空值保护）、`window.erwVendor`（mathjax 按需）、`erw-lit-*` 自定义事件。
+ */
 /* v260930 · M2 悬浮球全局助手：全局常驻对话面板 + 页面上下文自动注入 + 划词气泡 + 工具草稿确认。
    依赖 M1 后端：/api/agent/send 的 context 参数、/api/agent/drafts/<id>/confirm|reject、assistant 消息的 tool_trace/drafts 字段。
    独立 IIFE，不侵入 app.js / literature.js；文献上下文经 window.ERWLiterature.context() 桥获取。 */
@@ -69,15 +85,16 @@ function buildContext(){
 }
 
 /* ---------- 骨架 DOM ---------- */
-function mount(){
+function mount(host){
   if(q("#erw-fab-ball"))return;
+  if(!host)return;
   const ball=document.createElement("button");
   ball.id="erw-fab-ball";ball.type="button";ball.title="AI 助手";
   ball.innerHTML='<span class="fab-pulse"></span>◉';
   ball.onclick=openPanel;
   restoreBallPos(ball); /* v260930f · 恢复上次拖拽位置 */
   initBallDrag(ball);   /* v260930f · 拖拽移动（阈值内视为点击） */
-  document.body.appendChild(ball);
+  host.appendChild(ball);
 
   const panel=document.createElement("section");
   panel.id="erw-fab-panel";panel.hidden=true;
@@ -114,7 +131,7 @@ function mount(){
         <button type="button" id="fab-send">发送</button>
       </div>
     </div>`;
-  document.body.appendChild(panel);
+  host.appendChild(panel);
 
   const bubble=document.createElement("div");
   bubble.id="erw-sel-bubble";
@@ -124,7 +141,7 @@ function mount(){
     <button type="button" data-fab-act="save"><b>存知识库</b></button>
     <button type="button" data-fab-act="kb" title="即时检索知识库中与选中内容相关的条目（不经 AI）"><b>查知识库</b></button>
     <button type="button" data-fab-act="ask">问 AI…</button>`;
-  document.body.appendChild(bubble);
+  host.appendChild(bubble);
 
   initPanelResize(); /* v260930g7 · 左上角手柄拖拽调尺寸 */
   initPanelDrag(); /* v260930j3 · 头部拖动移动面板（展开后不再固定右下角） */
@@ -1125,12 +1142,14 @@ function updateBallBadge(){
   q("#erw-fab-ball")?.classList.toggle("has-draft",pending);
 }
 
-/* ---------- 设置页人设编辑器（M3）：挂在 Agent/LLM 设置面板底部 ---------- */
-let PE=null; /* 编辑器状态 */
-document.addEventListener("erw-llm-settings-rendered",()=>renderPersonaEditor().catch(()=>{}));
+/* ---------- AI 助手人设编辑器（M3）：本插件贡献一个设置页 tab ----------
+   此前挂在 Agent/LLM 设置面板底部（内核插一个 #erw-persona-host 并广播 erw-llm-settings-rendered）；
+   现在由本插件经 ERWPanels.settingsTab 自己提供 tab，内核不再认识人设 UI。 */
+let PE=null;       /* 编辑器状态 */
+let PE_HOST=null;  /* 当前设置页 tab 容器：保存后要就地重绘 */
 
-async function renderPersonaEditor(){
-  const host=q("#erw-persona-host");if(!host)return;
+async function renderPersonaEditor(host){
+  host=host||PE_HOST; if(!host)return; PE_HOST=host;
   const [cfg,tools]=await Promise.all([api("/api/config"),api("/api/agent/tools")]);
   const personas=JSON.parse(JSON.stringify(cfg?.app?.llm?.personas||[]));
   const presets=Array.isArray(cfg?.app?.llm?.request_presets)?cfg.app.llm.request_presets:[];
@@ -1200,23 +1219,24 @@ async function savePersonaEditor(){
     S.personas=JSON.parse(JSON.stringify(saved.llm?.personas||[]));
     if(!S.personas.some(p=>p.id===S.personaId))S.personaId=S.personas[0]?.id||"reader";
     paintPersonaSelect();
-    const host=q("#erw-persona-host");
-    if(host){PE.personas=JSON.parse(JSON.stringify(saved.llm?.personas||[]));paintPersonaEditor(host)}
+    if(PE_HOST){PE.personas=JSON.parse(JSON.stringify(saved.llm?.personas||[]));paintPersonaEditor(PE_HOST)}
     window.ERWToast?.("人设已保存");
   }catch(e){window.ERWToast?.(e.message,true)}
 }
 
-function boot(){
-  mount();
+function boot(host){
+  mount(host);
   updateBallBadge();
 }
-/* v260930 · M3：toast 桥（设置页人设编辑器用），复用主应用 toast-stack 容器 */
-window.ERWToast=(msg,bad)=>{
-  const root=q("#toast-stack");if(!root)return;
-  const el=document.createElement("div");
-  el.className="toast"+(bad?" error":"");el.textContent=msg;
-  root.appendChild(el);setTimeout(()=>el.remove(),3200);
-};
-if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);
-else boot();
+/* 注册：① 浮层槽位面板（悬浮球 + 面板 + 选区气泡，容器由内核给，插件不碰 document.body）；
+   ② 设置页 tab（AI 助手人设编辑器）。 */
+if(window.ERWPanels){
+  window.ERWPanels.register({id:"floating-assist",label:"AI 助手",slot:"overlay",renderSlot:(host)=>boot(host)});
+  window.ERWPanels.register({id:"floating-assist-personas",label:"AI 助手人设",
+    settingsTab:{id:"personas",label:"AI 助手人设",render:(host)=>renderPersonaEditor(host).catch(()=>{})}});
+}else{
+  console.error("[floating-assist] 内核缺少 window.ERWPanels，插件不生效");
+}
+/* v261009.16 · 提示条走内核通用接缝 window.ERWToast（app.js 暴露；本文件此前自带一份实现，
+   现已上移内核——5 个模块各写一份 toast 的重复到此结束）。内核缺席时不报错：提示静默丢弃。 */
 })();

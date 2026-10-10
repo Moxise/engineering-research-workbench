@@ -16,7 +16,6 @@
   <link rel="stylesheet" href="/v260922-graph-performance.css?v=261009m"><!-- v261009m · 图谱可视化迁成插件（plugins/knowledge-graph）：本文件只留内核图谱页 markup 的层级/尺寸样式，插件自注入 UI 的样式随插件走 -->
   <link rel="stylesheet" href="/v260922-agent-profiles.css?v=260929d">
   <link rel="stylesheet" href="/v260922-layout-bugfixes.css?v=260924g">
-  <link rel="stylesheet" href="/v260930-floating-agent.css?v=260930n"><!-- v260930n · 历史列表归档/删除操作样式；上版：停止按钮样式 -->
   <link rel="stylesheet" href="/plugin-manager.css?v=261009p"><!-- v261009p · 长说明不再挤走状态/开关：卡片头左侧 min-width:0、说明「两行省略 + 悬停看全文」（覆盖内核 .row-meta 的 nowrap）；上版：统一 .pm-row 单行版式 + .pm-detail 详情块 -->
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
   <!-- web:css:end -->
@@ -93,6 +92,9 @@
   </div>
 
   <div class="toast-stack" id="toast-stack"></div>
+  <!-- v261009.16 · 浮层槽位：悬浮球等"始终挂在页面上"的插件 UI 由内核提供挂载点，
+       插件只在这个容器里画（`ERWPanels.register({slot:'overlay', renderSlot})`）。 -->
+  <div id="erw-overlay-host" data-erw-slot="overlay"></div>
   <div class="modal-backdrop hidden" id="modal-backdrop">
     <section class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <header><h3 id="modal-title">操作</h3><button type="button" class="icon-btn" id="modal-close">×</button></header>
@@ -104,10 +106,9 @@
   <!-- web:app-js:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <script defer src="/dom-seam.js?v=261009"></script><!-- v261009 · A9：共享 DOM 变更订阅（window.ERWDom.onChildList）——7 个补丁各自建的文档级 MutationObserver 收敛为 1 个；提供 root 作用域、ignore 过滤、按帧合并与回调隔离。必须在所有补丁之前加载 -->
   <script defer src="/v260922-performance.js?v=261009r"></script><!-- v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore 过滤）；上版 A10：提供 window.erwFetch 接缝，不再全局替换 window.fetch -->
-  <script defer src="/app.js?v=261009l"></script><!-- v261009l · 新增 window.ERWReader（阅读区接管：PDF 阅读工作区可由插件提供，无接管者时列表页照常、入口不出现）；上版 §6.3 新增 ERWContract / ERWMarkdown / ERWGraphRenderers 三个接缝 -->
+  <script defer src="/app.js?v=261009q"></script><!-- v261009q · 新增 window.ERWToast（通用提示条接缝）与 overlay 浮层槽位（悬浮球等常驻 UI 的挂载点）；上版：ERWReader 阅读区接管 -->
   <script defer src="/plugin-host.js?v=261009c"></script><!-- v261009c · 除 nav[0] 外，还加载 manifest.panel.mount（没有导航页的 UI，如阅读区 tab） -->
-  <script defer src="/v260922-research-pages.js?v=261009n"></script><!-- v261009n · 图谱可视化的两个补丁（graph-performance / overview-graph，共 550 行）迁成插件 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles 三个补丁 -->
-  <script defer src="/v260930-floating-agent.js?v=261009e"></script><!-- v261009e · 写工具集合改为从 /api/agent/tools 的 write 标记动态推导（不再硬编码插件工具名）；清掉两处文献工具名 -->
+  <script defer src="/v260922-research-pages.js?v=261009q"></script><!-- v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-settings-rendered 广播）随悬浮球模块搬成插件 plugins/floating-assist；图谱两补丁已迁成 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->
   <script defer src="/plugin-manager.js?v=261009p"></script><!-- v261009p · 说明文字挂 title（长说明两行省略后可悬停看全文）；上版：一行摘要直接写明「提供什么」 -->
   <!-- web:app-js:end -->

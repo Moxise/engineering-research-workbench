@@ -1,5 +1,22 @@
 # Changelog
 
+## v261009.16
+
+- **悬浮球 AI 助手整体搬成插件**（`plugins/floating-assist/`，1222 行 JS + 323 行 CSS 迁出内核）——**一次覆盖 6 个附属项**（SCOPE §2.2）：
+  - 悬浮球助手（拖动定位 / 选区气泡 / 上下文注入 / 流式对话 / 草稿状态角标）
+  - **工具轨迹时间线**（`window.ERWFabTimeline`，内核 Agent 消息气泡按 `?.` 空值保护消费）
+  - **阅读中知识关联**（`#fab-related`，调内核 `POST /api/kb/related`，输入取阅读区 `ERWLiterature.context()`）
+  - **会话历史回看**（🕘）
+  - 写模式开关（"写工具直接落盘"）——**执行侧仍在内核**：草稿确认闸门是安全不变式，插件只给开关 UI
+  - **AI 助手人设编辑器**（改为本插件的**设置页 tab**）
+- **两个新内核接缝**：
+  - **浮层槽位 `overlay`**：`nav[].slot:"overlay"` + `ERWPanels.register({slot:'overlay', renderSlot})`，内核在 `index.html` 提供 `#erw-overlay-host` 挂载点（`KNOWN_SLOTS` 增加 `overlay`）。插件不再往 `document.body` 塞 DOM——实测悬浮球 `inSlot=true / inBody=false`。
+  - **`window.ERWToast`**（通用提示条）：内核把自家 `toast()` 暴露出来，结束「5 个模块各写一份 toast」；插件优先用它，缺失时自行兜底。
+- **内核删减**：`web/v260930-floating-agent.{js,css}` 删除（105 KB）；`v260922-research-pages.js` 不再插 `#erw-persona-host`、不再广播 `erw-llm-settings-rendered`（人设编辑器随插件走，并改口为「设置页『AI 助手人设』tab，由插件提供」）。
+- **验收**（`.scratch/tmp/verify_floating_assist.py`，真 Chrome，**16/16**）：启用 → 悬浮球存在且**挂在内核浮层槽位里**、`ERWFabTimeline` 已提供、`ERWToast` 来自内核、点球开面板且含「关联知识宿主 / 人设下拉 / 写模式开关 / 历史 / 截图入口」、设置页多出「AI 助手人设」tab 且渲染出 3 行人设、0 console error；**停用（脚本被拦）→ 悬浮球消失、`ERWFabTimeline` 不存在（内核空值保护）、人设 tab 消失、无残留宿主、无 console error**。
+- 回归：`verify_reader_assist` 16/16、`verify_reader_seam` 14/14、`verify_graph_plugin_migration` 32/32、`ui_smoke` 17 路由 0 error、`web_check`、`plugin_check --assert-core-only`、`kb_smoke` 全绿；插件合计 **9 个可用**；`doctor` error 0。
+- **顺带核实（无需再改）**：mermaid/mathjax 的按需渲染在 v261009 A1 已完成——`index.html` 首屏只有 MathJax 配置桩与 `vendor-lazy.js`，2.11 MB / 2.57 MB 的真库由 `erwVendor.load('mathjax'|'mermaid')` 在用到处加载（app.js 两处 + 本插件 mathjax 一处）。
+
 ## v261009.15
 
 - **阅读区 AI 助手拆成独立插件**（`plugins/reader-assist/`，你要的「只有开启 AI 助手，阅读区才出现 AI 功能选项」）。

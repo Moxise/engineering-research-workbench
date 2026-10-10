@@ -39,7 +39,7 @@ HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 
 #: 前端槽位（§6.3）：内核提供挂载点，插件把组件画进去，不改内核 DOM。
 #: 与 `web/app.js` 的 `ERWPanels.SLOTS` 对应；加槽位是**有意的动作**（须同步 PLUGIN_SPEC §6.3）。
-KNOWN_SLOTS: frozenset[str] = frozenset({"topbar"})
+KNOWN_SLOTS: frozenset[str] = frozenset({"topbar", "overlay"})
 
 
 def _issue(code: str, level: str, message: str, fix: str = "") -> dict[str, str]:
