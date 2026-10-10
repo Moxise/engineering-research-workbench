@@ -1217,8 +1217,8 @@
   function treeHtml(node){const ico=node.type==='dir'?'▱':'·';return `<div class="tree-node"><div class="tree-line"><span>${ico}</span><span class="folder-name" title="${esc(node.path)}">${esc(node.name)}</span>${node.type==='dir'?`<span class="folder-actions"><button data-open-path="${esc(node.path)}">↗</button></span>`:''}</div>${node.children?.length?`<div class="tree-children">${node.children.map(treeHtml).join('')}</div>`:''}</div>`}
   function wireTreeOpen(){$$('[data-open-path]').forEach(b=>b.onclick=e=>{e.stopPropagation();api('/api/workspace/open',{method:'POST',body:{path:b.dataset.openPath}}).catch(x=>toast(x.message,true))})}
 
-  /* v261009 · 用量计费页已整体搬到 v261008-billing.js，并由它自己用 window.ERWPanels.register 登记
-     （导航项 + 标题 + 渲染函数）。内核不再认识「计费」这个功能。 */
+  /* v261009.8 · 用量计费已整体搬成插件 plugins/billing（自己 register 面板：导航项 + 标题 + 渲染）；
+     内核不再认识它——`web_check` 断言 app.js 里没有计费实现。 */
 
   async function renderSettings(){const cfg=await api('/api/config');state.config=cfg;
     /* v261009.4 · 设置页 tab 由两部分组成：内核自带 + **模块自登记**（ERWPanels.settingsTab）。

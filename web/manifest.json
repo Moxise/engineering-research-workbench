@@ -56,12 +56,6 @@
       "note": "v260930n · 历史列表归档/删除操作样式；上版：停止按钮样式"
     },
     {
-      "file": "v261008-billing.css",
-      "v": "261008",
-      "theme": "billing",
-      "note": "v261008 · 用量计费仪表盘样式"
-    },
-    {
       "file": "plugin-manager.css",
       "v": "261009c",
       "theme": "plugin-manager",
@@ -111,9 +105,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009g",
+      "v": "261009h",
       "theme": "base",
-      "note": "v261009g · 设置页 tab 支持模块自登记（ERWPanels.settingsTab）——「插件」页由 web/plugin-manager.js 贡献，内核不加分支；上版：天气搬出内核"
+      "note": "v261009h · 设置页 tab 支持模块自登记（ERWPanels.settingsTab）；用量计费已搬成插件（导航项由插件登记）；上版：天气搬出内核"
     },
     {
       "file": "plugin-host.js",
@@ -144,12 +138,6 @@
       "v": "261009b",
       "theme": "layout",
       "note": "v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同）"
-    },
-    {
-      "file": "v261008-billing.js",
-      "v": "261009c",
-      "theme": "billing",
-      "note": "v261009c · §6.3：自行登记 ERWPanels 面板（导航项 + 页头 + 渲染），内核不再认识计费；上版：A10 api() 走接缝"
     },
     {
       "file": "plugin-manager.js",

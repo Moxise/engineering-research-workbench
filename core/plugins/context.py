@@ -139,6 +139,31 @@ class McpRegistry:
         return tool
 
 
+class EventTable:
+    """`ctx.events` —— 订阅内核广播的事实（§6.3；实现见 `core/events.py`）。
+
+    与路由/工具不同，**订阅不需要在 manifest 里声明**：它不对外暴露任何东西（不占命名空间、
+    不被前端发现），只是插件在 `register(ctx)` 期间挂上回调。停用插件即不再收到广播。
+    """
+
+    def __init__(self, plugin_id: str) -> None:
+        self.plugin_id = plugin_id
+        self.subscriptions: list[str] = []   # 已订阅的事件名（体检/诊断用）
+
+    def on(self, name: str, callback: Callable[[dict], Any]) -> Callable[[], None]:
+        from core import events as _events
+
+        off = _events.on(name, callback)
+        self.subscriptions.append(str(name))
+
+        def unsubscribe() -> None:
+            off()
+            if name in self.subscriptions:
+                self.subscriptions.remove(str(name))
+
+        return unsubscribe
+
+
 class PluginContext:
     """`register(ctx)` 的参数。插件只能通过它接触内核（§6）。"""
 
@@ -150,6 +175,7 @@ class PluginContext:
         self.routes = RouteTable(plugin_id)
         self.mcp = McpRegistry(plugin_id)
         self.storage = PluginStorage(plugin_id, self.dir)
+        self.events = EventTable(plugin_id)
 
     # ---- 便捷方法（插件最常用的几件事）----
     def log(self, message: str) -> None:

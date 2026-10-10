@@ -18,7 +18,6 @@
   <link rel="stylesheet" href="/v260922-agent-profiles.css?v=260929d">
   <link rel="stylesheet" href="/v260922-layout-bugfixes.css?v=260924g">
   <link rel="stylesheet" href="/v260930-floating-agent.css?v=260930n"><!-- v260930n · 历史列表归档/删除操作样式；上版：停止按钮样式 -->
-  <link rel="stylesheet" href="/v261008-billing.css?v=261008"><!-- v261008 · 用量计费仪表盘样式 -->
   <link rel="stylesheet" href="/plugin-manager.css?v=261009c"><!-- v261009c · 统一 .pm-row 单行版式（卡片摘要行与配置行同高同样式）+ .pm-detail 详情块 -->
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
   <!-- web:css:end -->
@@ -106,13 +105,12 @@
   <!-- web:app-js:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <script defer src="/dom-seam.js?v=261009"></script><!-- v261009 · A9：共享 DOM 变更订阅（window.ERWDom.onChildList）——7 个补丁各自建的文档级 MutationObserver 收敛为 1 个；提供 root 作用域、ignore 过滤、按帧合并与回调隔离。必须在所有补丁之前加载 -->
   <script defer src="/v260922-performance.js?v=261009r"></script><!-- v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore 过滤）；上版 A10：提供 window.erwFetch 接缝，不再全局替换 window.fetch -->
-  <script defer src="/app.js?v=261009g"></script><!-- v261009g · 设置页 tab 支持模块自登记（ERWPanels.settingsTab）——「插件」页由 web/plugin-manager.js 贡献，内核不加分支；上版：天气搬出内核 -->
+  <script defer src="/app.js?v=261009h"></script><!-- v261009h · 设置页 tab 支持模块自登记（ERWPanels.settingsTab）；用量计费已搬成插件（导航项由插件登记）；上版：天气搬出内核 -->
   <script defer src="/plugin-host.js?v=261009b"></script><!-- v261009b · 支持 nav.style（插件自带样式按 §2 以 [data-plugin] 作用域）；按 /api/plugins 清单加载面板，面板自登记 ERWPanels；单插件失败不影响内核（I4）且原因明示（I11） -->
   <script defer src="/literature.js?v=261009b"></script><!-- v261009b · A10：api() 走接缝；上版：修复框选失效 + Esc 释放截图等待 -->
   <script defer src="/v260922-research-pages.js?v=261009c"></script><!-- v261009c · A9：5 处文档级 MutationObserver 改走 ERWDom.onChildList（保留各自的作用域与合并）；上版 A10：api() 与直连请求走 window.erwFetch 接缝 -->
   <script defer src="/v260930-floating-agent.js?v=261009r"></script><!-- v261009r · A10：api() 走接缝；上版：A1 悬浮球 MathJax 按需加载 -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->
-  <script defer src="/v261008-billing.js?v=261009c"></script><!-- v261009c · §6.3：自行登记 ERWPanels 面板（导航项 + 页头 + 渲染），内核不再认识计费；上版：A10 api() 走接缝 -->
   <script defer src="/plugin-manager.js?v=261009d"></script><!-- v261009d · 卡片默认只留一行「版本」（其余进「详情」按需展开）；配置行的展开/收起改为点同一行（去掉大「收起」按钮） -->
   <!-- web:app-js:end -->
 </body>

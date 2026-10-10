@@ -11,7 +11,7 @@ import threading
 import time
 import urllib.request
 
-from core import net   # v261009.1 · 代理可用性判定与「死回环代理则直连」兜底
+from core import events, net   # v261009.1 · 代理兜底；events：把「用量」广播出去而不是直接调计费
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -20,7 +20,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from . import config, store, activity, agent_tools, billing
+from . import config, store, activity, agent_tools
 from .workspace import ensure_workspace
 
 _LOCK = threading.RLock()
@@ -500,8 +500,27 @@ def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delt
     calls = [tool_calls[i] for i in sorted(tool_calls)]
     if calls:
         message["tool_calls"] = calls
-    billing.record(cfg, usage_holder.get("usage"))  # v261008 · 计费：流式末帧 usage（无 _billing 上下文时自动跳过）
+    _emit_usage(cfg, usage_holder.get("usage"))  # v261009.8 · 计费已插件化：内核只广播事实
     return message
+
+
+def _emit_usage(cfg: dict[str, Any], usage_raw: Any) -> None:
+    """把一次 LLM 调用的用量**广播**出去（v261009.8 · P14 钩子倒置）。
+
+    此前这里是 `billing.record(cfg, usage)`——内核直接依赖计费模块，摘掉计费就会报错。
+    现在内核只说事实，谁关心谁订阅（官方计费插件订阅 `llm.usage`）；
+    **没有订阅者时什么也不发生**，内核照常跑（零插件也是合法状态，I1）。
+    """
+    billing_ctx = cfg.get("_billing") if isinstance(cfg, dict) else None
+    if not isinstance(billing_ctx, dict) or not billing_ctx.get("session_id"):
+        return          # 探针类调用没有归属上下文，不计费（与搬出前一致）
+    events.emit("llm.usage", {
+        "billing": dict(billing_ctx),
+        "usage": usage_raw,
+        "model": str(cfg.get("model") or ""),
+        "profile_id": str(cfg.get("id") or ""),
+        "profile_name": str(cfg.get("name") or ""),
+    })
 
 
 def _post_chat(cfg: dict[str, Any], messages: list[dict[str, Any]], request_params: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None, on_delta=None) -> dict[str, Any]:
@@ -524,7 +543,7 @@ def _post_chat(cfg: dict[str, Any], messages: list[dict[str, Any]], request_para
             if not _STREAM_4XX_RE.search(str(e)):
                 raise
     data = _http_json(_endpoint(str(cfg["base_url"]), "/chat/completions"), payload, str(cfg["api_key"]), tmo, extra_headers=cfg.get("headers"))
-    billing.record(cfg, data.get("usage"))  # v261008 · 计费：非流式 usage（流式分支已在 _stream_chat 内记录，4xx 降级不重复计）
+    _emit_usage(cfg, data.get("usage"))  # v261009.8 · 计费已插件化：内核只广播事实
     choices = data.get("choices") or []
     if not choices:
         raise ValueError("模型返回中没有 choices")

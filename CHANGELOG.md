@@ -1,5 +1,16 @@
 # Changelog
 
+## v261009.8
+
+- **§6/P6 第三件：用量计费搬成插件**（计划里 P6 顺序的第三项；它有**硬依赖前置条件**，所以先倒置再搬运）。
+  - **新增内核扩展点 `ctx.events`**（REFACTOR_PLAN §6.3 早就声明、此前未实现）：[`core/events.py`](core/events.py) 提供 `on/emit/subscriber_count`——内核在节点上**广播事实**，功能模块按需订阅；**订阅者异常被隔离**（不影响广播方与其它订阅者）、载荷浅拷贝（互不串味）、取消订阅即停。
+  - **依赖倒置（P14）**：`app/agent.py` 原先两处直接调 `billing.record(cfg, usage)`，删掉计费就会报错。现在改为广播 `llm.usage`（新增 `_emit_usage()`）；**没有订阅者时什么也不发生**，内核照常跑（I1）。`app/agent.py` 已不再 import 计费。
+  - **搬运**：新增 [`plugins/billing/`](plugins/billing/plugin.json)——`backend.py`（`app/billing.py` **原样搬入**：计价模型、三种计费方式、单价匹配、聚合统计逻辑未改写）+ `web/panel.js` + `web/panel.css`（从内核模块搬出，接口前缀改 `/api/plugins/billing/*`、外层加 `data-plugin="billing"`、CSS 统一作用域）。
+  - **数据原样认领**：`Workspace/System/billing/{ledger.jsonl, prices.json}` → `Workspace/System/Plugins/billing/`，**首次运行原样复制**（账本是只增不改的真实历史，实测 57 行一字不差；单价表逐字段一致）。
+  - **内核删除**：`app/billing.py`、`web/v261008-billing.js`、`web/v261008-billing.css`、`/api/billing/*`（5 条路由）与 `server.py` 的计费导入、装配清单里的两个条目。
+  - **验收**（`.scratch/tmp/verify_billing_plugin.py`，24 项全通过）：账本 57 行原样认领且前几行相同 · 单价表逐字段一致 · 插件 4 个接口可用（含 `?defaults=1` 与 `DELETE records`）· **内核旧接口全部 404** · **未加载插件时广播 0 送达且不报错（I1）** · **加载插件后送达 1 个订阅者并记进账本**，记账口径与搬出前一致（session_id / model / tokens / `billing_mode=subscription`）· 面板渲染 1477 字、侧栏有「用量」、容器带作用域 · 内核已无计费实现（AST 判定）· 0 console error。**验收把测试写入的那条假账原样还原**，不留副作用。
+- **本轮共 21 套闸门全绿**（新增计费验收，其余 20 套见 `v261009.0` 的验收基线）。
+
 ## v261009.7
 
 - **插件卡片也收成一行（只留版本），其余信息进「详情」按需展开**（用户要求：这些内容一并压缩）。

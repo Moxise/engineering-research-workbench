@@ -22,7 +22,6 @@ from app import projects
 from app import indexer
 from app.paths import ASSET_ROOT, DATA_ROOT
 from app import literature
-from app import billing  # v261008 · 用量计费
 from app import scratch  # v261008 · 操作临时空间 .scratch
 
 # v260923 · 打包 exe 后：只读资源（web/、VERSION）在 PyInstaller 解压目录；可写数据在 exe 同级
@@ -208,8 +207,6 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/agent/sessions/"):
                 session_id = unquote(path.split("/api/agent/sessions/", 1)[1])
                 return self.send_json(agent.delete_session(session_id))
-            if path == "/api/billing/records":  # v261008 · 用量计费：清空账本
-                return self.send_json(billing.clear())
             self.send_json({"error": "not_found"}, 404)
         except FileNotFoundError as e:
             self.send_json({"error": "not_found", "message": str(e)}, 404)
@@ -328,18 +325,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(agent_tools.list_tool_meta())
         if path == "/api/agent/drafts":  # v260930 · M1 待确认草稿列表（默认 pending，?status= 全量）
             return self.send_json(agent_tools.list_drafts(str((q.get("status") or ["pending"])[0])))
-        if path == "/api/billing/summary":  # v261008 · 用量计费：按会话/模型/日期聚合
-            return self.send_json(billing.summary())
-        if path == "/api/billing/records":  # v261008 · 用量计费：调用明细（最新在前）
-            return self.send_json(billing.records(
-                limit=_q_int(q, "limit", 200, 1, 2000),
-                offset=_q_int(q, "offset", 0, 0, 1000000000),
-                session_id=str((q.get("session_id") or [""])[0]),
-            ))
-        if path == "/api/billing/prices":  # v261008 · 用量计费：单价表（?defaults=1 返回预置模板）
-            if (q.get("defaults") or [""])[0] == "1":
-                return self.send_json(billing.default_prices())
-            return self.send_json(billing.load_prices())
         return self.send_json({"error": "not_found"}, 404)
 
     def handle_api_post(self, path, payload):
@@ -500,8 +485,6 @@ class Handler(BaseHTTPRequestHandler):
             item = indexer.apply_todo_project_id(item, normalized)
             indexer.refresh_todos()
             return self.send_json(item)
-        if path == "/api/billing/prices":  # v261008 · 用量计费：保存单价表
-            return self.send_json(billing.save_prices(payload))
         return self.send_json({"error": "not_found"}, 404)
 
 

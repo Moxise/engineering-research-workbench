@@ -289,6 +289,7 @@ project_ids: ["proj_a0af8ee9d4db"]
 | **A9/§6.3 首件：前端面板注册表** | 新增 `window.ERWPanels`（导航 + 页头 + 渲染三合一的自登记点）；**用量计费整体搬出 `app.js`**（删导航项 / PAGE_META / 路由分支 / `renderBillingPage`），由 `v261008-billing.js` 自登记 —— 删掉计费模块只会少一个导航项、不再白屏（§6.7 红线 5 解除）。等价性：侧栏 17 项**顺序逐项一致**、`#billing` 正常渲染、0 console error；闸门新增「内核不得调用 `ERWPanels.register`」与「登记面板必须出现在侧栏」两侧断言 |
 | **§6/P5 首件：插件运行时（内核侧）** | `core/plugins/{manifest,registry}.py` + `__main__.py` + `tools/plugin_check.py`：`plugin.json` 契约（P000–P018，含目录名=id、相对路由、裸工具名、派生库路径、未支持权限拒载）、两来源发现（ASSET 优先）、状态机（available/blocked/rejected/conflict）、**拓扑排序与环检测**、CLI `list/check/verify`；隔离体检含 I2（内核不得 import 插件）与「core 不得 import app」。夹具 21 项全通过 |
 | **§6/P5 第二件：前端管线 + 首个真插件** | `GET /api/plugins`（只下发可用且生效启用的插件）+ `GET /plugins-file/<id>/<rel>`（路径安全经 10 例未归一化请求验证）+ `web/plugin-host.js`（面板自登记 `ERWPanels`，单插件失败不影响内核）；**`plugins/focus/`（专注计时）从 `app.js` 原样搬出**，内核不再认识它。端到端：侧栏 17 项顺序不变、`#focus` 由插件渲染、倒计时可交互、0 console error。顺带修 `/api/weather` 离线 500（并消除 `ui_smoke` 的天气 TTL 抖动） |
+| **§6/P6 第三件：用量计费搬成插件 + 事件扩展点** | 先实现 `ctx.events`（`core/events.py`：`on/emit`，订阅者异常隔离、浅拷贝、可取消）把 `agent.py` 的 `billing.record()` 倒置为广播 `llm.usage`（**零订阅者时内核照常**，I1）；再把 `app/billing.py` 原样搬入 `plugins/billing/`（含前端面板），数据 `System/billing/*` → 插件命名空间**原样认领**（57 行账本一字不差）。内核删净 `app/billing.py` / `web/v261008-billing.*` / 5 条 `/api/billing/*` 路由。验收 24 项：账本与单价表认领一致、旧接口 404、**倒置前后广播行为**（0 送达不报错 → 1 订阅者记账且口径一致）、面板与作用域、AST 判定内核零计费、测试不留假账 |
 | **§6/P6 第二件：天气搬成插件 + 顶栏槽位** | 新扩展点**槽位面板**（`ERWPanels.register({id, slot:'topbar', renderSlot})`，内核给挂载点与 `data-plugin` 作用域，`P019` 校验已知槽位）；`plugins/weather/`（`app/weather.py` 原样搬入、配置自动迁移、缓存进 `System/Plugins/weather/`、顶栏卡片 + 设置模态 + 自带样式）；内核删净 `app/weather.py`/两条路由/`config` 的 weather 段/`loadWeather`/设置页天气 tab/顶栏卡片/相关 CSS。验收 16 项：槽位挂载、样式作用域、设置模态、配置迁移、内核零痕迹、0 console error。顺带修掉「槽位面板被塞进侧栏导致 `#weather` 无页面可渲染」的真 bug |
 | **A9 收尾：DOM 变更接缝** | `web/dom-seam.js`（`window.ERWDom.onChildList`）：**7 处文档级 `MutationObserver` 收敛为 1 个实例**，提供 root 作用域 / ignore 过滤 / 按帧合并 / 回调隔离。闸门新增「不得在接缝外自建含 childList 的 observer」（负向用例 5 例）与运行期「observer==1、订阅方≥5」。验收 8 项（真浏览器）：作用域、合并、隔离、装饰等价（分页器与图谱状态条）全通过 |
 | **§8 ②：插件工具接入 Agent** | `core/plugins/runtime.py`（进程级持有已加载插件，唯一写入点 `loader.load()`）+ `app/agent_tools.py` 工具面动态化（`all_tool_names` / `openai_specs` / 文本协议 / `list_tool_meta` / `execute` 查插件工具）+ `agent.py`/`config.py` 白名单改用动态集。**写工具明确拒绝**（草稿确认流尚无插件分支，不半接）。验收 17 项：未加载则不存在、加载即可用、异常隔离、白名单生效、写工具被拒、HTTP 面可见、无插件时与改造前一致 |
@@ -501,7 +502,7 @@ plugins/<plugin_id>/
 | **插件管理（内核页）** | 预览 `GET /api/plugins?detail=1`；启停 `POST /api/plugin-manager/<id>/enabled` | 通用能力，与具体插件解耦：预览只读清单（状态/权限/路由/面板/工具/依赖/配置接口）；配置读写**转发**给插件自己的 `/api/plugins/<id>/config`（内核不解释其内容）；启停只改 `System/plugins.json` 并热重载，**不删文件、不动数据** |
 | **搜索分区** | `ctx.search.addSection({id,label,render})` | 内核搜索框保留关键词结果，语义结果由插件注入（RAG 的位置就在这里） |
 | 设置 | manifest `settings_schema` | 内核渲染表单，值落 `config/plugins/<id>.json` |
-| 事件 | `ctx.events.on("doc.updated", cb)` | 只读载荷；回调内禁止同步长耗时 |
+| **事件** | `ctx.events.on("doc.updated", cb)` | 只读载荷；回调内禁止同步长耗时。**已实现**（`core/events.py`：订阅者异常隔离、浅拷贝载荷、取消订阅）；首个使用者是计费插件订阅 `llm.usage` |
 | 后台任务 | `ctx.jobs.add(...)` | 内核负责调度/超时/日志 |
 | 存储 | `ctx.storage` | `Workspace/Plugins/<id>/`、`System/Plugins/<id>/`、`System/Cache/<id>.sqlite` |
 

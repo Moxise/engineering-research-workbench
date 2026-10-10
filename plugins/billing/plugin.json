@@ -1,0 +1,23 @@
+{
+  "id": "billing",
+  "name": "用量计费",
+  "version": "1.0.0",
+  "description": "LLM 调用用量与费用观测（单价表 + 账本 + 聚合统计）",
+  "api_version": 1,
+  "core_min": "v261009",
+  "kind": "inprocess",
+  "distribution": "bundled",
+  "default_enabled": true,
+  "entry": "backend.py",
+  "permissions": ["storage:own", "config:own", "ui:panel"],
+  "nav": [
+    { "id": "billing", "label": "用量", "icon": "▤", "mount": "web/panel.js", "style": "web/panel.css" }
+  ],
+  "routes": [
+    { "method": "GET", "path": "summary" },
+    { "method": "GET", "path": "records" },
+    { "method": "GET", "path": "prices" },
+    { "method": "POST", "path": "prices" },
+    { "method": "POST", "path": "clear" }
+  ]
+}

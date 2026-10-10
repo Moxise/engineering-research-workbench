@@ -1,7 +1,9 @@
-/* v261008 · 用量计费仪表盘（自包含模块）
- * 数据来源：GET /api/billing/summary | /api/billing/records | /api/billing/prices
- *           POST /api/billing/prices | DELETE /api/billing/records
- * 入口：#main 渲染，由 app.js 的 renderBillingPage() 调用 window.ERWBilling.render(main)。
+/* 用量计费面板 · 插件 billing v1.0.0
+ *
+ * 从内核模块 web/v261008-billing.js 原样搬出（三视图：总览 / 明细 / 单价表）。
+ * 适配：① 接口前缀改为 /api/plugins/billing/*（清空账本走 DELETE records）
+ *       ② 外层容器带 data-plugin="billing"，样式按 PLUGIN_SPEC §2 作用域
+ *       ③ 自登记 ERWPanels（导航项 + 页头 + 渲染），内核不再认识「用量计费」
  */
 (() => {
   'use strict';
@@ -25,7 +27,7 @@
   const st = { tab:'overview', summary:null, prices:null, rec:{items:[], total:0, offset:0, sessionId:''} };
 
   function shellHtml() {
-    return `<div class="billing-page">
+    return `<div class="billing-page" data-plugin="billing">
       <div class="card card-pad">
         <div class="card-head"><div><div class="card-kicker">USAGE / COST</div><h3>用量与费用</h3>
         <p class="row-meta">统计 Agent 对话与 AI 阅读助手的 token 用量，按 Provider 单价表计费。数据落盘于 <code>Workspace/System/billing/ledger.jsonl</code>（只增不改）。</p></div>
@@ -181,7 +183,7 @@
     const clear = document.querySelector('#billing-clear');
     if (clear) clear.onclick = async () => {
       if (!confirm('确定清空全部用量账本？此操作不可撤销。')) return;
-      try { const r = await api('/api/billing/records', {method:'DELETE'}); toast(`已清空 ${r.removed||0} 条记录`); await loadSummary(); st.rec = {items:[], total:0, offset:0, sessionId:''}; paintBody(); }
+      try { const r = await api('/api/plugins/billing/records', {method:'DELETE'}); toast(`已清空 ${r.removed||0} 条记录`); await loadSummary(); st.rec = {items:[], total:0, offset:0, sessionId:''}; paintBody(); }
       catch(e){ toast(e.message,true); }
     };
   }
@@ -192,22 +194,22 @@
     const save = document.querySelector('#billing-price-save');
     if (save) save.onclick = async () => {
       let obj; try { obj = JSON.parse(ta.value); } catch(e){ return toast('JSON 解析失败：'+e.message, true); }
-      try { st.prices = await api('/api/billing/prices', {method:'POST', body:obj}); toast('单价表已保存'); paintBody(); }
+      try { st.prices = await api('/api/plugins/billing/prices', {method:'POST', body:obj}); toast('单价表已保存'); paintBody(); }
       catch(e){ toast(e.message, true); }
     };
     const def = document.querySelector('#billing-price-default');
     if (def) def.onclick = async () => {
       if (!confirm('载入预置模板将覆盖当前编辑框内容（需再点「保存」才生效）。继续？')) return;
-      try { const d = await api('/api/billing/prices?defaults=1'); ta.value = JSON.stringify(d, null, 2); toast('已载入预置模板，点击保存后生效'); }
+      try { const d = await api('/api/plugins/billing/prices?defaults=1'); ta.value = JSON.stringify(d, null, 2); toast('已载入预置模板，点击保存后生效'); }
       catch(e){ toast(e.message, true); }
     };
   }
 
-  async function loadSummary() { st.summary = await api('/api/billing/summary'); }
+  async function loadSummary() { st.summary = await api('/api/plugins/billing/summary'); }
   async function loadRecords(offset=0, replace=true) {
     const qs = new URLSearchParams({limit:'100', offset:String(offset)});
     if (st.rec.sessionId) qs.set('session_id', st.rec.sessionId);
-    const r = await api('/api/billing/records?'+qs.toString());
+    const r = await api('/api/plugins/billing/records?'+qs.toString());
     st.rec.total = r.total; st.rec.offset = offset + r.items.length;
     st.rec.items = replace ? r.items : st.rec.items.concat(r.items);
     if (st.tab==='records') paintBody();
@@ -222,7 +224,7 @@
 
   async function boot(notify) {
     try {
-      await Promise.all([loadSummary(), api('/api/billing/prices').then(p => st.prices = p), loadRecords(0, true)]);
+      await Promise.all([loadSummary(), api('/api/plugins/billing/prices').then(p => st.prices = p), loadRecords(0, true)]);
       paintBody();
       if (notify) toast('用量数据已刷新');
     } catch(e) {

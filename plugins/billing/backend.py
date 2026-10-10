@@ -1,22 +1,25 @@
-"""v261008 · 用量计费：Provider 单价表 + token 用量记账 + 聚合统计。
+"""用量计费 · 插件后端 v1.0.0
 
-参照 dsh-cost-meter 的计价模型做了裁剪：不做峰谷计价、余额查询与 CLI 适配。
+从 `app/billing.py` 原样搬出（计价模型、三种计费方式、单价匹配、聚合统计的逻辑**未改写**），
+四处适配：
 
-落盘目录 Workspace/System/billing/
-- prices.json  单价表（USD / 1M tokens）+ 档案计费方式（plans），可在前端编辑
-- ledger.jsonl 逐条追加的调用账本（只增不改，追加写）
+1. **依赖倒置**（P14）：内核不再 import 计费。`app/agent.py` 每次 LLM 调用结束广播
+   `llm.usage` 事件，本插件订阅它记账（见 `register()` 的 `ctx.events.on`）。
+   没有本插件时内核照常工作，只是不记账。
+2. **数据落点**：`Workspace/System/billing/` → 插件命名空间 `Workspace/System/Plugins/billing/`
+   （I5）。**首次运行会把旧账本与单价表认领过来**（prices.json / ledger.jsonl 原样复制）。
+3. **入口形态**：`summary()` / `records()` / `load_prices()` / `save_prices()` / `clear()`
+   → `register(ctx)` 注册 `/api/plugins/billing/{summary,records,prices,clear}`。
+4. **前端面板**：从 `web/v261008-billing.js` 搬入 `web/panel.js`，自登记 `ERWPanels`。
 
-计价口径（v261008b 起区分三种计费方式）：
-    mode=token         按单价表计费：
-                       cost = miss_in/1e6*input + out/1e6*output
-                            + cache_read/1e6*cache_hit + cache_write/1e6*cache_write
-                       miss_in = prompt_tokens - cache_read - cache_write（缺缓存明细时按全部 input 计）
-    mode=subscription  订阅套餐（如 OpenCode Go / 方舟 Agent Plan）：只记 token 量，金额不适用，
-                       记 billing_mode=subscription 且 priced=true，不计入"缺单价"告警——订阅制本来就没有按量费用
-    mode=free          免费/本地模型：同上，但语义为免费
-单价键支持按档案限定，优先级：`<profile_id>/<model>` → `<profile_id>`（该档案的兜底价）→ `<model>` → 通配。
-未匹配到单价的 token 模式调用记 0 并标注 priced=false，不伪造金额。
+对外路由（内核挂载）：
+    GET  /api/plugins/billing/summary      聚合统计
+    GET  /api/plugins/billing/records      调用明细（?limit&offset&session_id）
+    GET  /api/plugins/billing/prices       单价表（?defaults=1 取预置模板）
+    POST /api/plugins/billing/prices       保存单价表
+    POST /api/plugins/billing/clear        清空账本
 """
+
 from __future__ import annotations
 
 import fnmatch
@@ -91,17 +94,35 @@ def plan_for(profile_id: str, plans: dict[str, Any] | None = None) -> dict[str, 
     return cleaned or {"mode": "token"}
 
 
-def _ensure_workspace():
-    """延迟导入 workspace：顶层导入会在「billing 作为首个 app 模块」时形成循环
-    （billing → workspace → config(reload_all) → agent_tools → store → workspace 半初始化）。
-    先导入 config 让工作台按正常依赖顺序完成初始化，再取 ensure_workspace。"""
-    from . import config  # noqa: F401  先按正常顺序初始化（config → agent_tools → store → workspace）
-    from .workspace import ensure_workspace
-    return ensure_workspace()
+def adopt_legacy_data(target: Path, legacy_name: str) -> bool:
+    """一次性迁移：认领内核时代写在 `Workspace/System/billing/` 的账本与单价表。
+
+    账本是**只增不改**的真实历史，必须原样带过来（否则历史用量凭空消失）。
+    认领后一律只用插件自己的路径。
+    """
+    if target.exists():
+        return False
+    try:
+        import core_api
+
+        legacy = core_api.data_root() / "Workspace" / "System" / "billing" / legacy_name
+        if not legacy.is_file():
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(legacy.read_bytes())
+        return True
+    except OSError:
+        return False
+
+
+#: 插件自己的数据目录（register 时注入，见 `register()`）；缺省回退便于脱离插件直接调用
+_STORAGE: Path | None = None
 
 
 def _dir() -> Path:
-    root = _ensure_workspace() / "System" / "billing"
+    if _STORAGE is not None:
+        return _STORAGE
+    root = Path(__file__).resolve().parents[1].parent / "Workspace" / "System" / "Plugins" / "billing"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -606,3 +627,64 @@ def _write_json(path: Path, data: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+# ---------- 插件入口 ----------
+
+def register(ctx):  # noqa: C901
+    """注册路由 + 认领旧账本 + 订阅内核广播的用量事件。"""
+    global _STORAGE
+    _STORAGE = ctx.storage.system
+    _STORAGE.mkdir(parents=True, exist_ok=True)
+    moved = [n for n in ("prices.json", "ledger.jsonl") if adopt_legacy_data(_STORAGE / n, n)]
+    if moved:
+        ctx.log(f"已认领内核旧数据：{'、'.join(moved)}（历史用量与单价表原样保留）")
+
+    def route_summary(request):
+        return summary()
+
+    def route_records(request):
+        q = request.get("query") or {}
+        def _one(key, default):
+            vals = q.get(key) or []
+            return vals[0] if vals else default
+        try:
+            limit = int(_one("limit", 200))
+        except (TypeError, ValueError):
+            limit = 200
+        try:
+            offset = int(_one("offset", 0))
+        except (TypeError, ValueError):
+            offset = 0
+        return records(limit=limit, offset=offset, session_id=str(_one("session_id", "")))
+
+    def route_prices_get(request):
+        q = request.get("query") or {}
+        want_defaults = str((q.get("defaults") or [""])[0]) == "1"
+        return default_prices() if want_defaults else load_prices()
+
+    def route_prices_post(request):
+        return save_prices(request.get("body") or {})
+
+    def route_clear(request):
+        return clear()
+
+    ctx.routes.get("summary", route_summary)
+    ctx.routes.get("records", route_records)
+    ctx.routes.get("prices", route_prices_get)
+    ctx.routes.post("prices", route_prices_post)
+    ctx.routes.post("clear", route_clear)
+    ctx.routes.delete("records", route_clear)   # 面板的「清空账本」沿用 DELETE records（与搬出前一致）
+
+    def on_llm_usage(payload):
+        """内核广播的一次 LLM 调用 → 记一条账（口径与搬出前完全一致）。"""
+        cfg = {
+            "model": payload.get("model") or "",
+            "id": payload.get("profile_id") or "",
+            "name": payload.get("profile_name") or "",
+            "_billing": payload.get("billing") if isinstance(payload.get("billing"), dict) else {},
+        }
+        record(cfg, payload.get("usage"))
+
+    ctx.events.on("llm.usage", on_llm_usage)
+    ctx.log("计费插件已注册（/api/plugins/billing/*，订阅 llm.usage 记账）")
