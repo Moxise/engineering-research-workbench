@@ -394,16 +394,31 @@ def _clean_personas(personas: Any) -> list[dict[str, Any]]:
     自定义人设跟在后面。tools 白名单按 agent_tools 的工具面过滤（含已启用插件注册的工具）。"""
     from . import agent_tools
     valid_tools = set(agent_tools.all_tool_names())
+    #: 工具搬家时的**旧名 → 新名**别名（用户已保存的人设白名单据此迁移，避免悄悄丢能力）
+    LEGACY_TOOL_ALIASES = {
+        "lit_context": "p_litnote__context",
+        "lit_note_write": "p_litnote__note_write",
+    }
     builtin_defaults = {
-        "reader": {"name": "阅读助手", "system_prompt": "你是严谨的科研阅读助手。回答优先基于知识库检索结果与用户提供的文献上下文；擅长解释概念、总结要点、对比方法。你不修改任何知识库内容，检索不到时明确说明。", "tools": ["kb_search", "kb_read", "lit_context"], "write_mode": "confirm"},
+        # v261009.9 · 文献工具已搬成插件（plugins/litnote）：这里用**对外名**引用它，
+        # 插件未启用时该名字会被 all_tool_names() 过滤掉，人设自动退化为纯知识库工具。
+        "reader": {"name": "阅读助手", "system_prompt": "你是严谨的科研阅读助手。回答优先基于知识库检索结果与用户提供的文献上下文；擅长解释概念、总结要点、对比方法。你不修改任何知识库内容，检索不到时明确说明。", "tools": ["kb_search", "kb_read", "p_litnote__context"], "write_mode": "confirm"},
         "executor": {"name": "执行助手", "system_prompt": "你是科研工作台的执行助手。用户交代任务后主动检索知识库、查重、生成条目/笔记草稿并等待确认；写知识条目前必须遵守命名规范（知识-<类别>-<名称>），命中同名条目改为增补。完成后简洁汇报做了什么、产出了哪些草稿。", "tools": list(agent_tools.all_tool_names()), "write_mode": "confirm"},
         "archivist": {"name": "术语建档员", "system_prompt": ARCHIVIST_PROMPT, "tools": list(agent_tools.all_tool_names()), "write_mode": "confirm"},
     }
 
     def _clean(pid: str, item: dict[str, Any], is_builtin: bool) -> dict[str, Any]:
-        tools = [str(t) for t in (item.get("tools") if isinstance(item.get("tools"), list) else []) if str(t) in valid_tools]
+        # v261009.9 · 工具搬家后，用户已保存的白名单里可能还是旧名——按别名映射到新名，
+        # 避免「功能搬成插件」悄悄让人设丢掉一项能力（迁移等价性）。插件停用时新名不在
+        # valid_tools 里，会自然被过滤掉（优雅退化，不报错）。
+        raw_tools = item.get("tools") if isinstance(item.get("tools"), list) else []
+        tools: list[str] = []
+        for t in raw_tools:
+            name = LEGACY_TOOL_ALIASES.get(str(t), str(t))
+            if name in valid_tools and name not in tools:
+                tools.append(name)
         if not tools:
-            tools = list(builtin_defaults[pid]["tools"]) if pid in builtin_defaults else ["kb_search", "kb_read", "lit_context"]  # 空白名单回退安全默认
+            tools = list(builtin_defaults[pid]["tools"]) if pid in builtin_defaults else ["kb_search", "kb_read"]  # 空白名单回退安全默认（v261009.9：只回退**核心**工具）
         temp = item.get("temperature")
         try:
             temp = float(temp) if temp is not None and str(temp).strip() != "" else None

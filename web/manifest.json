@@ -129,9 +129,9 @@
     },
     {
       "file": "v260930-floating-agent.js",
-      "v": "261009r",
+      "v": "261009e",
       "theme": "agent",
-      "note": "v261009r · A10：api() 走接缝；上版：A1 悬浮球 MathJax 按需加载"
+      "note": "v261009e · 写工具集合改为从 /api/agent/tools 的 write 标记动态推导（不再硬编码插件工具名）；清掉两处文献工具名"
     },
     {
       "file": "v260922-layout-bugfixes.js",

@@ -1,0 +1,14 @@
+{
+  "id": "litnote",
+  "name": "文献笔记",
+  "version": "1.0.0",
+  "description": "文献侧的 AI 工具包：读文献上下文（元信息/批注/笔记）与写文献笔记",
+  "api_version": 1,
+  "core_min": "v261009",
+  "kind": "inprocess",
+  "distribution": "bundled",
+  "default_enabled": true,
+  "entry": "backend.py",
+  "permissions": [],
+  "mcp_tools": ["context", "note_write"]
+}

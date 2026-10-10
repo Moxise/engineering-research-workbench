@@ -314,7 +314,8 @@ function paintRelated(items,{mode}={}){
   if(S.relatedItems.length===1)show(0); /* 单条命中直接展开 */
 }
 /* ---------- 人设（M3） ---------- */
-const TOOL_LABELS={kb_search:"检索知识库",kb_read:"读条目",kb_create_entry:"建档",kb_update_entry:"改条目",lit_context:"文献上下文",lit_note_write:"写文献笔记"};
+const TOOL_LABELS={kb_search:"检索知识库",kb_read:"读条目",kb_create_entry:"建档",kb_update_entry:"改条目"};
+/* 标签只覆盖内核工具；插件工具的标签由插件自己给（清单里的 description），这里不猜 */
 async function ensurePersonas(force){
   if(S.personas&&!force)return S.personas;
   try{
@@ -326,7 +327,13 @@ async function ensurePersonas(force){
 }
 function currentPersona(){return (S.personas||[]).find(p=>p.id===S.personaId)||S.personas?.[0]||null}
 /* v260930g · 写入能力保障：当前人设无写工具时，写类动作自动切到有写工具的人设（默认执行助手） */
-const WRITE_TOOLS=["kb_create_entry","kb_update_entry","lit_note_write"];
+/* v261009.9 · 写工具集合**动态**来自服务端（/api/agent/tools 的 write 标记）：
+   内核写工具是初始值，插件注册的写工具（如 p_litnote__note_write）在取到清单后补进来——
+   内核模块不该硬编码插件工具名。 */
+const WRITE_TOOLS=["kb_create_entry","kb_update_entry"];
+function syncWriteTools(tools){
+  (tools||[]).forEach(t=>{ if(t&&t.write&&t.name&&!WRITE_TOOLS.includes(t.name)) WRITE_TOOLS.push(t.name); });
+}
 function personaHasWrite(){
   const p=(S.personas||[]).find(x=>x.id===S.personaId);
   return !!p&&(p.tools||[]).some(t=>WRITE_TOOLS.includes(t));
@@ -966,7 +973,7 @@ function quickAction(kind){
   if(kind==="note")ensureWritePersona(); /* v260930g · 建档/写笔记需写工具，人设只读时自动切换 */
   input.value=kind==="note"
     ?"请把上一条回复整理为一条知识库笔记（先 kb_search 查重；标题按命名规范：知识-<类别>-<名称>；正文含摘要/要点/关联）"
-    :"请把上一条回复追加到当前文献笔记末尾（lit_note_write，mode=append）";
+    :"请把上一条回复追加到当前文献笔记末尾（追加模式）";
   input.focus();
   input.dispatchEvent(new Event("input"));
 }
@@ -1128,6 +1135,7 @@ async function renderPersonaEditor(){
   const personas=JSON.parse(JSON.stringify(cfg?.app?.llm?.personas||[]));
   const presets=Array.isArray(cfg?.app?.llm?.request_presets)?cfg.app.llm.request_presets:[];
   PE={personas,tools,presets,open:PE?.open||null};
+  syncWriteTools(tools);   /* v261009.9 · 写工具集合以服务端为准 */
   paintPersonaEditor(host);
 }
 function personaRow(p,i){
@@ -1164,7 +1172,7 @@ function paintPersonaEditor(host){
   };
   q("#pe-add").onclick=()=>{
     collectPersonaEditor();
-    PE.personas.push({id:"persona-"+Date.now(),name:"新人设",builtin:false,system_prompt:"",tools:["kb_search","kb_read","lit_context"],write_mode:"confirm",request_preset:"",temperature:null});
+    PE.personas.push({id:"persona-"+Date.now(),name:"新人设",builtin:false,system_prompt:"",tools:["kb_search","kb_read"],write_mode:"confirm",request_preset:"",temperature:null});
     paintPersonaEditor(host);
   };
   qa("[data-pe-del]",host).forEach(b=>b.onclick=()=>{collectPersonaEditor();PE.personas.splice(+b.dataset.peDel,1);paintPersonaEditor(host)});

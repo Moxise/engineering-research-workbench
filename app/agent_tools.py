@@ -1,8 +1,8 @@
 """v260930 · M1 Agent 工具调用层：工具注册表与实现。
 
 设计要点：
-- 只读工具（kb_search / kb_read / lit_context）直接执行；
-- 写工具（kb_create_entry / kb_update_entry / lit_note_write）受 write_mode 控制：
+- 只读工具（kb_search / kb_read）直接执行；
+- 写工具（kb_create_entry / kb_update_entry）受 write_mode 控制：
   confirm（默认）→ 生成草稿返回 draft_id，待用户经 /api/agent/drafts/<id>/confirm 确认后落盘；
   direct → 立即执行。命名校验 error 级在两种模式下都拒写。
 - 草稿落盘 System/AgentChats/Drafts/<id>.json，进程重启不丢失。
@@ -196,50 +196,11 @@ def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
             "draft": {"tool": "kb_update_entry", "doc_id": doc_id, "title": doc.get("title"), "append": append}}
 
 
-def _t_lit_context(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
-    from . import literature
-    paper_id = str(args.get("paper_id") or ctx.get("paper_id") or "").strip()
-    if not paper_id:
-        raise ValueError("paper_id 不能为空（未提供且当前上下文无文献）")
-    item = literature.get_item(paper_id)
-    try:
-        note = _clip(literature.get_note(paper_id), _MAX_BODY_CHARS)
-    except Exception:
-        note = ""
-    anns = literature.get_annotations(paper_id)
-    return {"paper": {k: item.get(k) for k in ("id", "title", "authors", "year", "venue", "doi", "reading_status", "tags")},
-            "annotation_count": len(anns), "note": note}
-
-
-def _t_lit_note_write(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
-    from . import literature
-    paper_id = str(args.get("paper_id") or ctx.get("paper_id") or "").strip()
-    if not paper_id:
-        raise ValueError("paper_id 不能为空（未提供且当前上下文无文献）")
-    content = str(args.get("content") or "").strip()
-    if not content:
-        raise ValueError("content 不能为空")
-    mode = str(args.get("mode") or "append")
-    if mode not in ("append", "replace"):
-        raise ValueError("mode 须为 append 或 replace")
-    item = literature.get_item(paper_id)  # 校验条目存在（含 doc_id 关联）
-    if ctx.get("write_mode") == "direct":
-        cur = str(literature.get_note(paper_id) or "")
-        next_body = content if mode == "replace" else (cur.rstrip() + "\n\n" + content + "\n" if cur.strip() else content + "\n")
-        literature.save_note(paper_id, next_body)
-        return {"ok": True, "paper_id": paper_id, "title": item.get("title"), "mode": mode}
-    draft = save_draft("lit_note_write", {"paper_id": paper_id, "content": content, "mode": mode})
-    return {"pending": True, "draft_id": draft["id"], "message": "文献笔记写入草稿已生成，等待用户确认",
-            "draft": {"tool": "lit_note_write", "paper_id": paper_id, "title": item.get("title"), "mode": mode}}
-
-
 _TOOL_IMPL: dict[str, Callable[[dict, dict], dict]] = {
     "kb_search": _t_kb_search,
     "kb_read": _t_kb_read,
     "kb_create_entry": _t_kb_create_entry,
     "kb_update_entry": _t_kb_update_entry,
-    "lit_context": _t_lit_context,
-    "lit_note_write": _t_lit_note_write,
 }
 
 TOOL_NAMES = tuple(_TOOL_IMPL)
@@ -295,22 +256,6 @@ _TOOL_META: dict[str, dict[str, Any]] = {
             "body": {"type": "string", "description": "append=false 时为覆盖全文；append=true 时为要追加的片段"},
             "append": {"type": "boolean", "description": "true=在原正文末尾追加，默认 false 覆盖"},
         }, "required": ["doc_id", "body"]},
-        "write": True,
-    },
-    "lit_context": {
-        "description": "读取一篇文献的上下文：元数据（题名/作者/年份/DOI/状态）、现有笔记全文、批注数量。阅读中问答与写笔记前应先调用。",
-        "params": {"type": "object", "properties": {
-            "paper_id": {"type": "string", "description": "文献 id；当前上下文有文献时可省略"},
-        }},
-        "write": False,
-    },
-    "lit_note_write": {
-        "description": "把内容写入文献笔记（与编辑器里「文献笔记」同一份正文）。mode=append 追加到末尾（默认），mode=replace 整体替换。confirm 模式下仅生成草稿。",
-        "params": {"type": "object", "properties": {
-            "paper_id": {"type": "string", "description": "文献 id；当前上下文有文献时可省略"},
-            "content": {"type": "string", "description": "Markdown 内容"},
-            "mode": {"type": "string", "enum": ["append", "replace"]},
-        }, "required": ["content"]},
         "write": True,
     },
 }

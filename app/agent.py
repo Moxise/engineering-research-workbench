@@ -604,7 +604,7 @@ _STREAM_4XX_RE = re.compile(r"LLM API HTTP 4\d\d")  # v260930k · 流式被端�
 
 def _page_context(context: Any) -> str:
     """v260930 · M1 页面上下文注入：把前端传来的「你在哪/选中了什么」写进系统提示词，
-    工具层同享该上下文（lit_context/lit_note_write 缺省 paper_id 时取它）。"""
+    工具层同享该上下文（文献类工具不传 paper_id 时默认使用它）。"""
     if not isinstance(context, dict):
         return ""
     parts: list[str] = []
@@ -634,7 +634,7 @@ def _page_context(context: Any) -> str:
         parts.append("用户引用的历史对话内容（供参考，回答时可引用；勿复述全文）：\n" + quote[:4000] + ("…" if len(quote) > 4000 else ""))
     if not parts:
         return ""
-    return "\n\n当前页面上下文（lit_context / lit_note_write 不传 paper_id 时默认使用此文献）：\n" + "\n".join(f"- {p}" for p in parts)
+    return "\n\n当前页面上下文（文献类工具不传 paper_id 时默认使用此文献）：\n" + "\n".join(f"- {p}" for p in parts)
 
 
 def _exec_tool_call(name: str, args_raw: Any, ctx: dict[str, Any]) -> dict[str, Any]:

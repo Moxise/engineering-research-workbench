@@ -109,7 +109,7 @@
   <script defer src="/plugin-host.js?v=261009b"></script><!-- v261009b · 支持 nav.style（插件自带样式按 §2 以 [data-plugin] 作用域）；按 /api/plugins 清单加载面板，面板自登记 ERWPanels；单插件失败不影响内核（I4）且原因明示（I11） -->
   <script defer src="/literature.js?v=261009b"></script><!-- v261009b · A10：api() 走接缝；上版：修复框选失效 + Esc 释放截图等待 -->
   <script defer src="/v260922-research-pages.js?v=261009c"></script><!-- v261009c · A9：5 处文档级 MutationObserver 改走 ERWDom.onChildList（保留各自的作用域与合并）；上版 A10：api() 与直连请求走 window.erwFetch 接缝 -->
-  <script defer src="/v260930-floating-agent.js?v=261009r"></script><!-- v261009r · A10：api() 走接缝；上版：A1 悬浮球 MathJax 按需加载 -->
+  <script defer src="/v260930-floating-agent.js?v=261009e"></script><!-- v261009e · 写工具集合改为从 /api/agent/tools 的 write 标记动态推导（不再硬编码插件工具名）；清掉两处文献工具名 -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->
   <script defer src="/plugin-manager.js?v=261009d"></script><!-- v261009d · 卡片默认只留一行「版本」（其余进「详情」按需展开）；配置行的展开/收起改为点同一行（去掉大「收起」按钮） -->
   <!-- web:app-js:end -->

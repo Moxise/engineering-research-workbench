@@ -67,6 +67,50 @@ def http_get(url: str, timeout: float = 8.0, headers: dict | None = None, limit:
     return net.read_url(url, timeout=timeout, headers=headers, limit=limit)
 
 
+# ---- 文献（文献库由**核心**维护：梳理与阅读进核心，见 docs/SCOPE.md §2.1/§2.2）----
+# 插件若要做「文献侧」的功能（如文献笔记工具包），通过这些函数访问核心的文献库，
+# **不要**自己去读 Workspace 下的 PDF/Notes 文件（那是核心的数据结构，见 §6 隔离）。
+
+def lit_list(query: str = "", status: str = "", page: int = 1, page_size: int = 50) -> dict:
+    """列出文献条目（分页）。字段与 `/api/literature` 一致。"""
+    from app import literature
+
+    return literature.list_items(query=query, status=status, page=page, page_size=page_size)
+
+
+def lit_item(paper_id: str) -> dict:
+    """取单篇文献的元信息（含 `doc_id` 关联、阅读状态、标签）。"""
+    from app import literature
+
+    return literature.get_item(paper_id)
+
+
+def lit_note(paper_id: str) -> str:
+    """读该文献的笔记正文（与知识库条目正文同源）。"""
+    from app import literature
+
+    return literature.get_note(paper_id)
+
+
+def lit_note_save(paper_id: str, content: str) -> dict:
+    """写该文献的笔记正文。
+
+    **写操作的安全闸门在内核**：插件注册的**写工具**在 confirm 模式下只会生成草稿，
+    用户确认后内核才以 direct 模式调用插件 handler（见 `app/agent_tools.execute`）。
+    所以插件 handler 里直接写即可，不要自己再实现一套确认逻辑。
+    """
+    from app import literature
+
+    return literature.save_note(paper_id, content)
+
+
+def lit_annotations(paper_id: str, page: int | None = None) -> list:
+    """读该文献的批注（可选按页过滤）。"""
+    from app import literature
+
+    return literature.get_annotations(paper_id, page)
+
+
 def system_dir(plugin_id: str) -> Path:
     """插件自有系统数据目录：`System/Plugins/<id>/`。"""
     return _data_root() / "Workspace" / "System" / "Plugins" / plugin_id
@@ -104,4 +148,5 @@ def log(plugin_id: str, message: str) -> None:
 __all__ = [
     "API_VERSION", "plugin_dir", "cache_db", "workspace_dir", "data_root", "system_dir",
     "config_path", "read_config", "write_config", "http_get", "log",
+    "lit_list", "lit_item", "lit_note", "lit_note_save", "lit_annotations",
 ]
