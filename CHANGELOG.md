@@ -1,5 +1,20 @@
 # Changelog
 
+## v261009.11
+
+- **§5.2 附属：文献笔记的「编辑界面」也搬成插件**（SCOPE §2.2 的另一半；工具部分 `v261009.9` 已搬）。
+  - **新扩展点 `ERWPanels.readerTab`**：任何模块都能往**文献阅读区**右侧加一个 tab（与已有的「设置页 tab」同一模式——内核只把 tab 排进行里，并把上下文 `{paper, refreshList, aiPolish}` 传给插件）。阅读器现在只留「信息 / 批注 / AI」。
+  - 插件 [`litnote`](plugins/litnote/plugin.json) v1.1.0：`web/panel.js` 的阅读区 tab 从内核 `literature.js` **原样搬出**（textarea + 保存 + 插入图片 + AI 整理）；数据面走**插件自己的路由** `/api/plugins/litnote/note|note-image`，后端经 `core_api.lit_*` 访问核心文献库（插件不直接读 `Workspace/` 下的文件）；「AI 整理」由阅读器经上下文回调（**依赖方向仍是插件→内核**）。
+  - **新 manifest 字段 `panel.mount`**（`P020` 校验）：**没有导航页的 UI** 也能被宿主加载——此前只有 `nav[0]` 会被加载，像 litnote 这种只贡献 tab 的插件，前端脚本**永远不会被注册**（实测确认过：`readerTabs` 为空）。
+  - `core_api.lit_note_image()`：插入图片的等价能力（与核心同一实现）。
+  - **内核删除**：`literature.js` 的 `note()` / `saveNote()` / `uploadNoteImage` 与硬编码的 `data-tab="notes"`（`insertAtCursor` 保留——「批注加入笔记」等核心流程仍用它）。
+  - **验收**（`.scratch/tmp/verify_reader_note_tab.py`，21 项全通过）：tab 行 = 内核三项 + 插件「笔记」· 插件渲染的编辑器载入现有正文（与核心路由**同一份数据**，594 字一致）· 保存经插件路由写入并可还原 · 「AI 整理」切到阅读器 AI tab · **停用插件 → tab 优雅消失、内核 tab 不受影响** · 内核已无笔记实现。
+- **修复：核心阅读器依赖 CDN 加载 PDF.js → 网络受限时打不开任何 PDF**（本轮实测暴露）。
+  - 排查发现 `web/vendor/pdfjs/` 里**已有一份完整本地 PDF.js**（build + 169 个 cmap + 16 个标准字体，3.2 MB），但它 ① **从没进过版本库**（被 `.gitignore` 的 `build/`（本是构建产物规则）与白名单误伤）② 阅读器**根本没用它**（`ensurePdfJs()` 只从 jsdelivr 取）。
+  - 修：`.gitignore` 末尾**逐级放行** `web/vendor/pdfjs/**`（gitignore「后面的规则优先」，放前面会被 `build/` 覆盖）；`literature.js` 改为**本地优先、CDN 兜底**，并把 `cMapUrl` / `cMapPacked` / `standardFontDataUrl` 指向本地（中文 PDF 缺字形的根因就是没配这两项）。
+  - 实测：PDF.js **3.11.174 从本地加载**（`window.__pdfjsLocal=true`）、**渲染出 3 个 canvas**、全程 **0 console error / 0 失败请求**。
+- **本轮 22 套闸门全绿**；索引 WAL 折回 0，`doctor` 2 errors / 7 warnings（均为既有已知项）。
+
 ## v261009.10
 
 - **插件页：卡片摘要直接写明「提供什么」**（用户反馈「在插件设置中没看到文献工具插件」）。
