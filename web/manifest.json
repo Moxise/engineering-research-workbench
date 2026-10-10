@@ -63,7 +63,7 @@
     },
     {
       "file": "plugin-manager.css",
-      "v": "261009",
+      "v": "261009b",
       "theme": "plugin-manager",
       "note": "v261009.4 · 设置 → 插件（内核模块 web/plugin-manager.js 的样式；走 ERWPanels.settingsTab 自登记）"
     },
@@ -153,9 +153,9 @@
     },
     {
       "file": "plugin-manager.js",
-      "v": "261009b",
+      "v": "261009c",
       "theme": "plugin-manager",
-      "note": "v261009b · 旧后端只下发精简清单时明确报「请重启工作台」，不再显示为「权限未声明/无接口」；启停勾选框在旧后端上禁用并说明原因"
+      "note": "v261009c · 配置区默认收成一行（状态 + 单行摘要 + 展开编辑），展开后才拉取配置并显示编辑器；保存后自动收起"
     }
   ]
 }

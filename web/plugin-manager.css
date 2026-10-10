@@ -12,6 +12,19 @@
 .pm-panel{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:6px;padding:1px 7px;margin:0 5px 3px 0}
 .pm-panel small{color:var(--muted)}
 .pm-config{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+/* 配置区统一只有一行（v261009.6）：标签 + 状态 + 摘要 + 动作同排；说明走 title 悬停 */
+.pm-config-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;text-align:left;
+  border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;padding:5px 9px;
+  font:inherit;min-height:30px}
+button.pm-config-row{cursor:pointer}
+button.pm-config-row:hover{border-color:var(--accent)}
+.pm-config-expanded-head{cursor:default;border-style:dashed}
+.pm-config-label{flex:0 0 auto;font:600 11px/1.4 inherit;color:var(--accent);letter-spacing:.06em}
+.pm-config-state{flex:0 0 auto;font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.pm-config-summary{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font:10px/1.6 Consolas,monospace;color:var(--muted)}
+.pm-config-note{flex:1 1 auto;min-width:0;font-size:10px;color:var(--muted);line-height:1.5}
+.pm-config-hint{flex:0 0 auto;font-size:10px;color:var(--accent);white-space:nowrap}
 .pm-config-head{font:600 11px/1.4 inherit;color:var(--accent);letter-spacing:.06em;margin-bottom:5px}
 .pm-config-head small{color:var(--muted);letter-spacing:0;font-weight:400}
 .pm-json{width:100%;box-sizing:border-box;margin-top:6px;font:11px/1.6 Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:var(--surface);color:inherit;resize:vertical}

@@ -41,6 +41,8 @@
   }
 
   var PLUGINS = {};   /* id -> 预览信息（配置块据此判断该插件有没有配置接口） */
+  var OPEN = {};      /* id -> 配置区是否展开（默认收成一行） */
+  var CFG = {};       /* id -> 已读取的配置（展开/收起之间复用，避免反复请求） */
   var STATE_LABEL = {
     available: ['可用', 'ok'], blocked: ['被阻塞', 'warn'],
     rejected: ['被拒绝', 'bad'], conflict: ['冲突', 'bad'],
@@ -93,23 +95,6 @@
       + '<div class="pm-config" data-plugin-config="' + esc(plugin.id) + '"></div></section>';
   }
 
-  function configBlock(plugin) {
-    if (!plugin.has_config_route) {
-      return '<div class="pm-config-head">配置</div><div class="field-help">该插件没有提供配置接口（'
-        + (plugin.nav_labels && plugin.nav_labels.length
-            ? '它的设置在自己的界面里：' + esc(plugin.nav_labels.join('、'))
-            : '它不需要配置')
-        + '）。</div>';
-    }
-    return '<div class="pm-config-head">配置　<small class="muted">'
-      + '内核只做转发，读写都由插件自己负责（<code>' + esc(plugin.config_url) + '</code>）</small></div>'
-      + '<div class="field-help" data-config-hint>正在读取…</div>'
-      + '<textarea class="pm-json" data-config-json rows="6" spellcheck="false" style="display:none"></textarea>'
-      + '<div class="pm-config-actions" style="display:none">'
-      + '<button class="secondary-btn" data-config-reload>重新读取</button>'
-      + '<button class="primary-btn" data-config-save>保存配置</button></div>';
-  }
-
   function render(root) {
     root.innerHTML = '<div class="card-head"><div><div class="card-kicker">PLUGINS</div><h3>插件</h3>'
       + '<div class="row-meta">插件放在 <code>plugins/</code> 或 <code>&lt;数据根&gt;/plugins/</code> 即被发现；'
@@ -131,6 +116,13 @@
       $$('[data-plugin-toggle]', root).forEach(function (box) {
         box.onchange = async function () {
           var id = box.dataset.pluginToggle;
+          /* 停用加一道确认：这个开关很小、又在卡片右上角，容易误点（实测发生过一次）。
+             启用不需要确认（随时可再关，且不破坏数据）。 */
+          if (!box.checked && !confirm('停用插件 ' + id + '？\n\n插件文件、配置与数据都会保留，'
+            + '用同一个开关随时可以恢复；停用后它的面板与工具会从界面消失。')) {
+            box.checked = true;
+            return;
+          }
           box.disabled = true;
           try {
             var res = await api('/api/plugin-manager/' + encodeURIComponent(id) + '/enabled',
@@ -147,53 +139,106 @@
       });
     }
     $$('[data-plugin-config]', root).forEach(function (host) {
-      var id = host.dataset.pluginConfig;
-      var plugin = PLUGINS[id] || {};
-      if (plugin.state === undefined) {
-        /* 旧后端：连状态都没有，配置接口自然也谈不上——如实说明，别猜 */
-        host.innerHTML = '<div class="pm-config-head">配置</div><div class="field-help">'
-          + '当前后端没有提供插件预览字段（权限 / 路由 / 配置接口），请**重启工作台**后再看这里。</div>';
-        return;
-      }
-      if (!plugin.has_config_route) {
-        /* 没有配置接口就直接说明，不发无谓的请求（也可能是 404 噪音） */
-        var hint = (plugin.nav_labels || []).length
-          ? '该插件没有提供配置接口——它的设置在自己的界面里：' + esc(plugin.nav_labels.join('、'))
-          : '该插件没有提供配置接口，也不需要配置。';
-        host.innerHTML = '<div class="pm-config-head">配置</div><div class="field-help">' + hint + '</div>';
-        return;
-      }
-      api('/api/plugins/' + encodeURIComponent(id) + '/config')
-        .then(function (cfg) {
-          host.innerHTML = configBlock(plugin);
-          var ta = $('[data-config-json]', host);
-          var hintEl = $('[data-config-hint]', host);
-          var actions = $('.pm-config-actions', host);
-          ta.value = JSON.stringify(cfg, null, 2);
-          hintEl.textContent = '当前配置（JSON，可直接编辑后保存）。';
-          ta.style.display = '';
-          actions.style.display = '';
-          $('[data-config-reload]', host).onclick = function () {
-            api('/api/plugins/' + encodeURIComponent(id) + '/config').then(function (c) {
-              ta.value = JSON.stringify(c, null, 2);
-              toast('已重新读取');
-            }).catch(function (e) { toast(e.message, true); });
-          };
-          $('[data-config-save]', host).onclick = async function () {
-            var parsed;
-            try { parsed = JSON.parse(ta.value); }
-            catch (e) { toast('JSON 解析失败：' + e.message, true); return; }
-            try {
-              var saved = await api('/api/plugins/' + encodeURIComponent(id) + '/config', { method: 'POST', body: parsed });
-              ta.value = JSON.stringify(saved && saved.config ? saved.config : saved, null, 2);
-              toast(id + ' 配置已保存');
-            } catch (e) { toast('保存失败：' + e.message, true); }
-          };
-        })
-        .catch(function (e) {
-          host.innerHTML = '<div class="pm-config-head">配置</div><div class="field-help">读取配置失败：'
-            + esc(e.message) + '（可在插件自己的界面里设置）</div>';
-        });
+      paintConfig(host);
+    });
+  }
+
+  /* ---------- 配置区：默认**收成一行**，要改再展开（v261009.6） ----------
+     一个插件一行摘要，页面不再被大段 JSON 撑长；展开后才拉取配置并显示编辑器。 */
+  function configSummary(cfg) {
+    var one = JSON.stringify(cfg);
+    if (one === undefined) one = String(cfg);
+    return one.length > 120 ? one.slice(0, 120) + '…' : one;
+  }
+
+  function paintConfig(host) {
+    var id = host.dataset.pluginConfig;
+    var plugin = PLUGINS[id] || {};
+    /* 配置区统一**只有一行**（v261009.6）：标签 + 状态 + 摘要 + 动作都在同一行；
+       「内核只做转发」这类说明放进悬停提示，不占版面。 */
+    var note = plugin.config_url
+      ? '内核只做转发，读写都由插件自己负责（' + plugin.config_url + '）'
+      : '配置由插件自己负责';
+
+    if (plugin.state === undefined) {
+      /* 旧后端：连状态都没有，配置接口自然也谈不上——如实说明，别猜 */
+      host.innerHTML = '<div class="pm-config-row" title="' + esc(note) + '">'
+        + '<span class="pm-config-label">配置</span>'
+        + '<span class="pm-config-note">当前后端没有提供插件预览字段，请<b>重启工作台</b>后再看这里。</span></div>';
+      return;
+    }
+    if (!plugin.has_config_route) {
+      /* 没有配置接口就直接说明（本来就是一行），不发无谓的请求 */
+      var hint = (plugin.nav_labels || []).length
+        ? '该插件没有提供配置接口——它的设置在自己的界面里：' + esc(plugin.nav_labels.join('、'))
+        : '该插件没有提供配置接口，也不需要配置。';
+      host.innerHTML = '<div class="pm-config-row" title="' + esc(note) + '">'
+        + '<span class="pm-config-label">配置</span><span class="pm-config-note">' + hint + '</span></div>';
+      return;
+    }
+
+    if (!OPEN[id]) {
+      var cfg = CFG[id];
+      host.innerHTML = '<button class="pm-config-row pm-config-toggle" type="button" data-config-toggle="' + esc(id) + '" title="' + esc(note) + '">'
+        + '<span class="pm-config-label">配置</span>'
+        + '<span class="pm-config-state">' + (cfg ? '已读取' : '未展开') + '</span>'
+        + '<code class="pm-config-summary">' + (cfg ? esc(configSummary(cfg)) : '点右侧展开后读取并编辑') + '</code>'
+        + '<span class="pm-config-hint">' + (cfg ? '展开编辑' : '读取并展开') + '</span></button>';
+      $('[data-config-toggle]', host).onclick = function () {
+        OPEN[id] = true;
+        if (CFG[id]) { paintConfig(host); return; }
+        $('.pm-config-state', host).textContent = '读取中…';
+        loadCfg(id).then(function () { paintConfig(host); })
+          .catch(function (e) {
+            OPEN[id] = false;
+            host.innerHTML = '<div class="pm-config-row" title="' + esc(note) + '">'
+              + '<span class="pm-config-label">配置</span><span class="pm-config-note">读取配置失败：'
+              + esc(e.message) + '（可在插件自己的界面里设置）</span></div>';
+          });
+      };
+      return;
+    }
+
+    /* 展开态：编辑器 + 操作 */
+    host.innerHTML = '<div class="pm-config-row pm-config-expanded-head">'
+      + '<span class="pm-config-label">配置</span>'
+      + '<span class="pm-config-note">当前配置（JSON，可直接编辑后保存）。</span></div>'
+      + '<textarea class="pm-json" data-config-json rows="6" spellcheck="false"></textarea>'
+      + '<div class="pm-config-actions">'
+      + '<button class="secondary-btn" data-config-reload>重新读取</button>'
+      + '<button class="primary-btn" data-config-save>保存配置</button>'
+      + '<button class="ghost-btn" data-config-close>收起</button></div>';
+    var ta = $('[data-config-json]', host);
+    ta.value = JSON.stringify(CFG[id] || {}, null, 2);
+    $('[data-config-close]', host).onclick = function () {
+      OPEN[id] = false;
+      paintConfig(host);
+    };
+    $('[data-config-reload]', host).onclick = function () {
+      loadCfg(id, true).then(function (c) {
+        ta.value = JSON.stringify(c, null, 2);
+        toast('已重新读取');
+      }).catch(function (e) { toast(e.message, true); });
+    };
+    $('[data-config-save]', host).onclick = async function () {
+      var parsed;
+      try { parsed = JSON.parse(ta.value); }
+      catch (e) { toast('JSON 解析失败：' + e.message, true); return; }
+      try {
+        var saved = await api('/api/plugins/' + encodeURIComponent(id) + '/config', { method: 'POST', body: parsed });
+        CFG[id] = (saved && saved.config) ? saved.config : saved;
+        OPEN[id] = false;             /* 存完收回一行，回到「默认一条目」 */
+        paintConfig(host);
+        toast(id + ' 配置已保存');
+      } catch (e) { toast('保存失败：' + e.message, true); }
+    };
+  }
+
+  function loadCfg(id, force) {
+    if (CFG[id] && !force) return Promise.resolve(CFG[id]);
+    return api('/api/plugins/' + encodeURIComponent(id) + '/config').then(function (cfg) {
+      CFG[id] = cfg;
+      return cfg;
     });
   }
 
