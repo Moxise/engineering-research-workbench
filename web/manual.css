@@ -11,9 +11,12 @@
 html[data-density="compact"] .manual-layout{gap:8px;height:calc(100vh - 133px)}
 @media (max-width:900px){.manual-layout{grid-template-columns:1fr;height:auto}}
 
-/* 左列：说明 + 章节目录（目录必要时自己滚，8 章时不会出现滚动条） */
-.manual-side{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);gap:8px;align-content:start}
+/* 左列：说明 + 章节目录。**按内容高度贴顶**（不拉伸成一张空卡片）。
+   用 flex 而不是 grid 行模板：之前 `grid-template-rows:auto minmax(0,1fr)` 用在 4 个子元素上，
+   把 h3 塞进 1fr 行拉高 → 标题在上、说明与目录沉到底部（实测的怪版式）。 */
+.manual-side{align-self:start;max-height:100%;display:flex;flex-direction:column;gap:8px}
 .manual-side h3{margin:0}
+.manual-side .row-meta{white-space:normal;line-height:1.65}
 .manual-toc{display:grid;gap:4px;align-content:start;min-height:0;overflow:auto;padding-right:2px}
 .manual-toc-item{
   display:flex;gap:8px;align-items:baseline;justify-content:space-between;width:100%;text-align:left;
@@ -28,13 +31,14 @@ html[data-density="compact"] .manual-layout{gap:8px;height:calc(100vh - 133px)}
 /* 右列：正文是**唯一的滚动容器**（高度由网格行分配），页脚钉在列底，翻章始终可见 */
 .manual-pane{padding:0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto}
 .manual-body{
-  overflow:auto;min-height:0;padding:18px 22px;font-size:13.5px;line-height:1.85;
-  /* 限宽阅读：太宽的行长会让人读丢行 */
+  overflow:auto;min-height:0;padding:20px 26px 26px;font-size:13.5px;line-height:1.85;
 }
-.manual-body>*{max-width:78ch}
-/* 截图可以比正文行宽更宽（图里的字要看得清）：含图的段落放开限宽 */
-.manual-body p:has(>img){max-width:min(100%,820px)}
-.manual-body img{max-width:min(100%,820px);height:auto;border:1px solid var(--line);border-radius:10px;margin:10px 0;display:block}
+/* 阅读列**居中**：宽屏下右侧不留一大片空白。
+   注意用**容器**居中，不要只给子元素设 margin:auto——h1/p/ul 等自身的 `margin:0 0 …` 简写会覆盖它
+   （实测 1920 宽下左右留白 26/278，居中失效）。 */
+.manual-doc{max-width:min(900px,100%);margin:0 auto}
+/* 截图可以比正文行宽更宽（图里的字要看得清） */
+.manual-doc img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:10px;margin:10px auto;display:block}
 .manual-body h1{font-size:20px;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
 .manual-body h2{font-size:16px;margin:22px 0 8px}
 .manual-body h3{font-size:14px;margin:18px 0 6px}
@@ -54,3 +58,15 @@ html[data-density="compact"] .manual-layout{gap:8px;height:calc(100vh - 133px)}
 .manual-error{border:1px solid color-mix(in srgb,var(--danger) 40%,var(--line));border-radius:8px;padding:10px 12px;font-size:12px;background:color-mix(in srgb,var(--danger) 6%,transparent)}
 .manual-foot{display:flex;gap:10px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:9px 12px}
 .manual-foot .row-meta{font:10px/1.5 Consolas,monospace;color:var(--muted)}
+
+/* ---- 阅读列限宽（放在文件最后：必须压过上面各元素自己的 `margin:0 0 …` 简写）----
+   · 容器 900px：让 900px 截图按原尺寸显示（图里的字看得清），宽屏下居中；
+   · 正文/标题再限 700px 并居中：行宽可读，且标题下划线不会比正文宽出一截；
+     注意**用 px 而不是 ch**——ch 随字号变（h1 的 84ch≈924px，会跟容器一样宽，实测不一致）；
+   · 图片、表格、代码块用满容器宽度。 */
+/* 用 .manual-body .manual-doc>* 而非 .manual-doc>*：要压过上面 `.manual-body p{h1,ul…}` 的
+   元素选择器（权重 0,1,1 > 0,1,0），否则段落的 margin:auto 又被覆盖（实测段落左贴、右留 158-420px） */
+.manual-body .manual-doc>*{max-width:min(100%,700px);margin-left:auto;margin-right:auto}
+.manual-body .manual-doc>p:has(>img),
+.manual-body .manual-doc>table,
+.manual-body .manual-doc>pre{max-width:100%}

@@ -98,7 +98,7 @@
   function loadChapter(id, root) {
     STATE.current = id;
     paintToc(root);
-    var body = el('#manual-body', root);
+    var body = el('#manual-doc', root) || el('#manual-body', root);
     body.innerHTML = '<div class="empty">正在加载…</div>';
     api('/manual/' + encodeURIComponent(id)).then(function (data) {
       if (!window.ERWMarkdown) { body.innerHTML = '<pre class="manual-raw">' + esc(data.markdown) + '</pre>'; return; }
@@ -121,12 +121,12 @@
       +   '<aside class="card manual-side">'
       +     '<div class="card-kicker">MANUAL</div>'
       +     '<h3>使用手册</h3>'
-      +     '<p class="row-meta">内核自带功能的教程：知识库、检索、文献、Agent、项目待办、设置与运维。'
-      +       '插件功能请看各自的 README（设置 → 插件 里可看演示预览）。</p>'
+      +     '<p class="row-meta">内核自带功能的教程。插件功能见各自 README。</p>'
       +     '<div class="manual-toc" id="manual-toc"><div class="empty compact">正在读目录…</div></div>'
       +   '</aside>'
       +   '<section class="card manual-pane" id="manual-pane">'
-      +     '<div class="manual-body" id="manual-body"><div class="empty">正在加载…</div></div>'
+      +     '<div class="manual-body" id="manual-body"><div class="manual-doc" id="manual-doc">'
+      +       '<div class="empty">正在加载…</div></div></div>'
       +     '<div class="manual-foot" id="manual-foot"></div>'
       +   '</section>'
       + '</section>';
