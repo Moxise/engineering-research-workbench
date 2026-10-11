@@ -3,13 +3,18 @@
  * 版式：左目录（可滚动、当前章高亮）+ 右正文（限宽阅读、图自适应、宽表格可横滚）。
  */
 
-.manual-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:12px;align-items:start}
-@media (max-width:900px){.manual-layout{grid-template-columns:1fr}}
+/* 版式：与内核两栏页（.docs-layout / .agent-layout）同款——**显式高度 + 内部滚动**，
+   窗口不滚、只有内容列滚（用户要求"只拖动内容页，不是整个页面"）。
+   121 = topbar 82+1 + padding 14+24；紧凑模式 133（与 .docs-layout 的口径一致）。 */
+.manual-layout{display:grid;grid-template-columns:250px minmax(0,1fr);grid-template-rows:minmax(0,1fr);
+  gap:12px;height:calc(100vh - 121px)}
+html[data-density="compact"] .manual-layout{gap:8px;height:calc(100vh - 133px)}
+@media (max-width:900px){.manual-layout{grid-template-columns:1fr;height:auto}}
 
-.manual-side{position:sticky;top:10px;display:grid;gap:8px;align-content:start}
+/* 左列：说明 + 章节目录（目录必要时自己滚，8 章时不会出现滚动条） */
+.manual-side{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);gap:8px;align-content:start}
 .manual-side h3{margin:0}
-/* 目录**不再自带滚动**：页面只有一个滚动条（内层滚动条叠三层是实测的用户抱怨点） */
-.manual-toc{display:grid;gap:4px;padding-right:2px}
+.manual-toc{display:grid;gap:4px;align-content:start;min-height:0;overflow:auto;padding-right:2px}
 .manual-toc-item{
   display:flex;gap:8px;align-items:baseline;justify-content:space-between;width:100%;text-align:left;
   border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit;
@@ -20,11 +25,10 @@
 .manual-toc-title{overflow-wrap:anywhere}
 .manual-toc-size{flex:0 0 auto;font-size:10px;color:var(--muted)}
 
-/* 正文**不自己滚**：整页滚动（与其他内核页一致），目录 sticky 跟随；
-   之前 max-height + overflow 造成"页面/目录/正文"三条滚动条同时出现 */
-.manual-pane{padding:0;display:block}
+/* 右列：正文是**唯一的滚动容器**（高度由网格行分配），页脚钉在列底，翻章始终可见 */
+.manual-pane{padding:0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto}
 .manual-body{
-  padding:18px 22px;font-size:13.5px;line-height:1.85;
+  overflow:auto;min-height:0;padding:18px 22px;font-size:13.5px;line-height:1.85;
   /* 限宽阅读：太宽的行长会让人读丢行 */
 }
 .manual-body>*{max-width:78ch}
