@@ -561,6 +561,9 @@ Cmd + K
 
 ## 📰 科研资讯
 
+> 🔌 **本功能现在是插件**（`plugins/rss`）：内核不带资讯代码，停用插件后侧栏不出现「资讯」页。
+> 下面描述的行为不变——插件后端仍走 `/api/plugins/rss/*`，配置落在 `config/plugins/rss.json`。
+
 资讯模块支持 RSS / Atom。
 
 默认可配置 arXiv 等科研信息源。
@@ -590,6 +593,9 @@ arXiv Atom API
 
 ## 🌤️ 天气
 
+> 🔌 **本功能现在是插件**（`plugins/weather`，顶栏槽位 + 设置模态）：配置落在 `config/plugins/weather.json`，
+> 内核只提供「顶栏槽位」这个挂载点，不认识天气。
+
 天气使用 Open-Meteo。
 
 特点：
@@ -601,6 +607,8 @@ arXiv Atom API
 ---
 
 ## ⏱️ 专注计时
+
+> 🔌 **本功能现在是插件**（`plugins/focus`，自登记侧栏页面）：停用后侧栏不出现「专注」，设置存浏览器本地。
 
 支持：
 
@@ -620,24 +628,41 @@ arXiv Atom API
 flowchart TB
     U[Browser / SPA]
 
-    subgraph FE[Frontend]
+    subgraph FE[Frontend · 内核]
         IDX[web/index.html]
-        JS[web/app.js]
+        JS[web/app.js<br/>壳 + ERW* 接缝注册表]
         CSS[web/styles.css]
+        HOST[web/plugin-host.js<br/>加载插件前端]
+        PM[web/plugin-manager.js<br/>设置页插件管理]
     end
 
-    subgraph BE[Python Backend]
+    subgraph PLG[Plugins · plugins/&lt;id&gt;/]
+        PNAV[导航页 / 槽位 / 设置页 tab]
+        PAPI[自有 HTTP 路由<br/>/api/plugins/&lt;id&gt;/*]
+        PTOOL[Agent 工具<br/>p_&lt;id&gt;__&lt;tool&gt;]
+        PJOB[后台任务 ctx.jobs]
+    end
+
+    subgraph CORE[Kernel · core/ 不依赖 app]
+        CON[core/contracts/<br/>kind / 字段 / 命名唯一声明]
+        IDX2[core/index/<br/>索引迁移与维护]
+        PL[core/plugins/<br/>清单·发现·解包·调度]
+        DOC[core/doctor.py 只读体检]
+        EV[core/events.py 事件总线]
+    end
+
+    subgraph BE[Backend · app/]
         SV[server.py<br/>ThreadingHTTPServer]
         CFG[app/config.py]
         STORE[app/store.py]
         WS[app/workspace.py]
-        GRAPH[Knowledge Graph]
+        GRAPH[perf_index_graph.py]
         ACT[app/activity.py]
         TODO[app/todos.py]
         SEARCH[app/search.py]
-        AGENT[app/agent.py]
-        RSS[app/rss.py]
-        WEATHER[app/weather.py]
+        AGENT[app/agent.py + agent_tools.py]
+        LIT[app/literature.py]
+        API[core_api.py<br/>插件唯一允许 import 的门面]
     end
 
     subgraph DATA[Local Data]
@@ -645,17 +670,18 @@ flowchart TB
         PROJ[Workspace/Projects/]
         SYS[Workspace/System/]
         APPJSON[config/app.json]
-        RSSJSON[config/rss.json]
+        PCONF[config/plugins/&lt;id&gt;.json]
     end
 
     subgraph EXT[Optional External Services]
         LLM[OpenAI-compatible LLM API]
-        ARXIV[RSS / arXiv]
-        METEO[Open-Meteo]
+        ARXIV[RSS / arXiv · 由 rss 插件]
+        METEO[Open-Meteo · 由 weather 插件]
     end
 
     U --> FE
     FE -->|JSON HTTP| SV
+    HOST -->|加载 panel.js| PLG
 
     SV --> CFG
     SV --> STORE
@@ -664,14 +690,23 @@ flowchart TB
     SV --> TODO
     SV --> SEARCH
     SV --> AGENT
-    SV --> RSS
-    SV --> WEATHER
+    SV --> LIT
+    SV --> PL
+    PLG -->|ctx.routes| SV
+    PLG -->|ctx.mcp.tool| AGENT
+    PLG -->|ctx.jobs| PL
+    PLG -->|from core_api import| API
+    API --> STORE
+    API --> LIT
+    CORE --- BE
 
+    STORE --> CON
     STORE --> GRAPH
     STORE --> MD
     WS --> PROJ
     ACT --> SYS
     TODO --> SYS
+    PLG --> PCONF
     AGENT --> SYS
 
     CFG --> APPJSON
@@ -801,7 +836,9 @@ Markdown + Todo + Agent History
 - reasoning 提取；
 - 环境变量 API Key。
 
-### `app/rss.py`
+### `plugins/rss/backend.py`（原 `app/rss.py`）
+
+> 已搬成插件（v261009 起）：内核里不再有 `app/rss.py`；下面这些职责现在由插件承担。
 
 负责：
 
@@ -811,7 +848,9 @@ Markdown + Todo + Agent History
 - 缓存；
 - 错误诊断。
 
-### `app/weather.py`
+### `plugins/weather/backend.py`（原 `app/weather.py`）
+
+> 同样已搬成插件：内核只提供「顶栏槽位」挂载点，不认识天气。
 
 负责 Open-Meteo 天气。
 
@@ -1201,49 +1240,110 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 
 ---
 
+# 🧩 插件体系
+
+工作台按 **内核 / 插件 / 数据** 三层组织，判据只有一条：**「零插件可跑」**（去掉 `plugins/` 全部内容，
+知识库读写、检索、图谱数据、文献梳理、Agent 对话与设置页都必须照常工作）。
+
+| 层 | 位置 | 职责 | 硬约束 |
+| --- | --- | --- | --- |
+| **内核** | `core/` + `app/` + `web/app.js` | 契约、索引、知识库、文献梳理、Agent 基础、界面壳、插件运行时 | 内核**不认识任何具体插件**（`grep` 不到插件名） |
+| **插件** | `plugins/<id>/` | 具体功能：页面、槽位、设置 tab、HTTP 路由、Agent 工具、后台任务、自己的存储与配置 | 只许 `from core_api import …`；不得改内核 DOM/CSS、不得直写 `Workspace/` |
+| **数据** | `Workspace/` + `config/` | Markdown + frontmatter 是**唯一事实来源**；SQLite 索引只是可重建的派生物 | 插件数据落自己的命名空间（`Workspace/Plugins/<id>` 等） |
+
+**插件能做什么（都用自登记，内核不需要改）**：侧栏导航页 / 顶栏或浮层槽位 / 设置页 tab / 阅读区 tab、
+自有 HTTP 路由（`/api/plugins/<id>/*`）、给 Agent 加工具（`p_<id>__<tool>`，写工具自动走草稿确认闸门）、
+后台定时任务（`ctx.jobs`）、订阅内核事件（`ctx.events`）、产出文件下载（`ctx.raw`）、
+读知识库（`core_api.entries/entry/projects/todos/…`）、写条目正文（`core_api.entry_update` + 写工具闸门）。
+
+**当前 11 个插件**（详细目录与每个插件的说明见 [`plugins/README.md`](plugins/README.md)；
+想自己写一个见 [`plugins/.template/`](plugins/.template/) 与 [`docs/PLUGIN_SPEC.md`](docs/PLUGIN_SPEC.md)）：
+
+| 插件 | 提供什么 | 默认 |
+| --- | --- | --- |
+| `literature-reader` | 文献阅读工作区：PDF 阅读 + 批注 + 笔记 tab + 阅读区 AI（2 个 Agent 工具） | 附属（开） |
+| `knowledge-graph` | 知识图谱页与总览迷你图（整页接管） | 附属（开） |
+| `floating-assist` | 悬浮球 AI 助手：对话 / 引用 / 截图问图 / 人设 tab / 工具轨迹（`overlay` 槽位） | 附属（开） |
+| `billing` | 用量计费：订阅 `llm.usage` 事件逐条记账 | 附属（开） |
+| `focus` | 专注计时（纯前端页面，设置存浏览器本地） | 附属（开） |
+| `rss` | 科研资讯：RSS/Atom 聚合 + arXiv 多级回退 | 附属（开） |
+| `weather` | 天气：顶栏槽位 + 逐日预报 + 离线降级 | 附属（开） |
+| `report-export` | 报告导出：DOCX（标准库写 OOXML）/ HTML（可打印成 PDF）/ Markdown | 可选（关） |
+| `backup-snapshot` | 备份与快照：内核后台任务定时打包知识库与配置、按份数清理 | 可选（关） |
+| `milestone-calendar` | 日历与提醒：里程碑/待办到期视图 + 顶栏常驻角标 | 可选（关） |
+| `metrics-table` | 指标表：读条目正文表格与 ```metrics 块，跨实验对照 + CSV/Markdown 导出 | 可选（关） |
+
+**安装 / 启停 / 预览**：把目录或 `<id>-<version>.zip` 丢进 `plugins/` 即被发现（zip 会自动解包到
+`plugins/<id>/`，旧版本整体进回收站）；在**设置 → 插件**里启停、看权限/路由/工具/依赖、编辑插件配置，
+**鼠标移到插件卡片上就能看到演示预览**（摘要 + 功能点 + 界面截图，由插件自己在 `plugin.json` 的
+`preview` 里声明）。后端改动需**重启**，只改插件前端刷新即可。
+
+---
+
 # 🛠️ 开发目录
 
 ```text
 .
-├─ app/
-│  ├─ activity.py
-│  ├─ agent.py
-│  ├─ config.py
-│  ├─ rss.py
-│  ├─ search.py
-│  ├─ store.py
-│  ├─ todos.py
-│  ├─ weather.py
-│  └─ workspace.py
+├─ app/                    # 后端：知识库读写 / 索引 / 文献 / Agent / 项目 / 待办
+│  ├─ store.py             #   条目读写 + 关系解析 + 命名同步（971 行）
+│  ├─ perf_index_*.py      #   SQLite 派生索引（db/core/query/graph/runtime）
+│  ├─ agent.py             #   对话循环 + 草稿确认流（924 行）
+│  ├─ agent_tools.py       #   工具执行入口（内核 4 个 kb_* + 插件工具）
+│  ├─ literature.py        #   文献库：条目/PDF/批注/笔记/BibTeX
+│  ├─ config.py            #   config/app.json 读写、密钥解析
+│  ├─ projects.py / todos.py / activity.py / search.py / workspace.py
+│  └─ indexer.py           #   索引门面（from core.plugins import … 时也用它）
 │
-├─ config/
-│  ├─ app.json
-│  └─ rss.json
+├─ core/                   # 内核层：**不依赖 app/mcp**（plugin_check 会拦）
+│  ├─ contracts/           #   kind / 字段 / 命名 / 骨架的唯一声明处
+│  ├─ index/               #   索引迁移（migrations/）与维护
+│  ├─ plugins/             #   插件运行时：manifest·registry·loader·context·unpack·jobs
+│  ├─ doctor.py            #   只读体检（error/warn 清单）
+│  ├─ events.py            #   进程内事件总线（插件可订阅 llm.usage 等）
+│  └─ net.py               #   出网兜底（系统代理指向回环且没监听时自动直连）
 │
-├─ docs/
-│  ├─ ARCHITECTURE.md
-│  └─ KNOWLEDGE_RELATIONS.md
+├─ core_api.py             # 插件**唯一**允许 import 的门面（I3）
 │
-├─ tools/
-│  ├─ self_check.py
-│  ├─ kb_tree.py
-│  ├─ kb_smoke.py
-│  ├─ kb_migrate_experiments.py
-│  └─ scratch_clean.py
+├─ plugins/                # 插件库（11 个；放进来即被发现）
+│  ├─ .template/           #   模板：照它改就不用动内核（tools/new_plugin.py 会自动改名）
+│  ├─ literature-reader/   #   附属：PDF 阅读 + 批注 + 笔记 tab + 阅读区 AI
+│  ├─ knowledge-graph/     #   附属：图谱页与总览迷你图（整页接管）
+│  ├─ floating-assist/     #   附属：悬浮球 AI 助手（overlay 槽位）
+│  ├─ billing/ focus/ rss/ weather/   # 附属：计费 / 专注 / 资讯 / 天气
+│  └─ report-export/ backup-snapshot/ milestone-calendar/ metrics-table/  # 可选
 │
-├─ web/
-│  ├─ app.js
-│  ├─ index.html
-│  └─ styles.css
+├─ web/                    # 前端（无构建步骤，server.py 直接提供）
+│  ├─ app.js               #   壳 + ERW* 接缝注册表（1379 行）
+│  ├─ plugin-host.js       #   加载已启用插件的前端脚本
+│  ├─ plugin-manager.js    #   设置页「插件」：启停 / 详情 / **演示预览**
+│  ├─ manifest.json        #   装配清单（index.html 的三段引用由它生成）
+│  ├─ styles.css + v2609*.{js,css}   # 版式与逐项补丁
+│  └─ vendor/              #   重型库本地副本（pdfjs / mermaid / mathjax / marked / hljs…）
 │
-├─ Workspace/
-├─ .scratch/          # 操作临时数据：仅本地，不入库，7 天自动清理
-├─ CHANGELOG.md
-├─ VERSION
-├─ run.bat
-├─ run.sh
-└─ server.py
+├─ mcp/                    # MCP 工具服务（25 个工具：kb_* / ws_* / todo_* / 导出）
+├─ tools/                  # 运维与闸门脚本（见下）
+├─ docs/                   # 架构与规范：SCOPE / PLUGIN_SPEC / REFACTOR_PLAN / ARCHITECTURE…
+├─ config/                 # app.json（内核设置）· secrets.json · plugins/<id>.json（插件配置）
+├─ Workspace/              # 用户数据（gitignore + Syncthing 同步）
+├─ build/ ResearchWorkbench.exe      # 打包产物（PyInstaller）
+├─ .scratch/               # 临时数据：仅本地、不入库、7 天自动清理
+├─ .rag/ + rag/            # 早期 RAG 实验的源码与索引（92 MB，保留待复用）
+├─ CHANGELOG.md · VERSION · README.md · AGENTS.md
+└─ server.py · client.py · run.bat · run.sh
 ```
+
+**闸门脚本（改完必须跑的）**：
+
+| 脚本 | 管什么 |
+| --- | --- |
+| `tools/kb_smoke.py` | 知识库读写冒烟（条目/字段/命名/回收站） |
+| `tools/web_check.py` | 前端静态：语法、装配清单一致、`window.ERW*` 接缝提供/消费、加载顺序 |
+| `tools/ui_smoke.py` | 真浏览器走查：每条路由可渲染、0 console error、首屏不拉重型库 |
+| `tools/plugin_check.py` | 插件隔离：内核不得 import 插件、`core/` 不得 import `app`、零插件可跑 |
+| `python -m core.doctor` | 只读体检（数据/索引/契约漂移；error 0 才算健康） |
+| `python -m core.plugins list\|check\|verify` | 插件发现 / 单插件校验 / 全库盘点（`--install` 顺带解包） |
+| `python tools/new_plugin.py <id>` | 从 `plugins/.template/` 生成新插件（先临时后原子、安装期同一套校验） |
+| `python -m mcp.server --selftest` | MCP 工具表自检 |
 
 ### 知识库结构（七类条目 + 关系层）
 
