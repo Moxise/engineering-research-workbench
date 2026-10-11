@@ -1,5 +1,12 @@
 # Architecture · workbench-v260920.2
 
+> ⚠️ **本文是历史技术笔记的堆积**（v260920–v261008 期间的实现记录），其中不少模块位置已变
+> ——例如 `app/rss.py`、`app/weather.py`、`app/kb_naming.py`、`web/literature.js`、
+> `web/v260930-floating-agent.*` 都已搬进 `plugins/`。**要看当前结构与功能请读
+> [`OVERVIEW.md`](OVERVIEW.md)**（结构图 + 目录树 + 11 个插件 + 内核功能清单）；
+> 分层判据见 [`SCOPE.md`](SCOPE.md)，插件契约见 [`PLUGIN_SPEC.md`](PLUGIN_SPEC.md)。
+> 本文保留作为「当时为什么这么改」的史料参考。
+
 ```text
 Browser SPA
   web/index.html

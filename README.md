@@ -4,6 +4,10 @@
 
 **当前版本：`workbench-v260924.1`**
 
+> 📐 **项目结构与功能总览（含结构图）见 [`docs/OVERVIEW.md`](docs/OVERVIEW.md)**——三层结构、目录树、
+> 数据流与插件生命周期图、11 个插件一览、内核功能清单、数据位置、闸门表、加功能决策表。
+> 本文（README）偏使用与特性介绍。
+
 ---
 
 ## ✨ 项目简介
@@ -626,87 +630,92 @@ arXiv Atom API
 
 ```mermaid
 flowchart TB
-    U[Browser / SPA]
+  B["浏览器 SPA<br/>web/index.html + app.js 壳"]
+  A["外部 Agent / IDE（MCP）"]
 
-    subgraph FE[Frontend · 内核]
-        IDX[web/index.html]
-        JS[web/app.js<br/>壳 + ERW* 接缝注册表]
-        CSS[web/styles.css]
-        HOST[web/plugin-host.js<br/>加载插件前端]
-        PM[web/plugin-manager.js<br/>设置页插件管理]
-    end
+  subgraph FE["前端内核"]
+    JS["web/app.js<br/>壳 + ERW* 接缝注册表"]
+    CSS["web/styles.css"]
+    HOST["web/plugin-host.js<br/>加载插件前端"]
+    PM["web/plugin-manager.js<br/>设置页插件管理"]
+  end
 
-    subgraph PLG[Plugins · plugins/&lt;id&gt;/]
-        PNAV[导航页 / 槽位 / 设置页 tab]
-        PAPI[自有 HTTP 路由<br/>/api/plugins/&lt;id&gt;/*]
-        PTOOL[Agent 工具<br/>p_&lt;id&gt;__&lt;tool&gt;]
-        PJOB[后台任务 ctx.jobs]
-    end
+  subgraph PLG["插件层 · plugins/ 目录"]
+    PNAV["导航页 / 槽位 / 设置 tab"]
+    PAPI["自有 HTTP 路由"]
+    PTOOL["Agent 工具 p_id__tool"]
+    PJOB["后台任务 ctx.jobs"]
+  end
 
-    subgraph CORE[Kernel · core/ 不依赖 app]
-        CON[core/contracts/<br/>kind / 字段 / 命名唯一声明]
-        IDX2[core/index/<br/>索引迁移与维护]
-        PL[core/plugins/<br/>清单·发现·解包·调度]
-        DOC[core/doctor.py 只读体检]
-        EV[core/events.py 事件总线]
-    end
+  subgraph CORE["内核 · core/（不依赖 app）"]
+    CON["core/contracts<br/>kind·字段·命名唯一声明"]
+    IDX2["core/index<br/>索引迁移与维护"]
+    PL["core/plugins<br/>清单·发现·解包·调度"]
+    DOC["core/doctor.py 只读体检"]
+    EV["core/events.py 事件总线"]
+  end
 
-    subgraph BE[Backend · app/]
-        SV[server.py<br/>ThreadingHTTPServer]
-        CFG[app/config.py]
-        STORE[app/store.py]
-        WS[app/workspace.py]
-        GRAPH[perf_index_graph.py]
-        ACT[app/activity.py]
-        TODO[app/todos.py]
-        SEARCH[app/search.py]
-        AGENT[app/agent.py + agent_tools.py]
-        LIT[app/literature.py]
-        API[core_api.py<br/>插件唯一允许 import 的门面]
-    end
+  subgraph BE["后端 · app/"]
+    SV["server.py<br/>ThreadingHTTPServer"]
+    CFG["app/config.py"]
+    STORE["app/store.py"]
+    WS["app/workspace.py"]
+    GRAPH["perf_index_graph.py"]
+    ACT["app/activity.py"]
+    TODO["app/todos.py"]
+    SEARCH["app/search.py"]
+    AGENT["app/agent.py + agent_tools.py"]
+    LIT["app/literature.py"]
+    API["core_api.py<br/>插件唯一门面（I3）"]
+  end
 
-    subgraph DATA[Local Data]
-        MD[Workspace/Knowledge/*.md]
-        PROJ[Workspace/Projects/]
-        SYS[Workspace/System/]
-        APPJSON[config/app.json]
-        PCONF[config/plugins/&lt;id&gt;.json]
-    end
+  subgraph DATA["本地数据"]
+    MD["Workspace/Knowledge/*.md"]
+    PROJ["Workspace/Projects/"]
+    SYS["Workspace/System/"]
+    APPJSON["config/app.json"]
+    PCONF["config/plugins/插件配置"]
+  end
 
-    subgraph EXT[Optional External Services]
-        LLM[OpenAI-compatible LLM API]
-        ARXIV[RSS / arXiv · 由 rss 插件]
-        METEO[Open-Meteo · 由 weather 插件]
-    end
+  subgraph EXT["可选外部服务"]
+    LLM["OpenAI-compatible LLM"]
+    ARXIV["RSS / arXiv（rss 插件）"]
+    METEO["Open-Meteo（weather 插件）"]
+  end
 
-    U --> FE
-    FE -->|JSON HTTP| SV
-    HOST -->|加载 panel.js| PLG
-
-    SV --> CFG
-    SV --> STORE
-    SV --> WS
-    SV --> ACT
-    SV --> TODO
-    SV --> SEARCH
-    SV --> AGENT
-    SV --> LIT
-    SV --> PL
-    PLG -->|ctx.routes| SV
-    PLG -->|ctx.mcp.tool| AGENT
-    PLG -->|ctx.jobs| PL
-    PLG -->|from core_api import| API
-    API --> STORE
-    API --> LIT
-    CORE --- BE
-
-    STORE --> CON
-    STORE --> GRAPH
-    STORE --> MD
-    WS --> PROJ
-    ACT --> SYS
-    TODO --> SYS
-    PLG --> PCONF
+  B -->|JSON HTTP| SV
+  A -->|MCP 25 个工具| SV
+  HOST -->|加载 panel.js| PNAV
+  PNAV -->|自登记页面/槽位/tab| JS
+  PAPI -->|ctx.routes| SV
+  PTOOL -->|ctx.mcp.tool| AGENT
+  PJOB -->|ctx.jobs| PL
+  API -->|读写知识库| STORE
+  API -->|文献读写| LIT
+  SV --> CFG
+  SV --> STORE
+  SV --> WS
+  SV --> ACT
+  SV --> TODO
+  SV --> SEARCH
+  SV --> AGENT
+  SV --> LIT
+  SV --> PL
+  AGENT --> LLM
+  AGENT --> API
+  STORE --> CON
+  STORE --> GRAPH
+  STORE --> MD
+  PL --> CON
+  PL --> PCONF
+  WS --> PROJ
+  ACT --> SYS
+  TODO --> SYS
+  SEARCH --> IDX2
+  PAPI --> PCONF
+  ARXIV --> PAPI
+  METEO --> PAPI
+```
     AGENT --> SYS
 
     CFG --> APPJSON
@@ -1343,6 +1352,7 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 | `python -m core.doctor` | 只读体检（数据/索引/契约漂移；error 0 才算健康） |
 | `python -m core.plugins list\|check\|verify` | 插件发现 / 单插件校验 / 全库盘点（`--install` 顺带解包） |
 | `python tools/new_plugin.py <id>` | 从 `plugins/.template/` 生成新插件（先临时后原子、安装期同一套校验） |
+| `python tools/doc_check.py` | 文档里的 **mermaid 图能否渲染**（用仓库自带 mermaid 真浏览器验证；`--export` 顺带导出 SVG） |
 | `python -m mcp.server --selftest` | MCP 工具表自检 |
 
 ### 知识库结构（七类条目 + 关系层）

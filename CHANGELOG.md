@@ -1,5 +1,32 @@
 # Changelog
 
+## v261009.29
+
+**新增 `docs/OVERVIEW.md`：项目结构与功能总览（含三张结构图 + 一张导出 SVG）**，并把这个「图必须能渲染」的检查做成正式闸门。
+
+### 文档
+- **`docs/OVERVIEW.md`**（当前状态入口）：这是什么 → 三层结构图 → 目录树（标出关键文件行数）→
+  数据流图（一次页面请求 / 一次 Agent 工具调用，含草稿闸门）→ 插件生命史图（发现→校验→依赖→启用→
+  注册→运行→停用，含 rejected/blocked/failed 三分支）→ 11 个插件一览（提供什么/入口/权限）→
+  内核功能清单 → 数据与文件位置表 → 闸门与验证表 → 「想加功能」决策表（哪些不用改内核、哪些要）。
+- **`docs/img/structure.svg`**（29 KB）：由 OVERVIEW 的 mermaid 源码导出，供不渲染 mermaid 的查看器；
+  另放行 `!docs/**/*.svg`（此前 `docs/` 只放行 `*.md`，图会被 gitignore 吞掉）。
+- **README 顶部加指路** + 闸门表补 `tools/doc_check.py`；**`docs/ARCHITECTURE.md` 加历史横幅**：
+  它是 v260920–v261008 的实现笔记堆积，多处模块位置已变（`app/rss.py`、`app/weather.py`、
+  `app/kb_naming.py`、`web/literature.js`、`web/v260930-floating-agent.*` 都已搬进 `plugins/`），
+  指向 OVERVIEW 作为当前状态。
+
+### 新闸门：`tools/doc_check.py`
+用**仓库自带的 `web/vendor/mermaid.min.js`** 在真浏览器里逐张 `parse()` + `render()` 文档中的 mermaid 图，
+可选 `--export <file> <index>` 导出 SVG。**每张图用全新页面渲染**——mermaid 是单例，同页连续渲染会互相污染，
+产生与图本身无关的假失败（实测踩到）。
+
+### 它当场抓到的真 bug
+README 的架构图（本次新画）**渲染报错**：`Cannot set properties of undefined (setting 'order')`。
+用变体法定位到根因不是「子图↔子图」边，而是**给「子图」参与画边**（`FE --> SV`、`HOST --> PLG` 这类）——
+当前 vendored mermaid 版本在这个构造上会崩。改法：**子图只作视觉分组，边一律节点→节点**；
+改完 README 架构图正常渲染（75 节点 / 98 连线）。全仓 8 张 mermaid 图现在 8/8 通过。
+
 ## v261009.28
 
 **重新梳理 README（项目结构与功能总览）**——只改文档，不动代码。
