@@ -1,0 +1,47 @@
+/* manual.css · v261009.30 —— 使用手册页（内核模块 web/manual.js 的样式）
+ *
+ * 版式：左目录（可滚动、当前章高亮）+ 右正文（限宽阅读、图自适应、宽表格可横滚）。
+ */
+
+.manual-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:12px;align-items:start}
+@media (max-width:900px){.manual-layout{grid-template-columns:1fr}}
+
+.manual-side{position:sticky;top:10px;max-height:calc(100vh - 40px);display:grid;gap:8px;align-content:start}
+.manual-side h3{margin:0}
+.manual-toc{display:grid;gap:4px;overflow:auto;padding-right:2px}
+.manual-toc-item{
+  display:flex;gap:8px;align-items:baseline;justify-content:space-between;width:100%;text-align:left;
+  border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit;
+  font:inherit;font-size:12px;padding:6px 9px;cursor:pointer;
+}
+.manual-toc-item:hover{background:color-mix(in srgb,var(--line) 16%,transparent)}
+.manual-toc-item.active{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.manual-toc-title{overflow-wrap:anywhere}
+.manual-toc-size{flex:0 0 auto;font-size:10px;color:var(--muted)}
+
+.manual-pane{padding:0;display:grid;grid-template-rows:minmax(0,1fr) auto;max-height:calc(100vh - 40px)}
+.manual-body{
+  overflow:auto;padding:18px 22px;font-size:13.5px;line-height:1.85;
+  /* 限宽阅读：太宽的行长会让人读丢行 */
+}
+.manual-body>*{max-width:78ch}
+.manual-body img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:10px;margin:10px 0;display:block}
+.manual-body h1{font-size:20px;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.manual-body h2{font-size:16px;margin:22px 0 8px}
+.manual-body h3{font-size:14px;margin:18px 0 6px}
+.manual-body p{margin:8px 0}
+.manual-body ul,.manual-body ol{margin:8px 0 8px 20px;padding:0}
+.manual-body li{margin:3px 0}
+.manual-body code{font:12px/1.6 Consolas,monospace;background:color-mix(in srgb,var(--line) 35%,transparent);padding:1px 5px;border-radius:5px}
+.manual-body pre{background:color-mix(in srgb,var(--line) 14%,transparent);padding:10px 12px;border-radius:8px;overflow:auto}
+.manual-body pre code{background:none;padding:0}
+.manual-body blockquote{margin:10px 0;padding:6px 12px;border-left:3px solid var(--accent);color:var(--muted);background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.manual-body table{border-collapse:collapse;font-size:12px;margin:10px 0;display:block;overflow:auto;max-width:100%}
+.manual-body th,.manual-body td{border:1px solid var(--line);padding:5px 9px;text-align:left;vertical-align:top}
+.manual-body th{background:color-mix(in srgb,var(--line) 18%,transparent)}
+.manual-body a{color:var(--accent)}
+.manual-body hr{border:none;border-top:1px solid var(--line);margin:18px 0}
+.manual-raw{white-space:pre-wrap;font:12px/1.7 Consolas,monospace}
+.manual-error{border:1px solid color-mix(in srgb,var(--danger) 40%,var(--line));border-radius:8px;padding:10px 12px;font-size:12px;background:color-mix(in srgb,var(--danger) 6%,transparent)}
+.manual-foot{display:flex;gap:10px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:9px 12px}
+.manual-foot .row-meta{font:10px/1.5 Consolas,monospace;color:var(--muted)}

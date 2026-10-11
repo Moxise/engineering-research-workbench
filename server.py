@@ -161,6 +161,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.serve_workspace_file(path[len("/workspace-file/"):])
             if path.startswith("/plugins-file/"):
                 return self.serve_plugin_file(path[len("/plugins-file/"):])
+            if path.startswith("/manual-file/"):   # v261009.30 · 使用手册的图片等资源
+                return self.serve_manual_file(path[len("/manual-file/"):])
             return self.serve_static(path)
         except FileNotFoundError as e:
             self.send_json({"error": "not_found", "message": str(e)}, 404)
@@ -288,6 +290,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(indexer.get_doc(doc_id))
         if path == "/api/statuses":
             return self.send_json(store.all_statuses())
+        if path == "/api/manual":            # v261009.30 · 使用手册章节列表
+            return self.send_json({"chapters": manual_chapters()})
+        if path.startswith("/api/manual/"):
+            chapter = manual_chapter(unquote(path[len("/api/manual/"):]))
+            if chapter is None:
+                return self.send_json({"error": "not_found", "message": "没有这一章"}, 404)
+            return self.send_json(chapter)
         if path == "/api/plugins":  # v261009 · §6.3：内核下发「可用且启用」的插件及其面板入口
             # ?detail=1 → 插件预览（设置页的插件管理页用）：多带状态/权限/路由/工具/配置接口等
             detail = (q.get("detail") or [""])[0] in ("1", "true", "yes")
@@ -666,6 +675,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def serve_manual_file(self, rel):
+        """使用手册的图片等资源（`docs/manual/**`）。**只允许手册目录内的文件**（路径安全）。"""
+        root = manual_dir().resolve()
+        target = (root / unquote(rel)).resolve()
+        if root not in target.parents:
+            return self.send_json({"error": "forbidden", "message": "只允许取 docs/manual/ 内的文件"}, 403)
+        if not target.is_file():
+            raise FileNotFoundError(str(target))
+        content = target.read_bytes()
+        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "private, max-age=300")
+        self.end_headers()
+        self.wfile.write(content)
+
 
 def _scratch_boot_cleanup() -> None:
     """v261008 · 启动时初始化并清理操作临时空间 .scratch/，失败不影响服务启动。"""
@@ -837,6 +863,51 @@ def build_plugin_payload(root, workspace_dir, detail: bool = False) -> dict:
             })
         out.append(row)
     return {"plugins": out, "notes": notes, "core_version": core_version, "install": install_rows}
+
+
+# ---------------------------------------------------------------- 使用手册（内核自带文档）
+#: 手册目录：`docs/manual/`（Markdown + img/ 截图）。在工作台里由 `web/manual.js` 渲染，
+#: 因此它**不依赖任何插件**——零插件时也能读。
+MANUAL_SUBDIR = ("docs", "manual")
+
+
+def manual_dir() -> Path:
+    return ASSET_ROOT.joinpath(*MANUAL_SUBDIR)
+
+
+def manual_chapters() -> list[dict]:
+    """手册章节目录（README 放最前，其余按文件名排序）。读不到就返回空表，不抛异常。"""
+    root = manual_dir()
+    if not root.is_dir():
+        return []
+    out: list[dict] = []
+    for path in sorted(root.glob("*.md")):
+        title = path.stem
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("# "):
+                    title = line[2:].strip()
+                    break
+        except OSError:
+            continue
+        out.append({"id": path.stem, "title": title, "file": path.name,
+                    "bytes": path.stat().st_size})
+    out.sort(key=lambda c: (c["id"] != "README", c["id"]))
+    return out
+
+
+def manual_chapter(chapter_id: str) -> dict | None:
+    """按 id 读一章（id = 文件名去 `.md`）。只允许手册目录内的 md，路径安全在此收口。"""
+    cid = str(chapter_id or "").strip()
+    if not cid or ".." in cid or "/" in cid or "\\" in cid:
+        return None
+    root = manual_dir().resolve()
+    target = (root / f"{cid}.md").resolve()
+    if root not in target.parents or not target.is_file():
+        return None
+    text = target.read_text(encoding="utf-8")
+    title = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), cid)
+    return {"id": cid, "title": title, "markdown": text, "bytes": len(text.encode("utf-8"))}
 
 
 def _plugin_preview(manifest: dict, asset_url) -> dict:

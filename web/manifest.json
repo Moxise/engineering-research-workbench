@@ -55,6 +55,12 @@
       "file": "vendor/github.min.css",
       "theme": "vendor",
       "cdn": "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css"
+    },
+    {
+      "file": "manual.css",
+      "v": "261009u",
+      "theme": "base",
+      "note": "v261009u · 使用手册页版式：左目录 + 右正文（限宽阅读、图自适应、宽表格横滚）"
     }
   ],
   "vendor_js": [
@@ -122,6 +128,12 @@
       "v": "261009s",
       "theme": "plugin-manager",
       "note": "v261009s · 插件设置页新增「演示预览」：悬停/点击插件卡片浮出摘要+功能点+截图（内容由插件 manifest 的 preview 声明，内核不认识具体插件）；上版：v261009q · 设置页新增「单文件包安装结果」区块（解包/升级/拒收/冲突逐条显示，空列表时也显示）；上版：v26"
+    },
+    {
+      "file": "manual.js",
+      "v": "261009v",
+      "theme": "base",
+      "note": "v261009v · 修站内章节链接：渲染管线把中文文件名百分号编码，比较前需 decodeURIComponent（否则点目录里的章节链接无反应）；上版：v261009u · 新增「使用手册」页（内核模块）：读 docs/manual/*.md，用 ERWMarkdown 渲染，图片走 /manual-file/"
     }
   ]
 }

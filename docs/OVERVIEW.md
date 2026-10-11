@@ -1,6 +1,7 @@
 # 工程科研工作台 · 项目结构与功能总览
 
 > 本文是**当前状态**的入口文档（结构 + 功能 + 插件）。深度内容各归其位：
+> **使用教程**（带截图、分章）见 [`manual/`](manual/README.md)——也能在工作台侧栏「系统 → 使用手册」里读；
 > 分层判据与路线图见 [`SCOPE.md`](SCOPE.md)，插件契约见 [`PLUGIN_SPEC.md`](PLUGIN_SPEC.md)，
 > 改造历史见 [`REFACTOR_PLAN.md`](REFACTOR_PLAN.md) 与 [`../CHANGELOG.md`](../CHANGELOG.md)，
 > 早期技术笔记（**部分已过时，仅作历史参考**）见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
