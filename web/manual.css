@@ -6,9 +6,10 @@
 .manual-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:12px;align-items:start}
 @media (max-width:900px){.manual-layout{grid-template-columns:1fr}}
 
-.manual-side{position:sticky;top:10px;max-height:calc(100vh - 40px);display:grid;gap:8px;align-content:start}
+.manual-side{position:sticky;top:10px;display:grid;gap:8px;align-content:start}
 .manual-side h3{margin:0}
-.manual-toc{display:grid;gap:4px;overflow:auto;padding-right:2px}
+/* 目录**不再自带滚动**：页面只有一个滚动条（内层滚动条叠三层是实测的用户抱怨点） */
+.manual-toc{display:grid;gap:4px;padding-right:2px}
 .manual-toc-item{
   display:flex;gap:8px;align-items:baseline;justify-content:space-between;width:100%;text-align:left;
   border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit;
@@ -19,13 +20,17 @@
 .manual-toc-title{overflow-wrap:anywhere}
 .manual-toc-size{flex:0 0 auto;font-size:10px;color:var(--muted)}
 
-.manual-pane{padding:0;display:grid;grid-template-rows:minmax(0,1fr) auto;max-height:calc(100vh - 40px)}
+/* 正文**不自己滚**：整页滚动（与其他内核页一致），目录 sticky 跟随；
+   之前 max-height + overflow 造成"页面/目录/正文"三条滚动条同时出现 */
+.manual-pane{padding:0;display:block}
 .manual-body{
-  overflow:auto;padding:18px 22px;font-size:13.5px;line-height:1.85;
+  padding:18px 22px;font-size:13.5px;line-height:1.85;
   /* 限宽阅读：太宽的行长会让人读丢行 */
 }
 .manual-body>*{max-width:78ch}
-.manual-body img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:10px;margin:10px 0;display:block}
+/* 截图可以比正文行宽更宽（图里的字要看得清）：含图的段落放开限宽 */
+.manual-body p:has(>img){max-width:min(100%,820px)}
+.manual-body img{max-width:min(100%,820px);height:auto;border:1px solid var(--line);border-radius:10px;margin:10px 0;display:block}
 .manual-body h1{font-size:20px;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
 .manual-body h2{font-size:16px;margin:22px 0 8px}
 .manual-body h3{font-size:14px;margin:18px 0 6px}
