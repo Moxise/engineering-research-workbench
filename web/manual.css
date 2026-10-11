@@ -17,16 +17,21 @@ html[data-density="compact"] .manual-layout{gap:8px;height:calc(100vh - 133px)}
 .manual-side{align-self:start;max-height:100%;display:flex;flex-direction:column;gap:8px}
 .manual-side h3{margin:0}
 .manual-side .row-meta{white-space:normal;line-height:1.65}
-.manual-toc{display:grid;gap:4px;align-content:start;min-height:0;overflow:auto;padding-right:2px}
+.manual-toc{display:grid;gap:2px;align-content:start;min-height:0;overflow:auto;padding-right:2px}
+/* 目录条目：**轻量列表**（左侧色条表示当前章）而不是一排带边框的按钮——
+   原来每项一圈边框 + 12px 内边距，8 项下来视觉很重，也把栏目条撑高。 */
 .manual-toc-item{
-  display:flex;gap:8px;align-items:baseline;justify-content:space-between;width:100%;text-align:left;
-  border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit;
-  font:inherit;font-size:12px;padding:6px 9px;cursor:pointer;
+  display:flex;gap:8px;align-items:center;width:100%;text-align:left;
+  border:0;border-left:2px solid transparent;border-radius:0 6px 6px 0;background:transparent;color:inherit;
+  font:inherit;font-size:12.5px;line-height:1.45;padding:5px 8px;cursor:pointer;
 }
-.manual-toc-item:hover{background:color-mix(in srgb,var(--line) 16%,transparent)}
-.manual-toc-item.active{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.manual-toc-item:hover{background:color-mix(in srgb,var(--line) 18%,transparent)}
+.manual-toc-item.active{
+  border-left-color:var(--accent);color:var(--accent);font-weight:600;
+  background:color-mix(in srgb,var(--accent) 9%,transparent);
+}
 .manual-toc-title{overflow-wrap:anywhere}
-.manual-toc-size{flex:0 0 auto;font-size:10px;color:var(--muted)}
+.manual-toc-size{flex:0 0 auto;margin-left:auto;font-size:10px;color:var(--muted);opacity:.75}
 
 /* 右列：正文是**唯一的滚动容器**（高度由网格行分配），页脚钉在列底，翻章始终可见 */
 .manual-pane{padding:0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto}
@@ -60,13 +65,11 @@ html[data-density="compact"] .manual-layout{gap:8px;height:calc(100vh - 133px)}
 .manual-foot .row-meta{font:10px/1.5 Consolas,monospace;color:var(--muted)}
 
 /* ---- 阅读列限宽（放在文件最后：必须压过上面各元素自己的 `margin:0 0 …` 简写）----
-   · 容器 900px：让 900px 截图按原尺寸显示（图里的字看得清），宽屏下居中；
-   · 正文/标题再限 700px 并居中：行宽可读，且标题下划线不会比正文宽出一截；
-     注意**用 px 而不是 ch**——ch 随字号变（h1 的 84ch≈924px，会跟容器一样宽，实测不一致）；
-   · 图片、表格、代码块用满容器宽度。 */
+   **单一栏宽**：正文、标题、图片、表格全用同一宽度，左边缘对齐——之前"正文 700 / 图片 900"
+   会让图片从文字左边"冒出去"，图内文字看着也比正文大，比例失调（用户反馈）。
+   760px ≈ 13.5px 字号下 80+ 字符，对"参考手册 + 表格/截图"够用；
+   900px 截图在此按 0.84× 显示，图内文字与正文接近。 */
 /* 用 .manual-body .manual-doc>* 而非 .manual-doc>*：要压过上面 `.manual-body p{h1,ul…}` 的
    元素选择器（权重 0,1,1 > 0,1,0），否则段落的 margin:auto 又被覆盖（实测段落左贴、右留 158-420px） */
-.manual-body .manual-doc>*{max-width:min(100%,700px);margin-left:auto;margin-right:auto}
-.manual-body .manual-doc>p:has(>img),
-.manual-body .manual-doc>table,
-.manual-body .manual-doc>pre{max-width:100%}
+.manual-body .manual-doc{max-width:min(760px,100%);margin:0 auto}
+.manual-body .manual-doc>*{max-width:100%;margin-left:auto;margin-right:auto}

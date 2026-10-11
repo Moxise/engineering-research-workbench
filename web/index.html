@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="/v260922-layout-bugfixes.css?v=260924g">
   <link rel="stylesheet" href="/plugin-manager.css?v=261009s"><!-- v261009s · 插件设置页新增「演示预览」：悬停/点击插件卡片浮出摘要+功能点+截图（内容由插件 manifest 的 preview 声明，内核不认识具体插件）；上版：v261009q · 设置页新增「单文件包安装结果」区块（解包/升级/拒收/冲突逐条显示，空列表时也显示）；上版：v26 -->
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
-  <link rel="stylesheet" href="/manual.css?v=261009y"><!-- v261009y · 修左卡片版式（flex 贴顶，不再把 h3 塞进 1fr 行拉高造成标题/说明分离）+ 阅读列居中限宽 84ch、截图 880px；上版：v261009x · 改为内核两栏页同款：布局显式高度 calc(100vh-121px)（紧凑 133）+ 正文列内部 -->
+  <link rel="stylesheet" href="/manual.css?v=261009z"><!-- v261009z · 统一栏宽 760px（图片与文字左边缘对齐、图内文字与正文比例接近）+ 目录条目改轻量列表（左侧色条高亮、去掉整圈边框、更紧凑）；上版：v261009y · 修左卡片版式（flex 贴顶，不再把 h3 塞进 1fr 行拉高造成标题/说明 -->
   <!-- web:css:end -->
   <script>
     window.MathJax = {
@@ -112,7 +112,7 @@
   <script defer src="/v260922-research-pages.js?v=261009q"></script><!-- v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-settings-rendered 广播）随悬浮球模块搬成插件 plugins/floating-assist；图谱两补丁已迁成 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles -->
   <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->
   <script defer src="/plugin-manager.js?v=261009s"></script><!-- v261009s · 插件设置页新增「演示预览」：悬停/点击插件卡片浮出摘要+功能点+截图（内容由插件 manifest 的 preview 声明，内核不认识具体插件）；上版：v261009q · 设置页新增「单文件包安装结果」区块（解包/升级/拒收/冲突逐条显示，空列表时也显示）；上版：v26 -->
-  <script defer src="/manual.js?v=261009y"></script><!-- v261009y · 左栏说明精简为一行（原两行长句在窄栏里被截断）；上版：v261009v · 修站内章节链接：渲染管线把中文文件名百分号编码，比较前需 decodeURIComponent（否 -->
+  <script defer src="/manual.js?v=261009z"></script><!-- v261009z · 统一栏宽 760px（图片与文字左边缘对齐、图内文字与正文比例接近）+ 目录条目改轻量列表（左侧色条高亮、去掉整圈边框、更紧凑）；上版：v261009y · 左栏说明精简为一行（原两行长句在窄栏里被截断）；上版：v261009v · 修 -->
   <!-- web:app-js:end -->
 </body>
 </html>

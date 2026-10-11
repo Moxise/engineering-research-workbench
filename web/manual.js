@@ -37,10 +37,11 @@
 
   function tocHtml() {
     return STATE.chapters.map(function (c) {
+      var kb = Math.max(1, Math.round(c.bytes / 1024));
       return '<button type="button" class="manual-toc-item' + (c.id === STATE.current ? ' active' : '')
-        + '" data-manual-chapter="' + esc(c.id) + '">'
+        + '" data-manual-chapter="' + esc(c.id) + '" title="' + esc(c.title) + '（' + kb + ' KB）">'
         + '<span class="manual-toc-title">' + esc(c.title) + '</span>'
-        + '<span class="manual-toc-size">' + Math.max(1, Math.round(c.bytes / 1024)) + ' KB</span></button>';
+        + '<span class="manual-toc-size">' + kb + ' KB</span></button>';
     }).join('');
   }
 
