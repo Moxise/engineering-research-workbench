@@ -38,10 +38,12 @@
   function tocHtml() {
     return STATE.chapters.map(function (c) {
       var kb = Math.max(1, Math.round(c.bytes / 1024));
+      /* 前置 `·` 与内核「文件夹」页树里的文件行同一符号（目录用 ▱、文件用 ·）；
+         体积只留在 title 提示里，不在行内堆信息（照 .settings-nav / 树行的干净口径） */
       return '<button type="button" class="manual-toc-item' + (c.id === STATE.current ? ' active' : '')
         + '" data-manual-chapter="' + esc(c.id) + '" title="' + esc(c.title) + '（' + kb + ' KB）">'
-        + '<span class="manual-toc-title">' + esc(c.title) + '</span>'
-        + '<span class="manual-toc-size">' + kb + ' KB</span></button>';
+        + '<span class="manual-toc-icon">·</span>'
+        + '<span class="manual-toc-title">' + esc(c.title) + '</span></button>';
     }).join('');
   }
 
