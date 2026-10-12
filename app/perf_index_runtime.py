@@ -151,6 +151,14 @@ def workspace_children(rel: str = "") -> dict[str, Any]:
 
 
 def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | None = None) -> dict[str, Any]:
+    """更新条目（**索引层入口**）。
+
+    v261009.47 · 这里**改为委派给 `store.update_doc`**：此前它自己解析 frontmatter、自己 `_atomic_write`，
+    于是**绕过了写入收口点**——来源记录与"分叉/冲突时先留一版"都不会发生。
+    界面保存（`server.py` 走 `indexer.update_doc`）与 MCP 的 `kb_update_entry` 都在这条路上，
+    所以"外部 Agent 改了既有笔记却没有修改记录和分支"就是这么来的（用户反馈）。
+    现在：写入一律走 store（单一写入路径），本函数只负责同步索引。
+    """
     sync()
     with _connect() as conn:
         _init_db(conn)
@@ -164,36 +172,11 @@ def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | No
         raise FileNotFoundError(doc_id)
     path = _root() / str(row["path"])
     kind = str(row["kind"])
-    text = path.read_text(encoding="utf-8")
-    meta, body = store._frontmatter_parse(text)
-    allowed = {
-        "title", "status", "project", "projects", "project_id", "project_ids", "tags", "kind_marks", "pinned",
-        "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key",
-    }
-    for key in allowed:
-        if key in payload:
-            meta[key] = payload[key]
-    _origin = dict(origin or versions.origin("cli"))
-    meta.update({k: v for k, v in _origin.items() if v})   # v261009.41 · 来源
-    meta["updated"] = datetime.now().isoformat(timespec="seconds")
-    if "body" in payload:
-        body = str(payload.get("body") or "")
-    if kind == "literature" and "bibtex" in payload:
-        bib = str(payload.get("bibtex") or "").strip()
-        block = f"```bibtex\n{bib}\n```" if bib else "```bibtex\n\n```"
-        if store.BIBTEX_BLOCK_RE.search(body):
-            body = store.BIBTEX_BLOCK_RE.sub(lambda _m: block, body, count=1)
-        else:
-            body = f"## BibTeX\n\n{block}\n\n" + body
-    if hasattr(store, "_normalize_projects"):
-        store._normalize_projects(meta)
-    for project_name in meta.get("projects", []) or []:
-        workspace.ensure_project(str(project_name))
-    with _LOCK:
-        store._atomic_write(path, store._frontmatter_dump(meta) + body.rstrip() + "\n")
-    activity.record("doc_update", ref=doc_id, kind=kind, title=str(meta.get("title") or doc_id), project=str(meta.get("project") or ""))
+
+    # 走唯一写入路径：契约校验、来源记录、分叉/冲突留版、活动日志都在 store 里
+    doc = store.update_doc(doc_id, payload, origin=origin)
     index_doc_path(path)
-    return store._doc_from_path(kind, path, include_body=True)
+    return store._doc_from_path(kind, path, include_body=True, root=_root())
 
 
 def delete_doc(doc_id: str) -> dict[str, Any]:

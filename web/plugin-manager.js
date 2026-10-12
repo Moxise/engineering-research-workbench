@@ -95,7 +95,11 @@
       + '<h3>' + esc(plugin.name || plugin.id) + ' <small class="muted">' + esc(plugin.id) + '</small></h3>'
       + (plugin.description ? '<div class="row-meta" title="' + esc(plugin.description) + '">' + esc(plugin.description) + '</div>' : '') + '</div>'
       + '<div class="pm-actions">'
-      + (hasDetail ? badge(plugin.state) : '<span class="badge">未知</span>')
+      + (hasDetail
+          ? '<button type="button" class="badge pm-state-btn" data-plugin-state="' + esc(plugin.id) + '"'
+            + ' title="点击' + (plugin.enabled ? '停用' : '启用') + '这个插件">'
+            + esc((STATE_LABEL[plugin.state] || [plugin.state, ''])[0]) + '</button>'
+          : '<span class="badge">未知</span>')
       + '<label class="pm-switch"' + (hasDetail ? '' : ' title="当前后端不支持启停接口：请重启工作台"') + '>'
       + '<input type="checkbox" data-plugin-toggle="' + esc(plugin.id) + '"'
       + (hasDetail ? (plugin.enabled ? ' checked' : '') : ' disabled') + '> 启用</label></div></div>'
@@ -162,6 +166,17 @@
         };
       });
     }
+    /* 状态徽章：点击即启停（此前它只是个徽章，看起来像按钮却点不动——用户反馈） */
+    $$('[data-plugin-state]', root).forEach(function (btn) {
+      btn.onclick = function (event) {
+        event.stopPropagation();
+        var box = root.querySelector('[data-plugin-toggle="' + btn.dataset.pluginState + '"]');
+        if (!box || box.disabled) { toast('当前后端不支持启停', true); return; }
+        box.checked = !box.checked;
+        box.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+    });
+
     /* 详情展开/收起：只切那一段，不重画整页 */
     $$('[data-plugin-detail]', root).forEach(function (btn) {
       btn.onclick = function () {

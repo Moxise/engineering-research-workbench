@@ -134,9 +134,11 @@ class Workbench:
         self._index_doc(doc)
         return doc
 
-    def update_entry(self, doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def update_entry(self, doc_id: str, payload: dict[str, Any],
+                     origin: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
-            return self.mod.indexer.update_doc(doc_id, payload)
+            # 走索引层入口（它内部委派给 store.update_doc，因此来源记录与"分叉/冲突留版"都生效）
+            return self.mod.indexer.update_doc(doc_id, payload, origin=origin)
         except FileNotFoundError as exc:
             raise WorkbenchError(f"条目 `{doc_id}` 不存在，无法更新") from exc
 

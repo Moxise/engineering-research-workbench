@@ -326,7 +326,7 @@ def t_update_entry(wb: Workbench, args: dict[str, Any]) -> Any:
     if validate.errors(field_issues) and not args.get("allow_violation"):
         return {"updated": False, "field_issues": field_issues,
                 "_hint": "字段不符合契约，未写入（" + validate.summarize(field_issues) + "）。"}
-    doc = wb.update_entry(doc_id, payload)
+    doc = wb.update_entry(doc_id, payload, origin=wb.origin("kb_update_entry"))
     return {"updated": True, "entry": doc, "validation": validation, "field_issues": field_issues}
 
 

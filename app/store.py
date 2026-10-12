@@ -561,7 +561,14 @@ def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | No
     _prev_surface = str(doc.get("origin_surface") or "").strip()
     _new_surface = str(_origin.get("origin_surface") or "").strip()
     _forked = bool(doc.get("has_variants"))          # O(1)：基条上的标记，由内核在分叉/归档时维护
-    _conflict = bool(_prev_surface) and bool(_new_surface) and _prev_surface != _new_surface
+    # 冲突 = 写入来源变了。两种情况都算：
+    #   ① 上一次写入者已知且与本次不同；
+    #   ② 上一次写入者**未知**（历史条目从没记过 origin_*）而本次是**外部/代理写入**
+    #      （agent / mcp / plugin / cli）——"外部 Agent 改了既有笔记"必须留下可追溯的版本。
+    #      界面自己保存（ui）不算冲突，否则每改一条历史笔记都会凭空多一版。
+    _conflict = bool(_new_surface) and (
+        (_prev_surface != _new_surface and bool(_prev_surface))
+        or (not _prev_surface and _new_surface != "ui"))
     if (not _skip_versioning) and (not _versions.is_variant(doc)) and (_forked or _conflict):
         _versions.snapshot_before_write(
             doc, reason="分叉期间保留写入前内容" if _forked else f"来源变化 {_prev_surface}->{_new_surface}")

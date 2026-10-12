@@ -1,5 +1,40 @@
 # Changelog
 
+## v261009.47
+
+**修两个用户报告的问题**：① 插件卡片「可用」徽章点不动；② 外部 Agent 改了既有笔记却没有修改记录与分支。
+
+### ① 插件卡片的「可用」徽章改成可点的快捷启停
+**现象**：卡片上那个「可用」看起来像按钮，点它没反应（真正的开关是旁边的「启用」勾选框）。
+**修法**：徽章改成 `<button class="badge pm-state-btn">`，点击即切换启用状态（复用启用开关那条路径，
+失败时给提示）；悬停有提示文案「点击启用/停用这个插件」。文案与配色仍走内核同一份 `STATE_LABEL`。
+
+### ② 外部 Agent 改既有笔记 → 现在会出现修改记录与分支（**根因在写入路径**）
+**根因（两层）**：
+1. **界面保存与 MCP 更新此前都绕过了写入收口点**：它们走 `indexer.update_doc` →
+   `app/perf_index_runtime.update_doc`，而那个函数**自己解析 frontmatter、自己 `_atomic_write`**，
+   于是 `store.update_doc` 里的来源记录与"分叉/冲突时先留一版"**完全不会发生** ✗；
+2. 即便走到 store，**历史条目从没记过 `origin_*`**（200+ 条），旧规则要求"前后来源不同"才算冲突 →
+   "上一个来源未知"被当成不冲突 → 外部写入不留版本 ✗。
+
+**修法**：
+- `perf_index_runtime.update_doc` **改为委派 `store.update_doc`**（单一写入路径：契约校验、来源、留版、
+  活动日志都在 store），本函数只负责同步索引 —— 界面保存与 MCP 更新因此都走同一条路；
+- 冲突判定扩展：**来源未知 + 外部写入（agent/mcp/plugin/cli）也算冲突**，先把写入前内容留成一版；
+  **界面自己保存（ui）不算**，否则每改一条历史笔记都会凭空多一版（实测确认两种情形）；
+- MCP 的 `update_entry` 补上来源（`kb_update_entry` → `origin_surface=mcp`），
+  `mcp/bridge.py` 的 `update_entry` 支持 `origin` 透传。
+
+### 顺带：夹具隔离补强
+`mcp/bridge.py` 的工作区取的是 `config.workspace_root()`（不是 `get_app()`），夹具只 patch 后者会让
+MCP 路径指向真实库、报 `relative_to` ValueError（假失败）→ 夹具同时 patch `workspace_root`。
+
+### 验收
+`tests/kernel/test_versions.py` **35/35**（新增第 ⑫ 节：历史条目确实无来源字段 · **外部写入历史条目会先留一版** ·
+留下的那版是写入前内容 · **基条记下外部写入来源 = mcp** · **界面自己保存历史条目不凭空多一版**）；
+快速档 **15/15 · 116/116**；`kb_smoke` / `web_check` / `plugin_check` / `core.plugins list` / `mcp --selftest` 全绿。
+另：按你的意图把 `metrics-table` 关掉了（`enabled: false`）。
+
 ## v261009.46
 
 **MCP 工具面按插件拆分：只暴露「已启用插件」的工具**（用户要求）。

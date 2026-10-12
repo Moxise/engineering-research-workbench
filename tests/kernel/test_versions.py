@@ -36,6 +36,8 @@ def _fake_get_all():
     return data
 
 
+_orig_root = C.workspace_root
+C.workspace_root = lambda: BASE
 C.get_app, C.get_all = _fake_get_app, _fake_get_all
 
 from app import activity, store, versions, workspace  # noqa: E402
@@ -154,6 +156,38 @@ try:
           and (events[-1].get("detail") or {}).get("merged_from"),
           str(events[-1])[:170] if events else "（无 doc_merge 事件）")
 
+    print("⑫ 历史条目（从没记过 origin_*）被外部 Agent 改 → 必须留版本 + 记来源")
+    legacy = store.create_doc("note", {"title": "知识-方法-历史条目", "body": "## 摘要\n旧内容\n"},
+                              origin={"origin_surface": "", "origin_tool": "",
+                                      "origin_client": "", "origin_at": ""},
+                              _skip_versioning=True)
+    check("⑫-1 造出的历史条目确实没有来源字段", not store.get_doc(legacy["id"]).get("origin_surface"))
+    external_access.save({"mcp_write": True})
+    from mcp import server as MS   # noqa: E402  （⑫ 在 ⑪ 之前，这里自带导入）
+    from mcp.bridge import Workbench   # noqa: E402
+
+    wb2 = Workbench()
+    MS.handle_tools_call(wb2, {"name": "kb_update_entry",
+                               "arguments": {"doc_id": legacy["id"],
+                                             "body": "## 摘要\n外部 Agent 改过\n"}})
+    legacy_fam = versions.family(legacy["id"])
+    check("⑫-2 外部写入历史条目会先留一版（出现分支）",
+          len(legacy_fam["variants"]) == 1 and bool(store.get_doc(legacy["id"]).get("has_variants")),
+          f"变体 {len(legacy_fam['variants'])} 个")
+    snap = store.get_doc(legacy_fam["variants"][0]["id"]) if legacy_fam["variants"] else {}
+    check("⑫-3 留下的那版是写入前内容", "旧内容" in (snap.get("body") or ""), (snap.get("body") or "")[:40])
+    check("⑫-4 基条记下了这次外部写入的来源",
+          store.get_doc(legacy["id"]).get("origin_surface") == "mcp",
+          str(store.get_doc(legacy["id"]).get("origin_surface")))
+    ui_doc = store.create_doc("note", {"title": "知识-方法-历史条目-界面改", "body": "## 摘要\nA\n"},
+                              origin={"origin_surface": "", "origin_tool": "",
+                                      "origin_client": "", "origin_at": ""},
+                              _skip_versioning=True)
+    store.update_doc(ui_doc["id"], {"body": "## 摘要\n界面自己改\n"}, origin=versions.origin("ui", "doc_save"))
+    check("⑫-5 界面自己保存历史条目不凭空多一版（避免噪音）",
+          len(versions.family(ui_doc["id"])["variants"]) == 0)
+    external_access.save({"mcp_write": False})
+
     print("⑪ MCP 面：开分支工具（受外部接入授权约束）")
     import json as _json
 
@@ -181,6 +215,7 @@ try:
 
 finally:
     C.get_app, C.get_all = _orig_get_app, _orig_get_all
+    C.workspace_root = _orig_root
     if _auth_before is None:
         AUTH.unlink(missing_ok=True)
     else:

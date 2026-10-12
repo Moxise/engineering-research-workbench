@@ -90,3 +90,6 @@ button.pm-row:hover{border-color:var(--accent)}
 .pm-preview .pm-pv-foot .ok{color:var(--ok)}
 .pm-preview .pm-pv-foot .warn{color:var(--warning)}
 .pm-preview .pm-pv-foot code{font:10px/1.5 Consolas,monospace;background:color-mix(in srgb,var(--line) 35%,transparent);padding:1px 5px;border-radius:5px;margin-right:3px}
+/* 状态徽章可点（快捷启停）：看起来像按钮，就让它真的能按 */
+.pm-state-btn{cursor:pointer;font:inherit;font-size:11px;padding:2px 8px}
+.pm-state-btn:hover{border-color:var(--accent);color:var(--accent)}

@@ -63,6 +63,8 @@ def main() -> int:
     from app import config as C
 
     orig_app, orig_all = C.get_app, C.get_all
+    _orig_root = C.workspace_root
+    C.workspace_root = lambda: TEMP
     C.get_app = lambda: {**(orig_app() or {}), "workspace": str(TEMP)}
     C.get_all = lambda: {**(orig_all() or {}), "workspace": str(TEMP)}
     try:
@@ -136,6 +138,7 @@ def main() -> int:
               "未知工具" in unknown_msg, unknown_msg[:120])
     finally:
         C.get_app, C.get_all = orig_app, orig_all
+        C.workspace_root = _orig_root
         if _auth_before is None:
             AUTH.unlink(missing_ok=True)
         else:
