@@ -9,41 +9,46 @@
       "note": "v261009k · 笔记卡片的时间标签默认右对齐（无项目名时也贴右）；上版：天气样式搬出内核"
     },
     {
-      "file": "v260922-projects.css",
-      "v": "260924g",
-      "theme": "projects"
+      "file": "projects-manager.css",
+      "v": "261009ac",
+      "theme": "projects",
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版："
     },
     {
-      "file": "v260922-compact-layout.css",
-      "v": "261009o",
+      "file": "layout-compact.css",
+      "v": "261009ac",
       "theme": "layout",
-      "note": "v261009o · 紧凑密度下 PDF 阅读区高度那条 `html[data-density=\"compact\"] .lit-shell` 随阅读区插件走（挪进 plugins/literature-reader/web/panel.css），内核不再引用插件 markup"
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009o · 紧凑密度下 PDF 阅读区高度那条 `html[data-density=\"c"
     },
     {
-      "file": "v260922-overview-editor-tools.css",
-      "v": "260924g",
-      "theme": "overview"
+      "file": "overview-editor-tools.css",
+      "v": "261009ac",
+      "theme": "overview",
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版："
     },
     {
-      "file": "v260922-performance.css",
-      "v": "260924g",
-      "theme": "performance"
+      "file": "perf-affordances.css",
+      "v": "261009ac",
+      "theme": "performance",
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版："
     },
     {
-      "file": "v260922-graph-performance.css",
-      "v": "261009m",
+      "file": "graph-page-layers.css",
+      "v": "261009ac",
       "theme": "graph",
-      "note": "v261009m · 图谱可视化迁成插件（plugins/knowledge-graph）：本文件只留内核图谱页 markup 的层级/尺寸样式，插件自注入 UI 的样式随插件走"
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009m · 图谱可视化迁成插件（plugins/knowledge-graph）：本文件只"
     },
     {
-      "file": "v260922-agent-profiles.css",
-      "v": "260929d",
-      "theme": "agent"
+      "file": "sidebar-agent-profiles.css",
+      "v": "261009ac",
+      "theme": "agent",
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版："
     },
     {
-      "file": "v260922-layout-bugfixes.css",
-      "v": "260924g",
-      "theme": "layout"
+      "file": "layout-fixes.css",
+      "v": "261009ac",
+      "theme": "layout",
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版："
     },
     {
       "file": "plugin-manager.css",
@@ -100,10 +105,10 @@
       "note": "v261009 · A9：共享 DOM 变更订阅（window.ERWDom.onChildList）——7 个补丁各自建的文档级 MutationObserver 收敛为 1 个；提供 root 作用域、ignore 过滤、按帧合并与回调隔离。必须在所有补丁之前加载"
     },
     {
-      "file": "v260922-performance.js",
-      "v": "261009s",
+      "file": "perf-and-fetch-seam.js",
+      "v": "261009ac",
       "theme": "performance",
-      "note": "v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore 过滤）；上版 A10：提供 window.erwFetch 接缝，不再全局替换 window.fetch"
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore "
     },
     {
       "file": "app.js",
@@ -118,16 +123,16 @@
       "note": "v261009c · 除 nav[0] 外，还加载 manifest.panel.mount（没有导航页的 UI，如阅读区 tab）"
     },
     {
-      "file": "v260922-research-pages.js",
-      "v": "261009q",
+      "file": "research-pages.js",
+      "v": "261009ac",
       "theme": "research-pages",
-      "note": "v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-settings-rendered 广播）随悬浮球模块搬成插件 plugins/floating-assist；图谱两补丁已迁成 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles"
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-set"
     },
     {
-      "file": "v260922-layout-bugfixes.js",
-      "v": "261009b",
+      "file": "layout-fixes.js",
+      "v": "261009ac",
       "theme": "layout",
-      "note": "v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同）"
+      "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009b · A9：文档级 childList 改走 ERWDom.onChildList；"
     },
     {
       "file": "plugin-manager.js",

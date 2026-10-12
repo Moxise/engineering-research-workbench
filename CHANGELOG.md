@@ -1,5 +1,37 @@
 # Changelog
 
+## v261009.39
+
+**前端「日期命名」补丁按功能改名**（第⑤步，可维护性）。
+
+### 改了什么
+`web/` 里 10 个 `v260922-*` 文件只记录"哪天的补丁"，看不出职责；现在文件名即职责，且用 `git mv` 保留历史：
+
+| 旧名 | 新名 |
+| --- | --- |
+| `v260922-performance.js` | **`perf-and-fetch-seam.js`**（性能补丁 + `window.fetch` 接缝提供方） |
+| `v260922-performance.css` | `perf-affordances.css` |
+| `v260922-compact-layout.css` | `layout-compact.css` |
+| `v260922-agent-profiles.css` | `sidebar-agent-profiles.css` |
+| `v260922-graph-performance.css` | `graph-page-layers.css` |
+| `v260922-layout-bugfixes.{css,js}` | `layout-fixes.{css,js}` |
+| `v260922-overview-editor-tools.css` | `overview-editor-tools.css` |
+| `v260922-projects.css` | `projects-manager.css` |
+| `v260922-research-pages.js` | `research-pages.js` |
+
+同步了**所有功能性引用**：`web/manifest.json`（含缓存键统一升到 `261009ac`，文件名变了键必须变）、
+`tools/web_check.py`（加载顺序约束里那个硬编码名）、`tools/web_manifest.py`（文档串）、
+以及代码里提到自己文件名的注释。**CHANGELOG 等历史文档不重写**（记录的是当时的事实），
+改在 `docs/OVERVIEW.md` 里留一张新旧对照表。
+
+### 验收
+- `tools/web_manifest.py --write/--check` 一致；`web_check` 全绿；
+- **加载顺序约束仍在**：实测 `index.html` 顺序
+  `vendor-lazy → dom-seam → perf-and-fetch-seam → app.js → plugin-host → research-pages → layout-fixes → plugin-manager → manual → external-access`，
+  接缝提供方确实排在 `app.js` 之前 ✓；
+- `ui_smoke` **19 路由** 全绿（真浏览器加载这些改名后的文件）；
+- 全量回归 `tools/run_tests.py`（38 个用例，含浏览器）见下条。
+
 ## v261009.38
 
 **新增「设置 → 外部接入」：谁可以改知识库（默认拒绝外部写入）**（第④步，用户要求）。

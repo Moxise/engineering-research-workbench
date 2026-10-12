@@ -5,7 +5,7 @@
     python tools/web_manifest.py --check    # 校验 index.html 与清单一致（不一致非零退出）
 
 为什么要清单：`index.html` 原先手写 11 个 `<link>` 与 15 个 `<script>`，**顺序有语义**
-（补丁按加载顺序互相覆盖：v260922-performance.js 覆盖 window.fetch 且必须排在 app.js 之前）。
+（补丁按加载顺序互相覆盖：perf-and-fetch-seam.js 覆盖 window.fetch 且必须排在 app.js 之前）。
 顺序散落在 HTML 里既看不出约束、也无从校验——`17682ce` 那次「一个补丁的语法错误直接打掉
 整个 PDF 工作区」就是这套隐式顺序的代价（见 docs/REFACTOR_PLAN.md P7/P14）。
 

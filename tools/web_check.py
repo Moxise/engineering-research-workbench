@@ -11,7 +11,7 @@ docs/REFACTOR_PLAN.md P7/P14/P29）。本脚本把能静态查的都查掉：
    任何自定义事件（`workbench:*` / `erw-*`）的监听方都必须存在派发方。
    —— 这条是「补丁可以单独摘除」的可验证定义：删掉 billing.js 而没人提供 ERWBilling 时会立刻报错，
    而不是等用户在页面上点「用量」才发现白屏。
-5. **加载顺序约束**：`v260922-performance.js` 包装 `window.fetch`，必须排在 `app.js` 之前。
+5. **加载顺序约束**：`perf-and-fetch-seam.js` 包装 `window.fetch`，必须排在 `app.js` 之前。
 
 用法：
     python tools/web_check.py            # 全部检查
@@ -230,10 +230,10 @@ def check_order(manifest: dict) -> None:
 
     if "vendor-lazy.js" not in [item["file"] for item in manifest["vendor_js"]]:
         fail("vendor-lazy.js 不在 manifest 的 vendor_js 中（erwVendor 需在业务脚本前就位）")
-    if "v260922-performance.js" in order and "app.js" in order:
+    if "perf-and-fetch-seam.js" in order and "app.js" in order:
         # 不再强制顺序（接缝在运行期解析），但提供方排在前面更稳：未来若有求值期请求也不会漏
         notes.append("fetch 接缝提供方位于 app.js 之前（非强制，但更稳）"
-                     if order.index("v260922-performance.js") < order.index("app.js")
+                     if order.index("perf-and-fetch-seam.js") < order.index("app.js")
                      else "fetch 接缝提供方排在 app.js 之后（运行期解析下仍正确，但求值期请求会漏）")
 
 

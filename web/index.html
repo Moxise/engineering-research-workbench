@@ -9,13 +9,13 @@
   <link rel="apple-touch-icon" href="/favicon.png?v=260923">
   <!-- web:css:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <link rel="stylesheet" href="/styles.css?v=261009k"><!-- v261009k · 笔记卡片的时间标签默认右对齐（无项目名时也贴右）；上版：天气样式搬出内核 -->
-  <link rel="stylesheet" href="/v260922-projects.css?v=260924g">
-  <link rel="stylesheet" href="/v260922-compact-layout.css?v=261009o"><!-- v261009o · 紧凑密度下 PDF 阅读区高度那条 `html[data-density="compact"] .lit-shell` 随阅读区插件走（挪进 plugins/literature-reader/web/panel.css），内核不再引用插件 markup -->
-  <link rel="stylesheet" href="/v260922-overview-editor-tools.css?v=260924g">
-  <link rel="stylesheet" href="/v260922-performance.css?v=260924g">
-  <link rel="stylesheet" href="/v260922-graph-performance.css?v=261009m"><!-- v261009m · 图谱可视化迁成插件（plugins/knowledge-graph）：本文件只留内核图谱页 markup 的层级/尺寸样式，插件自注入 UI 的样式随插件走 -->
-  <link rel="stylesheet" href="/v260922-agent-profiles.css?v=260929d">
-  <link rel="stylesheet" href="/v260922-layout-bugfixes.css?v=260924g">
+  <link rel="stylesheet" href="/projects-manager.css?v=261009ac"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版： -->
+  <link rel="stylesheet" href="/layout-compact.css?v=261009ac"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009o · 紧凑密度下 PDF 阅读区高度那条 `html[data-density="c -->
+  <link rel="stylesheet" href="/overview-editor-tools.css?v=261009ac"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版： -->
+  <link rel="stylesheet" href="/perf-affordances.css?v=261009ac"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版： -->
+  <link rel="stylesheet" href="/graph-page-layers.css?v=261009ac"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009m · 图谱可视化迁成插件（plugins/knowledge-graph）：本文件只 -->
+  <link rel="stylesheet" href="/sidebar-agent-profiles.css?v=261009ac"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版： -->
+  <link rel="stylesheet" href="/layout-fixes.css?v=261009ac"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版： -->
   <link rel="stylesheet" href="/plugin-manager.css?v=261009s"><!-- v261009s · 插件设置页新增「演示预览」：悬停/点击插件卡片浮出摘要+功能点+截图（内容由插件 manifest 的 preview 声明，内核不认识具体插件）；上版：v261009q · 设置页新增「单文件包安装结果」区块（解包/升级/拒收/冲突逐条显示，空列表时也显示）；上版：v26 -->
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
   <link rel="stylesheet" href="/manual.css?v=261009aa"><!-- v261009aa · 栏目条照内核既有口径重做（行高 31/字号 12/圆角 7/前置 · 图标，当前章用 accent-soft+accent-ink，同 .settings-nav）；去掉行内 KB 噪音；上版：v261009z · 统一栏宽 760px（图片与文字左边缘对齐、图内文字与正文 -->
@@ -107,11 +107,11 @@
 
   <!-- web:app-js:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
   <script defer src="/dom-seam.js?v=261009"></script><!-- v261009 · A9：共享 DOM 变更订阅（window.ERWDom.onChildList）——7 个补丁各自建的文档级 MutationObserver 收敛为 1 个；提供 root 作用域、ignore 过滤、按帧合并与回调隔离。必须在所有补丁之前加载 -->
-  <script defer src="/v260922-performance.js?v=261009s"></script><!-- v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore 过滤）；上版 A10：提供 window.erwFetch 接缝，不再全局替换 window.fetch -->
+  <script defer src="/perf-and-fetch-seam.js?v=261009ac"></script><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore  -->
   <script defer src="/app.js?v=261009t"></script><!-- v261009t · 插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）；上版：删除内核自带的图谱渲染与交互 -->
   <script defer src="/plugin-host.js?v=261009c"></script><!-- v261009c · 除 nav[0] 外，还加载 manifest.panel.mount（没有导航页的 UI，如阅读区 tab） -->
-  <script defer src="/v260922-research-pages.js?v=261009q"></script><!-- v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-settings-rendered 广播）随悬浮球模块搬成插件 plugins/floating-assist；图谱两补丁已迁成 plugins/knowledge-graph；本文件只剩 projects / overview-editor-tools / agent-profiles -->
-  <script defer src="/v260922-layout-bugfixes.js?v=261009b"></script><!-- v261009b · A9：文档级 childList 改走 ERWDom.onChildList；保留一个仅观察单卡片行内样式的属性观察（语义不同） -->
+  <script defer src="/research-pages.js?v=261009ac"></script><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-set -->
+  <script defer src="/layout-fixes.js?v=261009ac"></script><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009b · A9：文档级 childList 改走 ERWDom.onChildList； -->
   <script defer src="/plugin-manager.js?v=261009s"></script><!-- v261009s · 插件设置页新增「演示预览」：悬停/点击插件卡片浮出摘要+功能点+截图（内容由插件 manifest 的 preview 声明，内核不认识具体插件）；上版：v261009q · 设置页新增「单文件包安装结果」区块（解包/升级/拒收/冲突逐条显示，空列表时也显示）；上版：v26 -->
   <script defer src="/manual.js?v=261009aa"></script><!-- v261009aa · 栏目条照内核既有口径重做（行高 31/字号 12/圆角 7/前置 · 图标，当前章用 accent-soft+accent-ink，同 .settings-nav）；去掉行内 KB 噪音；上版：v261009z · 统一栏宽 760px（图片与文字左边缘对齐、图内文字与正文 -->
   <script defer src="/external-access.js?v=261009ab"></script><!-- v261009.38 · 设置新增「外部接入」tab：MCP/插件写入知识库的授权开关（默认 MCP 只读） -->

@@ -143,10 +143,15 @@ engineering-research-workbench/
 │
 ├─ web/                      前端（无构建步骤，server.py 直接提供）
 │  ├─ app.js                 1379 行 · 界面壳 + ERW* 接缝注册表
+│  ├─ perf-and-fetch-seam.js 性能补丁 + window.fetch 接缝提供方（须排在 app.js 之前）
+│  ├─ research-pages.js      研究知识页补丁合并模块
+│  ├─ layout-compact.css     紧凑布局（信息密度）· layout-fixes.{js,css} 版式修正
 │  ├─ plugin-host.js         68 行 · 按装配清单加载插件前端
 │  ├─ plugin-manager.js      437 行 · 设置页「插件」：启停/详情/演示预览
+│  ├─ manual.{js,css}        内置使用手册阅读页
+│  ├─ external-access.{js,css}  设置页「外部接入」：谁可以改知识库
 │  ├─ manifest.json          装配清单 → 生成 index.html 的三段引用
-│  ├─ styles.css + v2609*.{js,css}   版式与逐项补丁
+│  ├─ styles.css + 其余补丁  版式与逐项补丁
 │  └─ vendor/                pdfjs · mermaid · mathjax · marked · DOMPurify · hljs（本地副本）
 │
 ├─ mcp/                      MCP 服务：9 个知识库工具 + 16 个工作区工具
@@ -283,6 +288,19 @@ flowchart LR
 | `python -m core.plugins list\|check <id>\|verify` | 插件发现 / 单插件校验 / 全库盘点（`list --install` 顺带解包） |
 | `python tools/new_plugin.py <id> --name "名称"` | 从模板生成新插件（先临时后原子、用安装期同一套校验） |
 | `python -m mcp.server --selftest` | MCP 工具表自检 |
+
+> **前端补丁文件改名对照（v261009.39）**：`v260922-*` 这类"日期命名"已按功能重命名，
+> 旧文档/CHANGELOG 里的名字按此表对应：
+> `v260922-performance.js` → **`perf-and-fetch-seam.js`** ·
+> `v260922-performance.css` → `perf-affordances.css` ·
+> `v260922-compact-layout.css` → `layout-compact.css` ·
+> `v260922-agent-profiles.css` → `sidebar-agent-profiles.css` ·
+> `v260922-graph-performance.css` → `graph-page-layers.css` ·
+> `v260922-layout-bugfixes.{css,js}` → `layout-fixes.{css,js}` ·
+> `v260922-overview-editor-tools.css` → `overview-editor-tools.css` ·
+> `v260922-projects.css` → `projects-manager.css` ·
+> `v260922-research-pages.js` → `research-pages.js`。
+> 加载顺序约束（接缝提供方排在 `app.js` 之前）由 `tools/web_check.py` 守着。
 
 当前健康度：`doctor` **error 0 / warn 6**（6 条为既有数据项）；插件 11 可用、0 blocked/rejected/冲突。
 

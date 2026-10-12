@@ -1,4 +1,4 @@
-/* Large-workspace performance affordances. Data behavior lives in v260922-performance.js. */
+/* Large-workspace performance affordances. Data behavior lives in perf-and-fetch-seam.js. */
 .perf-doc-pager {
   display:flex; align-items:center; justify-content:center; flex-wrap:nowrap; gap:8px; /* v260924g · 窄栏单行布局 */
   padding:10px 8px; border-top:1px solid var(--line); font-size:11px; /* v260924g · 12→11，窄栏容纳单行 */
