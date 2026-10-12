@@ -249,7 +249,8 @@ flowchart LR
 | **派生索引与检索** | `app/perf_index_*` `core/index/` | SQLite（schema v3）：文档/关系/待办/FTS；中文分词检索；可整库重建；迁移框架；WAL checkpoint |
 | **项目与待办** | `app/projects.py` `app/todos.py` | 项目注册表（稳定 `project_id`）、项目文件树、待办清单、活动日志（追加型 JSONL） |
 | **文献** | `app/literature.py` | 条目/元数据/阅读状态/BibTeX 导出/互链；PDF 存储与 Range 分片、批注、笔记（与知识库同源） |
-| **科研 Agent** | `app/agent.py` `app/agent_tools.py` | 对话循环 + SSE 流式 + 上下文注入 + 4 个内置工具（`kb_search/kb_read/kb_create_entry/kb_update_entry`）+ **草稿确认闸门** + 人设与工具白名单 + 请求模式 + 写作规范注入 |
+| **科研 Agent** | `app/agent.py` `app/agent_tools.py` | 对话循环 + SSE 流式 + 上下文注入 + 7 个内置工具（`kb_search/kb_read/kb_create_entry/kb_update_entry` + 版本族 `kb_variants/kb_merge_variants/kb_archive_variants`）+ **草稿确认闸门** + 人设与工具白名单 + 请求模式 + 写作规范注入 |
+| **多版本与来源** | `app/versions.py` `app/store.py` `app/activity.py` | 同一笔记的不同版本归成**版本族**（`variant_of`/`variant_label`，外部工具按标题签名自动归族）；四条写入路径（界面/Agent/MCP/插件）都记**来源**（`origin_surface/tool/client/at`，活动日志带 `source`）；**分叉/冲突时先留一版**；按 H2 小节合并；归档到 `System/Versions/<基条>/archived/` 可追溯。界面：侧栏「研究 · 知识 → 版本」 |
 | **设置与运维** | `app/config.py` `server.py` | `config/app.json` 全量设置页、Workspace 迁移、索引重建、快速重启、**插件管理**（启停/权限/路由/工具/依赖/配置/预览） |
 | **MCP 服务** | `mcp/` | 25 个工具（`kb_*` 9 + `ws_*`/`todo_*`/导出 16），供外部 AI Agent/IDE 直接操作工作区 |
 | **界面壳** | `web/app.js` `web/manifest.json` | 14 个内核页面 + `ERW*` 接缝注册表（插件自登记点）+ 装配清单生成 `index.html` 引用块 |
