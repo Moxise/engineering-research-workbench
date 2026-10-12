@@ -1,77 +1,95 @@
-/* versions.css · v261009.43 —— 「版本」页（族列表 + 逐版对照 + 合并/归档）
- *
- * 口径与内核既有页面一致：两栏、行高 31px、圆角 7px、当前项用 --accent-soft + --accent-ink、
- * **只有内容列滚动**（窗口不滚）。
- *
- * v261009.43 修掉三个实测问题：
- *  ① 左栏行被压扁 + 出现横向滚动条 —— 列表是 grid，子项缺 min-width:0 导致列宽按内容撑开；
- *     改为 grid-auto-rows:min-content + overflow-x:hidden + 标题 min-width:0 省略号。
- *  ② 右栏头部与 ① 之间一大片空白 —— 上一版给 .vm-pane 设了 grid-template-rows:minmax(0,1fr)，
- *     多个子元素时第一个子元素独占整屏；改回普通块流 + overflow:auto。
- *  ③ 202 个族全列出来等于噪音 —— 左栏默认**只看分叉中的族**，另有「全部」与搜索框。
+/* 版本管理 · 插件样式 v1.0.0（v261009.44 从内核页搬成插件）
+ * 每条规则都带 [data-plugin="version-manager"] 作用域（插件规范 §2），避免污染其它页面。
  */
+[data-plugin="version-manager"] .vm-layout{display:grid;grid-template-columns:300px minmax(0,1fr);grid-template-rows:minmax(0,1fr); gap:12px;height:calc(100vh - 121px)}
 
-[data-plugin="version-manager"] .vm-layout{
-  gap:12px;height:calc(100vh - 121px)}
-[data-plugin="version-manager"] html[data-density="compact"] .vm-layout{
-@media (max-width:900px){.vm-layout{grid-template-columns:1fr;height:auto}}
+html[data-density="compact"] [data-plugin="version-manager"] .vm-layout{gap:8px;height:calc(100vh - 133px)}
 
-/* ---------- 左栏：说明 + 状态 + 过滤 + 列表 ---------- */
-[data-plugin="version-manager"] .vm-side{
-[data-plugin="version-manager"] .vm-side h3{
-[data-plugin="version-manager"] .vm-side .row-meta{
-[data-plugin="version-manager"] .vm-stats{
-[data-plugin="version-manager"] .vm-chip{
-  background:var(--surface-2);color:var(--muted)}
-[data-plugin="version-manager"] .vm-chip.on{
-[data-plugin="version-manager"] .vm-filter{
-[data-plugin="version-manager"] .vm-seg{
-[data-plugin="version-manager"] .vm-seg button{
-  padding:4px 9px;cursor:pointer}
-[data-plugin="version-manager"] .vm-seg button.active{
-[data-plugin="version-manager"] .vm-filter .search-input{
+@media (max-width:900px){[data-plugin="version-manager"] .vm-layout{grid-template-columns:1fr;height:auto}
+}
 
-[data-plugin="version-manager"] .vm-list{
-  padding-right:2px}
-[data-plugin="version-manager"] .vm-item{
-  border:0;border-radius:7px;background:transparent;color:var(--muted);font:inherit;font-size:12px;
-  line-height:1.45;cursor:pointer}
-[data-plugin="version-manager"] .vm-item:hover{
-[data-plugin="version-manager"] .vm-item.active{
-[data-plugin="version-manager"] .vm-item-main{
-[data-plugin="version-manager"] .vm-item-meta{
-  color:var(--muted)}
-[data-plugin="version-manager"] .vm-item.active .vm-item-meta{
-[data-plugin="version-manager"] .vm-item-meta b{
+[data-plugin="version-manager"] .vm-side{min-height:0;display:grid;grid-template-rows:auto auto auto auto minmax(0,1fr);gap:8px;padding:12px}
 
-/* ---------- 右栏：块流 + 自身滚动（不要再上 grid 行模板） ---------- */
-[data-plugin="version-manager"] .vm-pane{
-[data-plugin="version-manager"] .vm-head{
-[data-plugin="version-manager"] .vm-head h3{
-[data-plugin="version-manager"] .vm-block{
-[data-plugin="version-manager"] .vm-block h4{
-[data-plugin="version-manager"] .vm-base-row, [data-plugin="version-manager"] .vm-vrow, [data-plugin="version-manager"] .vm-arow{
-  border:1px solid var(--line);border-radius:8px;background:var(--surface-2);margin-bottom:6px}
-[data-plugin="version-manager"] .vm-base-row{
-[data-plugin="version-manager"] .vm-vrow{
-[data-plugin="version-manager"] .vm-vrow:hover{
-[data-plugin="version-manager"] .vm-arow{
-[data-plugin="version-manager"] .vm-vtext{
-[data-plugin="version-manager"] .vm-vtext b{
-[data-plugin="version-manager"] .vm-vmeta{
-[data-plugin="version-manager"] .vm-vmeta code{
-  padding:0 4px;border-radius:4px}
-[data-plugin="version-manager"] .vm-origin{
-  color:var(--muted);background:var(--surface);max-width:280px;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap}
-[data-plugin="version-manager"] .vm-origin.mcp{
-[data-plugin="version-manager"] .vm-origin.plugin{
-[data-plugin="version-manager"] .vm-origin.agent{
-[data-plugin="version-manager"] .vm-srow{
-[data-plugin="version-manager"] .vm-sname{
-[data-plugin="version-manager"] .vm-check{
-[data-plugin="version-manager"] .vm-actions{
-[data-plugin="version-manager"] .vm-hint{
-  color:var(--muted);line-height:1.7;background:color-mix(in srgb,var(--line) 10%,transparent)}
-[data-plugin="version-manager"] .vm-error{
-  font-size:12px;background:color-mix(in srgb,var(--danger) 6%,transparent)}
+[data-plugin="version-manager"] .vm-side h3{margin:0}
+
+[data-plugin="version-manager"] .vm-side .row-meta{white-space:normal;line-height:1.6}
+
+[data-plugin="version-manager"] .vm-stats{display:flex;flex-wrap:wrap;gap:6px}
+
+[data-plugin="version-manager"] .vm-chip{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line); background:var(--surface-2);color:var(--muted)}
+
+[data-plugin="version-manager"] .vm-chip.on{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--accent-soft);color:var(--accent-ink)}
+
+[data-plugin="version-manager"] .vm-filter{display:flex;gap:6px;align-items:center}
+
+[data-plugin="version-manager"] .vm-seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;flex:0 0 auto}
+
+[data-plugin="version-manager"] .vm-seg button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px; padding:4px 9px;cursor:pointer}
+
+[data-plugin="version-manager"] .vm-seg button.active{background:var(--accent-soft);color:var(--accent-ink)}
+
+[data-plugin="version-manager"] .vm-filter .search-input{flex:1 1 auto;min-width:0}
+
+[data-plugin="version-manager"] .vm-list{min-height:0;overflow-y:auto;overflow-x:hidden;display:grid;grid-auto-rows:min-content;gap:2px; padding-right:2px}
+
+[data-plugin="version-manager"] .vm-item{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;padding:5px 8px;text-align:left; border:0;border-radius:7px;background:transparent;color:var(--muted);font:inherit;font-size:12px; line-height:1.45;cursor:pointer}
+
+[data-plugin="version-manager"] .vm-item:hover{background:color-mix(in srgb,var(--line) 22%,transparent);color:var(--text)}
+
+[data-plugin="version-manager"] .vm-item.active{background:var(--accent-soft);color:var(--accent-ink)}
+
+[data-plugin="version-manager"] .vm-item-main{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+
+[data-plugin="version-manager"] .vm-item-meta{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px; color:var(--muted)}
+
+[data-plugin="version-manager"] .vm-item.active .vm-item-meta{color:var(--accent-ink)}
+
+[data-plugin="version-manager"] .vm-item-meta b{color:var(--accent)}
+
+[data-plugin="version-manager"] .vm-pane{min-height:0;overflow:auto;padding:16px 18px}
+
+[data-plugin="version-manager"] .vm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+
+[data-plugin="version-manager"] .vm-head h3{margin:2px 0 4px}
+
+[data-plugin="version-manager"] .vm-block{border-top:1px solid var(--line);padding-top:10px;margin-top:14px}
+
+[data-plugin="version-manager"] .vm-block h4{margin:0 0 8px;font-size:13px}
+
+[data-plugin="version-manager"] .vm-base-row, [data-plugin="version-manager"] .vm-vrow, [data-plugin="version-manager"] .vm-arow{display:flex;gap:10px;align-items:flex-start;padding:8px 10px; border:1px solid var(--line);border-radius:8px;background:var(--surface-2);margin-bottom:6px}
+
+[data-plugin="version-manager"] .vm-base-row{border-color:color-mix(in srgb,var(--accent) 30%,var(--line))}
+
+[data-plugin="version-manager"] .vm-vrow{cursor:pointer}
+
+[data-plugin="version-manager"] .vm-vrow:hover{border-color:var(--line-strong)}
+
+[data-plugin="version-manager"] .vm-arow{align-items:center}
+
+[data-plugin="version-manager"] .vm-vtext{display:grid;gap:3px;min-width:0;flex:1 1 auto}
+
+[data-plugin="version-manager"] .vm-vtext b{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+[data-plugin="version-manager"] .vm-vmeta{font-size:10.5px;color:var(--muted)}
+
+[data-plugin="version-manager"] .vm-vmeta code{font:10.5px/1.5 Consolas,monospace;background:color-mix(in srgb,var(--line) 35%,transparent); padding:0 4px;border-radius:4px}
+
+[data-plugin="version-manager"] .vm-origin{flex:0 0 auto;font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid var(--line); color:var(--muted);background:var(--surface);max-width:280px;overflow:hidden;text-overflow:ellipsis; white-space:nowrap}
+
+[data-plugin="version-manager"] .vm-origin.mcp{border-color:color-mix(in srgb,#7a5af8 40%,var(--line));color:#5b45c9}
+
+[data-plugin="version-manager"] .vm-origin.plugin{border-color:color-mix(in srgb,var(--warning) 45%,var(--line));color:var(--warning)}
+
+[data-plugin="version-manager"] .vm-origin.agent{border-color:color-mix(in srgb,var(--accent-2) 45%,var(--line));color:var(--accent-ink)}
+
+[data-plugin="version-manager"] .vm-srow{display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:10px;align-items:center;margin-bottom:6px}
+
+[data-plugin="version-manager"] .vm-sname{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+[data-plugin="version-manager"] .vm-check{display:flex;gap:8px;align-items:center;font-size:11.5px;color:var(--muted);margin:10px 0}
+
+[data-plugin="version-manager"] .vm-actions{display:flex;gap:8px}
+
+[data-plugin="version-manager"] .vm-hint{border:1px dashed var(--line);border-radius:8px;padding:10px 12px;font-size:11.5px; color:var(--muted);line-height:1.7;background:color-mix(in srgb,var(--line) 10%,transparent)}
+
+[data-plugin="version-manager"] .vm-error{border:1px solid color-mix(in srgb,var(--danger) 40%,var(--line));border-radius:8px;padding:10px 12px; font-size:12px;background:color-mix(in srgb,var(--danger) 6%,transparent)}
