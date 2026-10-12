@@ -103,12 +103,25 @@ def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: 会改知识库的 MCP 工具（v261009.38 起受「外部接入授权」约束，默认关闭）
+WRITE_TOOLS = frozenset({"kb_create_entry", "kb_update_entry", "kb_rename_entry",
+                         "kb_change_kind", "kb_delete_entry"})
+
+
 def handle_tools_call(wb: Workbench, params: dict[str, Any]) -> dict[str, Any]:
     name = str(params.get("name") or "")
     handler = HANDLERS.get(name)
     if handler is None:
         raise RpcError(METHOD_NOT_FOUND, f"未知工具 `{name}`",
                        {"available": sorted(HANDLERS)})
+    if name in WRITE_TOOLS:
+        # 外部接入授权：默认**拒绝**（只读），在「设置 → 外部接入」里显式打开后放行
+        from app import external_access
+
+        # 注意别用 `ok` 当变量名：本模块从 protocol 导入了 `ok()`，遮蔽它会让成功路径直接崩
+        allowed, reason = external_access.allowed("mcp_write")
+        if not allowed:
+            return {"content": [{"type": "text", "text": f"[未授权] {reason}"}], "isError": True}
     raw_args = params.get("arguments")
     args: dict[str, Any] = raw_args if isinstance(raw_args, dict) else {}
     try:

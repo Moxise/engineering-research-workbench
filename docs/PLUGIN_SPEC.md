@@ -321,6 +321,13 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 confirm 模式下内核只会生成草稿，用户确认后才以 direct 模式调用插件 handler。插件**不要**自己实现确认流，
 也**不得**直接改 `Workspace/` 下的文件。
 
+> **显式授权（v261009.38 起）**：用户可在「设置 → 外部接入」关掉**允许插件写入知识库**
+> （`config/external-access.json` 的 `plugin_write`，默认开启）。关掉后本函数抛 `PermissionError`——
+> 即"只读工作台"：插件仍可写自己的命名空间与配置，只是不碰知识库。
+> 同理，外部 MCP 客户端的 5 个写工具由同一处的 `mcp_write`（默认**关闭**）控制。
+> 插件**不需要**为此做任何事：闸门在 `core_api.entry_update` 与 `mcp/server.py` 分发层，
+> 但**写工具仍要按规范声明 `spec.write = true`**（否则草稿闸门形同虚设）。
+
 > **纯前端插件不必扩 `core_api`**：`core_api` 是给插件**后端**（`inprocess` 的 `entry`）用的；
 > 只有前端脚本的插件直接消费上面的公开 HTTP API 即可（`plugins/knowledge-graph`、
 > `plugins/literature-reader` 都是这个形态，无 `entry`、无后端）。

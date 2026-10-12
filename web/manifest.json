@@ -61,6 +61,12 @@
       "v": "261009aa",
       "theme": "base",
       "note": "v261009aa · 栏目条照内核既有口径重做（行高 31/字号 12/圆角 7/前置 · 图标，当前章用 accent-soft+accent-ink，同 .settings-nav）；去掉行内 KB 噪音；上版：v261009z · 统一栏宽 760px（图片与文字左边缘对齐、图内文字与正文"
+    },
+    {
+      "file": "external-access.css",
+      "v": "261009ab",
+      "theme": "base",
+      "note": "v261009.38 · 「设置 → 外部接入」版式"
     }
   ],
   "vendor_js": [
@@ -134,6 +140,12 @@
       "v": "261009aa",
       "theme": "base",
       "note": "v261009aa · 栏目条照内核既有口径重做（行高 31/字号 12/圆角 7/前置 · 图标，当前章用 accent-soft+accent-ink，同 .settings-nav）；去掉行内 KB 噪音；上版：v261009z · 统一栏宽 760px（图片与文字左边缘对齐、图内文字与正文"
+    },
+    {
+      "file": "external-access.js",
+      "v": "261009ab",
+      "theme": "base",
+      "note": "v261009.38 · 设置新增「外部接入」tab：MCP/插件写入知识库的授权开关（默认 MCP 只读）"
     }
   ]
 }

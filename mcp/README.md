@@ -69,6 +69,13 @@ python -m mcp.server
 5. 改名必须用 `kb_rename_entry`。它会同步 title、首个 H1 与全库交叉引用，并只追加一次 `doc_update` 事件。
 6. 收尾用 `kb_check_entries` 复核，必要时 `ws_reindex` 重建索引。
 
+> 🔐 **外部写入默认关闭**（v261009.38 起）：MCP 的 5 个写工具（`kb_create_entry` /
+> `kb_update_entry` / `kb_rename_entry` / `kb_change_kind` / `kb_delete_entry`）受
+> 「**设置 → 外部接入 → 允许外部 MCP 客户端写入知识库**」约束，**默认拒绝**。
+> 未授权时写工具会返回 `[未授权] …`，只读工具（`kb_get_entry` / `kb_list_entries` / `kb_search` /
+> `kb_check_entries` / `kb_constraints` 等）不受影响。这是为了补上"MCP 直写不走界面草稿闸门"这个缺口：
+> 授权与否由你在设置里显式决定，配置文件是 `config/external-access.json`。
+
 ## 约束资源
 
 九个资源以 Markdown 文本返回，供 Agent 直接读取。会话开始读约束是写入前的必要动作。

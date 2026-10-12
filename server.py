@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from app import config
+from app import external_access
 from app import store
 from app import todos
 from app import workspace
@@ -290,6 +291,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(indexer.get_doc(doc_id))
         if path == "/api/statuses":
             return self.send_json(store.all_statuses())
+        if path == "/api/external-access":   # v261009.38 · 外部接入授权（谁能改知识库）
+            return self.send_json(external_access.current())
         if path == "/api/manual":            # v261009.30 · 使用手册章节列表
             return self.send_json({"chapters": manual_chapters()})
         if path.startswith("/api/manual/"):
@@ -356,6 +359,8 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"error": "not_found"}, 404)
 
     def handle_api_post(self, path, payload):
+        if path == "/api/external-access":
+            return self.send_json(external_access.save(payload if isinstance(payload, dict) else {}))
         if path == "/api/config/app":
             return self.send_json(config.save_app(payload))
         if path == "/api/system/index/rebuild":

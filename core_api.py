@@ -157,6 +157,13 @@ def entry_update(doc_id: str, *, body: str | None = None, **fields) -> dict:
         payload["body"] = body
     if not payload:
         raise ValueError("entry_update 需要 body 或至少一个可写字段")
+    # v261009.38 · 插件写知识库受「外部接入授权」约束（设置 → 外部接入 → 允许插件写入知识库）：
+    # 关掉它即"只读工作台"——插件仍可写自己的命名空间与配置，只是不碰知识库。
+    from app import external_access
+
+    ok, reason = external_access.allowed("plugin_write")
+    if not ok:
+        raise PermissionError(reason)
     return store.update_doc(doc_id, payload)
 
 

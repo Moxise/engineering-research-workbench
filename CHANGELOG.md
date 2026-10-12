@@ -1,5 +1,43 @@
 # Changelog
 
+## v261009.38
+
+**新增「设置 → 外部接入」：谁可以改知识库（默认拒绝外部写入）**（第④步，用户要求）。
+
+### 补的是什么缺口
+内核自带 Agent 的写工具走**草稿确认闸门**，但**外部通道此前没有闸门**：`mcp/` 的 5 个写工具
+（`kb_create_entry` / `kb_update_entry` / `kb_rename_entry` / `kb_change_kind` / `kb_delete_entry`）
+**直写知识库**（文档里已如实写明）。现在给外部接入一个"默认拒绝、显式授权"的开关。
+
+### 两个开关（设置 → 外部接入）
+| 开关 | 默认 | 管什么 |
+| --- | --- | --- |
+| `mcp_write` · 允许外部 MCP 客户端写入知识库 | **关闭**（只读） | MCP 客户端的新建/修改/改名/改挂/删除，**不经过界面草稿确认** |
+| `plugin_write` · 允许插件写入知识库 | **开启** | 插件经 `core_api.entry_update` 改条目正文/字段；关掉 = **只读工作台** |
+
+- 存储：`config/external-access.json`（独立小文件，不动 `app.json` 既有结构；**原子写**、
+  未知键忽略；文件损坏/缺失按**保守值**并如实说明）；
+- 只读操作（检索、读条目、看统计、`kb_constraints`）**永远允许**——授权只影响写入；
+- 设置在**内核模块** `web/external-access.js`（自登记 `settingsTab`，**不动 `app.js`**），
+  状态用 chip 表达（只读/已授权），每项都带说明与 ⚠ 风险提示；
+- 闸门落点：`mcp/server.py` 的**分发表**（一处覆盖 5 个写工具）与 `core_api.entry_update`
+  （插件写入门面）。插件无需改动，但**写工具仍须声明 `spec.write = true`**。
+
+### 测试（新增 `tests/kernel/test_external_access.py`，17/17）
+① 默认保守（MCP 关、插件开、文案齐备）② 读写接口（授权生效、**未知键不能借它塞东西**）
+③ MCP 闸门：未授权被拦 + **只读工具不受影响** + 授权后**用非法载荷**证明"闸门放行但没写数据"
+④ 插件门面：`plugin_write=false` 时抛 `PermissionError`，恢复后走到「条目不存在」而非写入
+⑤ 真浏览器：设置里出现 tab、两个开关、chip 回显、勾选真的写进配置、0 console error
+⑥ 收尾恢复原授权状态。
+
+### 夹具当场抓到的真 bug
+我在 `handle_tools_call` 里写 `ok, reason = external_access.allowed(...)` —— **遮蔽了协议层的 `ok()` 函数**，
+导致所有**只读工具**的成功路径 `UnboundLocalError`（写工具因为提前 return 反而看不出来）。
+改名 `allowed` 后 `mcp.server --selftest` 与 ③-2 均通过。
+
+文档同步：`mcp/README.md`（默认关闭 + 如何授权）、`docs/PLUGIN_SPEC.md`（写窗口的显式授权与闸门位置）、
+`docs/manual/07-设置运维与边界.md`（设置各栏新增一行）。
+
 ## v261009.37
 
 **收口 doctor 可自动处理的 warn + 测试稳定性收尾**（第③步；`doctor` info 6 → 3 条）。
