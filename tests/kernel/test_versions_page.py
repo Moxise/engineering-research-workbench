@@ -174,6 +174,13 @@ def browser_checks(url: str, base: dict, v2: dict):
             out.append(("②-10 看变更展开逐行差异", len(lines) > 0, str(lines[:3])))
         else:
             out.append(("②-10 看变更展开逐行差异", False, "没有可 diff 的小节"))
+        need_badges = page.eval_on_selector_all(
+            ".vm-need .vm-sbadge", "els => els.map(e => e.textContent.trim())")
+        same_picks = page.eval_on_selector_all(
+            ".vm-same-row [data-vm-pick]", "els => els.length")
+        out.append(("②-11 只有改动的小节要确认（一致的无下拉）",
+                    bool(need_badges) and all("一致" not in b for b in need_badges) and same_picks == 0,
+                    f"需确认={need_badges} 一致行里的下拉={same_picks}"))
         page.check("[data-vm-archive]")
         page.click("#vm-archive")
         page.wait_for_timeout(2500)

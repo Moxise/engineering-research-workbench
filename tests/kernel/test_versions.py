@@ -209,6 +209,19 @@ try:
     check("⑬-3 巡检也会列出库外文件（不在知识库里的 .md）",
           "untracked" in recorded and isinstance(recorded["untracked"], list))
 
+    print("⑭ 删除型改动也能应用（挑中的版本缺该小节）")
+    del_base = store.create_doc("note", {"title": "知识-方法-删除语义",
+                                         "body": "## 摘要\n甲\n\n## 待删除节\n乙\n"},
+                                origin=versions.origin("ui"))
+    del_variant = versions.create_branch(del_base["id"], label="v-del",
+                                         body="## 摘要\n甲\n",
+                                         origin_info=versions.origin("mcp", "kb_branch_entry"))
+    merged_body, changed = versions.merge_bodies(
+        store.get_doc(del_base["id"])["body"], {"待删除节": del_variant["entry"]["id"]},
+        {del_variant["entry"]["id"]: store.get_doc(del_variant["entry"]["id"])["body"]})
+    check("⑭-1 合并结果里去掉了该小节", "待删除节" not in merged_body, merged_body[:60])
+    check("⑭-2 返回值标明该节被删除", any("删除" in c for c in changed), str(changed))
+
     print("⑪ MCP 面：开分支工具（受外部接入授权约束）")
     import json as _json
 

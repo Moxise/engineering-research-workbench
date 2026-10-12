@@ -282,7 +282,12 @@ def split_sections(body: str) -> list[dict[str, str]]:
 def merge_bodies(base_body: str, picks: dict[str, str], others: dict[str, str]) -> tuple[str, list[str]]:
     """按小节合并：`picks` 是 {小节标题: 来源版本 id}，`others` 是 {版本 id: 正文}。
 
-    返回 (合并后的正文, 实际替换的小节标题列表)。没被挑中的小节沿用基准。
+    返回 (合并后的正文, **被改动的小节标题列表**)。没被挑中的小节沿用基准。
+
+    改动有两种，都会被记进第二个返回值（v261009.53）：
+    - 挑中的来源**有**该小节 → 用来源的内容替换；
+    - 挑中的来源**没有**该小节 → 视为**该节被删除**，从结果里去掉（此前是"保持基准"，
+      于是"某版本删掉一整节"这种改动根本应用不了——实测踩到）。
     """
     sections = split_sections(base_body)
     replaced: list[str] = []
@@ -296,6 +301,8 @@ def merge_bodies(base_body: str, picks: dict[str, str], others: dict[str, str]) 
                 out.append(source_sections[heading])
                 replaced.append(heading)
                 continue
+            replaced.append(f"{heading}（删除）")     # 来源里没有 → 这节被删掉
+            continue
         out.append(section["text"])
     return "\n\n".join(part for part in out if part.strip()) + "\n", replaced
 

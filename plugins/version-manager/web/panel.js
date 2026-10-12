@@ -314,30 +314,64 @@
     });
 
     var changedCount = 0;
-    var sectionRows = headings.map(function (heading) {
+    var changedRows = [], sameRows = [];
+    headings.forEach(function (heading) {
       var info = statusFor(heading);
       var st = info.st;
-      if (st.kind === 'changed' || st.kind === 'onlyNew' || st.kind === 'onlyBase') changedCount++;
       var options = ['<option value="">基准（当前内容）</option>']
         .concat(variants.map(function (v) {
           return '<option value="' + esc(v.id) + '">' + esc(v.label || v.id) + '</option>';
         })).join('');
-      var canDiff = !!st.diff;
-      return '<div class="vm-srow" data-vm-srow="' + esc(heading) + '">'
+      var same = st.kind === 'same';
+      // 一致的小节**不带下拉**：它不需要你决定（只是让你能点开看一眼）
+      var row = '<div class="vm-srow ' + (same ? 'vm-same-row' : 'vm-need')
+        + '" data-vm-srow="' + esc(heading) + '">'
         + '<span class="vm-sname">' + esc(heading)
         + ' <b class="vm-sbadge ' + st.kind + '">' + esc(st.label) + '</b></span>'
-        + '<select class="search-input" data-vm-pick="' + esc(heading) + '">' + options + '</select>'
-        + (canDiff ? '<button type="button" class="secondary-btn vm-dbtn" data-vm-diff="' + esc(heading)
+        + (same ? '<span class="vm-keep">沿用基准</span>'
+                : '<select class="search-input" data-vm-pick="' + esc(heading) + '">' + options + '</select>')
+        + (st.diff ? '<button type="button" class="secondary-btn vm-dbtn" data-vm-diff="' + esc(heading)
                      + '">看变更</button>' : '')
         + '<div class="vm-dwrap" data-vm-dwrap="' + esc(heading) + '" hidden>'
-        + (canDiff ? diffHtml(st.diff) : '') + '</div></div>';
-    }).join('');
+        + (st.diff ? diffHtml(st.diff) : '') + '</div></div>';
+      if (st.kind === 'same') {
+        sameRows.push(row);                      // 一致的小节：不用你管，收起来
+      } else {
+        changedCount++;
+        changedRows.push(row);
+      }
+    });
+
+    // 有改动的小节默认就选「该版本」（你要的是"改动需同意"，不是"每节都要挑"）
+    variants.forEach(function (v) {
+      headings.forEach(function (heading) {
+        if (STATE.picks[heading]) return;
+        var st = sectionStatus(baseMap[heading], (variantMaps[v.id] || {})[heading]);
+        if (st.kind !== 'same' && v.id === comparedId(heading)) STATE.picks[heading] = v.id;
+      });
+    });
+
+    var sectionRows = changedRows.length
+      ? changedRows.join('')
+      : '<div class="empty compact">没有需要确认的改动——正文与基准一致</div>';
+    var sameBlock = sameRows.length
+      ? '<details class="vm-same"><summary>' + sameRows.length
+        + ' 个小节一致 · 已自动沿用基准（点开查看）</summary>' + sameRows.join('') + '</details>'
+      : '';
 
     var compareLabel = (variants[0] && (variants[0].label || variants[0].id)) || '';
     var summary = variants.length
       ? '<div class="vm-hint" style="margin-bottom:8px">与 <b>' + esc(compareLabel) + '</b> 相比：'
-        + (changedCount ? '<b>' + changedCount + ' 个小节</b>有差异' : '正文完全一致')
-        + '（切「② 按小节挑内容」的来源会即时改变对照对象；点「看变更」看逐行差异）</div>'
+        + (changedCount
+            ? '<b>' + changedCount + ' 个小节</b>有改动，<b>需要你确认</b>（默认采用该版本；'
+              + '选「基准」即不采用）'
+            : '正文完全一致，没有需要确认的改动')
+        + '；其余小节自动沿用基准。<br>'
+        + (changedCount
+            ? '<button type="button" class="secondary-btn" id="vm-accept-all" style="margin-top:6px">'
+              + '全部采用 ' + esc(compareLabel) + ' 的改动</button>'
+            : '')
+        + '</div>'
       : '';
 
     var archived = (d.archived || []).map(function (row) {
@@ -367,9 +401,11 @@
       + (variants.length ? versionRows : forkHint) + '</div>'
 
       + (variants.length
-          ? '<div class="vm-block"><h4>② 按小节挑内容（合并结果写回基条）</h4>' + summary + sectionRows
+          ? '<div class="vm-block"><h4>② 需要确认的改动（一致的小节自动沿用基准）</h4>' + summary + sectionRows
+            + sameBlock
             + '<label class="vm-check"><input type="checkbox" id="vm-archive-after"> 合并后把被替换的版本一并归档</label>'
-            + '<div class="vm-actions"><button class="primary-btn" id="vm-merge">合并</button>'
+            + '<div class="vm-actions"><button class="primary-btn" id="vm-merge">应用 '
+            + (changedCount || 0) + ' 处改动</button>'
             + '<button class="secondary-btn" id="vm-archive">归档勾选的版本</button></div></div>'
           : '')
 
@@ -405,12 +441,33 @@
         btn.textContent = wrap && !wrap.hidden ? '收起' : '看变更';
       };
     });
+    var acceptAll = pane.querySelector('#vm-accept-all');
+    if (acceptAll) acceptAll.onclick = function () {
+      var vid = comparedId('');
+      headings.forEach(function (heading) {
+        var st = sectionStatus(baseMap[heading], (variantMaps[vid] || {})[heading]);
+        if (st.kind === 'same') return;
+        STATE.picks[heading] = vid;
+        var sel = pane.querySelector('[data-vm-pick="' + heading.replace(/"/g, '\\"') + '"]');
+        if (sel) sel.value = vid;
+        var badge = pane.querySelector('[data-vm-srow="' + heading.replace(/"/g, '\\"') + '"] .vm-sbadge');
+        if (badge) { badge.textContent = st.label; badge.className = 'vm-sbadge ' + st.kind; }
+      });
+      toast('已全部采用该版本的改动，点「应用 ' + changedCount + ' 处改动」写回基条');
+    };
+
     var after = pane.querySelector('#vm-archive-after');
     if (after) after.onchange = function () { STATE.archiveAfter = after.checked; };
     var mergeBtn = pane.querySelector('#vm-merge');
     if (mergeBtn) mergeBtn.onclick = function () {
-      var picks = STATE.picks;
-      if (!Object.keys(picks).length) { toast('先为至少一个小节选一个来源版本', true); return; }
+      var picks = {};
+      Object.keys(STATE.picks).forEach(function (k) {
+        var vid = STATE.picks[k];
+        var sel = pane.querySelector('[data-vm-pick="' + k.replace(/"/g, '\\"') + '"]');
+        if (sel && !sel.value) return;            // 该小节选了「基准」→ 不采用改动
+        if (vid) picks[k] = vid;
+      });
+      if (!Object.keys(picks).length) { toast('没有要应用的改动（都被设成「基准」了）', true); return; }
       post(API + '/merge', { base_id: d.base_id, picks: picks, archive_merged: STATE.archiveAfter })
         .then(function (out) {
           toast('已合并：替换小节 ' + ((out.replaced_sections || []).join('、') || '（无）'));

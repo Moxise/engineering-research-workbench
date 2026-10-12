@@ -119,3 +119,8 @@ html[data-density="compact"] [data-plugin="version-manager"] .vm-layout{gap:8px;
 [data-plugin="version-manager"] .vm-dline.add{background:color-mix(in srgb,#2f9e6b 12%,transparent);color:#1f6b4a}
 [data-plugin="version-manager"] .vm-dline.del{background:color-mix(in srgb,var(--danger) 10%,transparent);color:#9b2c2c}
 [data-plugin="version-manager"] .vm-dline.same{color:var(--muted)}
+/* 一致的小节折叠收起（v261009.53）：只有改动的小节需要确认 */
+[data-plugin="version-manager"] .vm-same{margin:10px 0;border-top:1px dashed var(--line);padding-top:8px}
+[data-plugin="version-manager"] .vm-same>summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
+[data-plugin="version-manager"] .vm-same[open]>summary{margin-bottom:8px}
+[data-plugin="version-manager"] .vm-keep{font-size:11px;color:var(--muted);text-align:right;padding-right:4px}
