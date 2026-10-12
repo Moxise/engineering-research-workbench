@@ -26,6 +26,21 @@ from pathlib import Path
 from .contracts import kinds as C
 from .contracts import naming
 
+def _looks_like_variant(path) -> bool:
+    """只读文件头判断是不是版本/快照条目（与索引器 `is_variant_file` 同一判据）。
+
+    v261009.57 · 版本条目**不进索引**（只在「版本」页可见），体检的"磁盘 vs 索引数量"
+    必须把它们单独计数，否则会误报索引漂移。
+    """
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:1200]
+    except OSError:
+        return False
+    if not head.startswith("---"):
+        return False
+    end = head.find("\n---", 3)
+    return "variant_of:" in (head[:end] if end > 0 else head)
+
 #: frontmatter 里合法但不在字段序中的键（历史遗留，契约已确认其存在）
 EXTRA_KNOWN_FIELDS = {"project_id", "project_ids", "attachment"}
 KNOWN_FIELDS = set(C.FRONTMATTER_ORDER) | EXTRA_KNOWN_FIELDS
@@ -181,6 +196,10 @@ def scan_docs(ws: Path, rep: Report, index: sqlite3.Connection | None) -> dict:
         for req in C.required_marks(kind):
             if req not in marks:
                 mark_missing.append(f"{doc_id}: 缺必需标记 {req}")
+        if str(meta.get("variant_of") or "").strip():
+            # 版本/快照条目：标题带「（v-…）」后缀、H1 是原名，
+            # 不该走普通条目的命名/H1/字段校验（v261009.57）
+            continue
         date_field = C.DATE_FIELDS.get(kind)
         if date_field and not str(meta.get(date_field) or "").strip():
             date_missing.append(f"{doc_id}: 缺 {date_field}")
@@ -197,7 +216,26 @@ def scan_docs(ws: Path, rep: Report, index: sqlite3.Connection | None) -> dict:
             if key not in KNOWN_FIELDS:
                 field_unknown.append(f"{doc_id}: {key}")
 
-    rep.add("文档·磁盘数量", "info", len(docs), f"按契约目录扫到 {len(docs)} 条：" + "、".join(f"{k} {v}" for k, v in sorted(by_kind.items())))
+    # v261009.57 · 版本/快照条目**不进索引**（只在「版本」页可见）：
+    # 磁盘计数要按 kind 扣掉它们，否则"磁盘 vs 索引"会误报漂移（实测 note/summary 各差 1）。
+    _variant_files = [p for p in (ws / "Knowledge").rglob("*.md")
+                      if p.is_file() and _looks_like_variant(p)]
+    _variant_by_kind: dict[str, int] = {}
+    for _p in _variant_files:
+        for _k, _rel in C.KIND_DIRS.items():
+            if _p.parent.name == Path(_rel).name:
+                _variant_by_kind[_k] = _variant_by_kind.get(_k, 0) + 1
+                break
+    for _k, _n in _variant_by_kind.items():
+        by_kind[_k] = max(0, int(by_kind.get(_k, 0)) - _n)
+
+    rep.add("文档·版本条目", "info", len(_variant_files),
+            f"版本/快照 {len(_variant_files)} 条（不计入索引，只在「版本」页可见）"
+            + (f"：{'、'.join(f'{k} {v}' for k, v in sorted(_variant_by_kind.items()))}"
+               if _variant_by_kind else ""))
+
+    _disk_total = sum(int(v) for v in by_kind.values())
+    rep.add("文档·磁盘数量", "info", _disk_total, f"按契约目录扫到 {_disk_total} 条（不含版本）：" + "、".join(f"{k} {v}" for k, v in sorted(by_kind.items())))
     rep.add("文档·id 前缀与 kind 不符", "warn", len(id_mismatch),
             "契约已明确「id 不承载类型语义」，故仅提示；修法见 REFACTOR_PLAN §5.3", id_mismatch)
     rep.add("文档·status 越界", "error", len(status_bad), "状态机在 core/contracts/kinds.py 声明", status_bad)

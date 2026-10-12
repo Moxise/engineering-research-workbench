@@ -26,6 +26,27 @@ def initialize(force: bool = False) -> dict[str, Any]:
     return sync(force=force)
 
 
+#: 版本/快照条目的 frontmatter 标记（v261009.57）
+_VARIANT_MARK = "variant_of:"
+
+
+def is_variant_file(path: Path) -> bool:
+    """这个 .md 是不是"版本/快照条目"（只读文件头，不做完整解析）。
+
+    版本条目**不进索引**：它们是"历史"，只在「版本」页里出现（那一页走文件层 `store.list_docs`）。
+    这样工作总结/笔记等列表与检索都不会再看到一堆残留版本（用户反馈）。
+    """
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read(1200)
+    except OSError:
+        return False
+    if not head.startswith("---"):
+        return False
+    end = head.find("\n---", 3)
+    return _VARIANT_MARK in (head[:end] if end > 0 else head)
+
+
 def _doc_paths() -> Iterable[tuple[str, Path]]:
     root = _root()
     for kind, rel in store.kind_dir_map().items():
@@ -36,8 +57,11 @@ def _doc_paths() -> Iterable[tuple[str, Path]]:
         except OSError:
             paths = []
         for path in paths:
-            if path.is_file():
-                yield kind, path
+            if not path.is_file():
+                continue
+            if is_variant_file(path):        # 版本/快照 → 不入库（列表/检索/计数都看不到）
+                continue
+            yield kind, path
 
 
 def _relative(path: Path) -> str:
