@@ -32,7 +32,8 @@
   var KIND_LABEL = { note: '笔记', experiment: '实验', journal: '研究日志', idea: '灵感',
                      milestone: '里程碑', summary: '工作总结', literature: '文献' };
   var HISTORY_LABEL = { doc_create: '新建', doc_update: '更新', doc_merge: '合并',
-                        doc_delete: '归档', doc_restore: '取回' };
+                        doc_delete: '归档', doc_restore: '取回',
+                        doc_external_edit: '外部改动' };
 
   function render(main) {
     main.innerHTML = ''

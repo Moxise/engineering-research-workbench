@@ -40,7 +40,7 @@ _orig_root = C.workspace_root
 C.workspace_root = lambda: BASE
 C.get_app, C.get_all = _fake_get_app, _fake_get_all
 
-from app import activity, store, versions, workspace  # noqa: E402
+from app import activity, external_edits, store, versions, workspace  # noqa: E402
 from app import external_access  # noqa: E402
 
 #: 外部接入授权在仓库 config/ 下（不在临时工作区）——夹具必须还原它
@@ -187,6 +187,27 @@ try:
     check("⑫-5 界面自己保存历史条目不凭空多一版（避免噪音）",
           len(versions.family(ui_doc["id"])["variants"]) == 0)
     external_access.save({"mcp_write": False})
+
+    print("⑬ 外部直接改文件（绕过界面/MCP）→ 巡检能发现并记录")
+    direct = store.create_doc("note", {"title": "知识-方法-直接改文件", "body": "## 摘要\n原始\n"},
+                              origin=versions.origin("ui"))
+    direct_path = workspace.ensure_workspace() / direct["path"]
+    import time as _time
+
+    _time.sleep(2.5)                      # 让文件时间晚于最后一次事件（判据有 2 秒容忍）
+    direct_path.write_text(direct_path.read_text(encoding="utf-8") + "\n外部工具直接加的段落\n",
+                           encoding="utf-8")
+    found = external_edits.scan(record=False)
+    hit = [r for r in found["items"] if r["id"] == direct["id"]]
+    check("⑬-1 巡检发现「文件被改过但没有记录」", bool(hit), f"共 {found['count']} 条")
+    recorded = external_edits.scan(record=True)
+    events = [e for e in activity.list_events() if e.get("type") == "doc_external_edit"
+              and e.get("ref") == direct["id"]]
+    check("⑬-2 记录成 doc_external_edit（来源标注工作区外部改动）",
+          bool(events) and "工作区外部改动" in str(events[-1].get("source") or ""),
+          str(events[-1].get("source")) if events else "（无事件）")
+    check("⑬-3 巡检也会列出库外文件（不在知识库里的 .md）",
+          "untracked" in recorded and isinstance(recorded["untracked"], list))
 
     print("⑪ MCP 面：开分支工具（受外部接入授权约束）")
     import json as _json

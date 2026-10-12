@@ -165,6 +165,16 @@ def t_dashboard(wb: Workbench, args: dict[str, Any]) -> Any:
     return wb.dashboard()
 
 
+def t_external_edits(wb: Workbench, args: dict[str, Any]) -> Any:
+    """外部直接改动巡检：哪些条目被改过却没有记录（IDE/脚本绕过 MCP 直接写文件）。
+
+    `record=true` 会把它们记成活动事件（写操作，受「外部接入」授权约束）。
+    """
+    import core_api
+
+    return core_api.external_edits(record=bool(args.get("record")), limit=int(args.get("limit") or 200))
+
+
 def t_activity(wb: Workbench, args: dict[str, Any]) -> Any:
     """活动日志（修改记录）。可按条目 id 或事件类型过滤，看清"谁在什么时候改了什么"。"""
     import core_api
@@ -214,6 +224,7 @@ def t_reindex(wb: Workbench, args: dict[str, Any]) -> Any:
 
 
 HANDLERS = {
+    "ws_external_edits": t_external_edits,
     "ws_info": t_info,
     "ws_tree": t_workspace_tree,
     "ws_list_projects": t_list_projects,
@@ -234,6 +245,11 @@ HANDLERS = {
 
 
 TOOLS = [
+    tool("ws_external_edits", "外部直接改动巡检",
+         "列出「文件被改过但没有对应记录」的条目——IDE/脚本绕过 MCP 直接写 .md 的情况。"
+         "record=true 会把它们记成活动事件（写操作，受外部接入授权约束）。",
+         {"record": b("把发现的改动记进活动日志"), "limit": i("最多返回条数", default=200)},
+         read_only=False),
     tool("ws_info", "工作台总览",
          "返回 Workspace 根路径、目录骨架、六类条目落盘目录与索引状态。" + COMMON_FREEZE_NOTE,
          {}, read_only=True),

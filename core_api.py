@@ -426,3 +426,14 @@ def activity_events(days: int = 7, *, ref: str = "", refs: list | None = None,
              "source": e.get("source") or "", "detail": e.get("detail") or {}}
             for e in events]
     return {"since": since.isoformat(), "days": int(days), "count": len(rows), "events": rows}
+
+
+def external_edits(*, record: bool = False, limit: int = 200) -> dict:
+    """外部直接改动巡检（v261009.49）：找出"文件被改过但没有对应记录"的条目。
+
+    `record=True` 会把它们记成 `doc_external_edit` 事件（来源「工作区外部改动」），
+    于是会出现在「版本」页的修改记录里——用于发现 IDE/脚本绕过写入收口点的改动。
+    """
+    from app import external_edits as scanner
+
+    return scanner.scan(record=record, limit=limit)

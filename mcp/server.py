@@ -207,7 +207,8 @@ def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
 WRITE_TOOLS = frozenset({"kb_create_entry", "kb_update_entry", "kb_rename_entry",
                          "kb_change_kind", "kb_delete_entry",
                          "kb_merge_variants", "kb_archive_variants",
-                         "kb_branch_entry"})
+                         "kb_branch_entry",
+                         "ws_external_edits"})
 
 
 def handle_tools_call(wb: Workbench, params: dict[str, Any]) -> dict[str, Any]:
