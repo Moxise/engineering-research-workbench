@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from app import config
 from app import external_access
+from app import versions
 from app import store
 from app import todos
 from app import workspace
@@ -291,6 +292,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(indexer.get_doc(doc_id))
         if path == "/api/statuses":
             return self.send_json(store.all_statuses())
+        if path == "/api/versions":            # v261009.41 · 版本族总览（有分叉的在前）
+            return self.send_json(versions_overview())
+        if path.startswith("/api/versions/"):
+            return self.send_json(versions_detail(unquote(path[len("/api/versions/"):]), q))
         if path == "/api/external-access":   # v261009.38 · 外部接入授权（谁能改知识库）
             return self.send_json(external_access.current())
         if path == "/api/manual":            # v261009.30 · 使用手册章节列表
@@ -359,6 +364,12 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"error": "not_found"}, 404)
 
     def handle_api_post(self, path, payload):
+        if path == "/api/versions/merge":
+            return self.send_json(versions_merge(payload if isinstance(payload, dict) else {}))
+        if path == "/api/versions/archive":
+            return self.send_json(versions_archive(payload if isinstance(payload, dict) else {}))
+        if path == "/api/versions/restore":
+            return self.send_json(versions_restore(payload if isinstance(payload, dict) else {}))
         if path == "/api/external-access":
             return self.send_json(external_access.save(payload if isinstance(payload, dict) else {}))
         if path == "/api/config/app":
@@ -424,7 +435,8 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("path") or ""), str(payload.get("editor") or "")))
         if path == "/api/docs":
             normalized = indexer.normalize_project_payload(payload)
-            doc = store.create_doc(str(normalized.get("kind") or "note"), normalized)
+            doc = store.create_doc(str(normalized.get("kind") or "note"), normalized,
+                            origin=versions.origin("ui", "doc_create"))
             doc = indexer.apply_doc_project_ids(doc, normalized)
             indexer.index_doc_path(str(doc.get("path") or ""))
             return self.send_json(doc, 201)
@@ -432,7 +444,7 @@ class Handler(BaseHTTPRequestHandler):
             doc_id = unquote(path.split("/api/docs/", 1)[1])
             existing = indexer.get_doc(doc_id)
             normalized = indexer.normalize_project_payload({**existing, **payload})
-            doc = indexer.update_doc(doc_id, normalized)
+            doc = indexer.update_doc(doc_id, normalized, origin=versions.origin("ui", "doc_save"))
             return self.send_json(doc)
         if path == "/api/assets":
             return self.send_json(store.save_asset(str(payload.get("data_url") or ""), str(payload.get("name") or "image.png")))
@@ -913,6 +925,114 @@ def manual_chapter(chapter_id: str) -> dict | None:
     text = target.read_text(encoding="utf-8")
     title = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), cid)
     return {"id": cid, "title": title, "markdown": text, "bytes": len(text.encode("utf-8"))}
+
+
+def versions_overview() -> dict:
+    """版本族总览：有分叉（还有活版本）的排前面，其余按最近更新排。"""
+    from app import versions as V
+
+    families: dict[str, dict] = {}
+    for doc in store.list_docs():
+        vid = str(doc.get("variant_of") or "").strip()
+        base = vid or str(doc.get("id") or "")
+        row = families.setdefault(base, {"base_id": base, "base": None, "variants": [], "updated": ""})
+        if vid:
+            row["variants"].append(doc)
+        else:
+            row["base"] = doc
+        stamp = str(doc.get("updated") or "")
+        if stamp > str(row.get("updated") or ""):
+            row["updated"] = stamp
+    out = []
+    for row in families.values():
+        if not row["base"] and row["variants"]:
+            # 基条已被删/归档：把最早的版本当显示锚点，避免整族消失
+            row["base"] = row["variants"][0]
+        out.append({
+            "base_id": row["base_id"],
+            "title": (row["base"] or {}).get("title") or "",
+            "kind": (row["base"] or {}).get("kind") or "",
+            "updated": row["updated"],
+            "variant_count": len(row["variants"]),
+            "variants": [{"id": v.get("id"), "label": v.get("variant_label") or "",
+                          "updated": v.get("updated"), "origin": V.describe_origin(v)}
+                         for v in row["variants"]],
+        })
+    out.sort(key=lambda r: (r["variant_count"] == 0, str(r["updated"])[::-1]))
+    return {"families": out, "counts": {"families": len(out),
+                                        "forked": sum(1 for r in out if r["variant_count"]),
+                                        "variants": sum(r["variant_count"] for r in out)}}
+
+
+def versions_detail(base_id: str, q: dict) -> dict:
+    """族详情：各版元数据 + 正文（供对照/挑小节）、H2 小节清单、归档清单。"""
+    from app import versions as V
+
+    with_body = str((q.get("body") or ["1"])[0]) not in ("0", "false", "")
+    fam = V.family(base_id)
+    if not fam["base"] and not fam["variants"]:
+        return {"error": "not_found", "message": f"没有这个版本族：{base_id}"}
+
+    def row(doc, with_body_text=True):
+        if not doc:
+            return {}
+        out = {"id": doc.get("id"), "title": doc.get("title"), "label": doc.get("variant_label") or "",
+               "status": doc.get("status"), "updated": doc.get("updated"), "created": doc.get("created"),
+               "origin": V.describe_origin(doc), "origin_surface": doc.get("origin_surface") or "",
+               "sections": [s["heading"] for s in V.split_sections(doc.get("body") or "") if s["heading"]]}
+        if with_body_text:
+            out["body"] = doc.get("body") or ""
+        return out
+
+    return {"base_id": base_id, "forked": fam["forked"],
+            "base": row(fam["base"], with_body), "variants": [row(v, with_body) for v in fam["variants"]],
+            "archived": fam["archived"],
+            "sections": [s["heading"] for s in V.split_sections((fam["base"] or {}).get("body") or "")
+                         if s["heading"]]}
+
+
+def versions_merge(payload: dict) -> dict:
+    from app import versions as V
+
+    base_id = str(payload.get("base_id") or "").strip()
+    picks = payload.get("picks") if isinstance(payload.get("picks"), dict) else {}
+    if not base_id:
+        return {"error": "bad_request", "message": "缺少 base_id"}
+    fam = V.family(base_id)
+    if not fam["base"]:
+        return {"error": "not_found", "message": f"基条不存在：{base_id}"}
+    bodies = {v["id"]: (store.get_doc(v["id"]).get("body") or "") for v in fam["variants"]}
+    merged, replaced = V.merge_bodies(fam["base"].get("body") or "", picks, bodies)
+    store.update_doc(base_id, {"body": merged}, origin=V.origin("ui", "merge_variants"))
+    out = {"ok": True, "base_id": base_id, "replaced_sections": replaced}
+    if payload.get("archive_merged"):
+        ids = [v for v in bodies if v in set(picks.values())]
+        if ids:
+            out["archived"] = V.archive_variants(base_id, ids, {"tool": "merge_variants"})
+    return out
+
+
+def versions_archive(payload: dict) -> dict:
+    from app import versions as V
+
+    base_id = str(payload.get("base_id") or "").strip()
+    ids = [str(x) for x in (payload.get("variant_ids") or []) if str(x).strip()]
+    if not base_id or not ids:
+        return {"error": "bad_request", "message": "需要 base_id 与 variant_ids"}
+    return {"ok": True, **V.archive_variants(base_id, ids, {"tool": "archive_variants"})}
+
+
+def versions_restore(payload: dict) -> dict:
+    from app import versions as V
+
+    base_id = str(payload.get("base_id") or "").strip()
+    file_name = str(payload.get("file") or "").strip()
+    if not base_id or not file_name:
+        return {"error": "bad_request", "message": "需要 base_id 与 file"}
+    try:
+        return {"ok": True, **V.restore_variant(base_id, file_name)}
+    except FileNotFoundError:
+        return {"error": "not_found", "message": f"归档里没有这个文件：{file_name}"}
 
 
 def _plugin_preview(manifest: dict, asset_url) -> dict:

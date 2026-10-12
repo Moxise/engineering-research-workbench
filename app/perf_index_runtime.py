@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import activity, store, workspace
+from . import versions
 from .perf_index_db import _connect, _init_db, _root, _LOCK
 from .perf_index_core import _registry, _todos_path, index_doc_path, remove_doc, sync
 
@@ -149,7 +150,7 @@ def workspace_children(rel: str = "") -> dict[str, Any]:
     return _tree_node(path, include_children=True)
 
 
-def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | None = None) -> dict[str, Any]:
     sync()
     with _connect() as conn:
         _init_db(conn)
@@ -172,6 +173,8 @@ def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     for key in allowed:
         if key in payload:
             meta[key] = payload[key]
+    _origin = dict(origin or versions.origin("cli"))
+    meta.update({k: v for k, v in _origin.items() if v})   # v261009.41 · 来源
     meta["updated"] = datetime.now().isoformat(timespec="seconds")
     if "body" in payload:
         body = str(payload.get("body") or "")

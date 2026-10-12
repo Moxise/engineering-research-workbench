@@ -139,7 +139,8 @@ def entry(doc_id: str) -> dict:
     return indexer.get_doc(doc_id)
 
 
-def entry_update(doc_id: str, *, body: str | None = None, **fields) -> dict:
+def entry_update(doc_id: str, *, body: str | None = None, origin: dict | None = None,
+                 **fields) -> dict:
     """更新一条知识条目（正文 `body` 与/或白名单字段），返回更新后的完整条目。
 
     **写操作的安全闸门在内核**：插件注册的**写工具**（`spec` 里 `"write": True`）在 confirm 模式下
@@ -164,7 +165,12 @@ def entry_update(doc_id: str, *, body: str | None = None, **fields) -> dict:
     ok, reason = external_access.allowed("plugin_write")
     if not ok:
         raise PermissionError(reason)
-    return store.update_doc(doc_id, payload)
+    from app import versions
+
+    # v261009.41 · 来源：插件可用 `origin={"tool": "<插件 id>"}` 说明是谁写的
+    _origin = dict(origin or versions.origin("plugin"))
+    _origin.setdefault("origin_surface", "plugin")
+    return store.update_doc(doc_id, payload, origin=_origin)
 
 
 def entries(kind: str | None = None, *, query: str = "", status: str = "", project: str = "",

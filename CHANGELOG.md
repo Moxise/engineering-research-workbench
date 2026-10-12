@@ -1,5 +1,51 @@
 # Changelog
 
+## v261009.41
+
+**笔记多版本 / 分支 / 来源追踪 / 合并归档（内核功能，第一部分：数据模型 + 四条来源 + 工具与接口）**。
+
+### 为什么放内核
+界面、内核 Agent、**MCP 工具**、插件四条写入路径最终都汇到 `app/store.py` 的 `create_doc` /
+`update_doc`。版本与来源只有在这两个收口点处理，才能"跟踪工作台内直接添加与外部工具（如 MCP）添加的文件"。
+
+### 数据模型（字段声明在 `core/contracts/kinds.py` 唯一声明处）
+- 同一笔记的不同版本 = **同一 kind 下的多条正常条目**，靠 `variant_of`（基条 id）+ `variant_label` 关联；
+- 来源追踪（扁平字符串，避免嵌套映射在 frontmatter 往返里变形）：`origin_surface`（ui/agent/mcp/plugin/cli）
+  + `origin_tool` + `origin_client`（MCP `initialize` 的 clientInfo.name）+ `origin_at`；
+- `has_variants`：基条上的 **O(1) 标记**（族里还有活版本时为 true）——没有它，每次保存都要扫全库
+  （200 条约 76ms）才能判断"是否处于分叉中"。
+
+### 归族与留版本时机（按用户选定的口径）
+- **归族**：显式给 `variant_of` 就用它；否则按**标题归一化签名**在同 kind 内找基条
+  （外部工具塞进来的 `知识-方法-X（v2）.md` 自动归到 `知识-方法-X`）；
+  **实验条目的 `（2.2）` 是编号不是版本号**，按 kind 区分，避免 `实验-X（2.3）` 被误判成 `（2.2）` 的变体；
+- **留版本**：日常编辑仍是覆盖式（不变），只在①族处于分叉中 ②写入来源与该条上次写入者不同（冲突信号）
+  时，**先把写入前的内容存成一版**；合并/归档时收口。
+
+### 合并与归档
+- **按 H2 小节合并**：选基准（基条）+ 逐节挑来源 → 合并结果写回基条，返回实际替换的小节清单；
+- **归档**：变体移入 `Workspace/System/Versions/<基条>/archived/<时间>-<标签>.md`（**保留可追溯**，
+  不计入条目数与检索），同目录 `index.json` 记来源与时间；`restore_variant` 可取回；
+- 合并/归档后自动维护基条的 `has_variants` 标记。
+
+### 接口与工具
+- 内核 Agent：`kb_variants`（读）· `kb_merge_variants` · `kb_archive_variants`（写，自动走草稿闸门）→ 内核工具 4 → **7 个**；
+- MCP：同名 3 个（9 → **12 个工具**），两个写工具已加入 `WRITE_TOOLS` → 受「设置 → 外部接入」授权约束；
+- HTTP：`GET /api/versions`（族总览）、`GET /api/versions/<base>`（详情含各版正文与小节）、
+  `POST /api/versions/{merge,archive,restore}`；
+- 活动日志：`doc_create` / `doc_update` 增加 `source`（如「外部 MCP 客户端 · kb_update_entry · Claude Desktop · 10-12 13:30」）。
+
+### 验收
+新增 `tests/kernel/test_versions.py` **22/22**（**完全隔离**：monkeypatch workspace 到临时目录，不碰真实知识库）：
+基条与来源 · MCP 自动归族 · 分叉留版 · 来源变化留版 · 分节合并 · 归档+清单+标记清理 · 取回 ·
+实验编号防误合并 · 活动日志带来源。快速档 **14/14 用例 · 92/92 断言**；`kb_smoke` / `web_check` /
+`plugin_check` / `core.plugins verify` / `mcp.server --selftest` 全绿。
+顺带把 `test_reader_plugin_tools` 里"内核工具恰好 4 个"的**过时断言**更新为 7 个（版本功能所致）。
+
+### 下一步（本版未含）
+工作台内的**「版本」页面**（族列表 + 逐版对照 + 逐节挑内容合并 + 归档/取回按钮）——数据、工具与接口已就位，
+页面单独提交。
+
 ## v261009.40
 
 **第⑥步：清理工作区残留 + GitHub 上传前准备**。

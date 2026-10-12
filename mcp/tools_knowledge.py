@@ -187,6 +187,64 @@ def t_get_entry(wb: Workbench, args: dict[str, Any]) -> Any:
     return {"entry": doc, "validation": validation}
 
 
+def t_variants(wb: Workbench, args: dict[str, Any]) -> Any:
+    """列某条条目的版本族（基条 + 各版本 + 已归档 + 每版来源）。"""
+    sys_path_versions = wb.mod.versions  # noqa: F841  （确保 app.versions 已加载）
+    V = wb.mod.versions
+    doc_id = str(args.get("doc_id") or "").strip()
+    if not doc_id:
+        return fail("缺少 doc_id")
+    try:
+        base = V.base_id_of(wb.get_entry(doc_id))
+    except Exception:
+        return fail(f"条目不存在：{doc_id}")
+    fam = V.family(base)
+    return ok({"base_id": base, "forked": fam["forked"], "count": fam["count"],
+               "base": _variant_row(wb, fam["base"]),
+               "variants": [_variant_row(wb, v) for v in fam["variants"]],
+               "archived": fam["archived"],
+               "_hint": "合并用 kb_merge_variants（选基准 + 逐节挑来源）；结束后用 kb_archive_variants 归档。"})
+
+
+def _variant_row(wb: Workbench, doc: dict[str, Any] | None) -> dict[str, Any]:
+    if not doc:
+        return {}
+    return {"id": doc.get("id"), "title": doc.get("title"), "label": doc.get("variant_label") or "",
+            "status": doc.get("status"), "updated": doc.get("updated"),
+            "origin": wb.mod.versions.describe_origin(doc)}
+
+
+def t_merge_variants(wb: Workbench, args: dict[str, Any]) -> Any:
+    """按小节合并版本族：合并结果写回基条（写操作受外部接入授权约束）。"""
+    V = wb.mod.versions
+    base_id = str(args.get("base_id") or args.get("doc_id") or "").strip()
+    if not base_id:
+        return fail("缺少 base_id")
+    picks = args.get("picks") if isinstance(args.get("picks"), dict) else {}
+    fam = V.family(base_id)
+    if not fam["base"]:
+        return fail(f"基条不存在：{base_id}")
+    bodies = {v["id"]: (wb.get_entry(v["id"]).get("body") or "") for v in fam["variants"]}
+    merged, replaced = V.merge_bodies(fam["base"].get("body") or "", picks, bodies)
+    wb.update_entry(base_id, {"body": merged}, origin=wb.origin("kb_merge_variants"))
+    out = {"base_id": base_id, "replaced_sections": replaced, "body_length": len(merged)}
+    if args.get("archive_merged"):
+        ids = [v for v in bodies if v in set(picks.values())]
+        if ids:
+            out["archived"] = V.archive_variants(base_id, ids, {"tool": "kb_merge_variants"})
+    return ok(out)
+
+
+def t_archive_variants(wb: Workbench, args: dict[str, Any]) -> Any:
+    """归档指定版本到 System/Versions/<base>/archived/（保留可追溯）。"""
+    V = wb.mod.versions
+    base_id = str(args.get("base_id") or "").strip()
+    ids = [str(x) for x in (args.get("variant_ids") or []) if str(x).strip()]
+    if not base_id or not ids:
+        return fail("需要 base_id 与 variant_ids")
+    return ok(V.archive_variants(base_id, ids, {"tool": "kb_archive_variants"}))
+
+
 def t_create_entry(wb: Workbench, args: dict[str, Any]) -> Any:
     kind = str(args.get("kind") or "").strip()
     if kind not in C.KINDS:
@@ -210,7 +268,7 @@ def t_create_entry(wb: Workbench, args: dict[str, Any]) -> Any:
             "_hint": "字段不符合契约，未写入（" + validate.summarize(field_issues) + "）。"
                      "取值见 kb_constraints topic=kinds|marks；或显式传 allow_violation=true 强制建档。",
         }
-    doc = wb.create_entry(kind, payload)
+    doc = wb.create_entry(kind, payload, origin=wb.origin("kb_create_entry"))
     return {"created": True, "entry": doc, "validation": validation,
             "field_issues": field_issues, "dir": C.KINDS[kind]["dir"]}
 
@@ -414,6 +472,9 @@ HANDLERS = {
     "kb_change_kind": t_change_kind,
     "kb_delete_entry": t_delete_entry,
     "kb_check_entries": t_check_entries,
+    "kb_variants": t_variants,
+    "kb_merge_variants": t_merge_variants,
+    "kb_archive_variants": t_archive_variants,
 }
 
 
@@ -518,4 +579,22 @@ TOOLS = [
           "check_h1": b("额外读取正文，校验 title 与首个 H1 一致"),
           "include_ok": b("连合规条目一并返回")},
          read_only=True),
+    tool("kb_variants", "列某条条目的版本族",
+         "同一笔记的不同版本（含外部工具添加的）都归在一条「版本族」里：返回基条、各版本与其来源"
+         "（工作台界面 / 内核 Agent / 外部 MCP 客户端 / 插件），以及已归档清单。",
+         {"doc_id": s("任一条目的 id（基条或某个版本都行）")}, ["doc_id"], read_only=True),
+    tool("kb_merge_variants", "按小节合并版本族",
+         "先选基准（基条），再逐节指定用哪个版本的内容；合并结果写回基条。可顺带归档被合并掉的版本。"
+         "写操作受「设置 → 外部接入」的 MCP 写入授权约束。",
+         {"base_id": s("族里的基条 id"),
+          "picks": {"type": "object", "description": "小节标题 -> 来源版本 id；未列出的小节沿用基准",
+                    "additionalProperties": {"type": "string"}},
+          "archive_merged": b("合并后把被替换的版本一并归档")},
+         ["base_id"], destructive=False),
+    tool("kb_archive_variants", "归档指定版本",
+         "把版本移入 Workspace/System/Versions/<基条>/archived/ 永久保留（可追溯、可再取回），"
+         "主库与检索里不再出现。写操作受外部接入授权约束。",
+         {"base_id": s("族里的基条 id"),
+          "variant_ids": {"type": "array", "items": {"type": "string"}, "description": "要归档的版本 id"}},
+         ["base_id", "variant_ids"], destructive=False),
 ]

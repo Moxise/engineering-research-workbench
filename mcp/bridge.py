@@ -24,6 +24,8 @@ class Workbench:
 
     def __init__(self, repo_root: Path | None = None) -> None:
         self.repo_root = (repo_root or REPO_ROOT).resolve()
+        #: MCP `initialize` 里 clientInfo.name（来源追踪用）
+        self.client_name: str = ""
         self._mod: SimpleNamespace | None = None
 
     # ------------------------------------------------------------ 模块加载
@@ -115,11 +117,18 @@ class Workbench:
             raise WorkbenchError(f"条目 `{doc_id}` 不存在（已删除或 id 有误）") from exc
         return doc
 
-    def create_entry(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def origin(self, tool: str, surface: str = "mcp") -> dict[str, str]:
+        """构造来源字段：外部 MCP 客户端 + 工具名 + 客户端名（v261009.41）。"""
+        from app import versions
+
+        return versions.origin(surface, tool, self.client_name)
+
+    def create_entry(self, kind: str, payload: dict[str, Any],
+                     origin: dict[str, Any] | None = None) -> dict[str, Any]:
         m = self.mod
         if kind not in m.store.kind_dir_map():
             raise WorkbenchError(f"未知条目类型 `{kind}`，取值限定为 " + " / ".join(m.store.kind_dir_map()))
-        doc = m.store.create_doc(kind, payload)
+        doc = m.store.create_doc(kind, payload, origin=origin)
         self._index_doc(doc)
         return doc
 

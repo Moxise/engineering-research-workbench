@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .workspace import ensure_workspace
+from . import versions
 
 READING_STATUSES = ("未读", "在读", "已读")
 ANNOTATION_TYPES = ("highlight", "underline", "strikeout", "rect", "ink", "note")
@@ -292,7 +293,8 @@ def _ensure_doc_entry(item: dict[str, Any]) -> str:
             if legacy_body.strip():
                 payload["body"] = legacy_body
 
-        doc = store.create_doc("literature", payload)
+        doc = store.create_doc("literature", payload,
+                           origin=versions.origin("ui", "literature_create"))
         doc_id = str(doc["id"])
         try:  # 直写 md 须补刷 SQLite 索引，否则文献列表页（索引查询）看不到新条目
             indexer.index_doc_path(str(doc.get("path") or ""))
@@ -375,7 +377,8 @@ def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
         result_att = rel  # 单条模式：登记后的库内路径，返回给前端重试跳转
         if att.replace("\\", "/") != rel:
             try:  # v260929 · attachment 更新走 store（indexer 白名单无此键），随后补刷该行索引
-                upd = store.update_doc(doc["id"], {"attachment": rel})
+                upd = store.update_doc(doc["id"], {"attachment": rel},
+                             origin=versions.origin("ui", "literature_attach"))
                 from . import indexer
                 indexer.index_doc_path(str(upd.get("path") or ""))
             except Exception:
@@ -461,7 +464,8 @@ def set_pdf_dir(new_dir: str, move_existing: bool = True) -> dict[str, Any]:
                 if not dest.exists():
                     continue
                 try:
-                    upd = store.update_doc(doc["id"], {"attachment": _attachment_rel(dest)})
+                    upd = store.update_doc(doc["id"], {"attachment": _attachment_rel(dest)},
+                             origin=versions.origin("ui", "literature_attach_move"))
                     indexer.index_doc_path(str(upd.get("path") or ""))
                     updated += 1
                 except Exception:

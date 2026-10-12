@@ -1,0 +1,132 @@
+"""夹具：笔记多版本 / 分支 / 来源追踪 / 合并归档（v261009.41）。
+
+覆盖：
+① 基条与来源；② 外部工具（MCP）按标题自动归族；③ 分叉期间写入先留一版；
+④ 来源变化（ui→mcp）也留版本；⑤ 按 H2 小节合并；⑥ 归档到 System/Versions/<base>/archived/（可追溯）；
+⑦ 从归档取回；⑧ 实验编号不会被当版本（防误合并）；⑨ 活动日志带来源。
+
+**完全隔离**：monkeypatch `app.config.get_app/get_all` 把 workspace 指到临时目录，不碰真实知识库。
+
+用法：`python tests/kernel/test_versions.py`
+"""
+import importlib
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+BASE = Path(tempfile.mkdtemp(prefix="erwver-"))
+from app import config as C  # noqa: E402
+
+_orig_get_app, _orig_get_all = C.get_app, C.get_all
+
+
+def _fake_get_app():
+    cfg = dict(_orig_get_app() or {})
+    cfg["workspace"] = str(BASE)
+    return cfg
+
+
+def _fake_get_all():
+    data = dict(_orig_get_all() or {})
+    data["workspace"] = str(BASE)
+    return data
+
+
+C.get_app, C.get_all = _fake_get_app, _fake_get_all
+
+from app import activity, store, versions, workspace  # noqa: E402
+
+workspace.reset_runtime_state()
+
+PASS, FAIL = [], []
+
+
+def check(name, cond, detail=""):
+    (PASS if cond else FAIL).append(name)
+    print(f"  {'PASS' if cond else 'FAIL'} {name}" + (f"   ← {detail}" if detail and not cond else ""))
+
+
+try:
+    print("① 基条 + 界面来源")
+    base = store.create_doc("note", {"title": "知识-方法-版本测试",
+                                     "body": "## 摘要\n基线摘要\n\n## 方法\n基线方法\n"},
+                            origin=versions.origin("ui", "doc_save"))
+    check("①-1 基条写入且记来源", base["origin_surface"] == "ui", str(base.get("origin_surface")))
+    check("①-2 基条不是变体", not versions.is_variant(base))
+
+    print("② MCP 塞进同签名不同版 → 自动归族")
+    v2 = store.create_doc("note", {"title": "知识-方法-版本测试（v2）",
+                                   "body": "## 摘要\nMCP 改过的摘要\n\n## 方法\nMCP 方法\n"},
+                          origin=versions.origin("mcp", "kb_create_entry", "Claude Desktop"))
+    check("②-1 自动归到基条", v2.get("variant_of") == base["id"], str(v2.get("variant_of")))
+    check("②-2 版本标签取自标题", v2.get("variant_label") == "v2", str(v2.get("variant_label")))
+    check("②-3 来源含 MCP 客户端名",
+          v2.get("origin_surface") == "mcp" and v2.get("origin_client") == "Claude Desktop",
+          versions.describe_origin(v2))
+    check("②-4 族计数正确", versions.family(base["id"])["count"] == 2)
+    check("②-5 基条有 has_variants 标记", bool(store.get_doc(base["id"]).get("has_variants")))
+
+    print("③ 分叉期间写入 → 先留一版")
+    before = len(versions.family(base["id"])["variants"])
+    store.update_doc(base["id"], {"body": "## 摘要\n界面改的摘要\n\n## 方法\n界面方法\n"},
+                     origin=versions.origin("ui", "doc_save"))
+    fam = versions.family(base["id"])
+    check("③-1 自动多留一版", len(fam["variants"]) == before + 1, f"{before} → {len(fam['variants'])}")
+    snaps = [v for v in fam["variants"] if str(v.get("origin_tool") or "").startswith("snapshot")]
+    check("③-2 快照保留写入前内容",
+          any("基线摘要" in (store.get_doc(v["id"]).get("body") or "") for v in snaps))
+
+    print("④ 来源变化（ui → mcp）也算冲突")
+    n0 = len(versions.family(base["id"])["variants"])
+    store.update_doc(base["id"], {"body": "## 摘要\nMCP 再改\n\n## 方法\nMCP 方法\n"},
+                     origin=versions.origin("mcp", "kb_update_entry", "Claude Desktop"))
+    check("④-1 来源变化触发留版本", len(versions.family(base["id"])["variants"]) == n0 + 1)
+
+    print("⑤ 按小节合并")
+    sections = [s["heading"] for s in versions.split_sections(store.get_doc(base["id"])["body"])]
+    check("⑤-1 切出 H2 小节", "摘要" in sections and "方法" in sections, str(sections))
+    merged, replaced = versions.merge_bodies(store.get_doc(base["id"])["body"], {"摘要": v2["id"]},
+                                             {v2["id"]: store.get_doc(v2["id"])["body"]})
+    check("⑤-2 只替换被挑中的小节", replaced == ["摘要"], str(replaced))
+    check("⑤-3 结果同时含两版内容", "MCP 改过的摘要" in merged and "MCP 方法" in merged)
+    store.update_doc(base["id"], {"body": merged}, origin=versions.origin("ui", "merge_variants"))
+    check("⑤-4 合并结果落盘", "MCP 改过的摘要" in store.get_doc(base["id"])["body"])
+
+    print("⑥ 归档（保留可追溯）")
+    ids = [v["id"] for v in versions.family(base["id"])["variants"]]
+    out = versions.archive_variants(base["id"], ids, {"tool": "archive_variants"})
+    check("⑥-1 归档条数", len(out["archived"]) == len(ids), str(out))
+    check("⑥-2 族里没有活版本", not versions.family(base["id"])["variants"])
+    check("⑥-3 基条标记已清", not store.get_doc(base["id"]).get("has_variants"))
+    check("⑥-4 归档副本文件存在",
+          all((versions.archived_dir(base["id"]) / a["file"]).is_file() for a in out["archived"]))
+    check("⑥-5 清单记了来源与时间",
+          all(row.get("origin") and row.get("archived_at") for row in versions.archived_index(base["id"])))
+
+    print("⑦ 从归档取回")
+    restored = versions.restore_variant(base["id"], out["archived"][0]["file"])
+    check("⑦-1 取回仍是同一族", restored["entry"].get("variant_of") == base["id"])
+
+    print("⑧ 实验编号不会被当版本")
+    e1 = store.create_doc("experiment", {"title": "实验-编号保护（2.2）", "body": "## 结果\nA\n"},
+                          origin=versions.origin("ui"))
+    e2 = store.create_doc("experiment", {"title": "实验-编号保护（2.3）", "body": "## 结果\nB\n"},
+                          origin=versions.origin("ui"))
+    check("⑧-1 两条实验没被并族", not e1.get("variant_of") and not e2.get("variant_of"))
+
+    print("⑨ 活动日志带来源")
+    events = [e for e in activity.list_events() if e.get("ref") == base["id"]]
+    check("⑨-1 事件里有 source 字段", any("外部 MCP 客户端" in str(e.get("source") or "") for e in events),
+          str([e.get("source") for e in events][:3]))
+finally:
+    C.get_app, C.get_all = _orig_get_app, _orig_get_all
+    workspace.reset_runtime_state()
+    shutil.rmtree(BASE, ignore_errors=True)
+
+total = len(PASS) + len(FAIL)
+print(f"\n结果：{len(PASS)}/{total} 通过" + (f"，失败 {len(FAIL)}：{FAIL}" if FAIL else ""))
+raise SystemExit(1 if FAIL else 0)

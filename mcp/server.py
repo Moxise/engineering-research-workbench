@@ -105,7 +105,8 @@ def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
 
 #: 会改知识库的 MCP 工具（v261009.38 起受「外部接入授权」约束，默认关闭）
 WRITE_TOOLS = frozenset({"kb_create_entry", "kb_update_entry", "kb_rename_entry",
-                         "kb_change_kind", "kb_delete_entry"})
+                         "kb_change_kind", "kb_delete_entry",
+                         "kb_merge_variants", "kb_archive_variants"})
 
 
 def handle_tools_call(wb: Workbench, params: dict[str, Any]) -> dict[str, Any]:

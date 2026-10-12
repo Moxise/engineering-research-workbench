@@ -15,6 +15,7 @@ from typing import Any
 
 from .workspace import ensure_workspace, ensure_project
 from . import activity, config
+from . import versions as _versions
 from core.contracts import kinds as contracts
 from core.contracts import naming as contract_naming
 from core.contracts import validate as contract_validate
@@ -477,7 +478,9 @@ def _enforce_write(kind: str, payload: dict[str, Any], *, partial: bool = False,
         raise ValueError("字段校验未通过：" + contract_validate.summarize(issues))
 
 
-def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None = None,
+               _skip_versioning: bool = False) -> dict[str, Any]:
+    """新建条目。`origin` 记录来源（ui/agent/mcp/plugin/cli + 工具名 + 外部客户端名）。"""
     if kind not in kind_dir_map():
         raise ValueError("Invalid kind")
     title = str(payload.get("title") or f"未命名{kind_label_map().get(kind, kind)}").strip()
@@ -509,6 +512,19 @@ def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
             meta[key] = payload.get(key) or ""
         if not meta["cite_key"]:
             meta["cite_key"] = _slug(title).replace("-", "_")[:48]
+    # v261009.41 · 来源追踪 + 版本归族（写入收口点：界面 / Agent / MCP / 插件四条路径一视同仁）
+    _origin = dict(origin or _versions.origin("cli"))
+    meta.update({k: v for k, v in _origin.items() if v})
+    # 显式 variant_of **永远生效**（数据本身）；`_skip_versioning` 只跳过"按标题自动归族"
+    variant_of = str(payload.get("variant_of") or "").strip()
+    if variant_of:
+        meta["variant_of"] = variant_of
+        meta["variant_label"] = str(payload.get("variant_label") or "").strip() or "副本"
+    elif not _skip_versioning:
+        base = _versions.find_same_signature(kind, title, exclude_id=doc_id)
+        if base:
+            meta["variant_of"] = base
+            meta["variant_label"] = _versions.label_from_title(title, kind=kind) or "副本"
     _normalize_projects(meta)
     body = payload.get("body") or _make_default_body(kind, title, payload)
     for project_name in meta.get("projects", []):
@@ -516,17 +532,32 @@ def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     path = _kind_path(kind) / f"{doc_id}.md"
     with _LOCK:
         _atomic_write(path, _frontmatter_dump(meta) + body.rstrip() + "\n")
-    activity.record("doc_create", ref=doc_id, kind=kind, title=title, project=str(meta.get("project") or ""))
+    activity.record("doc_create", ref=doc_id, kind=kind, title=title,
+                    project=str(meta.get("project") or ""),
+                    source=_versions.describe_origin(meta))
+    if meta.get("variant_of"):        # 变体一落地就给基条打标记（mark 自身走 _skip_versioning，无递归）
+        _versions.mark_base_forked(str(meta["variant_of"]), True)
     return _doc_from_path(kind, path, include_body=True)
 
 
-def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | None = None,
+               _skip_versioning: bool = False) -> dict[str, Any]:
+    """更新条目。`origin` 同 create_doc；**分叉/冲突时先留一版**（见 app/versions.py）。"""
     doc = get_doc(doc_id)
     kind = doc["kind"]
     # 可写字段的唯一声明处在 core/contracts/kinds.py（UPDATE_FIELDS）；body 走正文分支
     allowed = set(contracts.UPDATE_FIELDS) - {"body"}
     incoming = {k: v for k, v in payload.items() if k in allowed}
     _enforce_write(kind, incoming, partial=True, title=str(incoming.get("title") or doc.get("title") or ""))
+    # v261009.41 · 分叉/冲突时先留一版（用户选定：只在分叉/冲突/归档时留版本，日常编辑仍覆盖式）
+    _origin = dict(origin or _versions.origin("cli"))
+    _prev_surface = str(doc.get("origin_surface") or "").strip()
+    _new_surface = str(_origin.get("origin_surface") or "").strip()
+    _forked = bool(doc.get("has_variants"))          # O(1)：基条上的标记，由内核在分叉/归档时维护
+    _conflict = bool(_prev_surface) and bool(_new_surface) and _prev_surface != _new_surface
+    if (not _skip_versioning) and (not _versions.is_variant(doc)) and (_forked or _conflict):
+        _versions.snapshot_before_write(
+            doc, reason="分叉期间保留写入前内容" if _forked else f"来源变化 {_prev_surface}->{_new_surface}")
     path = ensure_workspace() / doc["path"]
     text = path.read_text(encoding="utf-8")
     meta, body = _frontmatter_parse(text)
@@ -534,6 +565,7 @@ def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if key in payload:
             meta[key] = payload[key]
     meta["updated"] = _now()
+    meta.update({k: v for k, v in _origin.items() if v})   # v261009.41 · 记录本次写入者
     if "body" in payload:
         body = str(payload.get("body") or "")
     if kind == "literature" and "bibtex" in payload:
@@ -548,7 +580,9 @@ def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         ensure_project(project_name)
     with _LOCK:
         _atomic_write(path, _frontmatter_dump(meta) + body.rstrip() + "\n")
-    activity.record("doc_update", ref=doc_id, kind=kind, title=str(meta.get("title") or doc_id), project=str(meta.get("project") or ""))
+    activity.record("doc_update", ref=doc_id, kind=kind, title=str(meta.get("title") or doc_id),
+                    project=str(meta.get("project") or ""),
+                    source=_versions.describe_origin(meta))   # v261009.41 · 谁写的（界面/Agent/MCP/插件）
     return _doc_from_path(kind, path, include_body=True)
 
 

@@ -311,20 +311,33 @@ FORBIDDEN_TITLE_CHARS: list[str] = ["《", "》", "[", "]"]
 
 FRONTMATTER_ORDER: list[str] = [
     "id", "kind", "title", "created", "updated", "status", "project", "projects", "tags", "kind_marks",
+    "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
     "record_date", "due", "added_date", "summary_type", "pinned", "authors", "year", "venue", "doi", "url", "cite_key",
+    "has_variants",
 ]
+
+#: 版本/分支与来源追踪字段（v261009.41）：由内核写入，也允许界面/工具显式设置
+VARIANT_FIELDS: list[str] = ["variant_of", "variant_label", "has_variants"]
+#: has_variants：基条上的 O(1) 标记（族里还有活版本时为 true），由内核在分叉/归档时维护
+ORIGIN_FIELDS: list[str] = ["origin_surface", "origin_tool", "origin_client", "origin_at"]
+#: origin_surface 的取值（谁写入了这条内容）
+ORIGIN_SURFACES: list[str] = ["ui", "agent", "mcp", "plugin", "cli"]
 
 IMMUTABLE_FIELDS: list[str] = ["id", "kind", "created"]
 
 CREATE_FIELDS: list[str] = [
     "title", "status", "project", "projects", "tags", "kind_marks", "pinned", "body",
     "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key",
+    "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
+    "has_variants",
 ]
 
 UPDATE_FIELDS: list[str] = [
     "title", "status", "project", "projects", "tags", "kind_marks", "pinned", "body",
     "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key",
     "attachment",
+    "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
+    "has_variants",
 ]
 
 DATE_FIELD_RULE = (

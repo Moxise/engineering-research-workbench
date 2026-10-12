@@ -17,11 +17,16 @@ def _path() -> Path:
     return p
 
 
-def record(event_type: str, *, ref: str = "", kind: str = "", title: str = "", project: str = "", weight: int = 1, timestamp: str | None = None) -> None:
+def record(event_type: str, *, ref: str = "", kind: str = "", title: str = "", project: str = "",
+           weight: int = 1, timestamp: str | None = None, source: str = "") -> None:
     """Append one lightweight research-activity event.
 
     This file is intentionally append-only. A failed activity write must never block
     the primary operation (saving a note, finishing a task, etc.).
+
+    v261009.41 · `source`：谁写的（「工作台界面 · doc_save」「外部 MCP 客户端 · kb_update_entry ·
+    Claude Desktop · 2026-10-12 11:05」…），由 `app/versions.describe_origin` 生成。
+    有了它，活动日志才能回答"这条内容是界面改的还是外部工具塞进来的"。空值不写入该字段（向后兼容）。
     """
     event = {
         "timestamp": timestamp or datetime.now().isoformat(timespec="seconds"),
@@ -32,6 +37,8 @@ def record(event_type: str, *, ref: str = "", kind: str = "", title: str = "", p
         "project": str(project or ""),
         "weight": max(1, int(weight or 1)),
     }
+    if str(source or "").strip():
+        event["source"] = str(source).strip()
     try:
         line = json.dumps(event, ensure_ascii=False) + "\n"
         with _LOCK:
