@@ -1,15 +1,17 @@
-/* 版本 · 内核模块（v261009.42）
+/* 版本 · 内核模块（v261009.43）
  *
- * 「同一笔记的不同版本」的工作台入口：族列表 + 逐版对照（含来源）+ 按小节挑内容合并 + 归档/取回。
- * 数据与闸门都在内核（app/versions.py、/api/versions*），本模块只负责呈现与发请求。
+ * 「同一笔记的不同版本」的工作台入口：族列表（默认只看分叉中 + 可搜索）+ 逐版对照（含来源）
+ * + 按小节挑内容合并 + 归档/取回。数据与闸门都在内核（app/versions.py、/api/versions*）。
  *
- * 与插件无关：内核自带页面，用 ERWPanels 自登记（和 manual.js / plugin-manager.js 同款），不动 app.js。
+ * v261009.43 修 UI：① 左栏默认只看分叉中的族（202 个族全列出来等于噪音）+ 搜索框 + 过滤切换；
+ * ② 右栏不再有大片空白（CSS 侧）；③ 没有分叉的族给出紧凑提示，不再摆一堆空控件。
  */
 (function () {
   'use strict';
 
   var ID = 'versions';
-  var STATE = { families: [], current: '', detail: null, picks: {}, archiveAfter: false };
+  var STATE = { families: [], current: '', detail: null, picks: {}, archiveAfter: false,
+                filter: 'forked', keyword: '' };
 
   function esc(t) {
     return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
@@ -37,16 +39,35 @@
     main.innerHTML = ''
       + '<section class="ver-layout">'
       +   '<aside class="card ver-side">'
-      +     '<div class="card-kicker">VERSIONS</div>'
-      +     '<h3>版本</h3>'
-      +     '<p class="row-meta">同一笔记的不同版本会归成一条「版本族」——'
-      +       '不论它是在工作台里改的，还是外部工具（MCP）塞进来的。</p>'
+      +     '<div><div class="card-kicker">VERSIONS</div><h3>版本</h3>'
+      +       '<p class="row-meta">同一笔记的不同版本会归成一条「版本族」——'
+      +       '不论在工作台里改的，还是外部工具（MCP）塞进来的。</p></div>'
       +     '<div class="ver-stats" id="ver-stats"></div>'
+      +     '<div class="ver-filter">'
+      +       '<span class="ver-seg" id="ver-seg">'
+      +         '<button type="button" data-ver-filter="forked" class="active">只看分叉中</button>'
+      +         '<button type="button" data-ver-filter="all">全部</button>'
+      +       '</span>'
+      +       '<input class="search-input" id="ver-search" placeholder="按标题过滤…">'
+      +     '</div>'
       +     '<div class="ver-list" id="ver-list"><div class="empty compact">正在读取…</div></div>'
       +   '</aside>'
-      +   '<section class="card ver-pane" id="ver-pane"><div class="empty">选择左侧的一条版本族</div></section>'
+      +   '<section class="card ver-pane" id="ver-pane">'
+      +     '<div class="empty">选择左侧的一条版本族</div></section>'
       + '</section>';
 
+    var seg = main.querySelector('#ver-seg');
+    Array.prototype.forEach.call(seg.querySelectorAll('[data-ver-filter]'), function (btn) {
+      btn.onclick = function () {
+        STATE.filter = btn.dataset.verFilter;
+        Array.prototype.forEach.call(seg.querySelectorAll('button'), function (b) {
+          b.classList.toggle('active', b === btn);
+        });
+        paintList(main);
+      };
+    });
+    var search = main.querySelector('#ver-search');
+    search.oninput = function () { STATE.keyword = search.value.trim().toLowerCase(); paintList(main); };
     loadFamilies(main);
   }
 
@@ -61,23 +82,58 @@
           + (counts.forked || 0) + ' 个分叉中</span>'
           + '<span class="ver-chip">' + (counts.variants || 0) + ' 个版本</span>';
       }
-      var list = main.querySelector('#ver-list');
-      if (!STATE.families.length) {
-        list.innerHTML = '<div class="empty compact">还没有任何版本族</div>';
-        return;
+      // 没有任何分叉时别给一个空列表：自动回落到「全部」，并在列表上方说明原因
+      if (!counts.forked && STATE.filter === 'forked') {
+        STATE.filter = 'all';
+        var seg = main.querySelector('#ver-seg');
+        if (seg) {
+          Array.prototype.forEach.call(seg.querySelectorAll('button'), function (b) {
+            b.classList.toggle('active', b.dataset.verFilter === 'all');
+          });
+        }
+        var note = document.createElement('div');
+        note.className = 'ver-hint';
+        note.style.margin = '0 0 6px';
+        note.innerHTML = '当前<b>没有分叉中的版本族</b>，下面列出全部 ' + (counts.families || 0)
+          + ' 个族——建一条同名不同版（如 <code>知识-方法-X（v2）</code>）后，它会自动归族并出现在这里。';
+        var listBox = main.querySelector('#ver-list');
+        if (listBox && listBox.parentElement) listBox.parentElement.insertBefore(note, listBox);
       }
-      list.innerHTML = STATE.families.map(function (f) {
-        return '<button type="button" class="ver-item' + (f.base_id === STATE.current ? ' active' : '')
-          + '" data-ver-base="' + esc(f.base_id) + '" title="' + esc(f.title) + '">'
-          + '<span class="ver-item-main">' + esc(f.title || f.base_id) + '</span>'
-          + '<span class="ver-item-meta">' + esc(KIND_LABEL[f.kind] || f.kind || '')
-          + (f.variant_count ? ' · <b>' + f.variant_count + ' 个版本</b>' : '') + '</span></button>';
-      }).join('');
-      Array.prototype.forEach.call(list.querySelectorAll('[data-ver-base]'), function (btn) {
-        btn.onclick = function () { loadDetail(btn.dataset.verBase, main); };
-      });
+      paintList(main);
+      var first = visible().find(function (f) { return f.variant_count > 0; }) || visible()[0];
+      if (first) loadDetail(first.base_id, main);
     }).catch(function (e) {
       main.querySelector('#ver-list').innerHTML = '<div class="ver-error">读取失败：' + esc(e.message) + '</div>';
+    });
+  }
+
+  function visible() {
+    var kw = STATE.keyword;
+    return STATE.families.filter(function (f) {
+      if (STATE.filter === 'forked' && !f.variant_count) return false;
+      if (!kw) return true;
+      return String(f.title || '').toLowerCase().indexOf(kw) >= 0
+        || String(f.base_id || '').toLowerCase().indexOf(kw) >= 0;
+    });
+  }
+
+  function paintList(main) {
+    var list = main.querySelector('#ver-list');
+    var rows = visible();
+    if (!rows.length) {
+      list.innerHTML = '<div class="empty compact">'
+        + (STATE.filter === 'forked' ? '当前没有分叉中的版本族' : '没有匹配的族') + '</div>';
+      return;
+    }
+    list.innerHTML = rows.map(function (f) {
+      return '<button type="button" class="ver-item' + (f.base_id === STATE.current ? ' active' : '')
+        + '" data-ver-base="' + esc(f.base_id) + '" title="' + esc(f.title) + '">'
+        + '<span class="ver-item-main">' + esc(f.title || f.base_id) + '</span>'
+        + '<span class="ver-item-meta">' + esc(KIND_LABEL[f.kind] || f.kind || '')
+        + (f.variant_count ? ' · <b>' + f.variant_count + ' 个版本</b>' : '') + '</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(list.querySelectorAll('[data-ver-base]'), function (btn) {
+      btn.onclick = function () { loadDetail(btn.dataset.verBase, main); };
     });
   }
 
@@ -119,16 +175,16 @@
         + esc(String(v.updated || '').replace('T', ' ').slice(0, 16)) + ' · 小节 '
         + (v.sections || []).length + ' 个</span>'
         + originChip(v) + '</span></label>';
-    }).join('') || '<div class="empty compact">这一族目前没有活着的版本（已归档或从未分叉）</div>';
+    }).join('');
 
     var sectionRows = (d.sections || []).map(function (heading) {
-      var options = ['<option value="">基准（' + esc(base.label || '当前内容') + '）</option>']
+      var options = ['<option value="">基准（当前内容）</option>']
         .concat(variants.map(function (v) {
           return '<option value="' + esc(v.id) + '">' + esc(v.label || v.id) + '</option>';
         })).join('');
       return '<label class="ver-srow"><span class="ver-sname">' + esc(heading) + '</span>'
         + '<select class="search-input" data-ver-pick="' + esc(heading) + '">' + options + '</select></label>';
-    }).join('') || '<div class="empty compact">这一族的正文里没有 H2 小节，可整篇挑选后再手工调整</div>';
+    }).join('');
 
     var archived = (d.archived || []).map(function (row) {
       return '<div class="ver-arow"><span class="ver-vtext"><b>' + esc(row.title || row.id) + '</b>'
@@ -136,6 +192,10 @@
         + ' · ' + esc(row.origin || '') + '</span></span>'
         + '<button class="secondary-btn" data-ver-restore="' + esc(row.file) + '">取回</button></div>';
     }).join('');
+
+    var forkHint = '<div class="ver-hint">这一族<b>当前没有分叉</b>：只有基条一条。'
+      + '当你<b>再建一条同名不同版</b>（如 <code>' + esc((base.title || '') + '（v2）')
+      + '</code>，界面或 MCP 都行），或族里已有版本后再改基条时，这里就会出现可对照、可合并的版本。</div>';
 
     pane.innerHTML = ''
       + '<div class="ver-head"><div><div class="card-kicker">' + esc(KIND_LABEL[base.kind] || base.kind || '')
@@ -145,17 +205,19 @@
       + '</div></div>'
       + '<button class="secondary-btn" id="ver-refresh">刷新</button></div>'
 
-      + '<div class="ver-block"><h4>① 各版本（勾选后可归档）</h4>'
+      + '<div class="ver-block"><h4>① 各版本' + (variants.length ? '（勾选后可归档）' : '') + '</h4>'
       + '<div class="ver-base-row"><span class="ver-vtext"><b>' + esc(base.title || '')
       + '</b><span class="ver-vmeta">基条 · 更新 '
       + esc(String(base.updated || '').replace('T', ' ').slice(0, 16)) + '</span></span>'
-      + originChip(base) + '</div>' + versionRows + '</div>'
+      + originChip(base) + '</div>'
+      + (variants.length ? versionRows : forkHint) + '</div>'
 
-      + '<div class="ver-block"><h4>② 按小节挑内容（合并结果写回基条）</h4>'
-      + sectionRows
-      + '<label class="ver-check"><input type="checkbox" id="ver-archive-after"> 合并后把被替换的版本一并归档</label>'
-      + '<div class="ver-actions"><button class="primary-btn" id="ver-merge">合并</button>'
-      + '<button class="secondary-btn" id="ver-archive">归档勾选的版本</button></div></div>'
+      + (variants.length
+          ? '<div class="ver-block"><h4>② 按小节挑内容（合并结果写回基条）</h4>' + sectionRows
+            + '<label class="ver-check"><input type="checkbox" id="ver-archive-after"> 合并后把被替换的版本一并归档</label>'
+            + '<div class="ver-actions"><button class="primary-btn" id="ver-merge">合并</button>'
+            + '<button class="secondary-btn" id="ver-archive">归档勾选的版本</button></div></div>'
+          : '')
 
       + (archived ? '<div class="ver-block"><h4>③ 已归档（保留可追溯）</h4>' + archived + '</div>' : '');
 
@@ -168,7 +230,8 @@
     });
     var after = pane.querySelector('#ver-archive-after');
     if (after) after.onchange = function () { STATE.archiveAfter = after.checked; };
-    pane.querySelector('#ver-merge').onclick = function () {
+    var mergeBtn = pane.querySelector('#ver-merge');
+    if (mergeBtn) mergeBtn.onclick = function () {
       var picks = STATE.picks;
       if (!Object.keys(picks).length) { toast('先为至少一个小节选一个来源版本', true); return; }
       post('/versions/merge', { base_id: d.base_id, picks: picks, archive_merged: STATE.archiveAfter })
@@ -177,7 +240,8 @@
           loadDetail(d.base_id, main);
         }).catch(function (e) { toast('合并失败：' + e.message, true); });
     };
-    pane.querySelector('#ver-archive').onclick = function () {
+    var archBtn = pane.querySelector('#ver-archive');
+    if (archBtn) archBtn.onclick = function () {
       var ids = Array.prototype.slice.call(pane.querySelectorAll('[data-ver-archive]:checked'))
         .map(function (box) { return box.dataset.verArchive; });
       if (!ids.length) { toast('先勾选要归档的版本', true); return; }
