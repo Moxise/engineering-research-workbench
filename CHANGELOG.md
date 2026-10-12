@@ -1,5 +1,37 @@
 # Changelog
 
+## v261009.40
+
+**第⑥步：清理工作区残留 + GitHub 上传前准备**。
+
+### 清理（都是"搬出"或"删调试残留"，用户数据只读）
+| 项 | 体积 | 处理 |
+| --- | --- | --- |
+| `Workspace (备份261009).zip` | **340 MB** | 搬到仓库外 `engineering-research-workbench-archive/2026-10-12-cleanup/`（可搬回） |
+| `Workspace.zip` | 2.7 MB | 同上 |
+| `_preview_*.png` ×4、`_verify_*.{py,mjs}` ×3 | ~0.6 MB | 删（早期调试残留） |
+| `dsh-acl-recovery/` | 0.24 MB | 搬到归档（非本项目产物） |
+| `__pycache__/`、`.scratch/{logs,preview}` | — | 删/清空（可重建） |
+| `ResearchWorkbench.exe` + `build/` | 41 MB | **保留**（那是能直接运行的成品，且不入库） |
+
+### 上传前审计（结论）
+- **密钥**：`config/` 完全未跟踪，`secrets.json` 从未入库；跟踪文件里无 `sk-…` 形态密钥 ✓
+- **历史最大对象 2.45 MB**（mermaid），无 >50 MB 对象 ✓；`.git` 约 **10 MB** / 430 个跟踪文件 ✓
+- **用户数据**：当前 0 个 `Workspace/` 文件被跟踪 ✓；但**历史里仍有 11 个**（0.24 MB，
+  1 张会话截图 244 KB + todos/activity/migration/README）与 4 个历史 `config/*.json`（无密钥值）。
+  → 写进 `docs/PUBLISH.md`，给出**可回滚的 `filter-branch` 清理步骤**，公开仓库建议执行。
+
+### 新增
+- **`.github/workflows/ci.yml`**：Ubuntu+Windows × py3.12 跑静态闸门（`kb_smoke` / `web_check` /
+  `web_manifest --check` / `plugin_check --assert-core-only` / `core.plugins verify` / `mcp.server --selftest`）
+  + 一个纯逻辑用例作业（`run_tests.py --fast --no-server`）；需要浏览器与真实数据的 25 个用例**只在本地跑**，
+  `doctor` 以 `continue-on-error` 输出供参考。**已在本地逐条验证过这些闸门全绿**，CI 不会一上来就红。
+- **`.gitattributes`**：`* text=auto` + Windows 脚本保持 CRLF + 二进制不做行尾转换
+  （消除"LF will be replaced by CRLF"噪音；实测无大规模行尾改动，只有新增文件）。
+- **`docs/PUBLISH.md`**：上线前检查清单、最简上传命令、**清历史的两套命令**（`git bundle` 先备份 →
+  `filter-branch` / `filter-repo` → 复核）、上传后本地怎么跑完整档（含性能预算）。
+- `.gitignore` 放行 `.github/workflows/*.yml` 与 `.gitattributes`（白名单模式，不放行就进不了库）。
+
 ## v261009.39
 
 **前端「日期命名」补丁按功能改名**（第⑤步，可维护性）。
