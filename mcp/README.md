@@ -86,6 +86,18 @@ python -m mcp.server --selftest      # 看当前工具面统计：kernel_tools /
 - MCP 进程**只借插件的工具，不跑它们的后台任务**（加载后立刻停调度器），
   否则备份插件这类定时任务会在 MCP 进程里再跑一份。
 
+### 看「修改记录」（v261009.48 起）
+
+`ws_activity` 支持按**条目**或**事件类型**过滤，用来回答「这条笔记谁改的、什么时候改的」：
+
+```json
+{ "days": 30, "ref": "note-2026...", "types": ["doc_update", "doc_merge"] }
+```
+
+每条事件的 `source` 形如「外部 MCP 客户端 · kb_update_entry · Claude Desktop · 10-12 16:23」；
+合并事件另带 `detail`（`merged_at` / `replaced_sections` / `merged_from`）。
+工作台里的对应视图：**版本** 页 →「④ 修改记录（最近 90 天）」。
+
 ### 版本族（v261009.45 起）
 
 | 工具 | 作用 | 写？ |

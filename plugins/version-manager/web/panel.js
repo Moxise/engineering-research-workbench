@@ -31,6 +31,8 @@
 
   var KIND_LABEL = { note: '笔记', experiment: '实验', journal: '研究日志', idea: '灵感',
                      milestone: '里程碑', summary: '工作总结', literature: '文献' };
+  var HISTORY_LABEL = { doc_create: '新建', doc_update: '更新', doc_merge: '合并',
+                        doc_delete: '归档', doc_restore: '取回' };
 
   function render(main) {
     main.innerHTML = ''
@@ -151,6 +153,32 @@
     });
   }
 
+  /* 修改记录：这条笔记（含各版本）谁在什么时候改了什么（读内核活动日志） */
+  function loadHistory(baseId, main) {
+    var box = main.querySelector('#vm-history');
+    if (!box) return;
+    api(API + '/history?id=' + encodeURIComponent(baseId) + '&days=90').then(function (data) {
+      var events = (data.events || []).slice().reverse();
+      if (!events.length) {
+        box.innerHTML = '<div class="empty compact">最近 90 天没有修改记录</div>';
+        return;
+      }
+      box.innerHTML = events.slice(0, 40).map(function (e) {
+        var detail = e.detail || {};
+        var extra = '';
+        if (e.type === 'doc_merge' && (detail.replaced_sections || []).length) {
+          extra = ' · 替换小节 ' + esc(detail.replaced_sections.join('、'));
+        }
+        return '<div class="vm-hrow"><span class="vm-htime">'
+          + esc(String(e.timestamp || '').replace('T', ' ').slice(0, 16)) + '</span>'
+          + '<span class="vm-hkind">' + esc(HISTORY_LABEL[e.type] || e.type || '') + '</span>'
+          + '<span class="vm-hsrc">' + esc(e.source || '（未记录来源）') + extra + '</span></div>';
+      }).join('');
+    }).catch(function (e) {
+      box.innerHTML = '<div class="vm-error">修改记录读取失败：' + esc(e.message) + '</div>';
+    });
+  }
+
   function originChip(doc) {
     var surface = doc.origin_surface || '';
     var cls = surface === 'mcp' ? 'mcp' : surface === 'plugin' ? 'plugin' : surface === 'agent' ? 'agent' : 'ui';
@@ -217,8 +245,14 @@
             + '<button class="secondary-btn" id="vm-archive">归档勾选的版本</button></div></div>'
           : '')
 
-      + (archived ? '<div class="vm-block"><h4>③ 已归档（保留可追溯）</h4>' + archived + '</div>' : '');
+      + (archived ? '<div class="vm-block"><h4>③ 已归档（保留可追溯）</h4>' + archived + '</div>' : '')
 
+      + '<div class="vm-block"><h4>④ 修改记录（最近 90 天）</h4>'
+      + '<div class="vm-hint" style="margin-bottom:8px">谁在什么时候改了什么：'
+      + '「外部 MCP 客户端 · kb_update_entry · 客户端名」这类来源会直接写在这里。</div>'
+      + '<div id="vm-history"><div class="empty compact">正在读取…</div></div></div>';
+
+    loadHistory(d.base_id, main);
     pane.querySelector('#vm-refresh').onclick = function () { loadDetail(d.base_id, main); };
     Array.prototype.forEach.call(pane.querySelectorAll('[data-vm-pick]'), function (sel) {
       sel.onchange = function () {

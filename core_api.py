@@ -397,3 +397,32 @@ def restore_variant(base_id: str, file_name: str) -> dict:
     from app import versions as V
 
     return V.restore_variant(base_id, file_name)
+
+def activity_events(days: int = 7, *, ref: str = "", refs: list | None = None,
+                    types: list | None = None, limit: int = 100) -> dict:
+    """活动日志（谁在什么时候改了什么）——**修改记录**的权威来源（v261009.48）。
+
+    - `ref` / `refs`：只看某条（或某几条）条目的事件，用来做"这条笔记的修改记录"；
+    - `types`：只看某类事件（doc_create / doc_update / doc_merge / doc_delete …）；
+    - 每条事件的 `source` 形如「外部 MCP 客户端 · kb_update_entry · Claude Desktop · 10-12 16:23」。
+    """
+    from datetime import date, timedelta
+
+    from app import activity
+
+    since = date.today() - timedelta(days=max(1, int(days)))
+    events = activity.list_events(since)
+    wanted = {str(x) for x in (refs or []) if str(x).strip()}
+    if str(ref or "").strip():
+        wanted.add(str(ref).strip())
+    if wanted:
+        events = [e for e in events if str(e.get("ref") or "") in wanted]
+    if types:
+        keep = {str(t) for t in types}
+        events = [e for e in events if str(e.get("type") or "") in keep]
+    events = events[-max(1, int(limit)):]
+    rows = [{"timestamp": e.get("timestamp"), "type": e.get("type"), "ref": e.get("ref"),
+             "kind": e.get("kind"), "title": e.get("title"), "project": e.get("project"),
+             "source": e.get("source") or "", "detail": e.get("detail") or {}}
+            for e in events]
+    return {"since": since.isoformat(), "days": int(days), "count": len(rows), "events": rows}

@@ -157,6 +157,11 @@ def browser_checks(url: str, base: dict, v2: dict):
         body = page.evaluate("() => document.querySelector('#vm-pane') ? document.querySelector('#vm-pane').textContent : ''")
         out.append(("②-4 合并后页面刷新（含替换提示或新内容）", "已合并" in body or "MCP" in body, body[:80]))
         # 归档勾选
+        # 修改记录：外部写入必须能在页面上看到来源
+        page.wait_for_selector("#vm-history .vm-hrow", timeout=20000)
+        hist = page.eval_on_selector_all("#vm-history .vm-hrow", "els => els.map(e => e.textContent)")
+        out.append(("②-8 页面显示「修改记录」且带来源",
+                    any("外部 MCP 客户端" in h or "工作台界面" in h for h in hist), str(hist[:2])))
         page.check("[data-vm-archive]")
         page.click("#vm-archive")
         page.wait_for_timeout(2500)

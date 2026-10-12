@@ -166,8 +166,15 @@ def t_dashboard(wb: Workbench, args: dict[str, Any]) -> Any:
 
 
 def t_activity(wb: Workbench, args: dict[str, Any]) -> Any:
-    return wb.activity(days=_limit(args.get("days"), 7, 1, 400))
+    """活动日志（修改记录）。可按条目 id 或事件类型过滤，看清"谁在什么时候改了什么"。"""
+    import core_api
 
+    return core_api.activity_events(int(args.get("days") or 7),
+                                    ref=str(args.get("ref") or "").strip(),
+                                    types=[str(x) for x in (args.get("types") or []) if str(x).strip()],
+                                    limit=int(args.get("limit") or 100))
+    out = core_api.activity_events(days, ref=ref, types=types, limit=int(args.get("limit") or 100))
+    return out
 
 def t_export_bibtex(wb: Workbench, args: dict[str, Any]) -> Any:
     ids = args.get("ids") if isinstance(args.get("ids"), list) else None

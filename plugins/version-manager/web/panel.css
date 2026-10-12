@@ -93,3 +93,10 @@ html[data-density="compact"] [data-plugin="version-manager"] .vm-layout{gap:8px;
 [data-plugin="version-manager"] .vm-hint{border:1px dashed var(--line);border-radius:8px;padding:10px 12px;font-size:11.5px; color:var(--muted);line-height:1.7;background:color-mix(in srgb,var(--line) 10%,transparent)}
 
 [data-plugin="version-manager"] .vm-error{border:1px solid color-mix(in srgb,var(--danger) 40%,var(--line));border-radius:8px;padding:10px 12px; font-size:12px;background:color-mix(in srgb,var(--danger) 6%,transparent)}
+[data-plugin="version-manager"] .vm-hrow{display:grid;grid-template-columns:120px 52px minmax(0,1fr);gap:8px;
+  align-items:baseline;padding:5px 2px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);
+  font-size:11.5px}
+[data-plugin="version-manager"] .vm-htime{color:var(--muted);font-variant-numeric:tabular-nums}
+[data-plugin="version-manager"] .vm-hkind{color:var(--accent-ink);background:var(--accent-soft);
+  border-radius:999px;padding:1px 6px;text-align:center;font-size:10.5px}
+[data-plugin="version-manager"] .vm-hsrc{color:var(--text);overflow:hidden;text-overflow:ellipsis}

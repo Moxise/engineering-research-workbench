@@ -1,5 +1,35 @@
 # Changelog
 
+## v261009.48
+
+**把「修改记录」变成看得见的东西**（用户报告：用 `kb_update_entry` 改了笔记，在历史里看不到修改记录）。
+
+### 先验证：后端其实一直在记
+在真实库上跑了一次 `kb_update_entry`（写回该条自己的正文，内容不变），活动日志确实新增三条：
+
+```
+doc_create · 知识-架构-意图世界模型实现架构（v-1012-162303） · 命令行 · snapshot:来源变化 ->mcp
+doc_update · 知识-架构-意图世界模型实现架构 · 命令行 · mark_forked
+doc_update · 知识-架构-意图世界模型实现架构 · 外部 MCP 客户端 · kb_update_entry · 2026-10-12 16:23   ← 这条就是「修改记录」
+```
+
+**问题在界面**：概览的「最近研究活动」渲染的是 `dash.recent.*`（最近**产生的条目**），**不是活动事件日志** ——
+所以修改记录只躺在 `System/activity.jsonl` 里，界面上没有任何地方显示它。
+
+### 改动
+1. **`core_api.activity_events(days, ref=…, refs=…, types=…, limit=…)`**：内核窗口，插件可读活动日志（I3），
+   每条带 `source` 与合并 `detail`；
+2. **MCP `ws_activity` 支持 `ref` / `types` / `limit`**：外部 Agent 可以直接问
+   `ws_activity { ref: "<条目 id>", days: 30 }` 拿到这条笔记的修改记录；
+3. **version-manager 插件 v1.0.3**：新增路由 `history?id=&days=`，页面详情新增
+   **「④ 修改记录（最近 90 天）」** —— 逐条显示 时间 · 类型（新建/更新/合并/归档/取回）· **来源** ·
+   合并的替换小节；顶部一句说明「外部 MCP 客户端 · kb_update_entry · 客户端名」这类来源会直接写在这里。
+
+### 验收
+`tests/kernel/test_versions_page.py` **11/11**（新增 ②-8：**页面显示「修改记录」且带来源**）；
+`core_api.activity_events` 实测能取到真实库最近事件（含 `外部 MCP 客户端 · kb_update_entry`）；
+快速档 **15/15 · 116/116**。
+
 ## v261009.47
 
 **修两个用户报告的问题**：① 插件卡片「可用」徽章点不动；② 外部 Agent 改了既有笔记却没有修改记录与分支。

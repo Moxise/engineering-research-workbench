@@ -73,6 +73,23 @@ def register(ctx):
         except FileNotFoundError:
             return {"error": "not_found", "message": f"归档里没有这个文件：{file_name}"}
 
+    def route_history(request):
+        """某条笔记（及其各版本）的**修改记录**：时间 · 类型 · 来源 · 合并细节。"""
+        query = request.get("query") or {}
+        doc_id = str((query.get("id") or [""])[0] or "").strip()
+        if not doc_id:
+            return {"error": "bad_request", "message": "缺少 id（条目 id）"}
+        days = int((query.get("days") or ["30"])[0] or 30)
+        try:
+            fam = core_api.variant_family(doc_id)
+        except FileNotFoundError:
+            return {"error": "not_found", "message": f"条目不存在：{doc_id}"}
+        ids = [fam["base_id"]] + [v["id"] for v in fam.get("variants") or []]
+        out = core_api.activity_events(days, refs=ids, limit=200)
+        out["base_id"] = fam["base_id"]
+        return out
+
+    ctx.routes.get("history", route_history)
     ctx.routes.get("overview", route_overview)
     ctx.routes.get("family", route_family)
     ctx.routes.post("merge", route_merge)
