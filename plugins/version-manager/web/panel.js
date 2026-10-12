@@ -110,10 +110,12 @@
   function visible() {
     var kw = STATE.keyword;
     return STATE.families.filter(function (f) {
-      if (STATE.filter === 'forked' && !f.variant_count) return false;
-      if (!kw) return true;
-      return String(f.title || '').toLowerCase().indexOf(kw) >= 0
+      var hit = !kw || String(f.title || '').toLowerCase().indexOf(kw) >= 0
         || String(f.base_id || '').toLowerCase().indexOf(kw) >= 0;
+      // 搜索时忽略「只看分叉中」：没分叉的笔记也要能选中（否则它的更新历史看不到）
+      if (kw) return hit;
+      if (STATE.filter === 'forked' && !f.variant_count) return false;
+      return true;
     });
   }
 
@@ -122,7 +124,9 @@
     var rows = visible();
     if (!rows.length) {
       list.innerHTML = '<div class="empty compact">'
-        + (STATE.filter === 'forked' ? '当前没有分叉中的版本族' : '没有匹配的族') + '</div>';
+        + (STATE.filter === 'forked'
+            ? '当前没有分叉中的版本族。<br>想看某条笔记的<b>更新历史</b>？切到「全部」，或直接搜标题。'
+            : '没有匹配的族') + '</div>';
       return;
     }
     list.innerHTML = rows.map(function (f) {
@@ -130,7 +134,9 @@
         + '" data-vm-base="' + esc(f.base_id) + '" title="' + esc(f.title) + '">'
         + '<span class="vm-item-main">' + esc(f.title || f.base_id) + '</span>'
         + '<span class="vm-item-meta">' + esc(KIND_LABEL[f.kind] || f.kind || '')
-        + (f.variant_count ? ' · <b>' + f.variant_count + ' 个版本</b>' : '') + '</span></button>';
+        + (f.variant_count ? ' · <b>' + f.variant_count + ' 个版本</b>' : '')
+        + (f.updated ? ' · 改于 ' + esc(String(f.updated).replace('T', ' ').slice(5, 16)) : '')
+        + '</span></button>';
     }).join('');
     Array.prototype.forEach.call(list.querySelectorAll('[data-vm-base]'), function (btn) {
       btn.onclick = function () { loadDetail(btn.dataset.vmBase, main); };
@@ -173,7 +179,10 @@
         return '<div class="vm-hrow"><span class="vm-htime">'
           + esc(String(e.timestamp || '').replace('T', ' ').slice(0, 16)) + '</span>'
           + '<span class="vm-hkind">' + esc(HISTORY_LABEL[e.type] || e.type || '') + '</span>'
-          + '<span class="vm-hsrc">' + esc(e.source || '（未记录来源）') + extra + '</span></div>';
+          + '<span class="vm-hsrc">'
+          + (e.source ? esc(e.source)
+                      : '<i class="vm-nosrc">未记录来源（该次写入来自旧版 MCP 进程或外部工具）</i>')
+          + extra + '</span></div>';
       }).join('');
     }).catch(function (e) {
       box.innerHTML = '<div class="vm-error">修改记录读取失败：' + esc(e.message) + '</div>';

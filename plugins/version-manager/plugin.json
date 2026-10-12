@@ -1,7 +1,7 @@
 {
   "id": "version-manager",
   "name": "版本管理",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "同一笔记的不同版本：查看版本族、按小节合并、归档与取回（含来源追踪）",
   "api_version": 1,
   "core_min": "v261009.44",

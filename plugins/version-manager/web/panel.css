@@ -100,3 +100,4 @@ html[data-density="compact"] [data-plugin="version-manager"] .vm-layout{gap:8px;
 [data-plugin="version-manager"] .vm-hkind{color:var(--accent-ink);background:var(--accent-soft);
   border-radius:999px;padding:1px 6px;text-align:center;font-size:10.5px}
 [data-plugin="version-manager"] .vm-hsrc{color:var(--text);overflow:hidden;text-overflow:ellipsis}
+[data-plugin="version-manager"] .vm-nosrc{color:var(--muted);font-style:italic}
