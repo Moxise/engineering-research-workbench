@@ -89,6 +89,10 @@ def main() -> int:
     had_state = STATE_DIR.exists()
     # 插件命名空间（register() 会建目录、跑起来会写快照与 state.json）：按原状还原
     ns_before = snap_many([STATE_DIR, ROOT / "Workspace" / "Plugins" / ID])
+    # v261009.36 · `snap_many` 只删"本次新增的文件"，不改回被改写文件的内容；
+    # state.json 会被本用例改写（守卫时间），这里单独按字节还原，确保测试不动用户的插件状态。
+    _state_file = STATE_DIR / "state.json"
+    _state_before = _state_file.read_bytes() if _state_file.is_file() else None
     try:
         # 先把目标目录指到外部临时目录，避免夹具往用户 Workspace 里写快照
         CONFIG.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +112,12 @@ def main() -> int:
                 time.sleep(0.25)
 
         print("① 启用插件后，后台任务在启动时真的跑了（run_on_start）")
+        # v261009.36 · 先把「上次运行时间」守卫清掉：插件按 state.json 判断"距上次不足间隔就跳过"，
+        # 而环境里可能刚跑过（夹具自己在上一次运行里留下的，或用户手动备过一次），
+        # 那样 run_on_start 会被正当跳过 → 本用例会误报失败（实测踩到）。收尾时按原状还原。
+        _state = STATE_DIR / "state.json"
+        if _state.is_file():
+            _state.unlink()
         request(f"{url}/api/plugin-manager/{ID}/enabled", {"enabled": True})
         auto_made = None
         for _ in range(20):                       # 调度 tick 是 5 秒，最多等 ~20 秒
@@ -266,6 +276,9 @@ def main() -> int:
         restore_many(ns_before)
         if not had_state:
             shutil.rmtree(STATE_DIR, ignore_errors=True)
+        elif _state_before is not None:
+            _state_file.parent.mkdir(parents=True, exist_ok=True)
+            _state_file.write_bytes(_state_before)      # 守卫时间按原样还原
         shutil.rmtree(base, ignore_errors=True)
 
     print("⑨ 收尾")

@@ -35,16 +35,19 @@ def blocks(path: Path) -> list[str]:
 
 
 def main() -> int:
-    # 参数兼容：手跑时第 1 个参数是「要导出的图序号」；被 tools/run_tests.py 调用时第 1 个参数是
-    # 工作台 URL（本用例不需要服务）——两种情况都要能跑（实测把 URL 当序号会直接 ValueError）
-    export_index = 1
-    for arg in sys.argv[1:]:
+    # 参数兼容：手跑时可传「要导出的图序号」（`--export N` 或裸数字）；被 tools/run_tests.py 调用时
+    # 第 1 个参数是工作台 URL（本用例不需要服务）——两种情况都要能跑（实测把 URL 当序号会 ValueError）。
+    # **默认不导出**：`docs/img/structure.svg` 是入库产物，测试每次重写它只会产生"随机 id 变化"的噪音 diff。
+    export_index = 0
+    for index, arg in enumerate(sys.argv[1:]):
         if arg.startswith("http"):
             continue
-        try:
+        if arg == "--export":
+            nxt = sys.argv[index + 2] if index + 2 < len(sys.argv) else "1"
+            export_index = int(nxt) if nxt.isdigit() else 1
+            continue
+        if arg.isdigit() and export_index == 0:
             export_index = int(arg)
-        except ValueError:
-            pass
     from playwright.sync_api import sync_playwright
 
     exe = os.path.expandvars(r"%LOCALAPPDATA%\ms-playwright\chromium-1234\chrome-win64\chrome.exe")

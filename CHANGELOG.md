@@ -1,5 +1,37 @@
 # Changelog
 
+## v261009.37
+
+**收口 doctor 可自动处理的 warn + 测试稳定性收尾**（第③步；`doctor` info 6 → 3 条）。
+
+### 做了什么（表格里都是实测前后）
+| 项 | 处理前 | 处理后 |
+| --- | --- | --- |
+| 索引 WAL | **6.91 MB** | **0 MB**（`python -m core.index.maintain --checkpoint`） |
+| 索引空闲页 | 17% | **4%**（无需 VACUUM，工具自己给出结论） |
+| `Trash/knowledge/` 漂移目录 | 1 个 2026-09-21 的遗留文件 | 已搬出（doctor 该项转 ok） |
+| Syncthing 冲突副本 | 1 个 chat 冲突 json | 已搬出（doctor 该项转 ok） |
+| `Cache/rag.sqlite` | **69 MB**，全仓 grep **无任何代码读它** | 已搬出 |
+| 仓库根 `.rag/` | **92 MB** 早期 RAG 派生索引 | 已搬出（`rag/` 源码保留） |
+
+**全部是"搬出"不是"删除"**：落到仓库外的
+`D:\Project\engineering-research-workbench-archive\<日期>-cleanup\`，随时可搬回；
+每个待搬路径都先 `Resolve-Path` 打印绝对路径再动（`Workspace/` 是你的数据，不批量重写不顺手统一）。
+
+剩下的 3 条 warn 都是**设计使然或需你拍板**：`契约·字段自洽`（`attachment` 仅 UPDATE 可写）、
+`id 前缀与 kind 不符`（契约已明确 id 不承载类型语义）、`不可解析的关联链接`（要你决定补条目还是改链接）。
+
+### 测试稳定性（这一步里被自动化暴露出来的两个真问题）
+1. **`test_backup_snapshot` 依赖环境状态**：插件的 `state.json` 守卫"距上次不足间隔就跳过"，
+   而该用例假定冷启动 —— 环境里刚备过份就必红（实测 52/52 → 0/1）。
+   改为**先清守卫再验启动任务**，收尾把 `state.json` **按字节还原**（`snap_many` 只删新增文件，
+   不还原被改写内容——这点也补了注释）；
+2. **`test_mermaid` 默认导出会重写入库产物**：每次跑都产生"mermaid 随机 id"噪音 diff。
+   改为 **`--export N` 按需导出**，默认只校验不改文件。
+
+另：核对条目数 199 → 201 的来源时确认 `note 90→91`、`summary 4→5`，且**测试无一处直写条目**
+（grep `/api/docs` POST、`kb_create_entry` 零命中）——那两条是用户自己的新内容，不做任何清理。
+
 ## v261009.36
 
 **把临时夹具落成常驻测试 + 热路径提速 ~100×**（用户要求：按建议顺序执行优化，先做这两件）。
