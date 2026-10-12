@@ -157,6 +157,19 @@ def family(base_id: str) -> dict[str, Any]:
     }
 
 
+def is_snapshot(doc: dict[str, Any]) -> bool:
+    """是不是"内核自动留的改动前快照"（区别于用户显式开的分支）。"""
+    return str(doc.get("origin_tool") or "").startswith("snapshot")
+
+
+def latest_variant(base_id: str) -> dict[str, Any] | None:
+    """族里**最新**的活版本（按 variant_at/created，缺省回退 updated）——"默认合并最新版"的口径。"""
+    items = family(base_id)["variants"]
+    if not items:
+        return None
+    return sorted(items, key=lambda d: str(d.get("variant_at") or d.get("created") or d.get("updated") or ""))[-1]
+
+
 def find_same_signature(kind: str, title: str, exclude_id: str = "") -> str | None:
     """在同 kind 里找"标题同签名"的基条（外部工具塞进来的版本靠它自动归族）。"""
     from app import store
@@ -203,7 +216,10 @@ def snapshot_before_write(doc: dict[str, Any], reason: str = "") -> dict[str, An
     """把 `doc` 的**当前内容**另存为一个版本条目（在覆盖写入之前调用）。
 
     触发时机（用户选定）：① 族已处于分叉中；② 写入来源与该条上次写入者不同（冲突信号）。
-    标题保留原名 + `（v-时间戳）` 后缀，靠显式 `variant_of` 归族，不依赖签名匹配。
+
+    **每族只保留一个自动快照**（v261009.56）：族里已有"快照型"版本时**覆盖它**而不是再新建一版——
+    否则同一条笔记被外部工具改几次就会堆出好几个版本条目（用户反馈"不要存这么多笔记"）。
+    显式开的分支（`create_branch` / `kb_branch_entry`）不受影响，仍然各自独立保留。
     """
     from app import store
 
@@ -212,7 +228,20 @@ def snapshot_before_write(doc: dict[str, Any], reason: str = "") -> dict[str, An
     except FileNotFoundError:
         return None
     base = base_id_of(current)
+    body = str(current.get("body") or "")
     label = f"v-{datetime.now().strftime('%m%d-%H%M%S')}"
+    # 已有自动快照 → 覆盖它（保留原 id，改内容与时间；标题同步成新的时间戳标签）
+    for variant in family(base)["variants"]:
+        if is_snapshot(variant):
+            store.update_doc(str(variant["id"]),
+                             {"title": f"{current.get('title') or base}（{label}）",
+                              "body": body, "variant_label": label, "variant_at": _now()},
+                             origin=origin("cli", f"snapshot:{reason[:40]}"), _skip_versioning=True)
+            mark_base_forked(base, True)
+            try:
+                return store.get_doc(str(variant["id"]))
+            except FileNotFoundError:
+                return variant
     payload = {
         "title": f"{current.get('title') or base}（{label}）",
         "status": current.get("status"),
@@ -220,7 +249,7 @@ def snapshot_before_write(doc: dict[str, Any], reason: str = "") -> dict[str, An
         "kind_marks": current.get("kind_marks") or [],
         "variant_of": base,
         "variant_label": label,
-        "body": str(current.get("body") or ""),
+        "body": body,
     }
     snap = store.create_doc(str(current.get("kind") or "note"), payload,
                             origin=origin("cli", f"snapshot:{reason[:40]}"), _skip_versioning=True)

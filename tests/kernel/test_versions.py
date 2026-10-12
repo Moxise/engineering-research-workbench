@@ -91,7 +91,12 @@ try:
     n0 = len(versions.family(base["id"])["variants"])
     store.update_doc(base["id"], {"body": "## 摘要\nMCP 再改\n\n## 方法\nMCP 方法\n"},
                      origin=versions.origin("mcp", "kb_update_entry", "Claude Desktop"))
-    check("④-1 来源变化触发留版本", len(versions.family(base["id"])["variants"]) == n0 + 1)
+    fam4 = versions.family(base["id"])
+    # v261009.56 起：每族只保留**一个**自动快照——再次冲突时覆盖它，而不是再堆一版
+    check("④-1 来源变化仍会留版本，且不再堆新条目",
+          len(fam4["variants"]) == n0
+          and any("界面改的摘要" in (store.get_doc(v["id"]).get("body") or "") for v in fam4["variants"]),
+          f"版本数 {n0} → {len(fam4['variants'])}")
 
     print("⑤ 按小节合并")
     sections = [s["heading"] for s in versions.split_sections(store.get_doc(base["id"])["body"])]

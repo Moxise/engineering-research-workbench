@@ -304,9 +304,18 @@
     var baseMap = sectionMap(base.body);
     var variantMaps = {};
     variants.forEach(function (v) { variantMaps[v.id] = sectionMap(v.body); });
+    function latestId() {
+      // 默认"最新版本"（按 variant_at → created → updated 取最大）
+      if (!variants.length) return '';
+      var sorted = variants.slice().sort(function (a, b) {
+        return String(a.variant_at || a.created || a.updated || '')
+          .localeCompare(String(b.variant_at || b.created || b.updated || ''));
+      });
+      return sorted[sorted.length - 1].id;
+    }
     function comparedId(heading) {
-      // 对照版本：优先用户选的那版（STATE.compare），其次该小节已选的来源，最后第一版
-      return STATE.picks[heading] || STATE.compare || (variants[0] && variants[0].id) || '';
+      // 对照版本：用户选的（STATE.compare）→ 该小节已选的来源 → **最新版本**
+      return STATE.compare || STATE.picks[heading] || latestId() || '';
     }
     function statusFor(heading) {
       var vid = comparedId(heading);
@@ -369,7 +378,7 @@
         + ' 个小节与基准一致 · 已自动沿用（点开可核对）</summary>' + sameRows.join('') + '</details>'
       : '';
 
-    var compareId = STATE.compare || (variants[0] && variants[0].id) || '';
+    var compareId = STATE.compare || latestId() || '';
     var compareOptions = variants.map(function (v) {
       return '<option value="' + esc(v.id) + '"' + (v.id === compareId ? ' selected' : '') + '>'
         + esc(v.label || v.id) + '</option>';
@@ -380,6 +389,8 @@
       : '';
     var compareLabel = (variants.filter(function (v) { return v.id === compareId; })[0] || variants[0] || {});
     compareLabel = compareLabel.label || compareLabel.id || '';
+    var latestPick = variants.filter(function (v) { return v.id === latestId(); })[0] || {};
+    var latestLabel = latestPick.label || latestPick.id || '';
     var summary = variants.length
       ? '<div class="vm-hint" style="margin-bottom:8px">' + comparePicker + '与 <b>' + esc(compareLabel) + '</b> 相比：'
         + (changedCount
@@ -387,6 +398,10 @@
               + '选「基准」即不采用）'
             : '正文完全一致，没有需要确认的改动')
         + '；其余小节自动沿用基准。<br>'
+        + (variants.length > 1
+            ? '<button type="button" class="primary-btn" id="vm-adopt-latest" style="margin-top:6px">'
+              + '采用最新版本（' + esc(latestLabel) + '）并归档其余</button> '
+            : '')
         + (changedCount
             ? '<button type="button" class="secondary-btn" id="vm-accept-all" style="margin-top:6px">'
               + '全部采用 ' + esc(compareLabel) + ' 的改动</button>'
@@ -511,6 +526,18 @@
         markChoice(heading, false);
       };
     });
+
+    var adoptLatest = pane.querySelector('#vm-adopt-latest');
+    if (adoptLatest) adoptLatest.onclick = function () {
+      var vid = latestId();
+      if (!vid) return;
+      if (window.confirm && !window.confirm('采用最新版本？基条内容会被它整篇替换，其余版本归档（可追溯）')) return;
+      post(API + '/adopt', { base_id: d.base_id, variant_id: vid, archive_others: true })
+        .then(function (out) {
+          toast('已采用最新版本（其余 ' + ((out.archived || {}).archived || []).length + ' 个已归档）');
+          loadDetail(d.base_id, main);
+        }).catch(function (e) { toast('采用失败：' + e.message, true); });
+    };
 
     var acceptAll = pane.querySelector('#vm-accept-all');
     if (acceptAll) acceptAll.onclick = function () {
