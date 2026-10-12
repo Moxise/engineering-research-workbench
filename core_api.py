@@ -296,3 +296,111 @@ __all__ = [
     "config_path", "read_config", "write_config", "http_get", "log",
     "lit_list", "lit_item", "lit_note", "lit_note_save", "lit_annotations", "lit_note_image",
 ]
+
+# ---------------------------------------------------------------- 版本族（v261009.44）
+#: 插件要做「同一笔记的不同版本」的界面/工具时，走这几个函数即可——**不要**去 import app.versions
+#: （I3：插件只许 from core_api import …）。内核负责数据模型与写入时的留版，这里只暴露操作窗口。
+
+def version_overview() -> dict:
+    """所有版本族的总览（族数 / 分叉中 / 版本数 + 每族摘要）。
+
+    必须用**文件层**的 `store.list_docs()`，不能用 `entries()`：后者走 SQLite 索引，
+    而索引 schema 不含 `variant_of` 这类新字段，会把每个版本都当成独立族（实测踩到：
+    总览报 2 个族 / 0 个分叉）。
+    """
+    from app import store
+    from app import versions as V
+
+    families: dict[str, dict] = {}
+    for doc in store.list_docs():
+        vid = str(doc.get("variant_of") or "").strip()
+        base = vid or str(doc.get("id") or "")
+        row = families.setdefault(base, {"base_id": base, "base": None, "variants": [], "updated": ""})
+        if vid:
+            row["variants"].append(doc)
+        else:
+            row["base"] = doc
+        stamp = str(doc.get("updated") or "")
+        if stamp > str(row.get("updated") or ""):
+            row["updated"] = stamp
+    out = []
+    for row in families.values():
+        if not row["base"] and row["variants"]:
+            row["base"] = row["variants"][0]
+        out.append({"base_id": row["base_id"], "title": (row["base"] or {}).get("title") or "",
+                    "kind": (row["base"] or {}).get("kind") or "", "updated": row["updated"],
+                    "variant_count": len(row["variants"]),
+                    "variants": [{"id": v.get("id"), "label": v.get("variant_label") or "",
+                                  "updated": v.get("updated"), "origin": V.describe_origin(v)}
+                                 for v in row["variants"]]})
+    out.sort(key=lambda r: (r["variant_count"] == 0, str(r["updated"])[::-1]))
+    return {"families": out, "counts": {"families": len(out),
+                                        "forked": sum(1 for r in out if r["variant_count"]),
+                                        "variants": sum(r["variant_count"] for r in out)}}
+
+
+def variant_family(doc_id: str, *, with_body: bool = False) -> dict:
+    """一个版本族的详情：基条 + 各版本（含来源、小节清单；with_body=True 时带正文）+ 已归档清单。"""
+    from app import versions as V
+
+    doc = entry(doc_id)
+    base = V.base_id_of(doc)
+    fam = V.family(base)
+
+    def row(item, body: bool):
+        if not item:
+            return {}
+        out = {"id": item.get("id"), "title": item.get("title"),
+               "label": item.get("variant_label") or "", "status": item.get("status"),
+               "updated": item.get("updated"), "created": item.get("created"),
+               "origin": V.describe_origin(item), "origin_surface": item.get("origin_surface") or "",
+               "sections": [s["heading"] for s in V.split_sections(item.get("body") or "") if s["heading"]]}
+        if body:
+            out["body"] = item.get("body") or ""
+        return out
+
+    return {"base_id": base, "forked": fam["forked"], "base": row(fam["base"], with_body),
+            "variants": [row(v, with_body) for v in fam["variants"]], "archived": fam["archived"],
+            "sections": [s["heading"] for s in V.split_sections((fam["base"] or {}).get("body") or "")
+                         if s["heading"]]}
+
+
+def variant_sections(body: str) -> list[str]:
+    """正文里的 H2 小节标题（合并时按它挑来源）。"""
+    from app import versions as V
+
+    return [s["heading"] for s in V.split_sections(body) if s["heading"]]
+
+
+def merge_variants(base_id: str, picks: dict, *, archive_merged: bool = False,
+                   origin: dict | None = None) -> dict:
+    """按小节合并版本族：picks = {小节标题: 来源版本 id}，结果写回基条。"""
+    from app import versions as V
+
+    fam = V.family(base_id)
+    if not fam["base"]:
+        raise FileNotFoundError(f"基条不存在：{base_id}")
+    bodies = {v["id"]: (entry(v["id"]).get("body") or "") for v in fam["variants"]}
+    merged, replaced = V.merge_bodies(fam["base"].get("body") or "", picks or {}, bodies)
+    entry_update(base_id, body=merged, origin=dict(origin or V.origin("plugin", "merge_variants")))
+    out = {"base_id": base_id, "replaced_sections": replaced, "body_length": len(merged)}
+    if archive_merged:
+        ids = [v for v in bodies if v in set((picks or {}).values())]
+        if ids:
+            out["archived"] = V.archive_variants(base_id, ids, {"tool": "merge_variants"})
+    return out
+
+
+def archive_variants(base_id: str, variant_ids: list) -> dict:
+    """归档指定版本到 System/Versions/<基条>/archived/（保留可追溯）。"""
+    from app import versions as V
+
+    return V.archive_variants(base_id, [str(x) for x in (variant_ids or []) if str(x).strip()],
+                              {"tool": "archive_variants"})
+
+
+def restore_variant(base_id: str, file_name: str) -> dict:
+    """把归档区里的某一份取回成一个活版本。"""
+    from app import versions as V
+
+    return V.restore_variant(base_id, file_name)

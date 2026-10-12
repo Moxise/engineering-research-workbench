@@ -1,4 +1,4 @@
-"""验证「版本」页：真浏览器里族列表 / 详情 / 小节挑内容 / 合并 / 归档 / 取回。
+"""验证「版本管理」插件页：真浏览器里族列表 / 详情 / 小节挑内容 / 合并 / 归档 / 取回。
 
 在**隔离工作区**里造数据（monkeypatch config），再用真服务器 + 真浏览器走一遍，
 不碰真实知识库。用法：`python tests/kernel/test_versions_page.py [工作台URL]`
@@ -82,23 +82,23 @@ def main() -> int:
         threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True).start()
         for _ in range(60):
             try:
-                get(f"{url}/api/versions")
+                get(f"{url}/api/plugins/version-manager/overview")
                 break
             except Exception:
                 time.sleep(0.25)
 
         print("① HTTP 接口")
-        overview = get(f"{url}/api/versions")
+        overview = get(f"{url}/api/plugins/version-manager/overview")
         check("①-1 总览里有 1 个族、1 个分叉", overview["counts"]["families"] == 1
               and overview["counts"]["forked"] == 1, str(overview["counts"]))
-        detail = get(f"{url}/api/versions/{base['id']}")
+        detail = get(f"{url}/api/plugins/version-manager/family?id={base['id']}")
         check("①-2 详情含基条 + 1 个版本 + 小节清单",
               detail["base"]["id"] == base["id"] and len(detail["variants"]) == 1
               and "摘要" in detail["sections"], str(detail["sections"]))
         check("①-3 详情里能看到 MCP 来源",
               "MCP" in (detail["variants"][0]["origin"] or ""), detail["variants"][0]["origin"])
 
-        print("② 真浏览器：页面与操作")
+        print("② 真浏览器：插件页面与操作")
         for name, ok, text in browser_checks(url, base, v2):
             check(name, ok, text)
     finally:
@@ -137,36 +137,36 @@ def browser_checks(url: str, base: dict, v2: dict):
         page = browser.new_context(viewport={"width": 1500, "height": 950}).new_page()
         errs = []
         page.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
-        page.goto(f"{url}/#versions", wait_until="networkidle", timeout=60000)
-        page.wait_for_selector(".ver-item", timeout=30000)
+        page.goto(f"{url}/#version-manager", wait_until="networkidle", timeout=60000)
+        page.wait_for_selector(".vm-item", timeout=30000)
         page.wait_for_timeout(800)
         out.append(("②-1 侧栏出现「版本」导航项",
-                    page.eval_on_selector_all("[data-route]", "els => els.some(e => e.dataset.route === 'versions')"), ""))
-        page.click(".ver-item")
-        page.wait_for_selector("#ver-merge", timeout=20000)
+                    page.eval_on_selector_all("[data-route]", "els => els.some(e => e.dataset.route === 'version-manager')"), ""))
+        page.click(".vm-item")
+        page.wait_for_selector("#vm-merge", timeout=20000)
         page.wait_for_timeout(600)
         out.append(("②-2 族详情渲染出各版本与来源",
-                    page.eval_on_selector_all(".ver-vrow", "els => els.length") >= 1
-                    and page.eval_on_selector_all(".ver-origin", "els => els.length") >= 2, ""))
-        sections = page.eval_on_selector_all("[data-ver-pick]", "els => els.map(e => e.dataset.verPick)")
+                    page.eval_on_selector_all(".vm-vrow", "els => els.length") >= 1
+                    and page.eval_on_selector_all(".vm-origin", "els => els.length") >= 2, ""))
+        sections = page.eval_on_selector_all("[data-vm-pick]", "els => els.map(e => e.dataset.vmPick)")
         out.append(("②-3 小节可挑来源", set(sections) >= {"摘要", "方法"}, str(sections)))
         # 选「摘要」用 v2，然后合并
-        page.select_option('[data-ver-pick="摘要"]', v2["id"])
-        page.click("#ver-merge")
+        page.select_option('[data-vm-pick="摘要"]', v2["id"])
+        page.click("#vm-merge")
         page.wait_for_timeout(2500)
-        body = page.evaluate("() => document.querySelector('#ver-pane') ? document.querySelector('#ver-pane').textContent : ''")
+        body = page.evaluate("() => document.querySelector('#vm-pane') ? document.querySelector('#vm-pane').textContent : ''")
         out.append(("②-4 合并后页面刷新（含替换提示或新内容）", "已合并" in body or "MCP" in body, body[:80]))
         # 归档勾选
-        page.check("[data-ver-archive]")
-        page.click("#ver-archive")
+        page.check("[data-vm-archive]")
+        page.click("#vm-archive")
         page.wait_for_timeout(2500)
-        has_archived = page.eval_on_selector_all(".ver-arow", "els => els.length")
+        has_archived = page.eval_on_selector_all(".vm-arow", "els => els.length")
         out.append(("②-5 归档后出现归档区（可追溯）", has_archived >= 1, str(has_archived)))
         if has_archived:
-            page.click("[data-ver-restore]")
+            page.click("[data-vm-restore]")
             page.wait_for_timeout(2500)
             out.append(("②-6 取回后重新出现活版本",
-                        page.eval_on_selector_all(".ver-vrow", "els => els.length") >= 1, ""))
+                        page.eval_on_selector_all(".vm-vrow", "els => els.length") >= 1, ""))
         out.append(("②-7 0 console error", not errs, str(errs[:3])))
         browser.close()
     return out

@@ -315,6 +315,11 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 `dashboard()`、`kind_labels()`、`kind_order()`、`kernel_version()`。它们与 HTTP 端点**同一套查询实现**
 （实测同源同量），插件因此不必自己读 `Workspace/Knowledge/*.md`（绕过索引会看到过期或半写状态）。
 
+**版本窗口（v261009.44 起）**：`version_overview()` / `variant_family(doc_id, with_body=…)` /
+`variant_sections(body)` / `merge_variants(base_id, picks, archive_merged=…)` /
+`archive_variants(base_id, ids)` / `restore_variant(base_id, file)` —— 做「同一笔记的不同版本」的
+界面与工具时用它；**版本与来源的记录在内核写入路径**，插件只操作，不自己解析文件。
+
 **写窗口（v261009.25 起）**：`entry_update(doc_id, body=…, **字段)` —— 改条目正文或白名单字段，
 走内核的**校验写入路径**（字段白名单取自 `core/contracts`、原子写、记 `doc_update` 活动）。
 它与 `lit_note_save` 同一模式：**安全闸门在内核**——插件把它注册成写工具（`spec.write = true`）后，

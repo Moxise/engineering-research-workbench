@@ -1,0 +1,77 @@
+/* versions.css · v261009.43 —— 「版本」页（族列表 + 逐版对照 + 合并/归档）
+ *
+ * 口径与内核既有页面一致：两栏、行高 31px、圆角 7px、当前项用 --accent-soft + --accent-ink、
+ * **只有内容列滚动**（窗口不滚）。
+ *
+ * v261009.43 修掉三个实测问题：
+ *  ① 左栏行被压扁 + 出现横向滚动条 —— 列表是 grid，子项缺 min-width:0 导致列宽按内容撑开；
+ *     改为 grid-auto-rows:min-content + overflow-x:hidden + 标题 min-width:0 省略号。
+ *  ② 右栏头部与 ① 之间一大片空白 —— 上一版给 .vm-pane 设了 grid-template-rows:minmax(0,1fr)，
+ *     多个子元素时第一个子元素独占整屏；改回普通块流 + overflow:auto。
+ *  ③ 202 个族全列出来等于噪音 —— 左栏默认**只看分叉中的族**，另有「全部」与搜索框。
+ */
+
+[data-plugin="version-manager"] .vm-layout{
+  gap:12px;height:calc(100vh - 121px)}
+[data-plugin="version-manager"] html[data-density="compact"] .vm-layout{
+@media (max-width:900px){.vm-layout{grid-template-columns:1fr;height:auto}}
+
+/* ---------- 左栏：说明 + 状态 + 过滤 + 列表 ---------- */
+[data-plugin="version-manager"] .vm-side{
+[data-plugin="version-manager"] .vm-side h3{
+[data-plugin="version-manager"] .vm-side .row-meta{
+[data-plugin="version-manager"] .vm-stats{
+[data-plugin="version-manager"] .vm-chip{
+  background:var(--surface-2);color:var(--muted)}
+[data-plugin="version-manager"] .vm-chip.on{
+[data-plugin="version-manager"] .vm-filter{
+[data-plugin="version-manager"] .vm-seg{
+[data-plugin="version-manager"] .vm-seg button{
+  padding:4px 9px;cursor:pointer}
+[data-plugin="version-manager"] .vm-seg button.active{
+[data-plugin="version-manager"] .vm-filter .search-input{
+
+[data-plugin="version-manager"] .vm-list{
+  padding-right:2px}
+[data-plugin="version-manager"] .vm-item{
+  border:0;border-radius:7px;background:transparent;color:var(--muted);font:inherit;font-size:12px;
+  line-height:1.45;cursor:pointer}
+[data-plugin="version-manager"] .vm-item:hover{
+[data-plugin="version-manager"] .vm-item.active{
+[data-plugin="version-manager"] .vm-item-main{
+[data-plugin="version-manager"] .vm-item-meta{
+  color:var(--muted)}
+[data-plugin="version-manager"] .vm-item.active .vm-item-meta{
+[data-plugin="version-manager"] .vm-item-meta b{
+
+/* ---------- 右栏：块流 + 自身滚动（不要再上 grid 行模板） ---------- */
+[data-plugin="version-manager"] .vm-pane{
+[data-plugin="version-manager"] .vm-head{
+[data-plugin="version-manager"] .vm-head h3{
+[data-plugin="version-manager"] .vm-block{
+[data-plugin="version-manager"] .vm-block h4{
+[data-plugin="version-manager"] .vm-base-row, [data-plugin="version-manager"] .vm-vrow, [data-plugin="version-manager"] .vm-arow{
+  border:1px solid var(--line);border-radius:8px;background:var(--surface-2);margin-bottom:6px}
+[data-plugin="version-manager"] .vm-base-row{
+[data-plugin="version-manager"] .vm-vrow{
+[data-plugin="version-manager"] .vm-vrow:hover{
+[data-plugin="version-manager"] .vm-arow{
+[data-plugin="version-manager"] .vm-vtext{
+[data-plugin="version-manager"] .vm-vtext b{
+[data-plugin="version-manager"] .vm-vmeta{
+[data-plugin="version-manager"] .vm-vmeta code{
+  padding:0 4px;border-radius:4px}
+[data-plugin="version-manager"] .vm-origin{
+  color:var(--muted);background:var(--surface);max-width:280px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+[data-plugin="version-manager"] .vm-origin.mcp{
+[data-plugin="version-manager"] .vm-origin.plugin{
+[data-plugin="version-manager"] .vm-origin.agent{
+[data-plugin="version-manager"] .vm-srow{
+[data-plugin="version-manager"] .vm-sname{
+[data-plugin="version-manager"] .vm-check{
+[data-plugin="version-manager"] .vm-actions{
+[data-plugin="version-manager"] .vm-hint{
+  color:var(--muted);line-height:1.7;background:color-mix(in srgb,var(--line) 10%,transparent)}
+[data-plugin="version-manager"] .vm-error{
+  font-size:12px;background:color-mix(in srgb,var(--danger) 6%,transparent)}

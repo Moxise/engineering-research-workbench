@@ -52,10 +52,9 @@ LITNOTE_WAS_ENABLED = (_snap.get("literature-reader") or {}).get("enabled", True
 
 print("== 1. 内核工具集 ==")
 from app import agent_tools as T  # noqa: E402
-check("内核工具 = 4 个基础 + 3 个版本工具（v261009.41 加版本族）",
-      set(T.TOOL_NAMES) == {"kb_search", "kb_read", "kb_create_entry", "kb_update_entry",
-                            "kb_variants", "kb_merge_variants", "kb_archive_variants"}, str(T.TOOL_NAMES))
-check("工具集与规格一致（含版本工具）",
+check("内核工具恰好 4 个（SCOPE §5.1 铁律；版本工具已搬进 version-manager 插件）",
+      set(T.TOOL_NAMES) == {"kb_search", "kb_read", "kb_create_entry", "kb_update_entry"}, str(T.TOOL_NAMES))
+check("工具集与规格一致",
       set(T.TOOL_NAMES) == {s["function"]["name"] for s in T.openai_specs()}, str(T.TOOL_NAMES))
 check("内核工具实现表里没有文献工具", not ({"lit_context", "lit_note_write"} & set(T._TOOL_IMPL)))
 

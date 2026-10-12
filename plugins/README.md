@@ -55,6 +55,7 @@ python tools/new_plugin.py my-tool --name "我的工具" --desc "一句话说明
 | `backup-snapshot` | 备份与快照：内核后台任务（`ctx.jobs`）定时打包知识库与配置、按份数清理 | 可选 |
 | `milestone-calendar` | 日历与提醒：里程碑/待办到期视图 + `topbar` 常驻角标 | 可选 |
 | `metrics-table` | 指标表：把条目正文 ```metrics 块聚合成跨条目对照表 + CSV/Markdown 导出（写入走草稿闸门） | 可选 |
+| `version-manager` | 同一笔记的不同版本：版本族查看、按小节合并、归档/取回（数据模型在内核） | 附属（开） |
 
 常用命令：
 

@@ -1,5 +1,44 @@
 # Changelog
 
+## v261009.44
+
+**「版本」功能改为插件：`plugins/version-manager/`**（用户要求"将该功能作为插件"）。
+
+### 边界怎么划的
+| 归**内核**（插件无法替代） | 归**插件**（`version-manager`） |
+| --- | --- |
+| 契约字段 `variant_of`/`variant_label`/`has_variants`/`origin_*` | 导航页（族列表、逐版对照、挑小节、归档/取回） |
+| **写入收口点**记来源、分叉/冲突时先留一版（`store.create_doc/update_doc`） | 本插件 5 条 HTTP 路由 + 3 个 Agent 工具（两个写工具走草稿确认） |
+| 版本逻辑引擎 `app/versions.py`（归族、分节合并、归档区） | —— |
+| MCP 侧同名工具（`mcp/` 属内核侧） | —— |
+
+理由：版本与来源必须在内核的**写入收口点**处理，否则界面 / 内核 Agent / MCP / 插件四条路径里总有漏网的；
+而"页面与操作"是功能面，按项目架构归插件。
+
+### 具体改动
+- **新增插件** `plugins/version-manager/`（`plugin.json` / `backend.py` / `web/panel.js` / `web/panel.css` /
+  `README.md`）：`default_enabled: true`（附属），权限 `ui:panel` + `config:own`，导航 id `version-manager`，
+  路由 `overview|family|merge|archive|restore`，工具 `versions|merge_versions|archive_versions`，并带 `preview`。
+- **`core_api` 新增版本窗口**（插件唯一入口，I3）：`version_overview` / `variant_family` / `variant_sections` /
+  `merge_variants` / `archive_variants` / `restore_variant`。
+- **内核移除**：页面 `web/versions.{js,css}` 与装配清单条目、`/api/versions*` 路由与 4 个辅助函数、
+  3 个内核 Agent 工具（内核工具回到 **4 个**，与 SCOPE §5.1 一致）；MCP 工具保留。
+- 升 `VERSION` → `v261009.44`（插件 `core_min` 指向引入版本窗口的这一版）。
+
+### 实现里踩到并修掉的两个真问题
+1. **`core_api.entries()` 走 SQLite 索引，而索引 schema 不含 `variant_of`** → 总览把每个版本都当成独立族
+   （实测报 2 个族 / 0 个分叉）。`version_overview` 改用**文件层** `store.list_docs()`。
+2. 换实现时漏了 `from app import versions as V`（函数后半段还在用它）→ 插件路由 500；
+   已修，并在注释里写明"这里必须走文件层"的原因。
+
+### 验收
+- 插件校验通过（`core.plugins check version-manager`）；`plugin_check --assert-core-only`、`web_check`、
+  `kb_smoke`、`core.plugins list`、`mcp.server --selftest` 全绿；
+- `tests/kernel/test_versions_page.py` **10/10**（已改为走插件路由与 `.vm-*` 选择器）：
+  族详情、来源 chip、挑小节、合并、归档、取回、0 console error；
+- `tests/kernel/test_versions.py` **22/22**（内核逻辑不变）；快速档 **14/14 · 92/92**；
+- `tests/plugins/test_reader_plugin_tools.py` 的"内核工具恰好 4 个"断言恢复成立（版本工具已搬走）。
+
 ## v261009.43
 
 **「版本」页 UI 重做**（用户反馈"UI 不可看"）——修掉截图里能看到的三个真问题。

@@ -198,77 +198,11 @@ def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
             "draft": {"tool": "kb_update_entry", "doc_id": doc_id, "title": doc.get("title"), "append": append}}
 
 
-def _t_kb_variants(args: dict, ctx: dict) -> dict:
-    """列某条条目的版本族（基条 + 各版本 + 已归档清单 + 来源）。"""
-    from . import versions as V
-
-    doc_id = str(args.get("doc_id") or "").strip()
-    if not doc_id:
-        return {"ok": False, "error": "缺少 doc_id"}
-    base = doc_id
-    try:
-        doc = store.get_doc(doc_id)
-        base = V.base_id_of(doc)
-    except FileNotFoundError:
-        return {"ok": False, "error": f"条目不存在：{doc_id}"}
-    fam = V.family(base)
-    return {"ok": True, "base_id": base, "forked": fam["forked"], "count": fam["count"],
-            "base": _variant_row(fam["base"]),
-            "variants": [_variant_row(v) for v in fam["variants"]],
-            "archived": fam["archived"]}
-
-
-def _variant_row(doc: dict | None) -> dict:
-    from . import versions as V
-
-    if not doc:
-        return {}
-    return {"id": doc.get("id"), "title": doc.get("title"), "label": doc.get("variant_label") or "",
-            "status": doc.get("status"), "updated": doc.get("updated"),
-            "origin": V.describe_origin(doc)}
-
-
-def _t_kb_merge_variants(args: dict, ctx: dict) -> dict:
-    """按小节合并版本族：选基准 + 逐节挑来源，合并结果写回基条，其余可归档。"""
-    from . import versions as V
-
-    base_id = str(args.get("base_id") or args.get("doc_id") or "").strip()
-    if not base_id:
-        return {"ok": False, "error": "缺少 base_id"}
-    picks = args.get("picks") if isinstance(args.get("picks"), dict) else {}
-    fam = V.family(base_id)
-    if not fam["base"]:
-        return {"ok": False, "error": f"基条不存在：{base_id}"}
-    bodies = {v["id"]: (store.get_doc(v["id"]).get("body") or "") for v in fam["variants"]}
-    merged, replaced = V.merge_bodies(fam["base"].get("body") or "", picks, bodies)
-    store.update_doc(base_id, {"body": merged}, origin=V.origin("agent", "kb_merge_variants"))
-    out = {"ok": True, "base_id": base_id, "replaced_sections": replaced, "body_length": len(merged)}
-    if args.get("archive_merged"):
-        ids = [v for v in bodies if v in set(picks.values())]
-        if ids:
-            out["archived"] = V.archive_variants(base_id, ids, {"tool": "kb_merge_variants"})
-    return out
-
-
-def _t_kb_archive_variants(args: dict, ctx: dict) -> dict:
-    """归档指定版本（移入 System/Versions/<base>/archived/，保留可追溯）。"""
-    from . import versions as V
-
-    base_id = str(args.get("base_id") or "").strip()
-    ids = [str(x) for x in (args.get("variant_ids") or []) if str(x).strip()]
-    if not base_id or not ids:
-        return {"ok": False, "error": "需要 base_id 与 variant_ids"}
-    return {"ok": True, **V.archive_variants(base_id, ids, {"tool": "kb_archive_variants"})}
-
-
 _TOOL_IMPL: dict[str, Callable[[dict, dict], dict]] = {
     "kb_search": _t_kb_search,
     "kb_read": _t_kb_read,
     "kb_create_entry": _t_kb_create_entry,
     "kb_update_entry": _t_kb_update_entry,
-    "kb_variants": _t_kb_variants,
-    "kb_merge_variants": _t_kb_merge_variants,
-    "kb_archive_variants": _t_kb_archive_variants,
 }
 
 TOOL_NAMES = tuple(_TOOL_IMPL)
@@ -326,48 +260,7 @@ _TOOL_META: dict[str, dict[str, Any]] = {
         }, "required": ["doc_id", "body"]},
         "write": True,
     },
-    "kb_variants": {
-        "description": "列某条条目的版本族：基条 + 各版本 + 已归档清单，并显示每一版是谁写的"
-                       "（工作台界面 / 内核 Agent / 外部 MCP 客户端 / 插件）。同一笔记的不同版本靠它查看。",
-        "params": {
-            "type": "object",
-            "properties": {"doc_id": {"type": "string", "description": "任一条目的 id（基条或某个版本都行）"}},
-            "required": ["doc_id"],
-        },
-        "write": False,
-    },
-    "kb_merge_variants": {
-        "description": "按小节合并一个版本族：先选基准（基条），再逐节指定用哪个版本的内容；"
-                       "合并结果写回基条。可顺带把被合并掉的版本归档（archive_merged=true）。"
-                       "**写工具**：confirm 模式下内核只生成草稿，用户确认后才落盘。",
-        "params": {
-            "type": "object",
-            "properties": {
-                "base_id": {"type": "string", "description": "族里的基条 id"},
-                "picks": {"type": "object",
-                          "description": "要替换的小节 → 来源版本 id，例如「摘要」→「note-…-v2」；"
-                                         "未列出的小节沿用基准",
-                          "additionalProperties": {"type": "string"}},
-                "archive_merged": {"type": "boolean", "description": "合并后把被替换的版本一并归档"},
-            },
-            "required": ["base_id"],
-        },
-        "write": True,
-    },
-    "kb_archive_variants": {
-        "description": "归档指定版本：移入 Workspace/System/Versions/<基条>/archived/ 永久保留"
-                       "（可追溯、可再取回），主库与检索里不再出现。**写工具**：走草稿确认。",
-        "params": {
-            "type": "object",
-            "properties": {
-                "base_id": {"type": "string"},
-                "variant_ids": {"type": "array", "items": {"type": "string"},
-                                "description": "要归档的版本 id 列表"},
-            },
-            "required": ["base_id", "variant_ids"],
-        },
-        "write": True,
-    },
+
 }
 
 
