@@ -36,13 +36,15 @@ class Workbench:
             if root not in sys.path:
                 sys.path.insert(0, root)
             try:
-                from app import activity, config, indexer, projects, search, store, todos, workspace
+                from app import (activity, config, indexer, projects, search, store, todos,
+                                 versions, workspace)
             except Exception as exc:  # pragma: no cover - 环境缺失时给出可读提示
                 raise WorkbenchError(f"无法加载工作台 app 包（{self.repo_root}）：{exc}") from exc
             config.init()  # v261009 · 配置初始化改由入口显式触发（不再在 config 模块 import 期执行）
             self._mod = SimpleNamespace(
                 activity=activity, config=config, indexer=indexer, projects=projects,
                 search=search, store=store, todos=todos, workspace=workspace,
+                versions=versions,      # v261009.45 · 版本族（MCP 的开分支/合并/族视图用它）
             )
         return self._mod
 

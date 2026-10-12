@@ -139,7 +139,8 @@ def family(base_id: str) -> dict[str, Any]:
     for doc in store.list_docs():
         if str(doc.get("variant_of") or "") == base_id:
             variants.append(doc)
-    variants.sort(key=lambda d: (str(d.get("created") or ""), str(d.get("title") or "")))
+    variants.sort(key=lambda d: (str(d.get("variant_at") or d.get("created") or ""),
+                                 str(d.get("title") or "")))
     return {
         "base_id": base_id,
         "base": base,
@@ -147,6 +148,12 @@ def family(base_id: str) -> dict[str, Any]:
         "archived": archived_index(base_id),
         "forked": bool(variants),
         "count": len(variants) + (1 if base else 0),
+        # 每条分支的时间（v261009.45）：创建 variant_at（缺省回退 created）/ 最近写入 updated / 该次写入时间 origin_at
+        "times": {str(d.get("id")): {"variant_at": d.get("variant_at") or d.get("created") or "",
+                                    "created": d.get("created") or "",
+                                    "updated": d.get("updated") or "",
+                                    "origin_at": d.get("origin_at") or ""}
+                  for d in variants},
     }
 
 
@@ -352,3 +359,67 @@ def restore_variant(base_id: str, file_name: str) -> dict[str, Any]:
     doc = store.create_doc(str(meta.get("kind") or "note"), payload,
                            origin=origin("ui", "restore_variant"), _skip_versioning=True)
     return {"restored": True, "entry": doc, "from": file_name}
+
+def create_branch(source_id: str, *, label: str = "", title: str = "", body: str | None = None,
+                  origin_info: dict[str, str] | None = None) -> dict[str, Any]:
+    """**开一条分支**：以某条条目（基条或任一版本）为源，复制内容成一个新版本。
+
+    - `label` 缺省用 `v-<时间戳>`；`title` 缺省为「源标题（label）」；
+    - 记录 `variant_of`（归族）、`variant_label`（人看的版本名）、**`variant_at`（这条分支的创建时间）**；
+    - `body` 给了就用它（例如外部工具已经改好的内容），否则复制源正文。
+    """
+    from app import store
+
+    source = store.get_doc(str(source_id))
+    base = base_id_of(source)
+    stamp = datetime.now().strftime("%m%d-%H%M%S")
+    label = str(label or "").strip() or f"v-{stamp}"
+    payload = {
+        "title": str(title or "").strip() or f"{source.get('title')}（{label}）",
+        "status": source.get("status"),
+        "tags": source.get("tags") or [],
+        "kind_marks": source.get("kind_marks") or [],
+        "variant_of": base,
+        "variant_label": label,
+        "variant_at": _now(),
+        "body": source.get("body") if body is None else str(body),
+    }
+    doc = store.create_doc(str(source.get("kind") or "note"), payload,
+                           origin=dict(origin_info or origin("cli", "create_branch")),
+                           _skip_versioning=True)
+    mark_base_forked(base, True)
+    return {"base_id": base, "entry": doc, "variant_label": label,
+            "variant_at": doc.get("variant_at") or _now(),
+            "source_id": str(source_id)}
+
+
+def merge_family(base_id: str, picks: dict[str, str] | None = None, *, archive_merged: bool = False,
+                 origin_info: dict[str, str] | None = None) -> dict[str, Any]:
+    """**合并**一个版本族的唯一实现（界面 / 内核 Agent / 插件 / MCP 都调这里）。
+
+    合并正文 → 写回基条 → 记 `doc_merge` 活动（含替换小节、参与版本、是否归档、时间）。
+    """
+    from app import activity, store
+
+    fam = family(base_id)
+    if not fam["base"]:
+        raise FileNotFoundError(f"基条不存在：{base_id}")
+    picks = dict(picks or {})
+    bodies = {v["id"]: (store.get_doc(v["id"]).get("body") or "") for v in fam["variants"]}
+    merged, replaced = merge_bodies(fam["base"].get("body") or "", picks, bodies)
+    info = dict(origin_info or origin("cli", "merge_family"))
+    store.update_doc(base_id, {"body": merged}, origin=info)
+    used = sorted({vid for vid in picks.values() if vid in bodies})
+    out: dict[str, Any] = {"base_id": base_id, "replaced_sections": replaced, "body_length": len(merged),
+                           "merged_from": used, "merged_at": _now()}
+    if archive_merged and used:
+        out["archived"] = archive_variants(base_id, used, {"tool": "merge_family"})
+    try:
+        activity.record("doc_merge", ref=base_id, kind=str((fam["base"] or {}).get("kind") or ""),
+                        title=str((fam["base"] or {}).get("title") or ""),
+                        source=describe_origin(info),
+                        detail={"merged_at": out["merged_at"], "replaced_sections": replaced,
+                                "merged_from": used, "archive_merged": bool(archive_merged)})
+    except Exception:
+        pass                      # 活动日志是次要信息，不能拖垮合并
+    return out

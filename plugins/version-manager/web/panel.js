@@ -168,9 +168,10 @@
       return '<label class="vm-vrow">'
         + '<input type="checkbox" data-vm-archive="' + esc(v.id) + '">'
         + '<span class="vm-vtext"><b>' + esc(v.title) + '</b>'
-        + '<span class="vm-vmeta">版本名 <code>' + esc(v.label || '（无）') + '</code> · 更新 '
-        + esc(String(v.updated || '').replace('T', ' ').slice(0, 16)) + ' · 小节 '
-        + (v.sections || []).length + ' 个</span>'
+        + '<span class="vm-vmeta">版本名 <code>' + esc(v.label || '（无）') + '</code>'
+        + ' · <b>分支于 ' + esc(String(v.variant_at || v.created || '').replace('T', ' ').slice(0, 16)) + '</b>'
+        + ' · 更新 ' + esc(String(v.updated || '').replace('T', ' ').slice(0, 16))
+        + ' · 小节 ' + (v.sections || []).length + ' 个</span>'
         + originChip(v) + '</span></label>';
     }).join('');
 

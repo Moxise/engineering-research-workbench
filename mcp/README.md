@@ -69,6 +69,18 @@ python -m mcp.server
 5. 改名必须用 `kb_rename_entry`。它会同步 title、首个 H1 与全库交叉引用，并只追加一次 `doc_update` 事件。
 6. 收尾用 `kb_check_entries` 复核，必要时 `ws_reindex` 重建索引。
 
+### 版本族（v261009.45 起）
+
+| 工具 | 作用 | 写？ |
+| --- | --- | --- |
+| `kb_variants` | 列某条条目的版本族（基条 + 各版本 + 已归档 + **每条分支的时间**） | 否 |
+| `kb_branch_entry` | **开一条分支**：以某条为源复制内容成新版本，记 `variant_label` 与 **`variant_at`（分支创建时间）** | **是** |
+| `kb_merge_variants` | 按 H2 小节挑内容合并（`picks`），结果写回基条；记 `doc_merge` 活动（时间/小节/参与版本） | **是** |
+| `kb_archive_variants` | 归档指定版本到 `System/Versions/<基条>/archived/`（保留可追溯） | **是** |
+
+时间口径：`variant_at` 分支创建时间 · `created/updated` 条目创建/最近写入 · `origin_at` 该次写入时间 ·
+归档清单里的 `archived_at` 归档时间 · 活动日志 `doc_merge.detail.merged_at` 合并时间。
+
 > 🔐 **外部写入默认关闭**（v261009.38 起）：MCP 的 5 个写工具（`kb_create_entry` /
 > `kb_update_entry` / `kb_rename_entry` / `kb_change_kind` / `kb_delete_entry`）受
 > 「**设置 → 外部接入 → 允许外部 MCP 客户端写入知识库**」约束，**默认拒绝**。

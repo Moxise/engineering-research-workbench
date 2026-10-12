@@ -374,22 +374,15 @@ def variant_sections(body: str) -> list[str]:
 
 def merge_variants(base_id: str, picks: dict, *, archive_merged: bool = False,
                    origin: dict | None = None) -> dict:
-    """按小节合并版本族：picks = {小节标题: 来源版本 id}，结果写回基条。"""
+    """按小节合并版本族：picks = {小节标题: 来源版本 id}，结果写回基条。
+
+    统一走 `app/versions.merge_family`——界面 / 内核 Agent / 插件 / MCP 四条路径共用同一实现，
+    合并会记 `doc_merge` 活动（替换小节、参与版本、时间），不会各写一套。
+    """
     from app import versions as V
 
-    fam = V.family(base_id)
-    if not fam["base"]:
-        raise FileNotFoundError(f"基条不存在：{base_id}")
-    bodies = {v["id"]: (entry(v["id"]).get("body") or "") for v in fam["variants"]}
-    merged, replaced = V.merge_bodies(fam["base"].get("body") or "", picks or {}, bodies)
-    entry_update(base_id, body=merged, origin=dict(origin or V.origin("plugin", "merge_variants")))
-    out = {"base_id": base_id, "replaced_sections": replaced, "body_length": len(merged)}
-    if archive_merged:
-        ids = [v for v in bodies if v in set((picks or {}).values())]
-        if ids:
-            out["archived"] = V.archive_variants(base_id, ids, {"tool": "merge_variants"})
-    return out
-
+    return V.merge_family(base_id, picks or {}, archive_merged=archive_merged,
+                          origin_info=dict(origin or V.origin("plugin", "merge_variants")))
 
 def archive_variants(base_id: str, variant_ids: list) -> dict:
     """归档指定版本到 System/Versions/<基条>/archived/（保留可追溯）。"""

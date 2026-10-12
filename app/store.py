@@ -525,6 +525,10 @@ def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None
         if base:
             meta["variant_of"] = base
             meta["variant_label"] = _versions.label_from_title(title, kind=kind) or "副本"
+    if meta.get("variant_of"):
+        # v261009.45 · 这条**分支的创建时间**（开分支工具会给；自动归族时取此刻）。
+        # 必须在这里（写文件之前）—— 放到文件写完后再 setdefault 是无效的（实测踩到）。
+        meta["variant_at"] = str(payload.get("variant_at") or "").strip() or now
     _normalize_projects(meta)
     body = payload.get("body") or _make_default_body(kind, title, payload)
     for project_name in meta.get("projects", []):
@@ -535,6 +539,9 @@ def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None
     activity.record("doc_create", ref=doc_id, kind=kind, title=title,
                     project=str(meta.get("project") or ""),
                     source=_versions.describe_origin(meta))
+    if meta.get("variant_of"):
+        # v261009.45 · 这条分支的**创建时间**（开分支工具会给；自动归族时取此刻）
+        meta.setdefault("variant_at", str(payload.get("variant_at") or "") or now)
     if meta.get("variant_of"):        # 变体一落地就给基条打标记（mark 自身走 _skip_versioning，无递归）
         _versions.mark_base_forked(str(meta["variant_of"]), True)
     return _doc_from_path(kind, path, include_body=True)

@@ -314,10 +314,12 @@ FRONTMATTER_ORDER: list[str] = [
     "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
     "record_date", "due", "added_date", "summary_type", "pinned", "authors", "year", "venue", "doi", "url", "cite_key",
     "has_variants",
+    "variant_at",
 ]
 
 #: 版本/分支与来源追踪字段（v261009.41）：由内核写入，也允许界面/工具显式设置
-VARIANT_FIELDS: list[str] = ["variant_of", "variant_label", "has_variants"]
+VARIANT_FIELDS: list[str] = ["variant_of", "variant_label", "has_variants", "variant_at"]
+#: variant_at：这条分支**创建的时间**（ISO），由内核在开分支时写入
 #: has_variants：基条上的 O(1) 标记（族里还有活版本时为 true），由内核在分叉/归档时维护
 ORIGIN_FIELDS: list[str] = ["origin_surface", "origin_tool", "origin_client", "origin_at"]
 #: origin_surface 的取值（谁写入了这条内容）
@@ -330,6 +332,7 @@ CREATE_FIELDS: list[str] = [
     "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key",
     "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
     "has_variants",
+    "variant_at",
 ]
 
 UPDATE_FIELDS: list[str] = [
@@ -338,6 +341,7 @@ UPDATE_FIELDS: list[str] = [
     "attachment",
     "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
     "has_variants",
+    "variant_at",
 ]
 
 DATE_FIELD_RULE = (

@@ -1,5 +1,41 @@
 # Changelog
 
+## v261009.45
+
+**分支/合并的 MCP 工具 + 每个分支记录时间**（用户要求）。
+
+### 新增 MCP 工具（`mcp/` 是内核侧，直接调内核实现）
+| 工具 | 作用 | 写？ |
+| --- | --- | --- |
+| `kb_branch_entry`（**新**） | **开一条分支**：以某条条目为源复制内容成新版本，记 `variant_of`/`variant_label` 与 **`variant_at`** | **是**（受「外部接入」授权约束） |
+| `kb_variants`（增强） | 族视图里带出**每条分支的时间**（`times`：variant_at/created/updated/origin_at） | 否 |
+| `kb_merge_variants`（改走统一实现） | 按小节合并；记 `doc_merge` 活动 | **是** |
+| `kb_archive_variants` | 归档（清单里已有 `archived_at`） | **是** |
+
+MCP 工具数 **12 → 13**，`WRITE_TOOLS` 加 `kb_branch_entry`。
+
+### 时间口径（一次说清）
+`variant_at` 分支创建时间 · `created`/`updated` 条目创建/最近写入 · `origin_at` 该次写入时间 ·
+归档清单 `archived_at` · 合并时活动日志 `doc_merge.detail.merged_at`（含替换小节与参与版本）。
+
+### 内核侧（让四条路径行为一致）
+- 契约新增 **`variant_at`**，由内核在**写文件之前**写入（放到写完之后是无效的——实测踩到）；
+- `app/versions.py` 新增 **`create_branch()`**（开分支的唯一实现）与 **`merge_family()`**（合并的唯一实现：
+  合并正文 → 写回基条 → 记 `doc_merge` 活动）；`family()` 带出 `times`；
+- `core_api.merge_variants` 与 MCP 的 `t_merge_variants` 都改为调用 `merge_family` ——
+  界面 / 内核 Agent / 插件 / MCP **共用一套实现**，不会各写一份；
+- `app/activity.py` 支持结构化 `detail`（合并记了哪些小节、来自哪些版本）；
+- `mcp/bridge.py` 暴露 `versions`（MCP 工具用它；此前没有 → 工具报 `SimpleNamespace has no attribute`）。
+
+### 界面
+`version-manager` 插件（v1.0.2）的版本行现在显示「**分支于 2026-10-12 14:32** · 更新 … · 小节 N 个」。
+
+### 验收
+`tests/kernel/test_versions.py` **30/30**（新增第 ⑩/⑪ 节）：活着的分支都带创建时间 ·
+开分支复制内容且记 variant_at/variant_of/label · 族视图带每条分支时间 · 合并返回 merged_at 与参与版本 ·
+活动日志有 `doc_merge`（含时间/小节/来源） · **MCP 未授权时开分支被拦** · 授权后开分支成功并返回创建时间 ·
+MCP 族视图带时间。夹具还快照/还原了 `config/external-access.json`（授权文件在仓库里，不能改用户的开关）。
+
 ## v261009.44
 
 **「版本」功能改为插件：`plugins/version-manager/`**（用户要求"将该功能作为插件"）。

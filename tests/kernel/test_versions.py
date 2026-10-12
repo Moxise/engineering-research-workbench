@@ -39,6 +39,11 @@ def _fake_get_all():
 C.get_app, C.get_all = _fake_get_app, _fake_get_all
 
 from app import activity, store, versions, workspace  # noqa: E402
+from app import external_access  # noqa: E402
+
+#: 外部接入授权在仓库 config/ 下（不在临时工作区）——夹具必须还原它
+AUTH = ROOT / "config" / "external-access.json"
+_auth_before = AUTH.read_bytes() if AUTH.is_file() else None
 
 workspace.reset_runtime_state()
 
@@ -122,8 +127,64 @@ try:
     events = [e for e in activity.list_events() if e.get("ref") == base["id"]]
     check("⑨-1 事件里有 source 字段", any("外部 MCP 客户端" in str(e.get("source") or "") for e in events),
           str([e.get("source") for e in events][:3]))
+
+    print("⑩ 分支时间 + 开分支 + 合并记录")
+    _live = versions.family(base["id"])["variants"]
+    check("⑩-0 活着的分支都带创建时间（含 ⑦ 取回的那条）",
+          bool(_live) and all(store.get_doc(v["id"]).get("variant_at") for v in _live),
+          str([store.get_doc(v["id"]).get("variant_at") for v in _live])[:120])
+
+    br = versions.create_branch(base["id"], label="v9", origin_info=versions.origin("mcp", "kb_branch_entry"))
+    check("⑩-1 开分支复制内容且记 variant_at / variant_of",
+          bool(br["entry"].get("variant_at")) and br["entry"].get("variant_of") == base["id"]
+          and br["entry"].get("variant_label") == "v9", str(br)[:140])
+    fam_now = versions.family(base["id"])
+    check("⑩-2 族视图带出每条分支的时间",
+          bool(fam_now.get("times")) and all(v["id"] in fam_now["times"] for v in fam_now["variants"]),
+          str(list((fam_now.get("times") or {}).keys()))[:120])
+
+    merged = versions.merge_family(base["id"], {"摘要": br["entry"]["id"]},
+                                   origin_info=versions.origin("mcp", "kb_merge_variants"))
+    check("⑩-3 合并返回 merged_at 与参与版本",
+          bool(merged.get("merged_at")) and br["entry"]["id"] in (merged.get("merged_from") or []),
+          str(merged)[:160])
+    events = [e for e in activity.list_events() if e.get("type") == "doc_merge"]
+    check("⑩-4 活动日志记了 doc_merge（含时间/小节/来源）",
+          bool(events) and (events[-1].get("detail") or {}).get("merged_at")
+          and (events[-1].get("detail") or {}).get("merged_from"),
+          str(events[-1])[:170] if events else "（无 doc_merge 事件）")
+
+    print("⑪ MCP 面：开分支工具（受外部接入授权约束）")
+    import json as _json
+
+    from mcp import server as MS
+    from mcp.bridge import Workbench
+
+    wb = Workbench()
+    external_access.save({"mcp_write": False})
+    denied = MS.handle_tools_call(wb, {"name": "kb_branch_entry",
+                                       "arguments": {"doc_id": base["id"], "label": "mcp-b1"}})
+    check("⑪-1 未授权时开分支被拦",
+          denied.get("isError") is True and "未授权" in _json.dumps(denied, ensure_ascii=False),
+          _json.dumps(denied, ensure_ascii=False)[:140])
+    external_access.save({"mcp_write": True})
+    allowed = MS.handle_tools_call(wb, {"name": "kb_branch_entry",
+                                        "arguments": {"doc_id": base["id"], "label": "mcp-b1"}})
+    body_text = _json.dumps(allowed, ensure_ascii=False)
+    check("⑪-2 授权后开分支成功且返回创建时间",
+          allowed.get("isError") is not True and "mcp-b1" in body_text and "variant_at" in body_text,
+          body_text[:170])
+    listed = MS.handle_tools_call(wb, {"name": "kb_variants", "arguments": {"doc_id": base["id"]}})
+    check("⑪-3 MCP 族视图也带每条分支的时间",
+          "variant_at" in _json.dumps(listed, ensure_ascii=False), _json.dumps(listed, ensure_ascii=False)[:140])
+    external_access.save({"mcp_write": False})
+
 finally:
     C.get_app, C.get_all = _orig_get_app, _orig_get_all
+    if _auth_before is None:
+        AUTH.unlink(missing_ok=True)
+    else:
+        AUTH.write_bytes(_auth_before)
     workspace.reset_runtime_state()
     shutil.rmtree(BASE, ignore_errors=True)
 

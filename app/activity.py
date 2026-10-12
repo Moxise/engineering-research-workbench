@@ -18,7 +18,8 @@ def _path() -> Path:
 
 
 def record(event_type: str, *, ref: str = "", kind: str = "", title: str = "", project: str = "",
-           weight: int = 1, timestamp: str | None = None, source: str = "") -> None:
+           weight: int = 1, timestamp: str | None = None, source: str = "",
+           detail: dict | None = None) -> None:
     """Append one lightweight research-activity event.
 
     This file is intentionally append-only. A failed activity write must never block
@@ -39,6 +40,8 @@ def record(event_type: str, *, ref: str = "", kind: str = "", title: str = "", p
     }
     if str(source or "").strip():
         event["source"] = str(source).strip()
+    if detail:
+        event["detail"] = detail          # v261009.45 · 结构化细节（合并记了哪些小节/来自哪些版本）
     try:
         line = json.dumps(event, ensure_ascii=False) + "\n"
         with _LOCK:

@@ -187,6 +187,25 @@ def t_get_entry(wb: Workbench, args: dict[str, Any]) -> Any:
     return {"entry": doc, "validation": validation}
 
 
+def t_branch_entry(wb: Workbench, args: dict[str, Any]) -> Any:
+    """**开一条分支**：以某条条目为源，复制内容成一个新版本（记 variant_of / variant_label / variant_at）。"""
+    V = wb.mod.versions
+    source_id = str(args.get("doc_id") or args.get("source_id") or "").strip()
+    if not source_id:
+        return fail("缺少 doc_id（要分支的源条目）")
+    try:
+        out = V.create_branch(source_id,
+                              label=str(args.get("label") or ""),
+                              title=str(args.get("title") or ""),
+                              body=args.get("body") if isinstance(args.get("body"), str) else None,
+                              origin_info=wb.origin("kb_branch_entry"))
+    except Exception as exc:                      # noqa: BLE001
+        return fail(f"开分支失败：{exc}")
+    return ok({"created": True, "base_id": out["base_id"], "variant_label": out["variant_label"],
+               "variant_at": out["variant_at"], "entry": out["entry"],
+               "_hint": "改完这条分支后用 kb_merge_variants 合并（picks 指定哪个小节用哪个版本）。"})
+
+
 def t_variants(wb: Workbench, args: dict[str, Any]) -> Any:
     """列某条条目的版本族（基条 + 各版本 + 已归档 + 每版来源）。"""
     sys_path_versions = wb.mod.versions  # noqa: F841  （确保 app.versions 已加载）
@@ -203,6 +222,7 @@ def t_variants(wb: Workbench, args: dict[str, Any]) -> Any:
                "base": _variant_row(wb, fam["base"]),
                "variants": [_variant_row(wb, v) for v in fam["variants"]],
                "archived": fam["archived"],
+               "times": fam.get("times") or {},
                "_hint": "合并用 kb_merge_variants（选基准 + 逐节挑来源）；结束后用 kb_archive_variants 归档。"})
 
 
@@ -215,24 +235,19 @@ def _variant_row(wb: Workbench, doc: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def t_merge_variants(wb: Workbench, args: dict[str, Any]) -> Any:
-    """按小节合并版本族：合并结果写回基条（写操作受外部接入授权约束）。"""
+    """按小节合并版本族（走内核统一实现，会记 doc_merge 活动与时间）。"""
     V = wb.mod.versions
     base_id = str(args.get("base_id") or args.get("doc_id") or "").strip()
     if not base_id:
         return fail("缺少 base_id")
     picks = args.get("picks") if isinstance(args.get("picks"), dict) else {}
-    fam = V.family(base_id)
-    if not fam["base"]:
-        return fail(f"基条不存在：{base_id}")
-    bodies = {v["id"]: (wb.get_entry(v["id"]).get("body") or "") for v in fam["variants"]}
-    merged, replaced = V.merge_bodies(fam["base"].get("body") or "", picks, bodies)
-    wb.update_entry(base_id, {"body": merged}, origin=wb.origin("kb_merge_variants"))
-    out = {"base_id": base_id, "replaced_sections": replaced, "body_length": len(merged)}
-    if args.get("archive_merged"):
-        ids = [v for v in bodies if v in set(picks.values())]
-        if ids:
-            out["archived"] = V.archive_variants(base_id, ids, {"tool": "kb_merge_variants"})
+    try:
+        out = V.merge_family(base_id, picks, archive_merged=bool(args.get("archive_merged")),
+                             origin_info=wb.origin("kb_merge_variants"))
+    except FileNotFoundError as exc:
+        return fail(str(exc))
     return ok(out)
+
 
 
 def t_archive_variants(wb: Workbench, args: dict[str, Any]) -> Any:
@@ -475,6 +490,7 @@ HANDLERS = {
     "kb_variants": t_variants,
     "kb_merge_variants": t_merge_variants,
     "kb_archive_variants": t_archive_variants,
+    "kb_branch_entry": t_branch_entry,
 }
 
 
@@ -597,4 +613,13 @@ TOOLS = [
          {"base_id": s("族里的基条 id"),
           "variant_ids": {"type": "array", "items": {"type": "string"}, "description": "要归档的版本 id"}},
          ["base_id", "variant_ids"], destructive=False),
+    tool("kb_branch_entry", "开一条分支（同一笔记的另一个版本）",
+         "以某条条目为源复制内容成一个新版本：记录 variant_of / variant_label，"
+         "并记下这条分支的**创建时间** variant_at。改完用 kb_merge_variants 合并。"
+         "写操作受「设置 → 外部接入」的 MCP 写入授权约束。",
+         {"doc_id": s("源条目 id（基条或任一版本都行）"),
+          "label": s("版本名，如 v2 / 2026-10-12-开题稿；留空按时间戳生成"),
+          "title": s("新标题；留空为「源标题（版本名）」"),
+          "body": s("正文；留空则复制源正文")},
+         ["doc_id"], destructive=False),
 ]
