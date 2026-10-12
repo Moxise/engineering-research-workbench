@@ -135,8 +135,7 @@ def all_tools() -> list[dict[str, Any]]:
 
 INSTRUCTIONS = (
     "插件提供的工具（名字形如 p_<插件id>__<工具>）**只在该插件启用时出现**："
-    "插件停用后它的工具会从工具列表里消失（可在工作台「设置 → 插件」里启停）。",
-
+    "插件停用后它的工具会从工具列表里消失（可在工作台「设置 → 插件」里启停）。\n\n"
     "这是「工程科研工作台」（engineering-research-workbench）的 Agent 接口。\n"
     "工作台的 Markdown + frontmatter 是唯一事实来源，System/Cache 中的 SQLite 索引只是可重建的派生物。\n"
     "工作约定：\n"
@@ -211,6 +210,20 @@ WRITE_TOOLS = frozenset({"kb_create_entry", "kb_update_entry", "kb_rename_entry"
                          "ws_external_edits"})
 
 
+def _wrap(result: Any) -> dict[str, Any]:
+    """把 handler 的返回包成 MCP 信封——**已经包过就不重复包**。
+
+    版本族那几个 handler（v261009.45 起）自己调了 `ok(...)`/`fail(...)`，而这里又会包一层
+    → MCP 客户端拿到嵌套 JSON（实测 `kb_variants` 返回的是 `{"content":[{"text":"{\"content\":…}"}]}`）。
+    与其改每个 handler，不如在包装层做幂等判断：已经是信封就原样返回。
+    """
+    if isinstance(result, dict) and isinstance(result.get("content"), list):
+        return result
+    from .protocol import ok as _ok
+
+    return _ok(result)
+
+
 def handle_tools_call(wb: Workbench, params: dict[str, Any]) -> dict[str, Any]:
     name = str(params.get("name") or "")
     raw_args = params.get("arguments")
@@ -232,7 +245,7 @@ def handle_tools_call(wb: Workbench, params: dict[str, Any]) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             return {"content": [{"type": "text", "text": f"[错误] 插件工具 {name} 执行失败：{exc}"}],
                     "isError": True}
-        return ok(result)
+        return _wrap(result)
 
     # ② 内核工具
     handler = HANDLERS.get(name)
@@ -256,7 +269,7 @@ def handle_tools_call(wb: Workbench, params: dict[str, Any]) -> dict[str, Any]:
         detail = traceback.format_exc(limit=6)
         return {"content": [{"type": "text", "text": f"[错误] {type(exc).__name__}: {exc}\n{detail}"}],
                 "isError": True}
-    return ok(result)
+    return _wrap(result)
 
 
 def _is_write_tool(name: str, spec: dict[str, Any] | None = None) -> bool:

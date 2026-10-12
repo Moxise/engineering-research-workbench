@@ -83,28 +83,34 @@ class Workbench:
     # ------------------------------------------------------------ 条目读写
     def list_entries(
         self, kind: str = "", query: str = "", status: str = "", project: str = "", mark: str = "",
-        tag: str = "", unowned: bool = False, sort: str = "",
-        page: int = 1, page_size: int = 20,
+        tag: str = "", unowned: bool = False, sort: str = "", page: int = 1, page_size: int = 20,
     ) -> dict[str, Any]:
-        m = self.mod
-        result = m.indexer.list_docs(
-            kind=kind or None, query=query, status=status, project=project, mark=mark,
-            tag=tag, unowned=bool(unowned), sort=sort or "",
-            page=page, page_size=page_size, paged=True,
-        )
-        items = []
-        for d in result.get("items", []):
-            items.append({
-                "id": d.get("id"), "kind": d.get("kind"), "title": d.get("title"),
-                "status": d.get("status"), "projects": d.get("projects") or [],
-                "tags": d.get("tags") or [], "kind_marks": d.get("kind_marks") or [],
-                "updated": d.get("updated"), "path": d.get("path"), "excerpt": d.get("excerpt"),
-            })
-        return {
-            "total": result.get("total"), "page": result.get("page"), "pages": result.get("pages"),
-            "page_size": result.get("page_size"), "next_page": result.get("next_page"),
-            "items": items,
-        }
+        """列举条目（过滤 + 分页）。
+
+        修 v261009.50：此前把 `sort` 也传给了索引层的 `list_docs`，而它**不接受** `sort`
+        → `TypeError`，导致 `kb_list_entries` / `kb_check_entries` 两个工具**完全不可用**。
+        现在只传索引层支持的参数（kind/query/status/project/mark/tag/unowned/page/page_size），
+        `sort` 在本地做。
+        """
+        kwargs: dict[str, Any] = {"kind": kind or None, "query": query or "", "status": status or "",
+                                  "project": project or "", "mark": mark or ""}
+        if tag:
+            kwargs["tag"] = tag
+        if unowned:
+            kwargs["unowned"] = True
+        rows = self.mod.indexer.list_docs(**kwargs)
+        if not isinstance(rows, list):        # 防御：万一返回分页字典
+            rows = list((rows or {}).get("items") or [])
+        if sort == "title":
+            rows = sorted(rows, key=lambda d: str(d.get("title") or ""))
+        elif sort == "updated":
+            rows = sorted(rows, key=lambda d: str(d.get("updated") or ""), reverse=True)
+        total = len(rows)
+        page = max(1, int(page or 1))
+        page_size = max(1, int(page_size or 20))
+        start = (page - 1) * page_size
+        return {"items": rows[start:start + page_size], "total": total, "page": page,
+                "page_size": page_size, "has_more": start + page_size < total}
 
     def change_kind_entry(self, doc_id: str, new_kind: str, new_title: str = "",
                           status: str = "", kind_marks: list[str] | None = None) -> dict[str, Any]:

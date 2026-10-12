@@ -87,7 +87,9 @@ def main() -> int:
         check("①-3 内核工具始终在（与插件无关）",
               all(n in first for n in ("kb_create_entry", "kb_variants", "ws_list_projects")),
               str(first[:6]))
-        check("①-4 工具面 = 内核 29 + 已启用插件 3", len(first) == 32, f"实际 {len(first)}")
+        kernel_n = len(S.KB_TOOLS) + len(S.WS_TOOLS)   # 动态：内核工具增删不该让夹具变红
+        check("①-4 工具面 = 内核 + 已启用插件 3", len(first) == kernel_n + 3,
+              f"实际 {len(first)}（内核 {kernel_n}）")
 
         print("② 启用另一个插件 → 不重启也能看到（指纹感知）")
         set_enabled(["version-manager", "literature-reader"])

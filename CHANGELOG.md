@@ -1,5 +1,29 @@
 # Changelog
 
+## v261009.50
+
+**kb_* MCP 工具审计：清单 + 参数一致性 + 隔离工作区逐个真调用**（用户要求"梳理 kb 的 MCP 功能、查 bug 与重复工具"）。
+
+### 修掉 3 个真 bug（都是"真调用"抓出来的，不是看代码猜的）
+| # | 问题 | 根因 | 修法 |
+| --- | --- | --- | --- |
+| A | **`kb_list_entries` 完全不可用**（`TypeError: list_docs() got an unexpected keyword argument`） | bridge 把 `sort` 传给了索引层 `list_docs`，它不接受该参数 | 只传索引层支持的参数，**`sort` 在本地做** |
+| B | **`kb_check_entries` 同样崩** | 同源（它也列举条目） | 同上 |
+| C | **版本族 4 个工具返回双重包装**（客户端拿到 `{"content":[{"text":"{\"content\":…}"}]}`） | handler 自己调了 `ok()`/`fail()`，包装层又包一层 | 包装层改**幂等** `_wrap()`：已是信封就原样返回 |
+
+修复后：**13 个 kb 工具逐个真调用 13/13 全绿**（唯一 RAISE 是故意放的"不存在的工具"对照）。
+
+### 重复工具评估：**没有该删的重复**，3 组需说清边界
+- `kb_rename_entry` ≠ `kb_update_entry{title}`：前者同步 H1 与**全库交叉引用**、带规范校验与 dry-run；
+- `kb_change_kind` ≠ 建+删：迁移保留 id/created、目录随动、可同步引用；
+- `kb_delete_entry` vs `kb_archive_variants`：条目进 `System/Trash/` vs 版本进 `System/Versions/<基条>/archived/`；
+- **部分重叠**：`kb_branch_entry` ↔ `kb_create_entry{variant_of}`（前者多做：复制源内容、生成标签、写 `variant_at`）
+  建议开分支一律用 `kb_branch_entry`；`kb_search` ↔ `kb_list_entries{query}`（相关性检索 vs 枚举过滤）。
+
+### 交付
+`docs/MCP_KB_AUDIT.md`（清单表 + bug 表 + 重叠评估 + 复跑命令）；
+`tests/kernel/test_mcp_plugin_split.py` 的工具面计数改为**动态**（内核工具增删不再让夹具变红）。
+
 ## v261009.49
 
 **排查「用 Trae 改笔记却没有记录」**（用户报告），并补上「外部直接改文件」的发现能力。
