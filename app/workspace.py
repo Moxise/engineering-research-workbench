@@ -17,6 +17,8 @@ from core.contracts import kinds as contracts
 
 _LOCK = threading.RLock()
 _MIGRATION_CHECKED = False
+#: 已确认过骨架的根路径（进程级快路径，见 ensure_workspace）；reset_runtime_state() 会清空
+_ENSURED: str | None = None
 
 # 工作区骨架的唯一声明处：core/contracts/kinds.py（v261009 起与 MCP 侧共用同一份）。
 WORKSPACE_LAYOUT = contracts.WORKSPACE_LAYOUT
@@ -37,9 +39,24 @@ LEGACY_RELATIVE = {
 
 
 def ensure_workspace(run_migration: bool = True) -> Path:
-    global _MIGRATION_CHECKED
+    """确保工作区骨架存在，返回根路径。
+
+    v261009.36 · **加进程级快路径**：此前每次调用都会把 ~24 个骨架目录各 mkdir/stat 一遍，
+    而它被 CRUD 热路径反复调用（`list_docs` 每条文档一次）——实测 /api/docs 单请求 837ms 里
+    0.77s 花在这里。现在同一根路径只确认一次；换根（改设置/迁移）时键不同会重新确认，
+    `reset_runtime_state()` 会清掉缓存。
+
+    安全性：写路径各自 `mkdir(parents=True, exist_ok=True)`，所以即使骨架目录被外部删掉，
+    写入仍会自己建目录；缓存只影响"读之前顺手补齐骨架"这一动作。
+    """
+    global _MIGRATION_CHECKED, _ENSURED
+    root = workspace_root()
+    # 快路径：本进程已确认过这个根，直接返回（不再 stat/mkdir 24 个目录）
+    if _ENSURED is not None and _ENSURED == str(root):
+        return root
     with _LOCK:
-        root = workspace_root()
+        if _ENSURED is not None and _ENSURED == str(root):      # 双检：并发请求只补一次
+            return root
         root.mkdir(parents=True, exist_ok=True)
         for rel in WORKSPACE_LAYOUT:
             (root / rel).mkdir(parents=True, exist_ok=True)
@@ -49,13 +66,15 @@ def ensure_workspace(run_migration: bool = True) -> Path:
         if run_migration and not _MIGRATION_CHECKED and get_app().get("workspace_migration", {}).get("enabled", True):
             _MIGRATION_CHECKED = True
             migrate_legacy(root)
+        _ENSURED = str(root)
         return root
 
 
 def reset_runtime_state() -> None:
-    global _MIGRATION_CHECKED
+    global _MIGRATION_CHECKED, _ENSURED
     with _LOCK:
         _MIGRATION_CHECKED = False
+        _ENSURED = None          # 换根/重载后重新确认骨架
 
 
 def _write_workspace_readme(root: Path) -> None:

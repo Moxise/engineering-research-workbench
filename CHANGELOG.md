@@ -1,5 +1,50 @@
 # Changelog
 
+## v261009.36
+
+**把临时夹具落成常驻测试 + 热路径提速 ~100×**（用户要求：按建议顺序执行优化，先做这两件）。
+
+### ① 38 个深度夹具从 `.scratch/tmp` 迁进 `tests/`，并写统一运行器
+**问题**：`tools/scratch_clean.py` 默认 7 天清理 `.scratch/`，而 38 个 `verify_*.py`
+（指标表 63 项、手册 31 项、备份 52 项、报告导出 43 项、zip 解包 58 项…）是目前**唯一的回归保护网**，
+再过几天就会被删掉；仓库里也没有 `tests/`、没有 CI。
+
+**改法**：
+- 新建 `tests/{kernel,plugins,docs}/test_*.py`（15/21/2）+ `tests/support/fixture_cleanup.py`（共用还原助手）；
+  放"域/文件"两层，原有 `ROOT = parents[2]` 无需改动，迁移面最小；
+- 新增 **`tools/run_tests.py`**：自动发现、按 `结果：N/M 通过` 汇总断言数、`--fast`（跳过需要浏览器的 25 个）、
+  `--only`、`--list`、`--no-server`、`--timeout`，失败时打印每个用例的尾部输出；
+  它还会**自动起一个临时工作台**并把 URL 当 `argv[1]` 传给用例。
+
+**迁移中修掉的 4 个真问题**（都是"自动化之后才暴露"的）：
+1. **临时服务 stdout 管道写满导致子进程阻塞**——表现是"连接建立了但一直不响应"，用例多次启停插件时必踩；
+   运行器改为后台线程持续排空；
+2. `test_plugin_assets.py` 把 `argv[1]` 当**端口**，运行器传的是 URL → 改成两者都收；
+3. `test_mermaid.py` 把 `argv[1]` 当**图序号** → 改成识别 URL 并忽略；
+4. **三处"侧栏 17 项全量清单"写死断言**：内核新增「使用手册」页后立刻变红（实际 19 项）——
+   改为稳健断言（内核页面按 NAV_GROUPS 相对顺序 + 插件项在位 + **不断言总数**），
+   "新增页面"不再被误报为回归。另外 `test_plugin_tools.py` 清理用户配置时在 Windows 上会撞
+   `PermissionError`（另一进程持有句柄）→ 改为重试 6 次并如实报告。
+
+**结果**：`python tools/run_tests.py --fast` **13/13 用例 · 70/70 断言 · 13 秒**；
+全量 38 个用例（含 25 个浏览器用例）**404/408 断言 · 272 秒**（修完上述 4 处后重跑见下）。
+
+### ② `/api/docs` 837ms → 8ms（根因是"每条文档各建一次目录"）
+**定位**（cProfile）：`list_docs()` 731ms 里 **0.77s 花在 `ensure_workspace()`**——
+`_doc_from_path` **每读一条文档就调一次**，而 `ensure_workspace` 每次要把 ~24 个骨架目录
+各 mkdir/stat 一遍（200 条 = 4768 次 mkdir + 5189 次 stat）。
+
+**改法**：
+- `app/workspace.py`：`ensure_workspace()` 加**进程级快路径**（同一根路径只确认一次；换根时键不同会重新确认，
+  `reset_runtime_state()` 清缓存）。安全性：写路径各自 `mkdir(parents=True, exist_ok=True)`，缓存只影响"读前顺手补齐骨架"；
+- `app/store.py`：`_doc_from_path(..., root=None)` 支持传入 root，`list_docs` 在**循环外只取一次**。
+
+**实测**：`store.list_docs()` 731ms → **76ms**；HTTP `/api/docs?paged=1` 837ms → **8ms**，
+`/api/docs` 30ms、`/api/dashboard` 30ms、`/api/graph/overview` 13ms。
+
+**防回退**：`tools/performance_benchmark.py` 新增 `--assert-budget`（`store_list_docs ≤ 250ms` 等三条预算），
+并修掉它自身一个真 bug（`measure(indexer.graph_overview(80), …)` 传的是结果不是可调用对象 → 该工具此前直接崩）。
+
 ## v261009.35
 
 **手册栏目条改用内核既有口径重做**（用户给了「文件夹」树面板作例子：用它改进 UI）。

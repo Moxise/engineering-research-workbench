@@ -223,7 +223,7 @@ def _iter_docs(kinds: list[str] | None = None):
             yield kind, path
 
 
-def _doc_from_path(kind: str, path: Path, include_body: bool = True) -> dict[str, Any]:
+def _doc_from_path(kind: str, path: Path, include_body: bool = True, root: Path | None = None) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     meta, body = _frontmatter_parse(text)
     meta.setdefault("id", path.stem)
@@ -243,7 +243,9 @@ def _doc_from_path(kind: str, path: Path, include_body: bool = True) -> dict[str
         meta["tags"] = [t.strip() for t in meta["tags"].split(",") if t.strip()]
     doc = dict(meta)
     doc["filename"] = path.name
-    doc["path"] = str(path.relative_to(ensure_workspace())).replace("\\", "/")
+    # v261009.36 · 热路径优化：调用方可传入 root，避免**每条文档**都走一次 ensure_workspace()。
+    # 实测 200 条文档时它占 /api/docs 的 0.77s（ensure_workspace 每次会做 ~24 次 mkdir + stat）。
+    doc["path"] = str(path.relative_to(root if root is not None else ensure_workspace())).replace("\\", "/")
     doc["excerpt"] = _excerpt(body)
     if include_body:
         doc["body"] = body
@@ -371,9 +373,10 @@ def list_docs(kind: str | None = None, query: str = "", status: str = "", projec
     kinds = [kind] if kind else None
     q = query.strip().lower()
     labels = kind_label_map()
+    root = ensure_workspace()          # v261009.36 · 循环外取一次（原来每条文档各取一次）
     out = []
     for k, path in _iter_docs(kinds):
-        doc = _doc_from_path(k, path, include_body=False)
+        doc = _doc_from_path(k, path, include_body=False, root=root)
         if status and doc.get("status") != status:
             continue
         if project and project not in (doc.get("projects") or ([doc.get("project")] if doc.get("project") else [])):

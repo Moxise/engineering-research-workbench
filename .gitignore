@@ -32,6 +32,8 @@
 !core/**/*.py
 !/core_api.py
 !tools/**/*.py
+# 常驻测试（v261009.36 起：原 .scratch/tmp 里的深度夹具，7 天会被清掉，必须入库）
+!tests/**/*.py
 
 # 清理入口的一键包装（双击即用），其余 .bat 仍不发布
 !tools/scratch_clean.bat
