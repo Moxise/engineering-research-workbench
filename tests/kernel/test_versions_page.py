@@ -162,6 +162,18 @@ def browser_checks(url: str, base: dict, v2: dict):
         hist = page.eval_on_selector_all("#vm-history .vm-hrow", "els => els.map(e => e.textContent)")
         out.append(("②-8 页面显示「修改记录」且带来源",
                     any("外部 MCP 客户端" in h or "工作台界面" in h for h in hist), str(hist[:2])))
+        # 变更对照：小节徽章 + 「看变更」展开逐行 diff
+        badges = page.eval_on_selector_all(".vm-sbadge", "els => els.map(e => e.textContent.trim())")
+        out.append(("②-9 小节显示变更徽章",
+                    any(("行" in b) or ("仅" in b) or ("一致" in b) for b in badges), str(badges[:4])))
+        dbtn = page.query_selector("[data-vm-diff]")
+        if dbtn:
+            dbtn.click()
+            page.wait_for_timeout(500)
+            lines = page.eval_on_selector_all(".vm-dline", "els => els.map(e => e.textContent.trim())")
+            out.append(("②-10 看变更展开逐行差异", len(lines) > 0, str(lines[:3])))
+        else:
+            out.append(("②-10 看变更展开逐行差异", False, "没有可 diff 的小节"))
         page.check("[data-vm-archive]")
         page.click("#vm-archive")
         page.wait_for_timeout(2500)

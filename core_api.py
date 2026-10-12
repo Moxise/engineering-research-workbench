@@ -341,6 +341,7 @@ def version_overview() -> dict:
 
 def variant_family(doc_id: str, *, with_body: bool = False) -> dict:
     """一个版本族的详情：基条 + 各版本（含来源、小节清单；with_body=True 时带正文）+ 已归档清单。"""
+    from app import store
     from app import versions as V
 
     doc = entry(doc_id)
@@ -359,8 +360,18 @@ def variant_family(doc_id: str, *, with_body: bool = False) -> dict:
             out["body"] = item.get("body") or ""
         return out
 
+    # 版本行的正文要**单独取**：`V.family()` 用的是不含正文的列表接口（`store.list_docs`），
+    # 只有基条是完整条目。少了这一步，界面做逐节 diff 时会把每个小节都判成"基准独有"（实测踩到）。
+    def variant_row(item: dict) -> dict:
+        if with_body and item.get("id"):
+            try:
+                item = store.get_doc(str(item["id"]))
+            except FileNotFoundError:
+                pass
+        return row(item, with_body)
+
     return {"base_id": base, "forked": fam["forked"], "base": row(fam["base"], with_body),
-            "variants": [row(v, with_body) for v in fam["variants"]], "archived": fam["archived"],
+            "variants": [variant_row(v) for v in fam["variants"]], "archived": fam["archived"],
             "sections": [s["heading"] for s in V.split_sections((fam["base"] or {}).get("body") or "")
                          if s["heading"]]}
 

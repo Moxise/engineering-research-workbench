@@ -189,6 +189,87 @@
     });
   }
 
+  /* ---------- 变更对照：小节解析 + 行级 diff（无第三方库） ---------- */
+
+  function sectionsOf(body) {
+    var out = [], cur = null;
+    String(body || '').split('\n').forEach(function (line) {
+      var m = /^##\s+(.+?)\s*$/.exec(line);
+      if (m) {
+        cur = { heading: m[1].trim(), lines: [] };
+        out.push(cur);
+      } else if (cur) {
+        cur.lines.push(line);
+      }
+    });
+    return out;
+  }
+
+  function sectionMap(body) {
+    var map = {};
+    sectionsOf(body).forEach(function (s) { map[s.heading] = s.lines.join('\n').replace(/\s+$/, ''); });
+    return map;
+  }
+
+  /* 行级 LCS diff；文本很大时退化成"整体改动"标记，避免卡界面 */
+  function diffLines(oldText, newText) {
+    var A = String(oldText || '').split('\n'), B = String(newText || '').split('\n');
+    if (A.length * B.length > 40000) {
+      return { tooBig: true, added: B.length, removed: A.length,
+               ops: [{ t: 'del', text: '（小节较大，仅统计：' + A.length + ' 行 → ' + B.length + ' 行）' }] };
+    }
+    var m = A.length, n = B.length, i, j;
+    var dp = [];
+    for (i = 0; i <= m; i++) { dp.push(new Array(n + 1).fill(0)); }
+    for (i = m - 1; i >= 0; i--) {
+      for (j = n - 1; j >= 0; j--) {
+        dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    var ops = [], added = 0, removed = 0;
+    i = 0; j = 0;
+    while (i < m && j < n) {
+      if (A[i] === B[j]) { ops.push({ t: 'same', text: A[i] }); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push({ t: 'del', text: A[i] }); removed++; i++; }
+      else { ops.push({ t: 'add', text: B[j] }); added++; j++; }
+    }
+    while (i < m) { ops.push({ t: 'del', text: A[i++] }); removed++; }
+    while (j < n) { ops.push({ t: 'add', text: B[j++] }); added++; }
+    return { tooBig: false, added: added, removed: removed, ops: ops };
+  }
+
+  function oneSided(text, kind) {
+    var lines = String(text || '').split('\n');
+    return { tooBig: false, added: kind === 'add' ? lines.length : 0,
+             removed: kind === 'del' ? lines.length : 0,
+             ops: lines.map(function (l) { return { t: kind, text: l }; }) };
+  }
+
+  function sectionStatus(baseText, otherText) {
+    // 单边小节也要能看到内容（否则用户只知道"有差异"却看不到差异是什么）
+    if (baseText === undefined) {
+      return { kind: 'onlyNew', label: '仅该版本有', added: 0, removed: 0, diff: oneSided(otherText, 'add') };
+    }
+    if (otherText === undefined) {
+      return { kind: 'onlyBase', label: '基准独有', added: 0, removed: 0, diff: oneSided(baseText, 'del') };
+    }
+    if (String(baseText).trim() === String(otherText).trim()) {
+      return { kind: 'same', label: '一致', added: 0, removed: 0, diff: null };
+    }
+    var d = diffLines(baseText, otherText);
+    return { kind: 'changed', label: (d.tooBig ? '改动较大' : '+' + d.added + ' / −' + d.removed + ' 行'),
+             added: d.added, removed: d.removed, diff: d };
+  }
+
+  function diffHtml(diff) {
+    if (!diff) return '<div class="empty compact">没有可显示的差异</div>';
+    var body = diff.ops.map(function (op) {
+      var sign = op.t === 'add' ? '+' : (op.t === 'del' ? '−' : ' ');
+      return '<div class="vm-dline ' + op.t + '"><i>' + sign + '</i>' + esc(op.text) + '</div>';
+    }).join('');
+    return '<div class="vm-diff">' + body + '</div>';
+  }
+
   function originChip(doc) {
     var surface = doc.origin_surface || '';
     var cls = surface === 'mcp' ? 'mcp' : surface === 'plugin' ? 'plugin' : surface === 'agent' ? 'agent' : 'ui';
@@ -213,14 +294,51 @@
         + originChip(v) + '</span></label>';
     }).join('');
 
-    var sectionRows = (d.sections || []).map(function (heading) {
+    // 变更对照：以「当前为该小节选中的来源版本」为对照对象（没选就用第一个版本）
+    var baseMap = sectionMap(base.body);
+    var variantMaps = {};
+    variants.forEach(function (v) { variantMaps[v.id] = sectionMap(v.body); });
+    function comparedId(heading) {
+      return STATE.picks[heading] || (variants[0] && variants[0].id) || '';
+    }
+    function statusFor(heading) {
+      var vid = comparedId(heading);
+      var other = vid ? variantMaps[vid] : null;
+      return { vid: vid, st: sectionStatus(baseMap[heading], other ? other[heading] : undefined) };
+    }
+    var headings = (d.sections || []).slice();
+    variants.forEach(function (v) {
+      Object.keys(variantMaps[v.id] || {}).forEach(function (h) {
+        if (headings.indexOf(h) < 0) headings.push(h);
+      });
+    });
+
+    var changedCount = 0;
+    var sectionRows = headings.map(function (heading) {
+      var info = statusFor(heading);
+      var st = info.st;
+      if (st.kind === 'changed' || st.kind === 'onlyNew' || st.kind === 'onlyBase') changedCount++;
       var options = ['<option value="">基准（当前内容）</option>']
         .concat(variants.map(function (v) {
           return '<option value="' + esc(v.id) + '">' + esc(v.label || v.id) + '</option>';
         })).join('');
-      return '<label class="vm-srow"><span class="vm-sname">' + esc(heading) + '</span>'
-        + '<select class="search-input" data-vm-pick="' + esc(heading) + '">' + options + '</select></label>';
+      var canDiff = !!st.diff;
+      return '<div class="vm-srow" data-vm-srow="' + esc(heading) + '">'
+        + '<span class="vm-sname">' + esc(heading)
+        + ' <b class="vm-sbadge ' + st.kind + '">' + esc(st.label) + '</b></span>'
+        + '<select class="search-input" data-vm-pick="' + esc(heading) + '">' + options + '</select>'
+        + (canDiff ? '<button type="button" class="secondary-btn vm-dbtn" data-vm-diff="' + esc(heading)
+                     + '">看变更</button>' : '')
+        + '<div class="vm-dwrap" data-vm-dwrap="' + esc(heading) + '" hidden>'
+        + (canDiff ? diffHtml(st.diff) : '') + '</div></div>';
     }).join('');
+
+    var compareLabel = (variants[0] && (variants[0].label || variants[0].id)) || '';
+    var summary = variants.length
+      ? '<div class="vm-hint" style="margin-bottom:8px">与 <b>' + esc(compareLabel) + '</b> 相比：'
+        + (changedCount ? '<b>' + changedCount + ' 个小节</b>有差异' : '正文完全一致')
+        + '（切「② 按小节挑内容」的来源会即时改变对照对象；点「看变更」看逐行差异）</div>'
+      : '';
 
     var archived = (d.archived || []).map(function (row) {
       return '<div class="vm-arow"><span class="vm-vtext"><b>' + esc(row.title || row.id) + '</b>'
@@ -249,7 +367,7 @@
       + (variants.length ? versionRows : forkHint) + '</div>'
 
       + (variants.length
-          ? '<div class="vm-block"><h4>② 按小节挑内容（合并结果写回基条）</h4>' + sectionRows
+          ? '<div class="vm-block"><h4>② 按小节挑内容（合并结果写回基条）</h4>' + summary + sectionRows
             + '<label class="vm-check"><input type="checkbox" id="vm-archive-after"> 合并后把被替换的版本一并归档</label>'
             + '<div class="vm-actions"><button class="primary-btn" id="vm-merge">合并</button>'
             + '<button class="secondary-btn" id="vm-archive">归档勾选的版本</button></div></div>'
@@ -268,6 +386,23 @@
       sel.onchange = function () {
         if (sel.value) STATE.picks[sel.dataset.vmPick] = sel.value;
         else delete STATE.picks[sel.dataset.vmPick];
+        // 换了来源 → 该小节的差异徽章与 diff 立即跟着变
+        var heading = sel.dataset.vmPick;
+        var row = pane.querySelector('[data-vm-srow="' + heading.replace(/"/g, '\\"') + '"]');
+        if (!row) return;
+        var info = statusFor(heading), st = info.st;
+        var badge = row.querySelector('.vm-sbadge');
+        if (badge) { badge.textContent = st.label; badge.className = 'vm-sbadge ' + st.kind; }
+        var wrap = row.querySelector('[data-vm-dwrap]');
+        if (wrap) { wrap.innerHTML = st.diff ? diffHtml(st.diff) : ''; }
+      };
+    });
+    Array.prototype.forEach.call(pane.querySelectorAll('[data-vm-diff]'), function (btn) {
+      btn.onclick = function () {
+        var heading = btn.dataset.vmDiff;
+        var wrap = pane.querySelector('[data-vm-dwrap="' + heading.replace(/"/g, '\\"') + '"]');
+        if (wrap) wrap.hidden = !wrap.hidden;
+        btn.textContent = wrap && !wrap.hidden ? '收起' : '看变更';
       };
     });
     var after = pane.querySelector('#vm-archive-after');
