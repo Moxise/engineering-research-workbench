@@ -323,23 +323,26 @@
           return '<option value="' + esc(v.id) + '">' + esc(v.label || v.id) + '</option>';
         })).join('');
       var same = st.kind === 'same';
-      // 一致的小节**不带下拉**：它不需要你决定（只是让你能点开看一眼）
-      var row = '<div class="vm-srow ' + (same ? 'vm-same-row' : 'vm-need')
-        + '" data-vm-srow="' + esc(heading) + '">'
-        + '<span class="vm-sname">' + esc(heading)
-        + ' <b class="vm-sbadge ' + st.kind + '">' + esc(st.label) + '</b></span>'
-        + (same ? '<span class="vm-keep">沿用基准</span>'
-                : '<select class="search-input" data-vm-pick="' + esc(heading) + '">' + options + '</select>')
-        + (st.diff ? '<button type="button" class="secondary-btn vm-dbtn" data-vm-diff="' + esc(heading)
-                     + '">看变更</button>' : '')
-        + '<div class="vm-dwrap" data-vm-dwrap="' + esc(heading) + '" hidden>'
-        + (st.diff ? diffHtml(st.diff) : '') + '</div></div>';
-      if (st.kind === 'same') {
-        sameRows.push(row);                      // 一致的小节：不用你管，收起来
-      } else {
-        changedCount++;
-        changedRows.push(row);
+      // 一致的小节：只留一行说明，**不摆任何控件**（展开才看内容）
+      if (same) {
+        sameRows.push('<div class="vm-srow vm-same-row" data-vm-srow="' + esc(heading) + '">'
+          + '<span class="vm-sname">' + esc(heading) + '</span>'
+          + '<span class="vm-keep">与基准一致</span></div>');
+        return;
       }
+      // 有改动的小节：差异**直接内联展开**，只挑需要决定的那几处
+      var control = variants.length > 1
+        ? '<select class="search-input vm-sel" data-vm-pick="' + esc(heading) + '">' + options + '</select>'
+        : '<span class="vm-choice" data-vm-choice="' + esc(heading) + '">'
+          + '<button type="button" class="vm-cbtn on" data-vm-accept="' + esc(heading) + '">采用新版</button>'
+          + '<button type="button" class="vm-cbtn" data-vm-keep="' + esc(heading) + '">保留基准</button></span>';
+      var row = '<div class="vm-srow vm-need" data-vm-srow="' + esc(heading) + '">'
+        + '<div class="vm-shead"><span class="vm-sname">' + esc(heading)
+        + ' <b class="vm-sbadge ' + st.kind + '">' + esc(st.label) + '</b></span>' + control + '</div>'
+        + '<div class="vm-dwrap" data-vm-dwrap="' + esc(heading) + '">'
+        + (st.diff ? diffHtml(st.diff) : '') + '</div></div>';
+      changedCount++;
+      changedRows.push(row);
     });
 
     // 有改动的小节默认就选「该版本」（你要的是"改动需同意"，不是"每节都要挑"）
@@ -356,7 +359,7 @@
       : '<div class="empty compact">没有需要确认的改动——正文与基准一致</div>';
     var sameBlock = sameRows.length
       ? '<details class="vm-same"><summary>' + sameRows.length
-        + ' 个小节一致 · 已自动沿用基准（点开查看）</summary>' + sameRows.join('') + '</details>'
+        + ' 个小节与基准一致 · 已自动沿用（点开可核对）</summary>' + sameRows.join('') + '</details>'
       : '';
 
     var compareLabel = (variants[0] && (variants[0].label || variants[0].id)) || '';
@@ -441,6 +444,28 @@
         btn.textContent = wrap && !wrap.hidden ? '收起' : '看变更';
       };
     });
+    function markChoice(heading, accept) {
+      var box = pane.querySelector('[data-vm-choice="' + heading.replace(/"/g, '\\"') + '"]');
+      if (!box) return;
+      var on = box.querySelector('[data-vm-accept]'), off = box.querySelector('[data-vm-keep]');
+      if (on) on.classList.toggle('on', accept);
+      if (off) off.classList.toggle('on', !accept);
+    }
+    Array.prototype.forEach.call(pane.querySelectorAll('[data-vm-accept]'), function (btn) {
+      btn.onclick = function () {
+        var heading = btn.dataset.vmAccept;
+        STATE.picks[heading] = comparedId(heading);
+        markChoice(heading, true);
+      };
+    });
+    Array.prototype.forEach.call(pane.querySelectorAll('[data-vm-keep]'), function (btn) {
+      btn.onclick = function () {
+        var heading = btn.dataset.vmKeep;
+        delete STATE.picks[heading];
+        markChoice(heading, false);
+      };
+    });
+
     var acceptAll = pane.querySelector('#vm-accept-all');
     if (acceptAll) acceptAll.onclick = function () {
       var vid = comparedId('');
@@ -464,7 +489,7 @@
       Object.keys(STATE.picks).forEach(function (k) {
         var vid = STATE.picks[k];
         var sel = pane.querySelector('[data-vm-pick="' + k.replace(/"/g, '\\"') + '"]');
-        if (sel && !sel.value) return;            // 该小节选了「基准」→ 不采用改动
+        if (sel && !sel.value) return;            // 多版本下拉里选了「基准」→ 不采用这处改动
         if (vid) picks[k] = vid;
       });
       if (!Object.keys(picks).length) { toast('没有要应用的改动（都被设成「基准」了）', true); return; }
