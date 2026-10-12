@@ -142,3 +142,10 @@ html[data-density="compact"] [data-plugin="version-manager"] .vm-layout{gap:8px;
 [data-plugin="version-manager"] .vm-same-row{display:flex;justify-content:space-between;gap:8px;
   padding:4px 2px;border-bottom:1px solid color-mix(in srgb,var(--line) 45%,transparent)}
 [data-plugin="version-manager"] .vm-same-row .vm-sname{color:var(--muted)}
+/* 选版本（v261009.55）：对照 / 以这版为准 */
+[data-plugin="version-manager"] .vm-vrow.vm-compare{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));
+  background:color-mix(in srgb,var(--accent-soft) 45%,var(--surface-2))}
+[data-plugin="version-manager"] .vm-vact{display:flex;gap:4px;flex:0 0 auto;align-self:center}
+[data-plugin="version-manager"] .vm-cmpick{display:inline-flex;align-items:center;gap:6px;margin-right:10px;
+  font-size:11.5px;color:var(--muted)}
+[data-plugin="version-manager"] .vm-cmpick .search-input{width:180px;height:26px}

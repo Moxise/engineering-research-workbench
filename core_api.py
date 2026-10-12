@@ -448,3 +448,12 @@ def external_edits(*, record: bool = False, limit: int = 200) -> dict:
     from app import external_edits as scanner
 
     return scanner.scan(record=record, limit=limit)
+
+
+def adopt_variant(base_id: str, variant_id: str, *, archive_others: bool = False,
+                  origin: dict | None = None) -> dict:
+    """整版采用：把某版本正文整篇写回基条（"就留这一版"），可选把其余版本归档。"""
+    from app import versions as V
+
+    return V.adopt_variant(base_id, variant_id, archive_others=archive_others,
+                           origin_info=dict(origin or V.origin("plugin", "adopt_variant")))

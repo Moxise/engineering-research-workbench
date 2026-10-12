@@ -89,6 +89,22 @@ def register(ctx):
         out["base_id"] = fam["base_id"]
         return out
 
+    def route_adopt(request):
+        """整版采用：把某版本整篇写回基条（"就留这一版"）。"""
+        body = request.get("body") or {}
+        base_id = str(body.get("base_id") or "").strip()
+        variant_id = str(body.get("variant_id") or "").strip()
+        if not base_id or not variant_id:
+            return {"error": "bad_request", "message": "需要 base_id 与 variant_id"}
+        try:
+            out = core_api.adopt_variant(base_id, variant_id,
+                                         archive_others=bool(body.get("archive_others")),
+                                         origin=_origin("adopt"))
+        except (FileNotFoundError, ValueError) as exc:
+            return {"error": "bad_request", "message": str(exc)}
+        return {"ok": True, **out}
+
+    ctx.routes.post("adopt", route_adopt)
     ctx.routes.get("history", route_history)
     ctx.routes.get("overview", route_overview)
     ctx.routes.get("family", route_family)

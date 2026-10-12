@@ -430,3 +430,36 @@ def merge_family(base_id: str, picks: dict[str, str] | None = None, *, archive_m
     except Exception:
         pass                      # 活动日志是次要信息，不能拖垮合并
     return out
+
+def adopt_variant(base_id: str, variant_id: str, *, archive_others: bool = False,
+                  origin_info: dict[str, str] | None = None) -> dict[str, Any]:
+    """**整版采用**：把某个版本的正文整篇写回基条（保留基条的 id/标题/项目）。
+
+    场景：用户看到三四个版本，直接决定"就留这一版"——不必逐节挑。
+    `archive_others=True` 时把其余版本一并归档（进 `System/Versions/<基条>/archived/`，可追溯）。
+    """
+    from app import activity, store
+
+    base = store.get_doc(str(base_id))
+    variant = store.get_doc(str(variant_id))
+    if base_id_of(variant) != str(base_id):
+        raise ValueError(f"`{variant_id}` 不属于 `{base_id}` 这个版本族")
+    body = variant.get("body") or ""
+    info = dict(origin_info or origin("cli", "adopt_variant"))
+    # **先**记下采用前已存在的其他版本：写入本身可能触发"改动前基条"快照，
+    # 那一版要留着（用户可回退），不该被一起归档。
+    others = [v["id"] for v in family(base_id)["variants"] if v["id"] != str(variant_id)]
+    store.update_doc(str(base_id), {"body": body}, origin=info)
+    out: dict[str, Any] = {"base_id": str(base_id), "adopted": str(variant_id),
+                           "adopted_at": _now(), "body_length": len(body),
+                           "other_variants": others}
+    if archive_others and others:
+        out["archived"] = archive_variants(str(base_id), others, {"tool": "adopt_variant"})
+    try:
+        activity.record("doc_merge", ref=str(base_id), kind=str(base.get("kind") or ""),
+                        title=str(base.get("title") or ""), source=describe_origin(info),
+                        detail={"merged_at": out["adopted_at"], "wholesale": True,
+                                "adopted": str(variant_id), "archived_others": bool(archive_others)})
+    except Exception:      # noqa: BLE001
+        pass
+    return out
