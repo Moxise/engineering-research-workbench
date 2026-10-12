@@ -36,7 +36,107 @@ from .tools_workspace import HANDLERS as WS_HANDLERS, TOOLS as WS_TOOLS  # noqa:
 ALL_TOOLS = KB_TOOLS + WS_TOOLS
 HANDLERS = {**KB_HANDLERS, **WS_HANDLERS}
 
+#: 插件工具名前缀（与内核 Agent 面一致）：`p_<插件id>__<工具名>`
+PLUGIN_TOOL_PREFIX = "p_"
+_PLUGIN_LOAD_TRIED = False
+_PLUGIN_FINGERPRINT: str | None = None
+
+
+def _enabled_fingerprint() -> str:
+    """已启用插件的指纹（id 集合）。工作台里启停插件后指纹会变。
+
+    判定用**内核同一份逻辑** `registry.effective_enabled`：有记录按记录，
+    没有记录按 manifest 的 `default_enabled`——只读 plugins.json 会漏掉
+    "随包附属、默认开、尚未产生记录"的插件（如 version-manager），把它的工具误过滤掉（实测踩到）。
+    """
+    try:
+        from app import config
+        from core.plugins import registry as plugin_registry
+
+        workspace = config.workspace_root()
+        install = plugin_registry.read_install_state(workspace)
+        candidates, _ = plugin_registry.discover()
+        ids = [pid for pid, cand in candidates.items()
+               if plugin_registry.effective_enabled(cand, install)]
+        return ",".join(sorted(ids))
+    except Exception:                   # noqa: BLE001
+        return ""
+
+
+def _ensure_plugin_runtime() -> None:
+    """确保插件运行时在**本进程**与当前启用集合一致（MCP 是独立进程，默认没跑过 loader）。
+
+    - 首次调用加载一次；
+    - 之后每次比对**启用指纹**，变了就重载 → 工作台里启用/停用插件后，
+      MCP 侧下次 `tools/list` 就能看到（不必重启 MCP 服务）；
+    - MCP 只借插件的**工具**，不跑它们的后台任务：加载后立刻停调度器，
+      否则备份插件这类定时任务会在 MCP 进程里再跑一份。
+    """
+    global _PLUGIN_LOAD_TRIED, _PLUGIN_FINGERPRINT
+    fingerprint = _enabled_fingerprint()
+    if _PLUGIN_LOAD_TRIED and fingerprint == _PLUGIN_FINGERPRINT:
+        return
+    _PLUGIN_LOAD_TRIED = True
+    try:
+        from core.plugins import loader as plugin_loader
+
+        plugin_loader.load(enabled_only=True)
+        from core.plugins import jobs as plugin_jobs
+
+        plugin_jobs.shutdown()          # 只借工具，不跑定时任务
+        _PLUGIN_FINGERPRINT = fingerprint
+    except Exception:                   # noqa: BLE001 —— 插件加载失败不影响内核工具面
+        _PLUGIN_FINGERPRINT = fingerprint
+
+
+def plugin_tool_catalog() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """已启用插件注册的 MCP 工具：返回 (tools/list 条目, {对外名: plugin_tool})。
+
+    **插件停用则其工具不出现**（`runtime` 里只有已启用插件）——这正是"按插件拆分"的落点。
+    """
+    _ensure_plugin_runtime()
+    try:
+        from core.plugins import runtime as plugin_runtime
+
+        specs = plugin_runtime.tool_specs() or {}
+        tools = plugin_runtime.tools() or {}
+    except Exception:                   # noqa: BLE001
+        return [], {}
+    # **按当前启用集合过滤**：运行时可能还留着上次加载的插件（loader 未必清空注册表），
+    # 只信 `System/plugins.json` 里的启用集合——"插件停用则其工具不出现"就落在这里。
+    enabled = {x for x in _enabled_fingerprint().split(",") if x}
+    entries = []
+    kept: dict[str, Any] = {}
+    for name, spec in sorted(specs.items()):
+        owner = ""
+        try:
+            owner = str(plugin_runtime.plugin_of(name) or "")
+        except Exception:               # noqa: BLE001
+            owner = ""
+        if owner and enabled and owner not in enabled:
+            continue
+        entries.append({
+            "name": name,
+            "description": str((spec or {}).get("description") or ""),
+            "inputSchema": (spec or {}).get("params") or {"type": "object", "properties": {}},
+            # `write` 一并带出来（判断写授权要用；不放进 tools/list 输出即可）
+            "_write": bool((spec or {}).get("write")),
+        })
+        if name in tools:
+            kept[name] = tools[name]
+    return entries, kept
+
+
+def all_tools() -> list[dict[str, Any]]:
+    """当前 MCP 工具面：内核工具 + 已启用插件的工具（内部字段 `_write` 不外发）。"""
+    entries, _ = plugin_tool_catalog()
+    public = [{k: v for k, v in e.items() if not k.startswith("_")} for e in entries]
+    return KB_TOOLS + WS_TOOLS + public
+
 INSTRUCTIONS = (
+    "插件提供的工具（名字形如 p_<插件id>__<工具>）**只在该插件启用时出现**："
+    "插件停用后它的工具会从工具列表里消失（可在工作台「设置 → 插件」里启停）。",
+
     "这是「工程科研工作台」（engineering-research-workbench）的 Agent 接口。\n"
     "工作台的 Markdown + frontmatter 是唯一事实来源，System/Cache 中的 SQLite 索引只是可重建的派生物。\n"
     "工作约定：\n"
@@ -112,20 +212,39 @@ WRITE_TOOLS = frozenset({"kb_create_entry", "kb_update_entry", "kb_rename_entry"
 
 def handle_tools_call(wb: Workbench, params: dict[str, Any]) -> dict[str, Any]:
     name = str(params.get("name") or "")
+    raw_args = params.get("arguments")
+    args: dict[str, Any] = raw_args if isinstance(raw_args, dict) else {}
+
+    # ① 插件工具（只含已启用插件；停用即消失）
+    plugin_entries, plugin_tools = plugin_tool_catalog()
+    plugin_tool = plugin_tools.get(name)
+    if plugin_tool is not None:
+        spec = next((e for e in plugin_entries if e["name"] == name), None) or {}
+        if _is_write_tool(name, spec):
+            from app import external_access
+
+            allowed, reason = external_access.allowed("mcp_write")
+            if not allowed:
+                return {"content": [{"type": "text", "text": f"[未授权] {reason}"}], "isError": True}
+        try:
+            result = plugin_tool.handler(args, {}) or {}
+        except Exception as exc:  # noqa: BLE001
+            return {"content": [{"type": "text", "text": f"[错误] 插件工具 {name} 执行失败：{exc}"}],
+                    "isError": True}
+        return ok(result)
+
+    # ② 内核工具
     handler = HANDLERS.get(name)
     if handler is None:
-        raise RpcError(METHOD_NOT_FOUND, f"未知工具 `{name}`",
-                       {"available": sorted(HANDLERS)})
-    if name in WRITE_TOOLS:
-        # 外部接入授权：默认**拒绝**（只读），在「设置 → 外部接入」里显式打开后放行
+        available = sorted(set(HANDLERS) | set(plugin_tools))
+        raise RpcError(METHOD_NOT_FOUND, f"未知工具 `{name}`", {"available": available})
+    if _is_write_tool(name):
         from app import external_access
 
         # 注意别用 `ok` 当变量名：本模块从 protocol 导入了 `ok()`，遮蔽它会让成功路径直接崩
         allowed, reason = external_access.allowed("mcp_write")
         if not allowed:
             return {"content": [{"type": "text", "text": f"[未授权] {reason}"}], "isError": True}
-    raw_args = params.get("arguments")
-    args: dict[str, Any] = raw_args if isinstance(raw_args, dict) else {}
     try:
         result = handler(wb, args)
     except WorkbenchError as exc:
@@ -134,17 +253,17 @@ def handle_tools_call(wb: Workbench, params: dict[str, Any]) -> dict[str, Any]:
         return {"content": [{"type": "text", "text": f"[错误] 目标不存在：{exc}"}], "isError": True}
     except Exception as exc:  # noqa: BLE001
         detail = traceback.format_exc(limit=6)
-        return {"content": [{"type": "text",
-                             "text": f"[错误] 工具 `{name}` 执行失败：{exc}\n```\n{detail}\n```"}],
+        return {"content": [{"type": "text", "text": f"[错误] {type(exc).__name__}: {exc}\n{detail}"}],
                 "isError": True}
-    # 仅当返回值确实是 MCP 结果信封（content 为“字典列表”）时才原样透传，
-    # 否则一律重新封装，避免业务载荷里恰好存在名为 content 的字段被误判。
-    if isinstance(result, dict):
-        content = result.get("content")
-        if isinstance(content, list) and content and all(isinstance(x, dict) for x in content):
-            return result
     return ok(result)
 
+
+def _is_write_tool(name: str, spec: dict[str, Any] | None = None) -> bool:
+    """是不是写工具：内核写工具看名单；插件写工具看它注册时的 `write` 标记。"""
+    if name in WRITE_TOOLS:
+        return True
+    # 目录条目里的内部字段叫 `_write`（不随 tools/list 外发）；插件注册时的原始键是 `write`
+    return bool((spec or {}).get("write") or (spec or {}).get("_write"))
 
 def _constraint_body(topic: str) -> str:
     from .tools_knowledge import _constraint_text
@@ -215,7 +334,7 @@ def dispatch(wb: Workbench, msg: dict[str, Any]) -> dict[str, Any] | None:
     if method == "ping":
         return {}
     if method == "tools/list":
-        return {"tools": ALL_TOOLS}
+        return {"tools": all_tools()}
     if method == "tools/call":
         return handle_tools_call(wb, params)
     if method == "resources/list":
@@ -283,10 +402,13 @@ def _serve_one(transport: StdioTransport, wb: Workbench, msg: Any) -> None:
 def _selftest() -> int:
     """离线自检：不启动 stdio，直接校验工具表与约束资源。"""
     problems: list[str] = []
-    names = [t["name"] for t in ALL_TOOLS]
+    kernel_tools = KB_TOOLS + WS_TOOLS
+    plugin_entries, _ = plugin_tool_catalog()
+    checked = kernel_tools + plugin_entries
+    names = [t["name"] for t in checked]
     if len(names) != len(set(names)):
         problems.append("工具名存在重复")
-    for t in ALL_TOOLS:
+    for t in kernel_tools:
         if t["name"] not in HANDLERS:
             problems.append(f"工具 `{t['name']}` 缺少实现")
         schema = t["inputSchema"]
@@ -302,7 +424,8 @@ def _selftest() -> int:
         except Exception as exc:  # noqa: BLE001
             problems.append(f"约束主题 `{topic}` 渲染失败：{exc}")
     print(json.dumps({"server": C.SERVER_NAME, "version": C.SERVER_VERSION,
-                      "tools": len(ALL_TOOLS), "resources": len(RESOURCES),
+                      "tools": len(checked), "kernel_tools": len(kernel_tools),
+        "plugin_tools": len(plugin_entries), "resources": len(RESOURCES),
                       "prompts": len(PROMPTS), "topics": list(C.TOPICS),
                       "problems": problems, "ok": not problems},
                      ensure_ascii=False, indent=2))

@@ -1,5 +1,41 @@
 # Changelog
 
+## v261009.46
+
+**MCP 工具面按插件拆分：只暴露「已启用插件」的工具**（用户要求）。
+
+### 改动
+- `mcp/server.py` 的 `tools/list` / 分发**动态**组成：**内核工具 29 个始终可用**
+  （`kb_*` / `ws_*` / `todo_*` / 文献导出）+ **已启用插件的工具**（名如 `p_<插件id>__<工具>`，与内核 Agent 面一致）；
+- **插件停用 → 它的 MCP 工具消失**（判定与内核同源：`registry.effective_enabled`——有记录按记录，
+  没记录按 `default_enabled`）；启用 → 出现，**不需要重启 MCP 服务**（每次取目录比对"已启用插件指纹"，
+  变了就重载运行时）；
+- 插件**写工具**（注册时 `write: true`）同样受「设置 → 外部接入 → 允许外部 MCP 客户端写入知识库」约束；
+- MCP 进程**只借插件的工具，不跑它们的后台任务**：加载后立刻 `jobs.shutdown()`，
+  否则备份插件这类定时任务会在 MCP 进程里再跑一份；
+- `--selftest` 改为报「工具面统计」：`kernel_tools` / `plugin_tools` / `tools`。
+
+实测（当前启用集合）：工具面 **34** = 内核 **29** + 插件 **5**
+（`p_literature-reader__context|note_write`、`p_version-manager__versions|merge_versions|archive_versions`）；
+未启用的插件（report-export / backup-snapshot / milestone-calendar / metrics-table）**一个工具都不贡献**。
+
+### 实现里踩到并修掉的三个真问题
+1. **停用插件后工具仍在**：运行时可能还留着上次加载的注册表 → 目录改为按**当前启用集合过滤**，
+   不信任运行时的清理；
+2. **插件写工具没被授权拦住**：我构建目录条目时把 `write` 标记丢了 → 内部字段 `_write` 保留并让
+   `_is_write_tool` 同时认它（该字段不随 `tools/list` 外发）；
+3. **默认开启的插件被误过滤**：只读 `plugins.json` 的 `enabled: true` 会漏掉
+   "随包附属、默认开、尚未产生记录"的插件（version-manager 就是这样，实测插件工具只剩 2 个）
+   → 改用内核同一判定 `registry.effective_enabled`。
+
+### 验收
+新增 `tests/kernel/test_mcp_plugin_split.py` **11/11**（**完全隔离**：workspace 与 `System/plugins.json`
+都在临时目录，不动用户的插件开关；只快照/还原仓库里的 `config/external-access.json`）：
+只启用 version-manager 时它的 3 个工具在列表、未启用插件的工具不在、内核工具始终在、
+工具面计数正确、**启用另一插件后不重启也能看到**、**停用后消失**、插件工具可调用、
+**插件写工具未授权被拦 / 授权后放行**、未知工具名报明确错误、授权文件已还原。
+快速档 **15/15 · 111/111**；`mcp.server --selftest` 绿。
+
 ## v261009.45
 
 **分支/合并的 MCP 工具 + 每个分支记录时间**（用户要求）。

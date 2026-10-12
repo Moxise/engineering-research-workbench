@@ -315,6 +315,8 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 `dashboard()`、`kind_labels()`、`kind_order()`、`kernel_version()`。它们与 HTTP 端点**同一套查询实现**
 （实测同源同量），插件因此不必自己读 `Workspace/Knowledge/*.md`（绕过索引会看到过期或半写状态）。
 
+**外部 MCP 面（v261009.46 起）**：你注册的工具（`ctx.mcp.tool`）不仅给内核 Agent 用，也会出现在 **MCP 工具面**上（名如 `p_<你的 id>__<工具>`）——**只有插件启用时才暴露**，停用即消失；写工具受「设置 → 外部接入」的 MCP 写入授权约束。
+
 **版本窗口（v261009.44 起）**：`version_overview()` / `variant_family(doc_id, with_body=…)` /
 `variant_sections(body)` / `merge_variants(base_id, picks, archive_merged=…)` /
 `archive_variants(base_id, ids)` / `restore_variant(base_id, file)` —— 做「同一笔记的不同版本」的
