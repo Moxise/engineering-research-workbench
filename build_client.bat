@@ -3,9 +3,11 @@ setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0" || exit /b 1
 
-rem v261013: Keep diagnostics visible, with a build log next to this script.
+rem v261013: Build in an isolated venv, never installing packages into Anaconda base.
 rem Only build artifacts are changed. Existing config/ and Workspace/ are not touched.
 set "BUILD_LOG=%CD%\build_client.log"
+set "VENV_DIR=%CD%\build\.venv"
+set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
 set "ICON_ARG="
 set "STAGE=initialization"
 > "%BUILD_LOG%" echo ResearchWorkbench desktop build log
@@ -17,13 +19,26 @@ echo ResearchWorkbench - Windows desktop build
 echo Build log: "%BUILD_LOG%"
 echo.
 
-set "STAGE=Python environment"
-echo [1/3] Checking Python and installing build dependencies...
-python -c "import sys; print('Python:', sys.version); sys.exit(0 if sys.version_info >= (3, 11) else 1)" >> "%BUILD_LOG%" 2>&1
+set "STAGE=isolated Python environment"
+echo [1/3] Creating or reusing isolated build environment...
+python -c "import sys; print('Bootstrap Python:', sys.executable, sys.version); sys.exit(0 if sys.version_info >= (3, 11) else 1)" >> "%BUILD_LOG%" 2>&1
 if errorlevel 1 goto :failed
-python -m pip --version >> "%BUILD_LOG%" 2>&1
+if not exist "build" mkdir "build"
+if not exist "%VENV_PY%" (
+    echo Creating virtual environment in build\.venv...
+    python -m venv "%VENV_DIR%" >> "%BUILD_LOG%" 2>&1
+    if errorlevel 1 goto :failed
+)
+if not exist "%VENV_PY%" (
+    >> "%BUILD_LOG%" echo ERROR: Virtual environment Python was not created.
+    goto :failed
+)
+"%VENV_PY%" -c "import sys; print('Build Python:', sys.executable); print('base:', sys.base_prefix); assert sys.prefix != sys.base_prefix" >> "%BUILD_LOG%" 2>&1
 if errorlevel 1 goto :failed
-python -m pip install pyinstaller pywebview pillow >> "%BUILD_LOG%" 2>&1
+"%VENV_PY%" -m pip --version >> "%BUILD_LOG%" 2>&1
+if errorlevel 1 goto :failed
+echo Installing build dependencies into build\.venv...
+"%VENV_PY%" -m pip install --disable-pip-version-check --prefer-binary pyinstaller pywebview pillow >> "%BUILD_LOG%" 2>&1
 if errorlevel 1 goto :failed
 
 set "STAGE=resources and icon"
@@ -42,7 +57,7 @@ if not exist "VERSION" (
 )
 if not exist "build" mkdir "build"
 if not exist "build\research-workstation.ico" (
-    python -c "from PIL import Image; img=Image.open('web/favicon.png'); img.save('build/research-workstation.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])" >> "%BUILD_LOG%" 2>&1
+    "%VENV_PY%" -c "from PIL import Image; img=Image.open('web/favicon.png'); img.save('build/research-workstation.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])" >> "%BUILD_LOG%" 2>&1
 )
 if exist "build\research-workstation.ico" set "ICON_ARG=--icon build\research-workstation.ico"
 
@@ -55,7 +70,7 @@ if not errorlevel 1 (
     >> "%BUILD_LOG%" echo ERROR: ResearchWorkbench.exe is running. Please close it before packaging.
     goto :failed
 )
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name ResearchWorkbench --distpath "." %ICON_ARG% --add-data "web;web" --add-data "VERSION;." client.py >> "%BUILD_LOG%" 2>&1
+"%VENV_PY%" -m PyInstaller --noconfirm --clean --onefile --windowed --name ResearchWorkbench --distpath "." %ICON_ARG% --add-data "web;web" --add-data "VERSION;." client.py >> "%BUILD_LOG%" 2>&1
 if errorlevel 1 goto :failed
 if not exist "ResearchWorkbench.exe" (
     >> "%BUILD_LOG%" echo ERROR: PyInstaller finished without producing ResearchWorkbench.exe
