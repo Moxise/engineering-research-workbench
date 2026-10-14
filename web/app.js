@@ -1224,7 +1224,7 @@
     $$('[data-graph-relation]').forEach(c=>c.onchange=()=>{if(c.checked)state.graphRelations.add(c.dataset.graphRelation);else state.graphRelations.delete(c.dataset.graphRelation);localStorage.setItem('graphRelations',JSON.stringify([...state.graphRelations]));renderGraphCanvas()});
     $('#graph-filter-all').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=true);state.graphKinds=new Set(filterKinds.map(x=>x[0]));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
     $('#graph-filter-docs').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=!['project','tag'].includes(c.dataset.graphKind));state.graphKinds=new Set(filterKinds.map(x=>x[0]).filter(x=>!['project','tag'].includes(x)));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
-    $('[data-graph-panel]').forEach(b=>b.onclick=()=>setGraphSidePanel(b.dataset.graphPanel));
+    $$('[data-graph-panel]').forEach(b=>b.onclick=()=>setGraphSidePanel(b.dataset.graphPanel));
         $('#graph-bundle').onclick=()=>state.graphSelected&&openGraphBundleFromNode(state.graphSelected);
     $('#graph-preview-close').onclick=()=>onGraphSelect(null);
     $('#graph-fit').onclick=()=>{if(state.graphSelected)onGraphSelect(null);requestAnimationFrame(()=>$('#graph-canvas')?._graphResetView?.())};
