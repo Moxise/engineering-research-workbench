@@ -471,9 +471,9 @@
       if (!groups.length) return;
       const fullWidth = 220;
       const compactWidth = 150;
-      const gap = 14;
-      const items = [];
+      const minGap = 14;
       const { start: rangeStart, end: rangeEnd } = this.range();
+      const items = [];
 
       const segmentForMonth = date => {
         const d = localMidnight(date);
@@ -494,6 +494,23 @@
         };
       };
 
+      /* Test a concrete card width inside one natural month.
+       * Every card is clamped to the month segment before collision testing,
+       * so neighboring months can never visually overlap each other. */
+      const placeMonthCards = (monthGroups, segment, cardWidth) => {
+        const inset = 8;
+        if (segment.width < cardWidth + inset * 2) return null;
+        const maxLeft = segment.x2 - cardWidth - inset;
+        const placed = monthGroups.map(group => ({
+          group,
+          left: clamp(group.x - cardWidth / 2, segment.x1 + inset, maxLeft)
+        })).sort((a,b)=>a.left-b.left || a.group.x-b.group.x);
+        for (let i=1;i<placed.length;i++) {
+          if (placed[i].left < placed[i-1].left + cardWidth + minGap) return null;
+        }
+        return placed;
+      };
+
       const byMonth = new Map();
       groups.forEach(group => {
         const key = monthKey(group.date);
@@ -503,26 +520,39 @@
 
       [...byMonth.values()].forEach(monthGroups => {
         const segment = segmentForMonth(monthGroups[0].date);
-        const fullParts = collisionComponents(monthGroups, fullWidth, width, gap);
-        const canUseFull = fullParts.every(part => part.length === 1 && part[0].docs.length === 1);
+        const allSingles = monthGroups.every(group => group.docs.length === 1);
 
-        if (canUseFull) {
-          monthGroups.forEach(group => items.push({ kind: 'full', groups: [group], width: fullWidth, segment }));
+        const fullPlaced = allSingles ? placeMonthCards(monthGroups, segment, fullWidth) : null;
+        if (fullPlaced) {
+          fullPlaced.forEach(row => items.push({
+            kind:'full', groups:[row.group], width:fullWidth, left:row.left, segment
+          }));
           return;
         }
 
-        const compactParts = collisionComponents(monthGroups, compactWidth, width, gap);
-        const canUseCompact = compactParts.every(part => part.length === 1 && part[0].docs.length === 1);
-
-        if (canUseCompact) {
-          monthGroups.forEach(group => items.push({ kind: 'compact', groups: [group], width: compactWidth, segment }));
+        const compactPlaced = allSingles ? placeMonthCards(monthGroups, segment, compactWidth) : null;
+        if (compactPlaced) {
+          compactPlaced.forEach(row => items.push({
+            kind:'compact', groups:[row.group], width:compactWidth, left:row.left, segment
+          }));
           return;
         }
 
-        /* High/local density: exactly one visual aggregate per natural month.
-         * The real milestone markers remain at their true date coordinates above it. */
-        const monthWidth = clamp(segment.width - 18, 136, 184);
-        items.push({ kind: 'month-cluster', groups: monthGroups, width: monthWidth, segment });
+        /* If the month cannot fit collision-free cards, collapse the whole month
+         * into one deterministic aggregate. Real date pins remain individually visible. */
+        const clusterWidth = clamp(segment.width - 20, 92, 132);
+        const clusterLeft = clamp(
+          (segment.x1 + segment.x2 - clusterWidth) / 2,
+          segment.x1 + 8,
+          Math.max(segment.x1 + 8, segment.x2 - clusterWidth - 8)
+        );
+        items.push({
+          kind:'month-cluster',
+          groups:monthGroups,
+          width:clusterWidth,
+          left:clusterLeft,
+          segment
+        });
       });
 
       items.forEach(item => {
@@ -533,12 +563,9 @@
         const x = item.kind === 'month-cluster'
           ? (item.segment.x1 + item.segment.x2) / 2
           : weightedX;
-        const inset = 7;
-        const minLeft = item.segment ? item.segment.x1 + inset : 8;
-        const maxLeft = item.segment
-          ? Math.max(minLeft, item.segment.x2 - item.width - inset)
-          : Math.max(8, width - item.width - 8);
-        const left = clamp(x - item.width / 2, minLeft, maxLeft);
+        const left = Number.isFinite(item.left)
+          ? item.left
+          : clamp(x - item.width / 2, 8, Math.max(8, width - item.width - 8));
 
         const connector = el('i', 'mdt-card-connector');
         connector.style.left = x + 'px';
@@ -555,7 +582,6 @@
           monthTitle.appendChild(el('strong', '', (start.getMonth() + 1) + '月'));
           monthTitle.appendChild(el('span', '', docs.length + '项'));
           card.appendChild(monthTitle);
-          card.appendChild(el('div', 'mdt-month-cluster-status', cfg.label));
         } else {
           const doc = docs[0];
           card.appendChild(el('div', 'mdt-card-date', shortDate(doc._due)));
@@ -566,12 +592,17 @@
         }
 
         card.title = item.kind === 'month-cluster'
-          ? (monthLabel(start) + ' · ' + cfg.label + ' ' + docs.length + '项')
+          ? (monthLabel(start) + ' · ' + docs.length + '项')
           : ((docs[0].title || '未命名里程碑') + ' · ' + longDate(docs[0]._due));
         card.addEventListener('click', e => {
           e.stopPropagation();
           if (item.kind !== 'month-cluster' && docs.length === 1 && this.options.onOpen) this.options.onOpen(docs[0].id);
-          else this.openDrawer(docs, cfg.key, item.kind === 'month-cluster' ? item.segment.start : start, item.kind === 'month-cluster' ? addDays(item.segment.end, -1) : end);
+          else this.openDrawer(
+            docs,
+            cfg.key,
+            item.kind === 'month-cluster' ? item.segment.start : start,
+            item.kind === 'month-cluster' ? addDays(item.segment.end, -1) : end
+          );
         });
         lane.appendChild(card);
       });
