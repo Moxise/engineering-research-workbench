@@ -1130,7 +1130,7 @@
       });
     }
     else if(state.milestoneView==='list'){ root.innerHTML=milestoneTimelineHtml([...state.docs].sort((a,b)=>(a.due||'').localeCompare(b.due||''))); wireMilestoneCards(); }
-    else { root.innerHTML=`<div class="docs-layout"><aside class="card doc-list-panel" style="position:relative;top:auto"><div class="doc-list" id="doc-list">${docItems(state.docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"><div class="empty">选择里程碑文档进行编辑</div></section></div>`; wireDocList('milestone'); }
+    else { root.innerHTML=`<div class="docs-layout milestone-docs-layout"><aside class="card doc-list-panel" style="position:relative;top:auto"><div class="doc-list" id="doc-list">${docItems(state.docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"><div class="empty">选择里程碑文档进行编辑</div></section></div>`; wireDocList('milestone'); }
     animateSubView(root);
   }
   function milestoneTimelineHtml(docs,compact=false){ if(!docs.length)return '<div class="empty">暂无里程碑</div>'; return `<div class="timeline ${compact?'compact':''}">${docs.map(d=>`<div class="timeline-item" data-ms-id="${d.id}"><div class="timeline-date">${fmtDate(d.due)}</div><span class="timeline-dot"></span><div class="timeline-card"><div style="display:flex;justify-content:space-between;gap:10px"><strong>${esc(d.title)}</strong><span class="badge">${esc(d.status||'')}</span></div><div class="row-meta">${esc((d.projects||[]).join(', ')||d.project||'未归属项目')} · ${esc(d.excerpt||'')}</div></div></div>`).join('')}</div>`}
