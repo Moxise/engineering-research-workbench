@@ -97,7 +97,7 @@
 
   function enhanceMilestones(){
     const root=$('#ms-view'); if(!root)return;
-    const timeline=$('.timeline',root), three=$('.milestone-3d-layout',root); if(!timeline&&!three)return;
+    const timeline=$('.timeline',root), fishbone=$('.milestone-fishbone-layout',root), three=$('.milestone-3d-layout',root); if(!timeline&&!fishbone&&!three)return;
     if(!$('.milestone-status-filter',root)){
       const bar=document.createElement('div');bar.className='milestone-status-filter';
       bar.innerHTML=`<span>状态筛选</span><select class="mini-select" id="milestone-status-filter"><option value="">全部状态</option>${['计划','进行中','受阻','完成'].map(s=>`<option value="${s}" ${milestoneStatus===s?'selected':''}>${s}</option>`).join('')}</select>`;
@@ -109,7 +109,8 @@
 
   function applyMilestoneFilter(root){
     $$('.timeline-item',root).forEach(x=>{const s=$('.badge',x)?.textContent.trim()||'';x.hidden=!!milestoneStatus&&s!==milestoneStatus});
-    $$('.timeline-3d-card',root).forEach(x=>{const txt=$('.row-meta',x)?.textContent||'';const status=txt.split('·').pop().trim();x.hidden=!!milestoneStatus&&status!==milestoneStatus});
+    $('.timeline-3d-card',root).forEach(x=>{const txt=$('.row-meta',x)?.textContent||'';const status=txt.split('·').pop().trim();x.hidden=!!milestoneStatus&&status!==milestoneStatus});
+    $('.fishbone-node',root).forEach(x=>{const status=x.dataset.status||'';x.hidden=!!milestoneStatus&&status!==milestoneStatus});
   }
 
   function fixPreviewImages(root=document){
