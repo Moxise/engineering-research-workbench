@@ -447,7 +447,8 @@
         if (group.docs.length > 1) marker.appendChild(el('span', 'mdt-marker-count', group.docs.length));
         marker.addEventListener('click', e => {
           e.stopPropagation();
-          this.openDrawer(group.docs, cfg.key, group.date, group.date);
+          if (group.docs.length === 1 && this.options.onOpen) this.options.onOpen(group.docs[0].id);
+          else this.openDrawer(group.docs, cfg.key, group.date, group.date);
         });
         lane.appendChild(marker);
       });
@@ -513,7 +514,8 @@
           : ((docs[0].title || '未命名里程碑') + ' · ' + longDate(docs[0]._due));
         card.addEventListener('click', e => {
           e.stopPropagation();
-          this.openDrawer(docs, cfg.key, start, end);
+          if (item.kind !== 'cluster' && docs.length === 1 && this.options.onOpen) this.options.onOpen(docs[0].id);
+          else this.openDrawer(docs, cfg.key, start, end);
         });
         lane.appendChild(card);
       });
