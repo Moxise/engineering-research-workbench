@@ -782,3 +782,127 @@ html[data-route="graph"] .main-content{padding-bottom:18px!important}
   .route-enter{animation:none!important}
   .quick-action:hover,.project-pulse-item:hover{transform:none!important}
 }
+
+
+/* ============================================================
+ * v261014r · Heatmap completeness + configurable color intensity
+ * ============================================================ */
+:root{--overview-heatmap-height:224px}
+
+/* The heatmap must always show title, months, all 7 weekday rows and legend.
+ * Height is stable; horizontal density is handled by cell width or scrolling. */
+.overview-dashboard>.overview-top-row{
+  min-height:var(--overview-heatmap-height)!important;
+  align-items:start!important;
+}
+.overview-dashboard>.overview-top-row>.heatmap-card{
+  height:var(--overview-heatmap-height)!important;
+  min-height:var(--overview-heatmap-height)!important;
+  max-height:var(--overview-heatmap-height)!important;
+}
+.heatmap-card{
+  padding:11px 14px 8px!important;
+  overflow:hidden!important;
+}
+.heatmap-card .card-head{
+  flex:0 0 auto!important;
+  margin-bottom:3px!important;
+  min-height:42px;
+}
+.heatmap-card .heatmap-scroll{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow-x:auto!important;
+  overflow-y:hidden!important;
+  display:block!important;
+  padding:2px 0 3px!important;
+}
+.heatmap-card .heatmap-plot{
+  min-height:calc(20px + 7 * var(--heat-cell-height) + 6 * var(--heat-gap-y))!important;
+  align-items:flex-start!important;
+  justify-content:flex-start!important;
+  margin:0!important;
+}
+.heatmap-card .heatmap-footer{
+  flex:0 0 15px!important;
+  min-height:15px!important;
+  margin-top:1px!important;
+}
+.heatmap-card .heatmap-axis-cap,
+.heatmap-card .heatmap-months{height:20px!important}
+.heatmap-card .heatmap-weekdays{
+  grid-template-rows:repeat(7,var(--heat-cell-height))!important;
+  row-gap:var(--heat-gap-y)!important;
+}
+.heatmap-card .heatmap-cells{
+  grid-template-rows:repeat(7,var(--heat-cell-height))!important;
+  row-gap:var(--heat-gap-y)!important;
+  column-gap:var(--heat-gap-x)!important;
+}
+
+/* Soft = default: enough distinction without turning the dashboard into a blue block. */
+.heatmap-card[data-heatmap-palette="soft"] .heat-cell.level-0{background:#E9EDF4!important}
+.heatmap-card[data-heatmap-palette="soft"] .heat-cell.level-1{background:#DCE3F8!important}
+.heatmap-card[data-heatmap-palette="soft"] .heat-cell.level-2{background:#B8C4EF!important}
+.heatmap-card[data-heatmap-palette="soft"] .heat-cell.level-3{background:#8D9FE2!important}
+.heatmap-card[data-heatmap-palette="soft"] .heat-cell.level-4{background:#657AD2!important}
+
+/* Standard = current design intent. */
+.heatmap-card[data-heatmap-palette="standard"] .heat-cell.level-0{background:#E7EBF3!important}
+.heatmap-card[data-heatmap-palette="standard"] .heat-cell.level-1{background:#D7DEFB!important}
+.heatmap-card[data-heatmap-palette="standard"] .heat-cell.level-2{background:#ABB9F4!important}
+.heatmap-card[data-heatmap-palette="standard"] .heat-cell.level-3{background:#778BE4!important}
+.heatmap-card[data-heatmap-palette="standard"] .heat-cell.level-4{background:#526BD0!important}
+
+/* Vivid = stronger contrast for users who prefer clearer activity separation. */
+.heatmap-card[data-heatmap-palette="vivid"] .heat-cell.level-0{background:#E4E8F1!important}
+.heatmap-card[data-heatmap-palette="vivid"] .heat-cell.level-1{background:#CCD6FA!important}
+.heatmap-card[data-heatmap-palette="vivid"] .heat-cell.level-2{background:#96A8F0!important}
+.heatmap-card[data-heatmap-palette="vivid"] .heat-cell.level-3{background:#6178DD!important}
+.heatmap-card[data-heatmap-palette="vivid"] .heat-cell.level-4{background:#354BAF!important}
+
+.heatmap-color-select{
+  min-width:68px!important;
+}
+
+/* Wide desktop layout: keep heatmap and academic goals balanced instead of allowing
+ * the heatmap to consume nearly the whole row. */
+@media (min-width:1440px){
+  .overview-dashboard>.overview-top-row{
+    grid-template-columns:minmax(0,1.65fr) minmax(390px,.82fr)!important;
+  }
+}
+@media (min-width:1100px) and (max-width:1439px){
+  .overview-dashboard>.overview-top-row{
+    grid-template-columns:minmax(0,1.5fr) minmax(350px,.78fr)!important;
+  }
+}
+@media (max-width:1099px){
+  :root{--overview-heatmap-height:220px}
+}
+
+/* Softer card hierarchy: current screenshot was still too white/blue.
+ * Use subtle tinted shells, preserve white for true content surfaces only. */
+.overview-dashboard>.overview-ops-grid>.card,
+.project-pulse-card,
+.overview-recent-group{
+  background:#F9FBFD!important;
+}
+.overview-task-card{background:linear-gradient(180deg,#FAFBFF,#F7F9FE)!important}
+.overview-milestone-card{background:linear-gradient(180deg,#FFFCF7,#FAFBFD)!important}
+.rhythm-card{background:linear-gradient(180deg,#FAFDFB,#F8FBFA)!important}
+
+/* Reduce the visual dominance of theme bars. */
+.theme-card::before{height:2px!important;opacity:.7!important}
+.theme-card>.card-head{
+  background:linear-gradient(180deg,var(--theme-soft,var(--module-soft)),rgba(255,255,255,0) 88%)!important;
+}
+
+/* Graph root uses the module color and softer shell, while keeping content readable. */
+html[data-route="graph"] #main>.card{
+  background:#F8F9FC!important;
+}
+html[data-route="graph"] #main>.card>.card-head{
+  padding-bottom:10px!important;
+  border-bottom:1px solid #E4E8F0;
+}
