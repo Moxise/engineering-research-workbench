@@ -109,8 +109,8 @@
 
   function applyMilestoneFilter(root){
     $$('.timeline-item',root).forEach(x=>{const s=$('.badge',x)?.textContent.trim()||'';x.hidden=!!milestoneStatus&&s!==milestoneStatus});
-    $('.timeline-3d-card',root).forEach(x=>{const txt=$('.row-meta',x)?.textContent||'';const status=txt.split('·').pop().trim();x.hidden=!!milestoneStatus&&status!==milestoneStatus});
-    $('.fishbone-node',root).forEach(x=>{const status=x.dataset.status||'';x.hidden=!!milestoneStatus&&status!==milestoneStatus});
+    $$('.timeline-3d-card',root).forEach(x=>{const txt=$('.row-meta',x)?.textContent||'';const status=txt.split('·').pop().trim();x.hidden=!!milestoneStatus&&status!==milestoneStatus});
+    $$('.fishbone-node',root).forEach(x=>{const status=x.dataset.status||'';x.hidden=!!milestoneStatus&&status!==milestoneStatus});
   }
 
   function fixPreviewImages(root=document){
