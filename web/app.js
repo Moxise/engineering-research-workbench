@@ -261,7 +261,7 @@
           </div>
         </div>
         <section class="overview-recent-section">
-          <div class="section-title overview-recent-head"><div><h3>最近研究活动</h3><p>快速回到最近产生的科研内容</p></div><button class="secondary-btn" data-go="research-overview">研究总览</button></div>
+          <div class="section-title overview-recent-head"><div class="overview-head-main"><span class="overview-head-icon">${overviewModuleIcon('activity')}</span><div class="overview-head-copy"><div class="card-kicker">RECENT RESEARCH</div><h3>最近研究活动</h3><p>快速回到最近产生的科研内容</p></div></div><button class="secondary-btn" data-go="research-overview">研究总览</button></div>
           <div class="grid grid-3 overview-recent-group">${recentCard('最近灵感',dash.recent.ideas,'ideas')}${recentCard('最近笔记',dash.recent.notes,'notes')}${recentCard('最近工作总结',dash.recent.summaries,'summaries')}</div>
         </section>
       </div>
@@ -457,6 +457,32 @@
     const btn=$('#density-btn'); if(btn){btn.textContent=v==='cozy'?'宽松型':'紧凑型';btn.title=v==='cozy'?'当前：宽松型（各卡片纵向排布、页面可下拉滚动）。点击切换为紧凑型':'当前：紧凑型（热力图与学业卡并排、一屏收纳免滚动）。点击切换为宽松型';}
   }
 
+  function overviewModuleIcon(kind){
+    const common='viewBox="0 0 24 24" aria-hidden="true" focusable="false"';
+    const icons={
+      rhythm:`<svg ${common}><path d="M3.5 12h3l1.7-4.1 3.1 8.2 2.4-6 1.6 3.2h5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".35"/></svg>`,
+      task:`<svg ${common}><rect x="5" y="4.5" width="14" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M9 4.5v-1h6v1M8.5 10.5l1.7 1.7 3.3-3.5M8.5 15.5h6.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      milestone:`<svg ${common}><path d="M6 20V5.2M6 6h9.5l2 3-2 3H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="20" r="1.4" fill="currentColor"/></svg>`,
+      project:`<svg ${common}><path d="M4.5 7.5h6l1.5 2h7.5v8.8a1.7 1.7 0 0 1-1.7 1.7H6.2a1.7 1.7 0 0 1-1.7-1.7z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M4.5 7.5V6.2a1.7 1.7 0 0 1 1.7-1.7h4.3l1.6 2H18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
+      activity:`<svg ${common}><path d="M12 3.5l1.3 4.2 4.2 1.3-4.2 1.3-1.3 4.2-1.3-4.2L6.5 9l4.2-1.3zM18.5 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8zM5.2 14l.6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6z" fill="currentColor"/></svg>`
+    };
+    return icons[kind]||icons.activity;
+  }
+  function overviewMonthDay(value){
+    const s=String(value||'');
+    const m=s.match(/(?:^|\D)(\d{4})-(\d{2})-(\d{2})(?:\D|$)/);
+    if(m)return m[2]+'/'+m[3];
+    const d=new Date(value);
+    if(!Number.isNaN(d.getTime()))return String(d.getMonth()+1).padStart(2,'0')+'/'+String(d.getDate()).padStart(2,'0');
+    return s;
+  }
+  function overviewMilestoneStatusClass(status){
+    const s=String(status||'').toLowerCase();
+    if(/完成|done|complete/.test(s))return 'ms-done';
+    if(/受阻|阻塞|blocked/.test(s))return 'ms-blocked';
+    if(/进行|progress|active/.test(s))return 'ms-active';
+    return 'ms-planned';
+  }
   function stableProjectAccent(name){
     const palette=['#5069DE','#168C78','#8462CB','#3488BE','#C58A31','#6979A8'];
     let h=0;for(const ch of String(name||''))h=(h*31+ch.codePointAt(0))>>>0;
@@ -464,15 +490,15 @@
   }
   function projectPulseCard(items){
     const rows=(items||[]).slice(0,6);
-    return `<section class="card card-pad project-pulse-card theme-card theme-project"><div class="card-head"><div><div class="card-kicker">PROJECT PULSE</div><h3>项目推进</h3><p>把项目中的知识资产、待办和近期里程碑汇总到同一处。</p></div><div class="card-head-actions"><button class="primary-btn" id="overview-new-project">＋ 新建项目</button><button class="secondary-btn" data-go="folders">项目目录</button></div></div>${rows.length?`<div class="project-pulse-grid">${rows.map(x=>`<div class="project-pulse-item" style="--project-accent:${stableProjectAccent(x.name)}"><div class="project-pulse-name"><strong>${esc(x.name)}</strong><span>${x.last_updated?`更新 ${esc(fmtDate(x.last_updated))}`:'暂无更新记录'}</span></div><div class="project-pulse-metrics"><span><b>${x.docs||0}</b> 文档</span><span><b>${x.open_todos||0}</b> 待办</span><span><b>${x.milestones||0}</b> 里程碑</span><span><b>${x.literature||0}</b> 文献</span></div></div>`).join('')}</div>`:`<div class="academic-empty compact"><strong>还没有科研项目</strong><span>点击“新建项目”后会自动创建标准工程目录，并可用于灵感、笔记、文献等条目的项目关联。</span></div>`}</section>`;
+    return `<section class="card card-pad project-pulse-card theme-card theme-project"><div class="card-head overview-themed-head"><div class="overview-head-main"><span class="overview-head-icon">${overviewModuleIcon('project')}</span><div class="overview-head-copy"><div class="card-kicker">PROJECT PULSE</div><h3>项目推进</h3><p>把项目中的知识资产、待办和近期里程碑汇总到同一处。</p></div></div><div class="card-head-actions"><button class="primary-btn" id="overview-new-project">＋ 新建项目</button><button class="secondary-btn" data-go="folders">项目目录</button></div></div>${rows.length?`<div class="project-pulse-grid">${rows.map(x=>`<div class="project-pulse-item" style="--project-accent:${stableProjectAccent(x.name)}"><div class="project-pulse-name"><strong>${esc(x.name)}</strong><span>${x.last_updated?`更新 ${esc(fmtDate(x.last_updated))}`:'暂无更新记录'}</span></div><div class="project-pulse-metrics"><span><b>${x.docs||0}</b> 文档</span><span><b>${x.open_todos||0}</b> 待办</span><span><b>${x.milestones||0}</b> 里程碑</span><span><b>${x.literature||0}</b> 文献</span></div></div>`).join('')}</div>`:`<div class="academic-empty compact"><strong>还没有科研项目</strong><span>点击“新建项目”后会自动创建标准工程目录，并可用于灵感、笔记、文献等条目的项目关联。</span></div>`}</section>`;
   }
 
   function overviewTaskCard(items){
-    return `<section class="card card-pad overview-task-card theme-card theme-task"><div class="card-head"><div><div class="card-kicker">TODAY TASKS</div><h3>当前任务</h3></div><button class="secondary-btn" data-go="todos">全部待办</button></div>${items.length?`<div class="overview-task-list">${items.map(t=>`<div class="overview-task-row"><span class="task-state-dot" aria-hidden="true"></span><div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-meta">${esc(t.project||'未归属项目')}</div></div><span class="overview-task-due">${fmtDate(t.due)}</span>${t.priority?`<span class="badge ${t.priority==='高'?'warn':''}">${esc(t.priority)}</span>`:''}</div>`).join('')}</div>`:'<div class="empty compact-empty">暂无待办</div>'}</section>`;
+    return `<section class="card card-pad overview-task-card theme-card theme-task"><div class="card-head overview-themed-head"><div class="overview-head-main"><span class="overview-head-icon">${overviewModuleIcon('task')}</span><div class="overview-head-copy"><div class="card-kicker">TODAY TASKS</div><h3>当前任务</h3></div></div><button class="secondary-btn" data-go="todos">全部待办</button></div>${items.length?`<div class="overview-task-list">${items.map(t=>`<div class="overview-task-row" title="${esc(t.title)}"><span class="task-state-dot" aria-hidden="true"></span><div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-meta">${esc(t.project||'未归属项目')}</div></div><span class="overview-task-due">${fmtDate(t.due)}</span>${t.priority?`<span class="badge ${t.priority==='高'?'warn':''}">${esc(t.priority)}</span>`:''}</div>`).join('')}</div>`:'<div class="empty compact-empty">暂无待办</div>'}</section>`;
   }
 
   function overviewMilestoneCard(items){
-    return `<section class="card card-pad overview-milestone-card theme-card theme-milestone"><div class="card-head"><div><div class="card-kicker">NEXT MILESTONE</div><h3>近期节点</h3></div><button class="secondary-btn" data-go="milestones">时间轴</button></div>${items.length?`<div class="overview-milestone-list">${items.map(d=>`<div class="overview-milestone-row ${d.id?'clickable':''}" ${d.id?`data-open-doc="${d.id}" data-doc-route="milestones"`:''}><div class="mini-ms-date"><strong>${esc(fmtDate(d.due))}</strong><i></i></div><div class="row-main"><div class="row-title">${esc(d.title)}</div><div class="row-meta">${esc(d.project||'未归属项目')}</div></div><span class="badge">${esc(d.status||'计划')}</span></div>`).join('')}</div>`:'<div class="empty compact-empty">暂无近期里程碑</div>'}</section>`;
+    return `<section class="card card-pad overview-milestone-card theme-card theme-milestone"><div class="card-head overview-themed-head"><div class="overview-head-main"><span class="overview-head-icon">${overviewModuleIcon('milestone')}</span><div class="overview-head-copy"><div class="card-kicker">NEXT MILESTONE</div><h3>近期节点</h3></div></div><button class="secondary-btn" data-go="milestones">时间轴</button></div>${items.length?`<div class="overview-milestone-list">${items.map(d=>`<div class="overview-milestone-row ${d.id?'clickable':''}" ${d.id?`data-open-doc="${d.id}" data-doc-route="milestones"`:''}><div class="mini-ms-date" title="${esc(fmtDate(d.due))}"><strong>${esc(overviewMonthDay(d.due))}</strong><i></i></div><div class="row-main"><div class="row-title" title="${esc(d.title)}">${esc(d.title)}</div><div class="row-meta">${esc(d.project||'未归属项目')}</div></div><span class="badge overview-ms-status ${overviewMilestoneStatusClass(d.status)}">${esc(d.status||'计划')}</span></div>`).join('')}</div>`:'<div class="empty compact-empty">暂无近期里程碑</div>'}</section>`;
   }
 
   function researchRhythmCard(activity,academic){
@@ -481,7 +507,7 @@
     const weekActive=recent.filter(x=>x.count>0).length;
     const weekEvents=recent.reduce((a,x)=>a+(x.count||0),0);
     const pct=Math.min(100,goal?weekActive/goal*100:0);
-    return `<section class="card card-pad rhythm-card"><div class="card-head"><div><div class="card-kicker">RESEARCH RHYTHM</div><h3>科研节奏</h3></div><span class="badge accent">近 7 天</span></div><div class="rhythm-main"><div><strong>${weekActive}</strong><span>/ ${goal} 天目标</span></div><div class="condition-track"><i style="width:${pct}%"></i></div></div><div class="rhythm-grid"><div><strong>${weekEvents}</strong><span>科研记录</span></div><div><strong>${activity.current_streak||0}</strong><span>连续活跃天</span></div><div><strong>${activity.longest_streak||0}</strong><span>最长连续</span></div></div></section>`;
+    return `<section class="card card-pad rhythm-card theme-card theme-rhythm"><div class="card-head overview-themed-head"><div class="overview-head-main"><span class="overview-head-icon">${overviewModuleIcon('rhythm')}</span><div class="overview-head-copy"><div class="card-kicker">RESEARCH RHYTHM</div><h3>科研节奏</h3></div></div><span class="badge accent">近 7 天</span></div><div class="rhythm-main"><div><strong>${weekActive}</strong><span>/ ${goal} 天目标</span></div><div class="condition-track"><i style="width:${pct}%"></i></div></div><div class="rhythm-grid"><div><strong>${weekEvents}</strong><span>科研记录</span></div><div><strong>${activity.current_streak||0}</strong><span>连续活跃天</span></div><div><strong>${activity.longest_streak||0}</strong><span>最长连续</span></div></div></section>`;
   }
 
   function stat(label,value,kicker){return `<div class="card stat-card"><div class="card-kicker">${kicker}</div><div class="stat-value">${value}</div><div class="stat-label">${label}</div></div>`}
