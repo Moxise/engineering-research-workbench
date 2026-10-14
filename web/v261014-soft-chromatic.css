@@ -183,7 +183,7 @@ body{
 }
 
 /* ---------- Overview ---------- */
-:root{--overview-heatmap-height:218px}
+:root{--overview-heatmap-height:205px}
 .overview-dashboard{gap:12px!important}
 .overview-top-row,.overview-mid-row,.overview-ops-grid{gap:12px!important}
 
