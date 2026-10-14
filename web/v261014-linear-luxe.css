@@ -3082,3 +3082,54 @@ html[data-density="compact"] .milestone-docs-layout .editor-actions{
   position:relative!important;
   z-index:4!important;
 }
+
+
+/* ============================================================
+ * v261014n · Date + natural two-line milestone cards
+ * Short titles stay on one line naturally; longer titles may use two.
+ * ============================================================ */
+.mdt-card.single,
+.mdt-card.single.compact{
+  top:36px!important;
+  height:auto!important;
+  min-height:54px!important;
+  max-height:72px!important;
+  padding:7px 10px 8px!important;
+  display:block!important;
+  align-items:initial!important;
+  text-align:left!important;
+}
+.mdt-card.single.compact{
+  min-height:52px!important;
+  max-height:70px!important;
+  padding:7px 9px!important;
+}
+.mdt-card.single .mdt-card-date{
+  display:block!important;
+  margin:0 0 4px!important;
+  font:600 9px/1.15 "JetBrains Mono","SFMono-Regular",Consolas,monospace!important;
+  color:#73809A!important;
+  white-space:nowrap!important;
+}
+.mdt-card.single .mdt-card-title{
+  margin:0!important;
+  display:-webkit-box!important;
+  -webkit-box-orient:vertical!important;
+  -webkit-line-clamp:2!important;
+  overflow:hidden!important;
+  white-space:normal!important;
+  text-overflow:ellipsis!important;
+  overflow-wrap:anywhere!important;
+  word-break:break-word!important;
+  font-size:11px!important;
+  line-height:1.38!important;
+  font-weight:650!important;
+  color:var(--lux-ink-strong)!important;
+}
+.mdt-card.single .mdt-card-desc{display:none!important}
+/* Remove the previous forced single-line branch. */
+.mdt-card.single.one-line .mdt-card-title,
+.mdt-card.single.two-line .mdt-card-title{
+  -webkit-line-clamp:2!important;
+  white-space:normal!important;
+}
