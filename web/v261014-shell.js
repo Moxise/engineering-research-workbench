@@ -23,7 +23,7 @@
 
   function applyWidth(value, handle, persist = false) {
     const width = clamp(value);
-    document.documentElement.style.setProperty('--sidebar', width + 'px');
+    document.documentElement.style.setProperty('--sidebar', width + 'px', 'important');
     if (handle) handle.setAttribute('aria-valuenow', String(width));
     if (persist) localStorage.setItem(STORAGE_KEY, String(width));
     return width;
