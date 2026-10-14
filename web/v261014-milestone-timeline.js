@@ -490,8 +490,8 @@
         const oneLine=compact?16:18;
         const lines=units<=oneLine?1:2;
         const target=compact
-          ? clamp(Math.round(78+Math.min(units,23)*4.0),118,164)
-          : clamp(Math.round(84+Math.min(units,25)*4.7),132,198);
+          ? clamp(Math.round(56+Math.min(units,23)*2.55),86,116)
+          : clamp(Math.round(60+Math.min(units,25)*2.95),92,136);
         return {width:target,lines};
       };
 
