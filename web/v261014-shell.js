@@ -2,9 +2,9 @@
   'use strict';
 
   const STORAGE_KEY = 'sidebarWidth';
-  const DEFAULT_WIDTH = 248;
-  const MIN_WIDTH = 190;
-  const MAX_WIDTH = 340;
+  const DEFAULT_WIDTH = 180;
+  const MIN_WIDTH = 50;
+  const MAX_WIDTH = 200;
   const MOBILE_QUERY = '(max-width: 820px)';
 
   const clamp = value => Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(value)));
@@ -24,6 +24,8 @@
   function applyWidth(value, handle, persist = false) {
     const width = clamp(value);
     document.documentElement.style.setProperty('--sidebar', width + 'px', 'important');
+    const mode = width < 90 ? 'icon' : width < 140 ? 'compact' : 'full';
+    document.documentElement.dataset.sidebarMode = mode;
     if (handle) handle.setAttribute('aria-valuenow', String(width));
     if (persist) localStorage.setItem(STORAGE_KEY, String(width));
     return width;
