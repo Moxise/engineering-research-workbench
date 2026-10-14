@@ -2839,3 +2839,104 @@ html[data-sidebar-mode="icon"] .nav-item:hover::after{
   max-width:132px;
   min-width:92px;
 }
+
+
+/* ============================================================
+ * v261014l · Real pin glyph, two-line title cards, doc auto-fit
+ * ============================================================ */
+.mdt-marker{
+  top:5px!important;
+  width:24px!important;
+  height:32px!important;
+}
+.mdt-marker::before,
+.mdt-marker::after{display:none!important}
+.mdt-marker-pin{
+  position:absolute;
+  left:50%;
+  top:0;
+  transform:translateX(-50%);
+  font-size:17px;
+  line-height:1;
+  filter:drop-shadow(0 2px 2px rgba(31,38,52,.12));
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+}
+.mdt-marker-count{top:-5px!important;left:15px!important}
+.mdt-card-connector{
+  top:23px!important;
+  height:13px!important;
+  width:1px!important;
+  opacity:.55;
+}
+.mdt-card.title-only{
+  top:38px!important;
+  min-width:128px;
+  height:auto!important;
+  min-height:44px;
+  max-height:58px;
+  padding:8px 10px!important;
+  display:flex;
+  align-items:center;
+  border-radius:9px;
+}
+.mdt-card.title-only .mdt-card-title{
+  margin:0!important;
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  overflow:hidden;
+  white-space:normal!important;
+  text-overflow:ellipsis;
+  overflow-wrap:anywhere;
+  font-size:11px;
+  line-height:1.35;
+  font-weight:650;
+}
+.mdt-card.title-only .mdt-card-date,
+.mdt-card.title-only .mdt-card-desc{display:none!important}
+
+/* Milestone docs mode: flex through the nested page shell so bottom actions stay visible. */
+html[data-density="compact"] .milestone-page-card:has(.milestone-docs-layout){
+  height:calc(100vh - 92px);
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+html[data-density="compact"] .milestone-page-card:has(.milestone-docs-layout)>.milestone-page-head{
+  flex:0 0 auto;
+}
+html[data-density="compact"] .milestone-page-card:has(.milestone-docs-layout)>#ms-view{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:hidden;
+}
+html[data-density="compact"] .milestone-docs-layout{
+  height:100%!important;
+  min-height:0!important;
+  grid-template-rows:minmax(0,1fr)!important;
+}
+html[data-density="compact"] .milestone-docs-layout .doc-list-panel,
+html[data-density="compact"] .milestone-docs-layout .doc-editor{
+  height:100%!important;
+  min-height:0!important;
+}
+html[data-density="compact"] .milestone-docs-layout .doc-editor{
+  overflow:hidden!important;
+}
+html[data-density="compact"] .milestone-docs-layout .editor-wrap{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow:hidden!important;
+}
+html[data-density="compact"] .milestone-docs-layout .editor-pane{
+  min-height:0!important;
+  height:100%!important;
+}
+html[data-density="compact"] .milestone-docs-layout .editor-actions{
+  position:relative;
+  z-index:3;
+  flex:0 0 auto!important;
+  background:#fff!important;
+  padding-top:5px;
+}
