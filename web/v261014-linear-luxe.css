@@ -1645,3 +1645,244 @@ html.sidebar-resizing .app-shell{
   .sidebar-resizer{display:none!important}
   .app-shell{grid-template-columns:1fr!important}
 }
+
+
+/* ============================================================
+ * v261014f · Milestone fishbone timeline
+ * Replace the decorative 3D spiral with a readable research-planning diagram.
+ * ============================================================ */
+.milestone-fishbone-layout{
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:12px;
+  align-items:stretch;
+}
+.milestone-fishbone-layout.preview-open{
+  grid-template-columns:minmax(0,1fr) minmax(320px,380px);
+}
+.milestone-fishbone{
+  min-width:0;
+  border:1px solid var(--lux-hairline)!important;
+  border-radius:12px;
+  background:#F8F9FB;
+  overflow:hidden;
+}
+.fishbone-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:18px;
+  padding:13px 15px 10px;
+  border-bottom:1px solid var(--lux-hairline-subtle);
+  background:rgba(250,251,252,.92);
+}
+.fishbone-head h3{
+  margin:2px 0 0;
+  font-size:15px;
+  color:var(--lux-ink-strong);
+}
+.fishbone-head p{
+  margin:4px 0 0;
+  font-size:10px;
+  color:var(--lux-ink-subtle);
+}
+.fishbone-legend{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:6px 10px;
+  color:var(--lux-ink-subtle);
+  font-size:10px;
+}
+.fishbone-legend span{display:inline-flex;align-items:center;gap:5px}
+.fishbone-legend .dot{
+  width:7px;height:7px;border-radius:50%;display:inline-block;background:#aeb4bd;
+}
+.fishbone-legend .dot.planned{background:#8790a1}
+.fishbone-legend .dot.active{background:var(--lux-primary)}
+.fishbone-legend .dot.blocked{background:var(--lux-danger)}
+.fishbone-legend .dot.done{background:var(--lux-success)}
+.fishbone-scroll{
+  overflow-x:auto;
+  overflow-y:hidden;
+  padding:18px 14px 20px;
+  scrollbar-width:thin;
+}
+.fishbone-track{
+  position:relative;
+  width:max(100%,calc(max(var(--fish-count),4) * 220px));
+  min-width:760px;
+  height:430px;
+}
+.fishbone-axis{
+  position:absolute;
+  left:34px;
+  right:34px;
+  top:50%;
+  height:2px;
+  transform:translateY(-1px);
+  background:linear-gradient(90deg,#cfd4dc 0%,#8f97a5 42%,#697386 100%);
+  border-radius:999px;
+}
+.fishbone-axis::before,
+.fishbone-axis::after{
+  content:"";
+  position:absolute;
+  top:50%;
+  width:8px;height:8px;
+  border-radius:50%;
+  transform:translateY(-50%);
+  background:#9da5b2;
+  box-shadow:0 0 0 4px #eef0f3;
+}
+.fishbone-axis::before{left:-2px}
+.fishbone-axis::after{right:-2px}
+.fishbone-node{
+  --joint-y:50%;
+  position:absolute;
+  left:calc(50px + var(--fish-index) * ((100% - 100px) / max((var(--fish-count) - 1),1)));
+  top:0;
+  width:196px;
+  height:100%;
+  transform:translateX(-50%);
+  pointer-events:none;
+}
+.fishbone-node .fishbone-joint{
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:10px;height:10px;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:#fff;
+  border:2px solid #8c95a4;
+  box-shadow:0 0 0 4px rgba(140,149,164,.10);
+  z-index:3;
+}
+.fishbone-node .fishbone-branch{
+  position:absolute;
+  left:50%;
+  width:2px;
+  height:92px;
+  background:#c9ced7;
+  transform-origin:bottom center;
+  z-index:1;
+}
+.fishbone-node.top .fishbone-branch{
+  top:calc(50% - 92px);
+  transform:translateX(-50%) rotate(36deg);
+}
+.fishbone-node.bottom .fishbone-branch{
+  top:50%;
+  transform:translateX(-50%) rotate(-36deg);
+  transform-origin:top center;
+}
+.fishbone-card{
+  pointer-events:auto;
+  position:absolute;
+  left:50%;
+  width:188px;
+  min-height:94px;
+  padding:10px 11px;
+  text-align:left;
+  border:1px solid var(--lux-hairline)!important;
+  border-radius:10px;
+  background:#FCFCFD!important;
+  color:var(--lux-ink)!important;
+  box-shadow:0 2px 8px rgba(20,23,31,.035);
+  transform:translateX(-50%);
+  transition:border-color .12s,box-shadow .12s,background-color .12s,transform .12s;
+}
+.fishbone-node.top .fishbone-card{bottom:calc(50% + 86px)}
+.fishbone-node.bottom .fishbone-card{top:calc(50% + 86px)}
+.fishbone-card:hover{
+  background:#fff!important;
+  border-color:#bfc5cf!important;
+  box-shadow:0 7px 18px rgba(20,23,31,.07);
+  transform:translateX(-50%) translateY(-1px);
+}
+.fishbone-date{
+  font-size:10px;
+  color:var(--lux-primary);
+  margin-bottom:5px;
+}
+.fishbone-title{
+  font-size:12px;
+  line-height:1.4;
+  font-weight:600;
+  color:var(--lux-ink-strong);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.fishbone-meta{
+  margin-top:4px;
+  font-size:9px;
+  line-height:1.35;
+  color:var(--lux-ink-subtle);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.fishbone-status{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  margin-top:7px;
+  font-size:9px;
+  color:var(--lux-ink-muted);
+}
+.fishbone-status .status-mark{
+  width:6px;height:6px;border-radius:50%;background:#8d95a4;
+}
+.fishbone-node.active .status-mark{background:var(--lux-primary)}
+.fishbone-node.blocked .status-mark{background:var(--lux-danger)}
+.fishbone-node.done .status-mark{background:var(--lux-success)}
+.fishbone-node.done .fishbone-card{opacity:.78}
+.fishbone-node.done .fishbone-joint{border-color:var(--lux-success)}
+.fishbone-node.active .fishbone-joint{border-color:var(--lux-primary);box-shadow:0 0 0 5px rgba(94,106,210,.10)}
+.fishbone-node.blocked .fishbone-joint{border-color:var(--lux-danger);box-shadow:0 0 0 5px rgba(213,72,72,.09)}
+.fishbone-node.current .fishbone-card{
+  border-color:var(--lux-primary-border)!important;
+  background:linear-gradient(135deg,#F4F4FF 0%,#FCFCFD 80%)!important;
+  box-shadow:0 8px 22px rgba(94,106,210,.10);
+}
+.fishbone-node.current .fishbone-joint{
+  background:var(--lux-primary);
+  border-color:#fff;
+  box-shadow:0 0 0 4px var(--lux-primary-soft),0 0 0 5px var(--lux-primary-border);
+}
+.fishbone-node.selected .fishbone-card{
+  border-color:var(--lux-primary)!important;
+  box-shadow:0 0 0 2px rgba(94,106,210,.13),0 8px 22px rgba(20,23,31,.06);
+}
+.milestone-fishbone-layout .milestone-preview{
+  max-height:520px;
+  background:#FAFBFC!important;
+}
+@media(max-width:1450px){
+  .milestone-fishbone-layout.preview-open{grid-template-columns:minmax(0,1fr) 330px}
+}
+@media(max-width:1100px){
+  .milestone-fishbone-layout.preview-open{grid-template-columns:1fr}
+  .milestone-fishbone-layout .milestone-preview{max-height:none}
+}
+@media(max-width:820px){
+  .fishbone-head{flex-direction:column}
+  .fishbone-legend{justify-content:flex-start}
+  .fishbone-track{min-width:720px}
+}
+
+/* Resizer must be fully hittable despite the sidebar's clipped content. */
+.sidebar{overflow:visible!important}
+.sidebar-nav{
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+}
+.sidebar-footer,
+.brand{overflow:hidden}
+.sidebar-resizer{
+  right:-6px!important;
+  width:12px!important;
+}
+.sidebar-resizer::before{left:5px!important}
