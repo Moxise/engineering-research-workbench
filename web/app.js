@@ -123,7 +123,7 @@
       const open = pinned || state.sidebarOpen.has(g.id);
       return `<section class="nav-group ${open?'':'collapsed'} ${pinned?'pinned':''}" data-group="${g.id}">
         <div class="nav-group-head"><button class="group-toggle" type="button" data-group-toggle="${g.id}"><span class="chev">⌄</span><span>${g.label}</span></button><button class="pin" type="button" data-pin-group="${g.id}" title="常驻展开">◆</button></div>
-        <div class="nav-items">${g.items.map(([id,label,ico])=>`<a class="nav-item ${state.route===id?'active':''}" href="#${id}" data-route="${id}"><span class="nav-ico">${ico}</span><span>${label}</span></a>`).join('')}</div>
+        <div class="nav-items">${g.items.map(([id,label,ico])=>`<a class="nav-item ${state.route===id?'active':''}" href="#${id}" data-route="${id}" aria-label="${esc(label)}" title="${esc(label)}"><span class="nav-ico">${ico}</span><span>${label}</span></a>`).join('')}</div>
       </section>`;
     }).join('');
     $$('[data-group-toggle]', nav).forEach(btn => btn.addEventListener('click', e => {
