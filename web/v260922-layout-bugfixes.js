@@ -62,8 +62,10 @@
       round(firstRect.left), round(firstRect.top), round(firstRect.width), round(firstRect.height),
       round(lastRect.left), round(lastRect.top),
       computed.columnGap, computed.rowGap,
-      getComputedStyle(card).getPropertyValue('--heat-cell-size').trim(),
-      getComputedStyle(card).getPropertyValue('--heat-gap').trim(),
+      getComputedStyle(card).getPropertyValue('--heat-cell-width').trim(),
+      getComputedStyle(card).getPropertyValue('--heat-cell-height').trim(),
+      getComputedStyle(card).getPropertyValue('--heat-gap-x').trim(),
+      getComputedStyle(card).getPropertyValue('--heat-gap-y').trim(),
       cells.length,
     ].join('|');
   }
@@ -129,7 +131,7 @@
   }
 
   /*
-   * fitResearchHeatmap() updates --heat-cell-size/--heat-gap after the card is
+   * fitResearchHeatmap() updates split heat-cell width/height and gap variables after the card is
    * inserted. Measuring immediately can therefore catch the previous geometry.
    * Wait until the real grid geometry is unchanged for three animation frames,
    * then draw. This reproduces the useful part of a browser zoom/resize without
@@ -185,7 +187,7 @@
       resizeObserver.observe(grid);
     }
 
-    /* fitResearchHeatmap writes the fitted size as inline CSS variables on card. */
+    /* fitResearchHeatmap writes the fitted width/height/gap variables inline on card. */
     const styleObserver = new MutationObserver(mutations => {
       if (mutations.some(m => m.type === 'attributes' && m.attributeName === 'style')) {
         settleAndAlign(card);
