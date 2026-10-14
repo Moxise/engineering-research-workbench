@@ -21,6 +21,7 @@
 
   const savedFocusMinutes = storedInt('focusMinutes', 25, 1, 240);
   const savedBreakMinutes = storedInt('breakMinutes', 5, 1, 120);
+  const savedHeatmapColorIntensity = ['soft','standard','vivid'].includes(localStorage.getItem('heatmapColorIntensity')) ? localStorage.getItem('heatmapColorIntensity') : 'soft';
 
   const state = {
     config: null, statuses: {}, projects: [], route: 'overview', docs: [], selectedDoc: null,
@@ -28,7 +29,7 @@
     graphKinds: new Set(storedArray('graphKinds', ['idea','journal','note','milestone','summary','literature','project','tag'])),
     graphRelations: new Set(storedArray('graphRelations', ['wikilink','tag','project'])),
     agentSession: null, agentRefs: [], agentImages: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false,
-    heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact', /* v260922h · 默认紧凑型（并排一屏收纳） */
+    heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapColorIntensity: savedHeatmapColorIntensity, heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact', /* v260922h · 默认紧凑型（并排一屏收纳） */
     focus: {mode:'专注', focusMinutes:savedFocusMinutes, breakMinutes:savedBreakMinutes, seconds:savedFocusMinutes*60, total:savedFocusMinutes*60, timer:null, running:false},
     sidebarPinned: new Set(storedArray('sidebarPinned', ['core'])),
     sidebarOpen: new Set(storedArray('sidebarOpen', ['core','resources','system'])),
@@ -291,7 +292,7 @@
   const ACTIVITY_LABELS={doc_create:'新建文档',doc_update:'更新文档',doc_delete:'归档文档',todo_create:'新增任务',todo_update:'更新任务',todo_done:'完成任务',project_create:'新建项目',knowledge_export:'知识汇总',bibtex_export:'BibTeX导出',agent_chat:'Agent对话'};
   function researchHeatmapCard(activity){
     const rows=activity.days||[];
-    if(!rows.length) return `<section class="card heatmap-card"><div class="card-head"><div><div class="card-kicker">RESEARCH HEATMAP</div><h3>科研热力图</h3></div></div><div class="empty">暂无活动数据</div></section>`;
+    if(!rows.length) return `<section class="card heatmap-card" data-heatmap-palette="${esc(state.heatmapColorIntensity||'soft')}"><div class="card-head"><div><div class="card-kicker">RESEARCH HEATMAP</div><h3>科研热力图</h3></div></div><div class="empty">暂无活动数据</div></section>`;
     const months=Math.max(1,Math.min(12,Number(state.heatmapMonths)||12));
     const map=new Map(rows.map(x=>[x.date,x]));
     const rawEnd=new Date(activity.end+'T00:00:00');
@@ -324,7 +325,7 @@
     }
     const monthChoices=HEATMAP_MONTH_OPTIONS.includes(months)?HEATMAP_MONTH_OPTIONS:[...HEATMAP_MONTH_OPTIONS,months].sort((a,b)=>a-b);
     const options=monthChoices.map(n=>`<option value="${n}" ${n===months?'selected':''}>近 ${n} 个月</option>`).join('');
-    return `<section class="card heatmap-card" data-heatmap-weeks="${weeks}"><div class="card-head"><div><div class="card-kicker">RESEARCH HEATMAP / ${months} MONTHS</div><h3>科研热力图</h3><p>根据 Markdown 创建/更新、任务完成与知识整理等本地活动自动累计。</p></div><div class="heatmap-head-tools"><div class="heatmap-summary"><strong>${activity.events_month||0}</strong><span>本月记录</span><strong>${activity.active_days_month||0}</strong><span>活跃日</span></div><select class="mini-select" id="heatmap-month-select" aria-label="科研热力图显示月份">${options}</select></div></div>
+    return `<section class="card heatmap-card" data-heatmap-weeks="${weeks}" data-heatmap-palette="${esc(state.heatmapColorIntensity||'soft')}"><div class="card-head"><div><div class="card-kicker">RESEARCH HEATMAP / ${months} MONTHS</div><h3>科研热力图</h3><p>根据 Markdown 创建/更新、任务完成与知识整理等本地活动自动累计。</p></div><div class="heatmap-head-tools"><div class="heatmap-summary"><strong>${activity.events_month||0}</strong><span>本月记录</span><strong>${activity.active_days_month||0}</strong><span>活跃日</span></div><select class="mini-select heatmap-color-select" id="heatmap-color-intensity" aria-label="科研热力图颜色强度" title="仅调整视觉色彩强度，不改变活动数据分级"><option value="soft" ${state.heatmapColorIntensity==='soft'?'selected':''}>柔和</option><option value="standard" ${state.heatmapColorIntensity==='standard'?'selected':''}>标准</option><option value="vivid" ${state.heatmapColorIntensity==='vivid'?'selected':''}>鲜明</option></select><select class="mini-select" id="heatmap-month-select" aria-label="科研热力图显示月份">${options}</select></div></div>
       <div class="heatmap-scroll"><div class="heatmap-plot"><div class="heatmap-axis"><div class="heatmap-axis-cap">星期</div><div class="heatmap-weekdays"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div></div><div class="heatmap-stage"><div class="heatmap-months" style="--heat-weeks:${weeks}">${monthLabels.join('')}</div><div class="heatmap-month-boundaries">${monthBoundaries.join('')}</div><div class="heatmap-cells" style="--heat-weeks:${weeks}">${cells.join('')}</div></div></div></div>
       <div class="heatmap-footer"><span>少</span><i class="heat-cell level-0"></i><i class="heat-cell level-1"></i><i class="heat-cell level-2"></i><i class="heat-cell level-3"></i><i class="heat-cell level-4"></i><span>多</span><span class="heatmap-hint">鼠标悬停查看当天活动</span></div>
     </section>`;
@@ -332,71 +333,35 @@
 
   function fitResearchHeatmap(){
     const card=$('.heatmap-card'); const scroll=$('.heatmap-scroll'); if(!card||!scroll) return;
-    /* v261014d · Stable-height heatmap:
-     * month range may change horizontal geometry, but never the seven-row vertical geometry.
-     * Cell width and height are deliberately independent so 4/6 month views cannot inflate
-     * into giant square tiles. */
+    /* Soft Chromatic: the dashboard column ratio is CSS-owned and therefore no longer
+     * changes when the user switches 2/4/6/12 months. Only cells adapt inside the card.
+     * This keeps the academic-goal column stable and guarantees all seven weekdays fit. */
     if(!state.heatmapResizeHooked){
       state.heatmapResizeHooked=true;
       const reapply=debounce(()=>{ if(state.route==='overview') fitResearchHeatmap(); },80);
       window.addEventListener('resize',reapply);
-      window.matchMedia('(min-width:1080px)').addEventListener?.('change',reapply);
+      window.matchMedia('(min-width:1100px)').addEventListener?.('change',reapply);
     }
-    const topRow=card.closest('.overview-top-row');
-    const academicGrid=$('.overview-academic-grid');
-    const dashboard=card.closest('.overview-dashboard');
     const apply=()=>{
       const weeks=Math.max(1,Number(card.dataset.heatmapWeeks)||1);
       const compact=document.documentElement.dataset.density==='compact';
-      const wide=!!topRow&&window.matchMedia('(min-width:1080px)').matches;
       const csp=getComputedStyle(card), ssp=getComputedStyle(scroll);
       const axisEl=$('.heatmap-axis',card);
-      const axis=Math.max(36,axisEl?.getBoundingClientRect().width||42);
-      const plotGap=10, gapX=3, gapY=3;
+      const axis=Math.max(34,axisEl?.getBoundingClientRect().width||40);
+      const plotGap=9, gapX=3, gapY=3;
       const chrome=axis+plotGap+
         parseFloat(csp.paddingLeft||0)+parseFloat(csp.paddingRight||0)+
         parseFloat(ssp.paddingLeft||0)+parseFloat(ssp.paddingRight||0);
-      const totalW=topRow?topRow.clientWidth:scroll.clientWidth+chrome;
+      const viewport=Math.max(320,scroll.clientWidth||card.clientWidth||320);
+      const usable=Math.max(1,viewport-chrome-gapX*(weeks-1));
+      const longRange=weeks>=42;
+      const minCellW=longRange?10:(compact?12:13);
+      const maxCellW=compact?27:30;
+      const cellW=Math.max(minCellW,Math.min(maxCellW,Math.floor(usable/weeks)));
+      const cellH=compact?14:15;
 
-      if(topRow&&(!Number.isFinite(totalW)||totalW<600)){
-        topRow.style.gridTemplateColumns=''; card.style.maxWidth='';
-        if(academicGrid) academicGrid.classList.remove('is-row');
-        dashboard?.classList.remove('one-screen');
-        return;
-      }
-
-      const cellH=compact?18:20;
-      const minCellW=compact?14:16;
-      const maxCellW=compact?30:34;
-      const academicMin=340;
-      const heatMin=compact?860:900;
-      const fitWidth=(budget)=>{
-        const usable=Math.max(1,budget-chrome-gapX*(weeks-1));
-        return Math.max(minCellW,Math.min(maxCellW,Math.floor(usable/weeks)));
-      };
-
-      let heatBudget=wide?Math.max(600,totalW-10-academicMin):totalW;
-      let cellW=fitWidth(heatBudget);
-      let contentW=Math.round(chrome+weeks*cellW+gapX*(weeks-1));
-      let needW=Math.min(heatBudget,Math.max(Math.min(heatMin,heatBudget),contentW));
-      let canDual=wide&&needW+10+academicMin<=totalW;
-
-      if(!canDual){
-        heatBudget=totalW;
-        cellW=fitWidth(heatBudget);
-        contentW=Math.round(chrome+weeks*cellW+gapX*(weeks-1));
-        needW=totalW;
-      }
-
-      dashboard?.classList.remove('one-screen');
-      if(topRow){
-        topRow.style.gridTemplateColumns=wide&&canDual?(Math.round(needW)+'px minmax('+academicMin+'px,1fr)'):'minmax(0,1fr)';
-      }
-      if(academicGrid) academicGrid.classList.remove('is-row');
-      card.style.maxWidth=wide&&canDual?(Math.round(needW)+'px'):'';
-
-      const cardW=wide&&canDual?needW:scroll.clientWidth+chrome;
-      card.classList.toggle('is-narrow',cardW<700);
+      card.classList.toggle('is-narrow',viewport<650);
+      card.style.maxWidth='';
       card.style.setProperty('--heat-cell-width',cellW+'px');
       card.style.setProperty('--heat-cell-height',cellH+'px');
       card.style.setProperty('--heat-gap-x',gapX+'px');
@@ -428,6 +393,18 @@
   async function setHeatmapMonths(value){
     const months=Math.max(1,Math.min(12,Number(value)||12)); state.heatmapMonths=months; localStorage.setItem('heatmapMonths',String(months));
     if(state.config?.app){state.config.app.ui={...(state.config.app.ui||{}),heatmap_months:months}; try{await api('/api/config/app',{method:'POST',body:state.config.app});}catch(e){console.warn('heatmap preference save failed',e);}}
+  }
+
+  async function setHeatmapColorIntensity(value){
+    const palette=['soft','standard','vivid'].includes(value)?value:'soft';
+    state.heatmapColorIntensity=palette;
+    localStorage.setItem('heatmapColorIntensity',palette);
+    const card=$('.heatmap-card'); if(card)card.dataset.heatmapPalette=palette;
+    if(state.config?.app){
+      state.config.app.ui={...(state.config.app.ui||{}),heatmap_color_intensity:palette};
+      try{await api('/api/config/app',{method:'POST',body:state.config.app});}
+      catch(e){console.warn('heatmap color preference save failed',e);}
+    }
   }
 
   function syncViewportVars(){
@@ -497,6 +474,7 @@
     $$('[data-open-doc]').forEach(b=>b.addEventListener('click',async()=>{ const r=b.dataset.docRoute; await navigate(r); setTimeout(()=>selectDoc(b.dataset.openDoc),10); }));
     $$('[data-quick-doc]').forEach(b=>b.addEventListener('click',async()=>{await navigate(b.dataset.quickDoc);setTimeout(()=>$('#new-doc')?.click(),30);}));
     const hm=$('#heatmap-month-select'); if(hm)hm.addEventListener('change',async()=>{await setHeatmapMonths(hm.value);await renderOverview();animateMain();});
+    const hc=$('#heatmap-color-intensity'); if(hc)hc.addEventListener('change',async()=>{await setHeatmapColorIntensity(hc.value);});
     const np=$('#overview-new-project'); if(np)np.addEventListener('click',()=>openCreateProjectModal(async()=>{await loadBootstrap();await renderOverview();animateMain();}));
   }
 
@@ -1511,7 +1489,7 @@
     else if(tab==='rss'){p.innerHTML=`<div class="card-head"><div><div class="card-kicker">RSS SOURCES</div><h3>资讯源</h3></div><button class="secondary-btn" id="rss-add">＋ 添加</button></div><div id="rss-list">${rss.sources.map((s,i)=>sourceRow(s,i)).join('')}</div><div class="field" style="max-width:260px;margin-top:10px"><label>每源最大条数</label><input id="rss-limit" type="number" value="${rss.max_items_per_source||12}"></div><div style="margin-top:14px"><button class="primary-btn" id="rss-save">保存资讯配置</button></div>`;wireSourceRows();$('#rss-add').onclick=()=>{$('#rss-list').insertAdjacentHTML('beforeend',sourceRow({name:'新资讯源',url:'',enabled:true},$$('.source-row').length));wireSourceRows()};$('#rss-save').onclick=async()=>{const sources=$$('.source-row').map(r=>({name:$('[data-rss-name]',r).value,url:$('[data-rss-url]',r).value,enabled:$('[data-rss-enable]',r).checked}));await api('/api/config/rss',{method:'POST',body:{sources,max_items_per_source:+$('#rss-limit').value||12}});toast('资讯配置已保存')};}
     else if(tab==='llm'){const llm=app.llm||{};const fallbackPresets=[{id:'default',label:'默认（不附加参数）',params:{}},{id:'qwen-low',label:'Qwen · 低思考',params:{enable_thinking:true,thinking_budget:1024}},{id:'qwen-off',label:'Qwen · 无思考',params:{enable_thinking:false}}];const presets=Array.isArray(llm.request_presets)&&llm.request_presets.length?llm.request_presets:fallbackPresets;const presetText=JSON.stringify(presets,null,2);p.innerHTML=`<div class="card-head"><div><div class="card-kicker">RESEARCH AGENT / OPENAI COMPATIBLE</div><h3>Agent 与模型接口</h3><p class="row-meta">API Key 不写入工作台配置、不会上传 git。推荐填入本地私密文件 config/secrets.json（自动注入环境变量，保存后自动生效），或直接设置系统环境变量。</p></div><span class="badge ${llm.has_api_key?'accent':'warn'}">${llm.has_api_key?'环境变量已读取':'环境变量未设置'}</span></div><div class="form-grid"><div class="field"><label>接口名称</label><input id="llm-provider" value="${esc(llm.provider_label||'OpenAI-compatible')}" placeholder="OpenAI-compatible"></div><div class="field"><label>启用 Agent</label><select id="llm-enabled"><option value="1" ${llm.enabled?'selected':''}>启用</option><option value="0" ${!llm.enabled?'selected':''}>关闭</option></select></div><div class="field"><label>协议</label><select id="llm-protocol"><option value="chat_completions" ${llm.protocol!=='responses'?'selected':''}>OpenAI-compatible Chat Completions</option><option value="responses" ${llm.protocol==='responses'?'selected':''}>OpenAI Responses API</option></select></div><div class="field span-2"><label>Base URL</label><input id="llm-base" value="${esc(llm.base_url||'https://api.openai.com/v1')}" placeholder="https://api.openai.com/v1"></div><div class="field span-2"><label>API Key 环境变量名称</label><input id="llm-key-env" value="${esc(llm.api_key_env||'OPENAI_API_KEY')}" placeholder="OPENAI_API_KEY"><span class="field-help">推荐把密钥填入项目 config/secrets.json 的 env 对象（本地私密、不上传 git，保存后自动生效）；也可以在启动工作台前设置系统环境变量。工作台不会读取后写回 Key。</span></div><div class="field span-2"><label>模型</label><input id="llm-model" value="${esc(llm.model||'')}" placeholder="模型 ID"></div><div class="field"><label>显示模型思考过程</label><select id="llm-show-reasoning"><option value="1" ${llm.show_reasoning!==false?'selected':''}>显示（接口返回时）</option><option value="0" ${llm.show_reasoning===false?'selected':''}>隐藏</option></select></div><div class="field"><label>多模态 / 截图识别</label><select id="llm-vision"><option value="1" ${llm.vision_enabled?'selected':''}>开启</option><option value="0" ${!llm.vision_enabled?'selected':''}>关闭</option></select><span class="field-help">需模型支持图片输入（如 qwen-vl / gpt-4o 系列）。开启后 PDF 阅读区 AI 面板可用「截取当前页 / 框选区域」代替选中文本，公式与表格提取更准。</span></div><div class="field"><label>超时 / 秒</label><input id="llm-timeout" type="number" min="5" max="600" value="${Number(llm.timeout||120)}"></div><div class="field"><label>最大输出 tokens（可选）</label><input id="llm-max" type="number" min="0" value="${Number(llm.max_output_tokens||0)}" placeholder="0 = 使用模型默认"></div><div class="field"><label>Temperature（可选）</label><input id="llm-temp" type="number" min="0" max="2" step="0.1" value="${llm.temperature==null?'':Number(llm.temperature)}" placeholder="留空 = 不发送"></div><div class="field"><label>默认请求模式 ID</label><input id="llm-default-preset" value="${esc(llm.default_request_preset||presets[0].id||'default')}" placeholder="default"></div><div class="field span-4"><label>动态请求模式（JSON）</label><textarea id="llm-presets" class="mono" style="min-height:280px">${esc(presetText)}</textarea><span class="field-help">默认提供“默认 / Qwen 低思考 / Qwen 无思考”三套。params 会合并到请求 JSON；可按实际接口修改 enable_thinking、thinking_budget、reasoning_effort 等字段。</span></div><div class="field span-4"><label>系统提示词</label><textarea id="llm-system" style="min-height:130px">${esc(llm.system_prompt||'')}</textarea></div></div><div style="margin-top:14px;display:flex;gap:8px"><button class="primary-btn" id="llm-save">保存模型设置</button><button class="secondary-btn" id="llm-test">测试连接</button></div>`;$('#llm-save').onclick=async()=>{let requestPresets;try{requestPresets=JSON.parse($('#llm-presets').value);if(!Array.isArray(requestPresets)||!requestPresets.length)throw new Error('必须是非空 JSON 数组');const ids=new Set();for(const item of requestPresets){if(!item||typeof item!=='object'||!String(item.id||'').trim()||typeof item.params!=='object'||Array.isArray(item.params))throw new Error('每项必须包含 id、label 和 params 对象');if(ids.has(item.id))throw new Error('预设 id 不能重复：'+item.id);ids.add(item.id)}}catch(e){toast('请求模式 JSON 无效：'+e.message,true);return}app.llm={...llm,provider_label:$('#llm-provider').value.trim()||'OpenAI-compatible',enabled:$('#llm-enabled').value==='1',protocol:$('#llm-protocol').value,base_url:$('#llm-base').value.trim(),api_key_env:$('#llm-key-env').value.trim()||'OPENAI_API_KEY',show_reasoning:$('#llm-show-reasoning').value==='1',vision_enabled:$('#llm-vision').value==='1',model:$('#llm-model').value.trim(),timeout:Math.max(5,Math.min(600,+$('#llm-timeout').value||120)),max_output_tokens:Math.max(0,+$('#llm-max').value||0),temperature:$('#llm-temp').value.trim()===''?null:Math.max(0,Math.min(2,+$('#llm-temp').value||0)),default_request_preset:$('#llm-default-preset').value.trim()||requestPresets[0].id,request_presets:requestPresets,system_prompt:$('#llm-system').value};delete app.llm.api_key;delete app.llm.has_api_key;const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;state.agentPreset=saved.llm?.default_request_preset||requestPresets[0].id;localStorage.setItem('agentRequestPreset',state.agentPreset);toast('Agent / LLM 设置已保存；API Key 将从环境变量读取')};$('#llm-test').onclick=async()=>{try{$('#llm-test').disabled=true;const r=await api('/api/agent/test',{method:'POST',body:{}});toast(r.models?.length?`连接成功 · ${r.models.slice(0,3).join(' / ')}`:'连接成功')}catch(e){toast(e.message,true)}finally{$('#llm-test').disabled=false}};}
     else if(tab==='literature'){renderLiteratureSettings(p);return}
-    else {const ui=app.ui||{};const pins=new Set(ui.sidebar_pinned_groups||[]);p.innerHTML=`<div class="card-head"><div><div class="card-kicker">INTERFACE</div><h3>界面设置</h3></div></div><div class="form-grid cols-5"><div class="field"><label>默认主题</label><select id="ui-theme"><option value="light" ${ui.theme==='light'?'selected':''}>明亮</option><option value="dark" ${ui.theme==='dark'?'selected':''}>深色</option></select></div><div class="field"><label>里程碑默认视图</label><select id="ui-ms"><option value="timeline">时间轴</option><option value="list" ${ui.milestone_default_view==='list'?'selected':''}>列表</option><option value="docs" ${ui.milestone_default_view==='docs'?'selected':''}>文档</option></select></div><div class="field"><label>图谱默认视图</label><select id="ui-graph"><option value="2d">2D</option><option value="3d" ${ui.graph_default_view==='3d'?'selected':''}>3D 星图</option></select></div><div class="field"><label>动画</label><select id="ui-anim"><option value="1" ${ui.animations!==false?'selected':''}>启用</option><option value="0" ${ui.animations===false?'selected':''}>关闭</option></select></div><div class="field"><label>科研热力图月份</label><select id="ui-heatmap">${(()=>{const hm=Number(ui.heatmap_months||12);const cs=HEATMAP_MONTH_OPTIONS.includes(hm)?HEATMAP_MONTH_OPTIONS:[...HEATMAP_MONTH_OPTIONS,hm].sort((a,b)=>a-b);return cs.map(n=>`<option value="${n}" ${hm===n?'selected':''}>近 ${n} 个月</option>`).join('')})()}</select></div><div class="field span-4"><label>侧栏默认常驻展开</label><div class="check-grid">${NAV_GROUPS.map(g=>`<label><input type="checkbox" data-pin-default value="${g.id}" ${pins.has(g.id)?'checked':''}> ${g.label}</label>`).join('')}</div><span class="field-help">侧栏中仍可随时用菱形按钮单独固定；这里决定首次使用或重置后的默认状态。</span></div></div><div style="margin-top:14px"><button class="primary-btn" id="ui-save">保存界面设置</button> <button class="secondary-btn" id="ui-reset-sidebar">应用默认侧栏状态</button></div>`;$('#ui-save').onclick=async()=>{app.ui={...ui,theme:$('#ui-theme').value,milestone_default_view:$('#ui-ms').value,graph_default_view:$('#ui-graph').value,animations:$('#ui-anim').value==='1',heatmap_months:Math.max(1,Math.min(12,+$('#ui-heatmap').value||12)),sidebar_pinned_groups:$$('[data-pin-default]:checked').map(x=>x.value)};state.heatmapMonths=app.ui.heatmap_months;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));await api('/api/config/app',{method:'POST',body:app});state.config.app=app;applyTheme(app.ui.theme);toast('界面设置已保存')};$('#ui-reset-sidebar').onclick=()=>{state.sidebarPinned=new Set($$('[data-pin-default]:checked').map(x=>x.value));state.sidebarOpen=new Set([...state.sidebarPinned,'core']);saveSidebarState();renderSidebar();toast('已应用默认侧栏状态')};}
+    else {const ui=app.ui||{};const pins=new Set(ui.sidebar_pinned_groups||[]);p.innerHTML=`<div class="card-head"><div><div class="card-kicker">INTERFACE</div><h3>界面设置</h3></div></div><div class="form-grid cols-5"><div class="field"><label>默认主题</label><select id="ui-theme"><option value="light" ${ui.theme==='light'?'selected':''}>明亮</option><option value="dark" ${ui.theme==='dark'?'selected':''}>深色</option></select></div><div class="field"><label>里程碑默认视图</label><select id="ui-ms"><option value="timeline">时间轴</option><option value="list" ${ui.milestone_default_view==='list'?'selected':''}>列表</option><option value="docs" ${ui.milestone_default_view==='docs'?'selected':''}>文档</option></select></div><div class="field"><label>图谱默认视图</label><select id="ui-graph"><option value="2d">2D</option><option value="3d" ${ui.graph_default_view==='3d'?'selected':''}>3D 星图</option></select></div><div class="field"><label>动画</label><select id="ui-anim"><option value="1" ${ui.animations!==false?'selected':''}>启用</option><option value="0" ${ui.animations===false?'selected':''}>关闭</option></select></div><div class="field"><label>科研热力图月份</label><select id="ui-heatmap">${(()=>{const hm=Number(ui.heatmap_months||12);const cs=HEATMAP_MONTH_OPTIONS.includes(hm)?HEATMAP_MONTH_OPTIONS:[...HEATMAP_MONTH_OPTIONS,hm].sort((a,b)=>a-b);return cs.map(n=>`<option value="${n}" ${hm===n?'selected':''}>近 ${n} 个月</option>`).join('')})()}</select></div><div class="field"><label>热力图颜色强度</label><select id="ui-heatmap-color"><option value="soft" ${(ui.heatmap_color_intensity||state.heatmapColorIntensity||'soft')==='soft'?'selected':''}>柔和</option><option value="standard" ${(ui.heatmap_color_intensity||state.heatmapColorIntensity)==='standard'?'selected':''}>标准</option><option value="vivid" ${(ui.heatmap_color_intensity||state.heatmapColorIntensity)==='vivid'?'selected':''}>鲜明</option></select><span class="field-help">仅改变视觉对比度，不改变活动次数和分级。</span></div><div class="field span-4"><label>侧栏默认常驻展开</label><div class="check-grid">${NAV_GROUPS.map(g=>`<label><input type="checkbox" data-pin-default value="${g.id}" ${pins.has(g.id)?'checked':''}> ${g.label}</label>`).join('')}</div><span class="field-help">侧栏中仍可随时用菱形按钮单独固定；这里决定首次使用或重置后的默认状态。</span></div></div><div style="margin-top:14px"><button class="primary-btn" id="ui-save">保存界面设置</button> <button class="secondary-btn" id="ui-reset-sidebar">应用默认侧栏状态</button></div>`;$('#ui-save').onclick=async()=>{app.ui={...ui,theme:$('#ui-theme').value,milestone_default_view:$('#ui-ms').value,graph_default_view:$('#ui-graph').value,animations:$('#ui-anim').value==='1',heatmap_months:Math.max(1,Math.min(12,+$('#ui-heatmap').value||12)),heatmap_color_intensity:$('#ui-heatmap-color')?.value||'soft',sidebar_pinned_groups:$$('[data-pin-default]:checked').map(x=>x.value)};state.heatmapMonths=app.ui.heatmap_months;state.heatmapColorIntensity=app.ui.heatmap_color_intensity||'soft';localStorage.setItem('heatmapMonths',String(state.heatmapMonths));localStorage.setItem('heatmapColorIntensity',state.heatmapColorIntensity);await api('/api/config/app',{method:'POST',body:app});state.config.app=app;applyTheme(app.ui.theme);toast('界面设置已保存')};$('#ui-reset-sidebar').onclick=()=>{state.sidebarPinned=new Set($$('[data-pin-default]:checked').map(x=>x.value));state.sidebarOpen=new Set([...state.sidebarPinned,'core']);saveSidebarState();renderSidebar();toast('已应用默认侧栏状态')};}
   }
   /* v260929 · 设置 · 文献 / PDF：PDF 存放路径查看/修改/迁移、打开文件夹、重建关联入口 + AI 阅读助手（启用/请求模式/目标语言/风格指令/输入上限） */
   /* v260929x · 预设动作内置提示词（与 agent.py _ASSIST_PROMPTS 同源，仅作占位提示与「恢复默认」参照；实际默认以后端为准） */
@@ -1600,7 +1578,7 @@
     try{await api('/api/health');location.reload();}catch{setTimeout(()=>waitForRestart(attempt+1),450);}
   }
 
-  async function loadBootstrap(){ const [cfg,statuses,projects,health,ws,knowledgeTypes]=await Promise.all([api('/api/config'),api('/api/statuses'),api('/api/projects'),api('/api/health'),api('/api/workspace/info'),api('/api/knowledge-types')]); state.config=cfg;state.statuses=statuses;state.projects=projects;state.knowledgeTypes=Array.isArray(knowledgeTypes)?knowledgeTypes:[];if(localStorage.getItem('sidebarPinned')===null){state.sidebarPinned=new Set(cfg.app.ui?.sidebar_pinned_groups||['core']);saveSidebarState();}$('#brand-title').textContent=cfg.app.app_name;$('#brand-subtitle').textContent=cfg.app.subtitle;$('#version-label').textContent=health.version;$('#workspace-mini').textContent='Workspace · '+ws.relative;state.milestoneView=(['3d','fishbone'].includes(cfg.app.ui?.milestone_default_view)?'timeline':cfg.app.ui?.milestone_default_view)||state.milestoneView;state.graphView=cfg.app.ui?.graph_default_view||state.graphView;state.heatmapMonths=Math.max(1,Math.min(12,Number(cfg.app.ui?.heatmap_months)||state.heatmapMonths||12));localStorage.setItem('heatmapMonths',String(state.heatmapMonths));const theme=localStorage.getItem('theme')||cfg.app.ui?.theme||'light';applyTheme(theme); }
+  async function loadBootstrap(){ const [cfg,statuses,projects,health,ws,knowledgeTypes]=await Promise.all([api('/api/config'),api('/api/statuses'),api('/api/projects'),api('/api/health'),api('/api/workspace/info'),api('/api/knowledge-types')]); state.config=cfg;state.statuses=statuses;state.projects=projects;state.knowledgeTypes=Array.isArray(knowledgeTypes)?knowledgeTypes:[];if(localStorage.getItem('sidebarPinned')===null){state.sidebarPinned=new Set(cfg.app.ui?.sidebar_pinned_groups||['core']);saveSidebarState();}$('#brand-title').textContent=cfg.app.app_name;$('#brand-subtitle').textContent=cfg.app.subtitle;$('#version-label').textContent=health.version;$('#workspace-mini').textContent='Workspace · '+ws.relative;state.milestoneView=(['3d','fishbone'].includes(cfg.app.ui?.milestone_default_view)?'timeline':cfg.app.ui?.milestone_default_view)||state.milestoneView;state.graphView=cfg.app.ui?.graph_default_view||state.graphView;state.heatmapMonths=Math.max(1,Math.min(12,Number(cfg.app.ui?.heatmap_months)||state.heatmapMonths||12));state.heatmapColorIntensity=['soft','standard','vivid'].includes(cfg.app.ui?.heatmap_color_intensity)?cfg.app.ui.heatmap_color_intensity:state.heatmapColorIntensity;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));localStorage.setItem('heatmapColorIntensity',state.heatmapColorIntensity);const theme=localStorage.getItem('theme')||cfg.app.ui?.theme||'light';applyTheme(theme); }
 
   function bindGlobal(){
     $('#modal-close').onclick=closeModal;$('#modal-backdrop').addEventListener('click',e=>{if(e.target===$('#modal-backdrop'))closeModal()});
