@@ -250,18 +250,20 @@
         ${overviewMilestoneCard((dash.upcoming_milestones||[]).slice(0,5))}
       </div>
 
-      ${projectPulseCard(dash.project_stats||[])}
-
-      <section class="overview-recent-section">
-        <div class="section-title overview-recent-head"><div><h3>最近研究活动</h3><p>快速回到最近产生的科研内容</p></div><button class="secondary-btn" data-go="research-overview">研究总览</button></div>
-        <div class="grid grid-3 overview-recent-group">${recentCard('最近灵感',dash.recent.ideas,'ideas')}${recentCard('最近笔记',dash.recent.notes,'notes')}${recentCard('最近工作总结',dash.recent.summaries,'summaries')}</div>
-      </section>
-
-      <div class="grid grid-4 overview-stats">
-        ${stat('笔记',dash.counts.note||0,'NOTES')}
-        ${stat('文献',dash.counts.literature||0,'LITERATURE')}
-        ${stat('里程碑',dash.counts.milestone||0,'MILESTONES')}
-        ${stat('实验记录',dash.counts.journal||0,'JOURNALS')}
+      <div class="overview-lower-band">
+        <div class="overview-lower-left">
+          ${projectPulseCard(dash.project_stats||[])}
+          <div class="grid grid-4 overview-stats">
+            ${stat('笔记',dash.counts.note||0,'NOTES')}
+            ${stat('文献',dash.counts.literature||0,'LITERATURE')}
+            ${stat('里程碑',dash.counts.milestone||0,'MILESTONES')}
+            ${stat('实验记录',dash.counts.journal||0,'JOURNALS')}
+          </div>
+        </div>
+        <section class="overview-recent-section">
+          <div class="section-title overview-recent-head"><div><h3>最近研究活动</h3><p>快速回到最近产生的科研内容</p></div><button class="secondary-btn" data-go="research-overview">研究总览</button></div>
+          <div class="grid grid-3 overview-recent-group">${recentCard('最近灵感',dash.recent.ideas,'ideas')}${recentCard('最近笔记',dash.recent.notes,'notes')}${recentCard('最近工作总结',dash.recent.summaries,'summaries')}</div>
+        </section>
       </div>
     </div>`;
     wireGo();
