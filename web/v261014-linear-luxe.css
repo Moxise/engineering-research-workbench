@@ -1456,3 +1456,192 @@ html[data-density="compact"] .docs-layout .doc-item>.doc-projects{margin-top:3px
   :root{--overview-heatmap-height:278px}
   .heatmap-card .heatmap-plot{justify-content:flex-start!important}
 }
+
+
+/* ============================================================
+ * v261014e · Softer workbench canvas + resizable desktop sidebar
+ * Reduce glare by separating canvas/chrome/content tones instead of
+ * rendering the whole application as pure white.
+ * ============================================================ */
+:root{
+  --lux-canvas:#EEF1F5;
+  --lux-canvas-warm:#F2F3F5;
+  --lux-surface:#FAFBFC;
+  --lux-surface-1:#F6F7F9;
+  --lux-surface-2:#F1F3F6;
+  --lux-surface-3:#EAEDF2;
+  --lux-surface-tinted:#F3F3FB;
+  --lux-hairline:#DDE1E7;
+  --lux-hairline-strong:#CDD2DB;
+  --lux-hairline-subtle:#E5E8ED;
+  --lux-divider:#E0E4EA;
+  --lux-hover:#ECEFF3;
+  --lux-pressed:#E4E8EE;
+  --sidebar:248px;
+}
+html,
+body{
+  background:#EEF1F5!important;
+}
+body{
+  background-image:
+    radial-gradient(circle at 38% -14%,rgba(94,106,210,.055),transparent 35%),
+    linear-gradient(180deg,#F0F2F6 0%,#ECEFF3 100%)!important;
+  background-attachment:fixed!important;
+}
+body::before{
+  opacity:.34!important;
+}
+.app-shell{
+  background:transparent!important;
+}
+.main-shell{
+  min-width:0;
+  background:transparent!important;
+}
+.main-content{
+  background:transparent!important;
+}
+.sidebar{
+  position:sticky!important;
+  isolation:isolate;
+  background:rgba(244,246,249,.96)!important;
+  border-right:1px solid #D8DDE5!important;
+  box-shadow:
+    inset -1px 0 rgba(255,255,255,.72),
+    3px 0 16px rgba(37,43,55,.025)!important;
+  backdrop-filter:blur(18px) saturate(118%)!important;
+}
+.brand,
+.sidebar-footer{
+  background:rgba(246,247,249,.62)!important;
+}
+.topbar{
+  background:rgba(247,248,250,.90)!important;
+  border-bottom-color:#DDE1E7!important;
+  box-shadow:0 1px rgba(255,255,255,.74)!important;
+}
+.card{
+  background:#FAFBFC!important;
+  border-color:#DDE1E7!important;
+  box-shadow:0 1px 2px rgba(25,31,42,.025)!important;
+}
+.card:hover{border-color:#D1D6DE!important}
+.list-row,
+.project-manager-card,
+.todo-row,
+.timeline-card,
+.news-card,
+.bundle-item,
+.project-pulse-item,
+.recent-card{
+  background:#F9FAFC!important;
+}
+.quick-action,
+.project-pulse-metrics span,
+.rhythm-grid>div,
+.agent-reasoning,
+.context-chip,
+.project-chip,
+.tag-chip{
+  background:#F2F4F7!important;
+}
+.doc-list-panel,
+.settings-nav,
+.agent-sessions,
+.graph-side,
+.graph-preview,
+.lit-library,
+.lit-side{
+  background:#F4F6F8!important;
+}
+.doc-filter,
+.editor-actions,
+.agent-side-head,
+.agent-chat-head,
+.lit-library-head{
+  background:rgba(247,248,250,.94)!important;
+}
+
+/* Long-form reading stays deliberately white/quiet. */
+.doc-editor,
+.editor-wrap,
+.editor-pane,
+.md-input,
+.md-preview,
+.agent-chat,
+.agent-messages,
+.lit-page,
+.lit-page-shell .lit-page{
+  background:#FFFFFF!important;
+}
+.md-preview pre{background:#F5F6F8!important}
+.graph-canvas-wrap{background:#F7F8FA!important}
+.lit-reader,
+.lit-canvas-scroll,
+.lit-reader .lit-canvas-scroll{background:#E6E9EE!important}
+
+/* Navigation chrome uses tone difference rather than pure white. */
+.nav-item:hover{background:#E9EDF2!important}
+.nav-item.active{
+  background:linear-gradient(135deg,#EDEEFF 0%,#F2F3FA 100%)!important;
+}
+.nav-group-head:hover{background:#E9EDF2!important}
+
+/* Desktop sidebar resize handle: invisible at rest, clear on intent. */
+.sidebar-resizer{
+  position:absolute;
+  z-index:80;
+  top:0;
+  right:-4px;
+  width:8px;
+  height:100%;
+  cursor:col-resize;
+  touch-action:none;
+  user-select:none;
+}
+.sidebar-resizer::before{
+  content:"";
+  position:absolute;
+  top:0;
+  bottom:0;
+  left:3px;
+  width:2px;
+  background:transparent;
+  transition:background-color .12s ease,box-shadow .12s ease;
+}
+.sidebar-resizer:hover::before,
+html.sidebar-resizing .sidebar-resizer::before{
+  background:rgba(94,106,210,.58);
+  box-shadow:0 0 0 1px rgba(94,106,210,.08);
+}
+html.sidebar-resizing,
+html.sidebar-resizing body,
+html.sidebar-resizing *{
+  cursor:col-resize!important;
+  user-select:none!important;
+}
+.sidebar,
+.app-shell{
+  transition:grid-template-columns .12s cubic-bezier(.2,0,0,1);
+}
+html.sidebar-resizing .app-shell{
+  transition:none!important;
+}
+.brand-copy,
+.nav-item>span:last-child,
+.group-toggle>span:last-child{
+  min-width:0;
+}
+.brand-copy h1,
+.brand-copy p,
+.nav-item>span:last-child,
+.group-toggle>span:last-child{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+@media(max-width:820px){
+  .sidebar-resizer{display:none!important}
+  .app-shell{grid-template-columns:1fr!important}
+}
