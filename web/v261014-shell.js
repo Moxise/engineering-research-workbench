@@ -2,8 +2,8 @@
   'use strict';
 
   const STORAGE_KEY = 'sidebarWidth';
-  const DEFAULT_WIDTH = 180;
-  const MIN_WIDTH = 50;
+  const DEFAULT_WIDTH = 168;
+  const MIN_WIDTH = 52;
   const MAX_WIDTH = 200;
   const MOBILE_QUERY = '(max-width: 820px)';
 
