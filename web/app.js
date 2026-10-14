@@ -1105,10 +1105,10 @@
     if(state.milestoneView==='3d'||state.milestoneView==='fishbone')state.milestoneView='timeline';
     $('#main').innerHTML=`<div class="card card-pad milestone-page-card"><div class="card-head milestone-page-head"><div><div class="card-kicker">MILESTONE SYSTEM</div><h3>里程碑</h3></div><div style="display:flex;gap:7px"><div class="view-tabs"><button data-ms-view="timeline" class="${state.milestoneView==='timeline'?'active':''}">时间轴</button><button data-ms-view="list" class="${state.milestoneView==='list'?'active':''}">列表</button><button data-ms-view="docs" class="${state.milestoneView==='docs'?'active':''}">文档</button></div><button class="primary-btn" id="new-ms">＋ 新建</button></div></div><div id="ms-view"></div></div>`;
     $('#new-ms').onclick=async()=>{const d=await api('/api/docs',{method:'POST',body:{kind:'milestone',title:'未命名里程碑',due:today()}});state.milestoneView='docs';await renderDocsPage('milestone');setTimeout(()=>selectDoc(d.id),10)};
-    $('[data-ms-view]').forEach(b=>b.onclick=()=>{state.milestoneView=b.dataset.msView;renderMilestoneView()}); renderMilestoneView();
+    $$('[data-ms-view]').forEach(b=>b.onclick=()=>{state.milestoneView=b.dataset.msView;renderMilestoneView()}); renderMilestoneView();
   }
   function renderMilestoneView(){
-    $('[data-ms-view]').forEach(b=>b.classList.toggle('active',b.dataset.msView===state.milestoneView));
+    $$('[data-ms-view]').forEach(b=>b.classList.toggle('active',b.dataset.msView===state.milestoneView));
     const root=$('#ms-view'); if(!root)return;
     window.ERWMilestoneTimeline?.destroy?.();
     if(state.milestoneView==='timeline'){
@@ -1180,13 +1180,13 @@
       layout.classList.add('preview-open');panel.classList.remove('hidden');
       $('#milestone-preview-title').textContent=doc.title||'里程碑';
       $('#milestone-preview-meta').textContent=`${fmtDate(doc.due)} · ${((doc.projects||[]).join(', ')||doc.project||'未归属项目')} · ${doc.status||'—'}`;
-      $('.timeline-3d-card,.fishbone-node').forEach(x=>x.classList.toggle('selected',x.dataset.msId===id));
+      $$('.timeline-3d-card,.fishbone-node').forEach(x=>x.classList.toggle('selected',x.dataset.msId===id));
       await renderMarkdownInto($('#milestone-preview-body'),doc.body||'');
       $('#milestone-preview-edit').onclick=()=>{state.milestoneView='docs';renderMilestoneView();setTimeout(()=>selectDoc(id),10)};
       $('#milestone-preview-close').onclick=hideMilestonePreview;
     }catch(e){toast('无法读取里程碑：'+e.message,true)}
   }
-  function hideMilestonePreview(){const layout=$('#milestone-fishbone-layout')||$('#milestone-3d-layout'),panel=$('#milestone-preview');layout?.classList.remove('preview-open');panel?.classList.add('hidden');$('.timeline-3d-card,.fishbone-node').forEach(x=>x.classList.remove('selected'))}
+  function hideMilestonePreview(){const layout=$('#milestone-fishbone-layout')||$('#milestone-3d-layout'),panel=$('#milestone-preview');layout?.classList.remove('preview-open');panel?.classList.add('hidden');$$('.timeline-3d-card,.fishbone-node').forEach(x=>x.classList.remove('selected'))}
   function animateMilestones3D(){
     const stage=$('#timeline-3d-stage'),viewport=$('#timeline-3d-viewport');if(!stage||!viewport)return;
     let rotX=-5,rotY=0,panX=0,panY=0,zoom=-40,raf,drag=null,moved=false,auto=true;
