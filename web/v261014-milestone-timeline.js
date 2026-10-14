@@ -558,7 +558,7 @@
         connector.style.left=x+'px';
         lane.appendChild(connector);
 
-        const card=el('button','mdt-card '+item.kind+(item.lines===2?' two-line':' one-line'),'');
+        const card=el('button','mdt-card '+item.kind,'');
         card.type='button';
         card.style.left=item.left+'px';
         card.style.width=item.width+'px';
@@ -570,6 +570,7 @@
           monthTitle.appendChild(el('span','',docs.length+'项'));
           card.appendChild(monthTitle);
         }else{
+          card.appendChild(el('div','mdt-card-date',shortDate(docs[0]._due)));
           card.appendChild(el('div','mdt-card-title',docs[0].title||'未命名里程碑'));
         }
 
