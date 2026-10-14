@@ -1068,3 +1068,147 @@ tbody tr:hover{background:#f8f9fc}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}
 }
+
+
+/* ============================================================
+ * v261014b · Content-first compact overview
+ * Remove the forced full-viewport dashboard bands responsible for
+ * the large empty gaps in heatmap, academic, tasks and projects.
+ * ============================================================ */
+@media (min-width:1280px){
+  .app-shell:has(>.main-shell .overview-dashboard.one-screen){
+    height:auto!important;
+    min-height:100vh!important;
+  }
+  .app-shell:has(>.main-shell .overview-dashboard.one-screen)>.sidebar{
+    height:100vh!important;
+    position:sticky!important;
+    top:0;
+  }
+  .main-shell:has(>.main-content .overview-dashboard.one-screen){
+    height:auto!important;
+    min-height:100vh!important;
+    display:block!important;
+  }
+  .main-shell:has(>.main-content .overview-dashboard.one-screen)>.main-content{
+    display:block!important;
+    height:auto!important;
+    min-height:0!important;
+    overflow:visible!important;
+  }
+  .main-shell:has(>.main-content .overview-dashboard.one-screen)>.main-content>.overview-dashboard,
+  .overview-dashboard{
+    grid-template-rows:auto auto auto auto!important;
+    align-content:start!important;
+    align-items:start!important;
+    flex:none!important;
+    height:auto!important;
+  }
+  .overview-dashboard>.overview-top-row,
+  .overview-dashboard>.overview-mid-row,
+  .overview-dashboard>.overview-ops-grid{
+    min-height:0!important;
+    height:auto!important;
+    align-self:start!important;
+  }
+  .overview-dashboard>.overview-top-row{
+    align-items:start!important;
+  }
+  .overview-dashboard>.overview-top-row>.overview-academic-grid{
+    grid-template-rows:auto auto!important;
+    align-content:start!important;
+    align-items:start!important;
+  }
+  .overview-dashboard>.overview-top-row>.overview-academic-grid>.card{
+    height:auto!important;
+    min-height:0!important;
+  }
+  .overview-dashboard>.overview-top-row>.heatmap-card{
+    height:auto!important;
+    min-height:0!important;
+    align-self:start!important;
+  }
+  .overview-dashboard>.overview-ops-grid>.card{
+    height:auto!important;
+    min-height:108px!important;
+    overflow:visible!important;
+  }
+  .overview-dashboard>.overview-ops-grid>.card>.list-stack{
+    flex:none!important;
+    overflow:visible!important;
+  }
+  .overview-dashboard>.overview-ops-grid .empty{
+    flex:none!important;
+    min-height:44px!important;
+  }
+}
+.overview-dashboard>.overview-top-row>.heatmap-card .heatmap-scroll,
+.heatmap-card .heatmap-scroll{
+  flex:0 0 auto!important;
+  align-items:flex-start!important;
+  min-height:0!important;
+  padding-top:5px!important;
+  padding-bottom:5px!important;
+}
+.overview-dashboard .heatmap-card{
+  justify-content:flex-start!important;
+  gap:4px;
+}
+.overview-dashboard .heatmap-card .heatmap-footer{
+  margin-top:3px!important;
+  padding-top:0!important;
+}
+.overview-dashboard .academic-progress-card,
+.overview-dashboard .graduation-card{
+  min-height:0!important;
+  padding:11px 13px!important;
+}
+.overview-dashboard .academic-progress-card .card-head,
+.overview-dashboard .graduation-card .card-head{
+  margin-bottom:6px!important;
+}
+.overview-dashboard .academic-empty,
+.overview-dashboard .academic-empty.compact{
+  min-height:70px!important;
+  padding:12px!important;
+  gap:4px!important;
+}
+.overview-dashboard .academic-empty strong{font-size:12px!important}
+.overview-dashboard .academic-empty span{font-size:10px!important;line-height:1.45!important}
+.overview-dashboard .academic-progress-card .degree-progress-dates,
+.overview-dashboard .academic-progress-card .degree-progress-foot{
+  margin-top:6px!important;
+}
+.overview-dashboard .overview-today,
+.overview-dashboard .quick-capture-card{
+  padding:12px 15px!important;
+  min-height:84px!important;
+}
+.overview-dashboard .overview-ops-grid>.card{
+  padding:11px 12px!important;
+}
+.overview-dashboard .overview-ops-grid .card-head{
+  margin-bottom:5px!important;
+}
+.overview-dashboard .overview-ops-grid .empty{
+  padding:10px 8px!important;
+  color:var(--lux-ink-subtle)!important;
+}
+.overview-dashboard .rhythm-grid{margin-top:7px!important}
+.overview-dashboard .rhythm-grid>div{padding:6px 8px!important}
+.overview-dashboard .project-pulse-card{padding:12px 13px!important}
+.overview-dashboard .project-pulse-card .empty{
+  min-height:80px!important;
+  padding:14px!important;
+}
+.overview-dashboard .recent-card{padding:10px 12px!important}
+.overview-dashboard .recent-card .empty{
+  min-height:70px!important;
+  padding:12px!important;
+}
+.overview-dashboard>.section-title{margin:10px 0 5px!important}
+.overview-dashboard .overview-stats .stat-card{min-height:64px!important}
+@media (max-width:1279px){
+  .overview-dashboard .heatmap-scroll{flex:0 0 auto!important}
+  .overview-dashboard .overview-ops-grid>.card{min-height:106px!important}
+}
