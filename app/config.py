@@ -93,6 +93,8 @@ DEFAULT_APP_CONFIG = {
         "graph_default_view": "2d",
         "animations": True,
         "heatmap_months": 12,
+        "heatmap_thresholds": [1, 3],
+        "heatmap_colors": ["#C9D4F7", "#8297E5", "#4059B8"],
     },
     "academic_profile": {
         "degree_name": "博士进度",
