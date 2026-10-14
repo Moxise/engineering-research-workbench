@@ -2743,3 +2743,99 @@ html[data-sidebar-mode="icon"] .nav-item:hover::after{
   font-weight:720;
   color:#58667E;
 }
+
+
+/* ============================================================
+ * v261014k · Pin-style date anchors + tighter aggregate pills
+ * ============================================================ */
+.mdt-marker{
+  top:8px;
+  width:18px;
+  height:31px;
+  overflow:visible;
+}
+.mdt-marker::before{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:1px;
+  width:12px;
+  height:12px;
+  transform:translateX(-50%);
+  border-radius:50% 50% 48% 48%;
+  background:#fff;
+  border:2px solid currentColor;
+  box-sizing:border-box;
+  box-shadow:
+    0 3px 8px rgba(31,38,52,.10),
+    0 0 0 3px rgba(255,255,255,.76);
+}
+.mdt-marker::after{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:13px;
+  width:2px;
+  height:17px;
+  transform:translateX(-50%);
+  border-radius:999px;
+  background:currentColor;
+  opacity:.42;
+  box-shadow:0 1px 1px rgba(31,38,52,.05);
+}
+.mdt-marker-dot{display:none!important}
+.mdt-marker-count{
+  left:11px;
+  top:-3px;
+  min-width:15px;
+  height:15px;
+  padding:0 4px;
+  font-size:7px;
+  font-weight:760;
+  box-shadow:0 2px 6px rgba(31,38,52,.12);
+}
+.mdt-card-connector{
+  top:31px;
+  width:2px;
+  height:8px;
+  border-radius:999px;
+  background:rgba(121,133,153,.30);
+}
+.mdt-card.full{
+  top:40px;
+}
+.mdt-card.compact{
+  top:43px;
+}
+.mdt-card.month-cluster{
+  top:42px;
+  height:43px;
+  padding:5px 9px;
+  grid-template-rows:auto auto;
+  gap:1px;
+  border-radius:11px;
+}
+.mdt-month-cluster-year{
+  font-size:7.5px;
+  line-height:1;
+}
+.mdt-month-cluster-title{
+  gap:5px;
+  line-height:1;
+}
+.mdt-month-cluster-title strong{
+  font-size:12px;
+  line-height:1;
+}
+.mdt-month-cluster-title span{
+  min-height:16px;
+  padding:0 5px;
+  font-size:8px;
+}
+.mdt-month-cluster-status{display:none!important}
+
+/* Keep visually separate month cards within their true month segment. */
+.mdt-card.month-cluster{
+  max-width:132px;
+  min-width:92px;
+}
