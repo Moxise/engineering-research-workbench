@@ -2940,3 +2940,145 @@ html[data-density="compact"] .milestone-docs-layout .editor-actions{
   background:#fff!important;
   padding-top:5px;
 }
+
+
+/* ============================================================
+ * v261014m · Exact milestone pin/card selectors + compact editor fix
+ * ============================================================ */
+/* Actual timeline DOM uses .mdt-pin-glyph. Render a true 📌 glyph and no pseudo-pin. */
+.mdt-marker{
+  top:5px!important;
+  width:26px!important;
+  height:34px!important;
+  overflow:visible!important;
+}
+.mdt-marker::before,
+.mdt-marker::after,
+.mdt-marker-dot{display:none!important}
+.mdt-pin-glyph{
+  position:absolute;
+  left:50%;
+  top:-1px;
+  transform:translateX(-50%) rotate(-7deg);
+  display:block;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+  font-size:18px;
+  line-height:1;
+  filter:drop-shadow(0 2px 2px rgba(31,38,52,.14));
+  transform-origin:50% 75%;
+  transition:transform .14s ease,filter .14s ease;
+  pointer-events:none;
+}
+.mdt-marker:hover .mdt-pin-glyph,
+.mdt-marker:focus-visible .mdt-pin-glyph{
+  transform:translateX(-50%) rotate(-2deg) translateY(-1px);
+  filter:drop-shadow(0 3px 4px rgba(31,38,52,.18));
+}
+.mdt-marker-count{
+  top:-6px!important;
+  left:17px!important;
+  z-index:2;
+}
+.mdt-card-connector{
+  top:22px!important;
+  height:15px!important;
+  width:1px!important;
+  border-radius:999px;
+  opacity:.42;
+}
+
+/* Actual single-card DOM uses .single and optional .compact. Show title only. */
+.mdt-card.single{
+  top:38px!important;
+  height:auto!important;
+  min-height:43px!important;
+  max-height:59px!important;
+  padding:8px 10px!important;
+  display:flex!important;
+  align-items:center!important;
+  border-radius:9px!important;
+}
+.mdt-card.single.compact{
+  top:40px!important;
+  min-height:41px!important;
+  max-height:56px!important;
+  padding:7px 9px!important;
+}
+.mdt-card.single .mdt-card-title{
+  margin:0!important;
+  display:-webkit-box!important;
+  -webkit-box-orient:vertical!important;
+  -webkit-line-clamp:2!important;
+  overflow:hidden!important;
+  white-space:normal!important;
+  text-overflow:ellipsis!important;
+  overflow-wrap:anywhere!important;
+  font-size:11px!important;
+  line-height:1.35!important;
+  font-weight:650!important;
+}
+.mdt-card.single.one-line .mdt-card-title{
+  -webkit-line-clamp:1!important;
+  white-space:nowrap!important;
+}
+.mdt-card.single.two-line .mdt-card-title{
+  -webkit-line-clamp:2!important;
+  white-space:normal!important;
+}
+.mdt-card.single .mdt-card-date,
+.mdt-card.single .mdt-card-desc{display:none!important}
+
+/* Compact milestone-doc editor: keep footer/action bar visible inside viewport. */
+html[data-density="compact"] .milestone-page-card:has(.milestone-docs-layout){
+  height:calc(100vh - 82px)!important;
+  min-height:0!important;
+  display:flex!important;
+  flex-direction:column!important;
+  overflow:hidden!important;
+}
+html[data-density="compact"] .milestone-page-card:has(.milestone-docs-layout)>.milestone-page-head{
+  flex:0 0 auto!important;
+}
+html[data-density="compact"] .milestone-page-card:has(.milestone-docs-layout)>#ms-view{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow:hidden!important;
+}
+html[data-density="compact"] .milestone-docs-layout{
+  flex:1 1 auto!important;
+  height:100%!important;
+  min-height:0!important;
+  grid-template-rows:minmax(0,1fr)!important;
+  overflow:hidden!important;
+}
+html[data-density="compact"] .milestone-docs-layout .doc-list-panel,
+html[data-density="compact"] .milestone-docs-layout .doc-editor{
+  height:100%!important;
+  min-height:0!important;
+}
+html[data-density="compact"] .milestone-docs-layout .doc-editor{
+  display:flex!important;
+  flex-direction:column!important;
+  overflow:hidden!important;
+}
+html[data-density="compact"] .milestone-docs-layout .meta-block{
+  flex:0 0 auto!important;
+}
+html[data-density="compact"] .milestone-docs-layout .editor-wrap{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow:hidden!important;
+}
+html[data-density="compact"] .milestone-docs-layout .editor-pane{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  height:auto!important;
+}
+html[data-density="compact"] .milestone-docs-layout .editor-actions{
+  flex:0 0 auto!important;
+  margin-top:5px!important;
+  padding:5px 0 0!important;
+  background:#fff!important;
+  position:relative!important;
+  z-index:4!important;
+}
