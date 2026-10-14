@@ -487,7 +487,7 @@
       const titleMetrics = (group, compact=false) => {
         const title=String(group.docs[0]?.title||'未命名里程碑');
         const units=[...title].reduce((n,ch)=>n+(/[\x00-\xff]/.test(ch)?.58:1),0);
-        const oneLine=units<=compact?16:18;
+        const oneLine=compact?16:18;
         const lines=units<=oneLine?1:2;
         const target=compact
           ? clamp(Math.round(78+Math.min(units,23)*4.0),118,164)
