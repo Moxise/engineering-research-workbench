@@ -33,7 +33,7 @@
     sidebarPinned: new Set(storedArray('sidebarPinned', ['core'])),
     sidebarOpen: new Set(storedArray('sidebarOpen', ['core','resources','system'])),
     knowledgeTypes: [],
-    dirty: false,
+    dirty: false, docSelectSeq: 0,
   };
 
   const BUILTIN_KIND_ROUTE = {ideas:'idea', journals:'journal', notes:'note', milestones:'milestone', summaries:'summary', literature:'literature'};
@@ -763,9 +763,19 @@
   function showEmptyEditor(kind){ $('#doc-editor').className='card doc-editor empty-editor'; $('#doc-editor').innerHTML=`<div class="empty"><div><div class="empty-symbol">${esc(kindLabel(kind).toUpperCase())}</div>选择一条${kindLabel(kind)}，或点击左侧 ＋ 新建</div></div>`; }
   async function selectDoc(id){
     if(state.dirty && !confirm('当前 Markdown 有未保存修改，确定切换吗？'))return;
-    state.dirty=false; const doc=await api('/api/docs/'+encodeURIComponent(id)); state.selectedDoc=doc;
-    window.ERWCurrentDoc=doc.id; /* v260930 · M2 悬浮球上下文桥：当前打开条目 id */
-    $$('[data-doc-id]').forEach(x=>x.classList.toggle('active',x.dataset.docId===id));
+    state.dirty=false;
+    const seq=++state.docSelectSeq;
+    const doc=await api('/api/docs/'+encodeURIComponent(id));
+    if(seq!==state.docSelectSeq)return; /* later selection wins; prevents milestone jump race */
+    state.selectedDoc=doc;
+    window.ERWCurrentDoc=doc.id;
+    const list=$('#doc-list');
+    const rows=$$('[data-doc-id]',list||document);
+    rows.forEach(x=>x.classList.toggle('active',String(x.dataset.docId)===String(id)));
+    const active=rows.find(x=>String(x.dataset.docId)===String(id));
+    if(active){
+      requestAnimationFrame(()=>active.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'}));
+    }
     renderDocEditor(doc);
   }
   /* v260929 · 条目信息（填写一次即固定）可收起：收起后只留一行摘要，腾出正文撰写/阅读空间；收起状态按条目类型分别记忆 */
@@ -1120,7 +1130,7 @@
       });
     }
     else if(state.milestoneView==='list'){ root.innerHTML=milestoneTimelineHtml([...state.docs].sort((a,b)=>(a.due||'').localeCompare(b.due||''))); wireMilestoneCards(); }
-    else { root.innerHTML=`<div class="docs-layout"><aside class="card doc-list-panel" style="position:relative;top:auto"><div class="doc-list">${docItems(state.docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"><div class="empty">选择里程碑文档进行编辑</div></section></div>`; wireDocList('milestone'); if(state.docs[0])selectDoc(state.docs[0].id); }
+    else { root.innerHTML=`<div class="docs-layout"><aside class="card doc-list-panel" style="position:relative;top:auto"><div class="doc-list" id="doc-list">${docItems(state.docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"><div class="empty">选择里程碑文档进行编辑</div></section></div>`; wireDocList('milestone'); }
     animateSubView(root);
   }
   function milestoneTimelineHtml(docs,compact=false){ if(!docs.length)return '<div class="empty">暂无里程碑</div>'; return `<div class="timeline ${compact?'compact':''}">${docs.map(d=>`<div class="timeline-item" data-ms-id="${d.id}"><div class="timeline-date">${fmtDate(d.due)}</div><span class="timeline-dot"></span><div class="timeline-card"><div style="display:flex;justify-content:space-between;gap:10px"><strong>${esc(d.title)}</strong><span class="badge">${esc(d.status||'')}</span></div><div class="row-meta">${esc((d.projects||[]).join(', ')||d.project||'未归属项目')} · ${esc(d.excerpt||'')}</div></div></div>`).join('')}</div>`}
