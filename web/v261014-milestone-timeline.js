@@ -66,6 +66,19 @@
     return d.getFullYear() + '年' + (d.getMonth() + 1) + '月';
   }
 
+  function monthKey(date) {
+    const d = localMidnight(date);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  function drawerDateParts(date) {
+    const d = localMidnight(date);
+    return {
+      year: String(d.getFullYear()),
+      monthDay: String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+    };
+  }
+
   function statusKey(raw) {
     const value = String(raw || '').trim();
     for (const item of STATUS) {
@@ -459,30 +472,74 @@
       const fullWidth = 220;
       const compactWidth = 150;
       const gap = 14;
-      const fullParts = collisionComponents(groups, fullWidth, width, gap);
       const items = [];
+      const { start: rangeStart, end: rangeEnd } = this.range();
 
-      fullParts.forEach(part => {
-        if (part.length === 1 && part[0].docs.length === 1) {
-          items.push({ kind: 'full', groups: part, width: fullWidth });
+      const segmentForMonth = date => {
+        const d = localMidnight(date);
+        const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+        const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+        const clippedStart = monthStart < rangeStart ? rangeStart : monthStart;
+        const clippedEnd = monthEnd > rangeEnd ? rangeEnd : monthEnd;
+        const x1 = this.xFor(clippedStart, width);
+        const x2 = this.xFor(clippedEnd, width);
+        return {
+          key: monthKey(d),
+          label: monthLabel(d),
+          start: clippedStart,
+          end: clippedEnd,
+          x1,
+          x2,
+          width: Math.max(1, x2 - x1)
+        };
+      };
+
+      const byMonth = new Map();
+      groups.forEach(group => {
+        const key = monthKey(group.date);
+        if (!byMonth.has(key)) byMonth.set(key, []);
+        byMonth.get(key).push(group);
+      });
+
+      [...byMonth.values()].forEach(monthGroups => {
+        const segment = segmentForMonth(monthGroups[0].date);
+        const fullParts = collisionComponents(monthGroups, fullWidth, width, gap);
+        const canUseFull = fullParts.every(part => part.length === 1 && part[0].docs.length === 1);
+
+        if (canUseFull) {
+          monthGroups.forEach(group => items.push({ kind: 'full', groups: [group], width: fullWidth, segment }));
           return;
         }
-        const compactParts = collisionComponents(part, compactWidth, width, gap);
-        compactParts.forEach(sub => {
-          if (sub.length === 1 && sub[0].docs.length === 1) {
-            items.push({ kind: 'compact', groups: sub, width: compactWidth });
-          } else {
-            items.push({ kind: 'cluster', groups: sub, width: 158 });
-          }
-        });
+
+        const compactParts = collisionComponents(monthGroups, compactWidth, width, gap);
+        const canUseCompact = compactParts.every(part => part.length === 1 && part[0].docs.length === 1);
+
+        if (canUseCompact) {
+          monthGroups.forEach(group => items.push({ kind: 'compact', groups: [group], width: compactWidth, segment }));
+          return;
+        }
+
+        /* High/local density: exactly one visual aggregate per natural month.
+         * The real milestone markers remain at their true date coordinates above it. */
+        const monthWidth = clamp(segment.width - 18, 136, 184);
+        items.push({ kind: 'month-cluster', groups: monthGroups, width: monthWidth, segment });
       });
 
       items.forEach(item => {
         const docs = flatten(item.groups);
         const start = item.groups[0].date;
         const end = item.groups[item.groups.length - 1].date;
-        const x = item.groups.reduce((sum, group) => sum + group.x * group.docs.length, 0) / Math.max(1, docs.length);
-        const left = clamp(x - item.width / 2, 8, Math.max(8, width - item.width - 8));
+        const weightedX = item.groups.reduce((sum, group) => sum + group.x * group.docs.length, 0) / Math.max(1, docs.length);
+        const x = item.kind === 'month-cluster'
+          ? (item.segment.x1 + item.segment.x2) / 2
+          : weightedX;
+        const inset = 7;
+        const minLeft = item.segment ? item.segment.x1 + inset : 8;
+        const maxLeft = item.segment
+          ? Math.max(minLeft, item.segment.x2 - item.width - inset)
+          : Math.max(8, width - item.width - 8);
+        const left = clamp(x - item.width / 2, minLeft, maxLeft);
+
         const connector = el('i', 'mdt-card-connector');
         connector.style.left = x + 'px';
         lane.appendChild(connector);
@@ -492,30 +549,29 @@
         card.style.left = left + 'px';
         card.style.width = item.width + 'px';
 
-        if (item.kind === 'cluster') {
-          const sameMonth = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth();
-          const highDensity = docs.length >= 5;
-          const top = el('div', 'mdt-card-date', sameMonth ? (start.getMonth() + 1) + '月' : shortDate(start) + '–' + shortDate(end));
-          const title = highDensity && sameMonth
-            ? (start.getMonth() + 1) + '月 · ' + cfg.label + ' ' + docs.length + '项'
-            : '+' + docs.length + ' 个' + cfg.label;
-          card.appendChild(top);
-          card.appendChild(el('div', 'mdt-card-title', title));
-          card.appendChild(el('div', 'mdt-card-desc', longDate(start) === longDate(end) ? longDate(start) : shortDate(start) + ' — ' + shortDate(end)));
+        if (item.kind === 'month-cluster') {
+          card.appendChild(el('div', 'mdt-month-cluster-year', String(start.getFullYear())));
+          const monthTitle = el('div', 'mdt-month-cluster-title');
+          monthTitle.appendChild(el('strong', '', (start.getMonth() + 1) + '月'));
+          monthTitle.appendChild(el('span', '', docs.length + '项'));
+          card.appendChild(monthTitle);
+          card.appendChild(el('div', 'mdt-month-cluster-status', cfg.label));
         } else {
           const doc = docs[0];
           card.appendChild(el('div', 'mdt-card-date', shortDate(doc._due)));
           card.appendChild(el('div', 'mdt-card-title', doc.title || '未命名里程碑'));
-          if (item.kind === 'full') card.appendChild(el('div', 'mdt-card-desc', doc.excerpt || ((doc.projects || []).join(', ') || doc.project || '未归属项目')));
+          if (item.kind === 'full') {
+            card.appendChild(el('div', 'mdt-card-desc', doc.excerpt || ((doc.projects || []).join(', ') || doc.project || '未归属项目')));
+          }
         }
 
-        card.title = item.kind === 'cluster'
-          ? (docs.length + ' 个' + cfg.label + '里程碑')
+        card.title = item.kind === 'month-cluster'
+          ? (monthLabel(start) + ' · ' + cfg.label + ' ' + docs.length + '项')
           : ((docs[0].title || '未命名里程碑') + ' · ' + longDate(docs[0]._due));
         card.addEventListener('click', e => {
           e.stopPropagation();
-          if (item.kind !== 'cluster' && docs.length === 1 && this.options.onOpen) this.options.onOpen(docs[0].id);
-          else this.openDrawer(docs, cfg.key, start, end);
+          if (item.kind !== 'month-cluster' && docs.length === 1 && this.options.onOpen) this.options.onOpen(docs[0].id);
+          else this.openDrawer(docs, cfg.key, item.kind === 'month-cluster' ? item.segment.start : start, item.kind === 'month-cluster' ? addDays(item.segment.end, -1) : end);
         });
         lane.appendChild(card);
       });
@@ -545,7 +601,10 @@
       this.drawerItems.forEach(doc => {
         const row = el('button', 'mdt-drawer-item', '');
         row.type = 'button';
-        const date = el('div', 'mdt-drawer-date', shortDate(doc._due));
+        const dateParts = drawerDateParts(doc._due);
+        const date = el('div', 'mdt-drawer-date');
+        date.appendChild(el('span', 'mdt-drawer-year', dateParts.year));
+        date.appendChild(el('strong', 'mdt-drawer-monthday', dateParts.monthDay));
         const copy = el('div', 'mdt-drawer-copy');
         copy.appendChild(el('strong', '', doc.title || '未命名里程碑'));
         copy.appendChild(el('span', '', doc.excerpt || ((doc.projects || []).join(', ') || doc.project || '未归属项目')));
