@@ -214,8 +214,9 @@ def main() -> int:
         app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
         styles = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
         index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        milestone_timeline = (ROOT / "web" / "v261014-milestone-timeline.js").read_text(encoding="utf-8")
         assert "heatmap-month-select" in app_js and "data-row" in app_js and "--boundary-y" in app_js
-        assert "data-graph-kind" in app_js and "data-graph-relation" in app_js and "timeline-3d-viewport" in app_js
+        assert "data-graph-kind" in app_js and "data-graph-relation" in app_js and "ERWMilestoneTimeline" in app_js
         assert "_graphRenderToken" in app_js and "selectedId" in app_js
         # v261009 · 旧 placeholder 文案已不再是稳定接口；这里只验证 Ctrl/Cmd+S 保存钩子仍存在。
         assert "key==='s'" in app_js and "doc-save" in app_js
@@ -224,6 +225,8 @@ def main() -> int:
         assert "agent-thinking" in app_js and "模型思考过程" in app_js and "点击空白处恢复全图" in app_js
         assert "global-search-btn" in index and "agent-layout" in styles and "graph-filter-grid" in styles
         assert "graph-preview" in app_js and "graph-fit" in app_js and "_graphResetView" in app_js
+        assert "milestone-density-timeline" in milestone_timeline and "collisionComponents" in milestone_timeline and "ResizeObserver" in milestone_timeline
+        assert "v261014-milestone-timeline.js" in index
         assert "milestone-preview" in app_js and "showMilestonePreview" in app_js
         assert "data-set-tab=\"service\"" in app_js and "svc-host" in app_js and "svc-workspace" in app_js
         assert "data-set-tab=\"knowledge\"" in app_js and "openKnowledgeTypeEditor" in app_js and "/api/knowledge-types" in app_js
