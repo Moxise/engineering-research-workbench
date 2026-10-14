@@ -309,11 +309,6 @@
       todayBtn.addEventListener('click', () => this.centerOn(this.today.getTime(), true));
       controls.appendChild(todayBtn);
 
-      const newBtn = el('button', 'primary-btn mdt-new-btn', '＋ 新建里程碑');
-      newBtn.type = 'button';
-      newBtn.addEventListener('click', () => this.options.onNew && this.options.onNew());
-      controls.appendChild(newBtn);
-
       toolbar.appendChild(controls);
       return toolbar;
     }
