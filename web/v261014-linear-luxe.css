@@ -2618,3 +2618,128 @@ html[data-sidebar-mode="icon"] .nav-item:hover::after{
   .mdt-status-icon{width:21px;height:21px;flex-basis:21px}
   .mdt-status-copy span{display:none}
 }
+
+
+/* ============================================================
+ * v261014j · Monthly aggregation polish + two-line drawer dates
+ * Dense timeline labels are one-per-natural-month, thicker and rounder.
+ * ============================================================ */
+.mdt-card.month-cluster{
+  top:37px;
+  height:58px;
+  padding:7px 10px 8px;
+  display:grid;
+  grid-template-rows:auto auto auto;
+  align-content:center;
+  gap:2px;
+  border-radius:12px;
+  border-width:1px;
+  border-style:solid;
+  background:#F8FAFC;
+  box-shadow:
+    0 5px 14px rgba(31,38,52,.055),
+    inset 0 1px rgba(255,255,255,.76);
+}
+.mdt-card.month-cluster:hover,
+.mdt-card.month-cluster:focus-visible{
+  transform:translateY(-1px);
+  box-shadow:
+    0 8px 20px rgba(31,38,52,.085),
+    inset 0 1px rgba(255,255,255,.82);
+}
+.mdt-month-cluster-year{
+  font:650 8px/1.15 "JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  letter-spacing:.035em;
+  color:#8992A2;
+}
+.mdt-month-cluster-title{
+  display:flex;
+  align-items:baseline;
+  gap:5px;
+  min-width:0;
+  line-height:1.1;
+}
+.mdt-month-cluster-title strong{
+  font-size:13px;
+  font-weight:760;
+  letter-spacing:-.12px;
+  color:#273148;
+}
+.mdt-month-cluster-title span{
+  display:inline-flex;
+  align-items:center;
+  min-height:18px;
+  padding:1px 6px;
+  border-radius:999px;
+  font-size:9px;
+  font-weight:720;
+  line-height:1;
+  color:#667186;
+  background:rgba(119,130,151,.09);
+  border:1px solid rgba(119,130,151,.12);
+}
+.mdt-month-cluster-status{
+  font-size:9px;
+  line-height:1.15;
+  font-weight:680;
+  color:#778195;
+}
+.mdt-lane-done .mdt-card.month-cluster{
+  border-color:rgba(46,155,97,.30);
+  background:linear-gradient(135deg,rgba(239,250,244,.98),rgba(249,253,251,.98));
+}
+.mdt-lane-done .mdt-card.month-cluster .mdt-month-cluster-title strong,
+.mdt-lane-done .mdt-card.month-cluster .mdt-month-cluster-status{color:#267C50}
+.mdt-lane-done .mdt-card.month-cluster .mdt-month-cluster-title span{
+  color:#277A50;background:rgba(46,155,97,.085);border-color:rgba(46,155,97,.13)
+}
+.mdt-lane-active .mdt-card.month-cluster{
+  border-color:rgba(57,121,214,.30);
+  background:linear-gradient(135deg,rgba(239,245,255,.99),rgba(249,251,255,.99));
+}
+.mdt-lane-active .mdt-card.month-cluster .mdt-month-cluster-title strong,
+.mdt-lane-active .mdt-card.month-cluster .mdt-month-cluster-status{color:#316BBB}
+.mdt-lane-active .mdt-card.month-cluster .mdt-month-cluster-title span{
+  color:#316BBB;background:rgba(57,121,214,.085);border-color:rgba(57,121,214,.13)
+}
+.mdt-lane-planned .mdt-card.month-cluster{
+  border-color:rgba(105,117,139,.26);
+  background:linear-gradient(135deg,#F5F7FA,#FBFCFD);
+}
+.mdt-lane-planned .mdt-card.month-cluster .mdt-month-cluster-title strong{color:#4E5B73}
+.mdt-lane-blocked .mdt-card.month-cluster{
+  border-color:rgba(213,72,72,.28);
+  background:linear-gradient(135deg,rgba(255,243,243,.99),rgba(255,250,250,.99));
+}
+.mdt-lane-blocked .mdt-card.month-cluster .mdt-month-cluster-title strong,
+.mdt-lane-blocked .mdt-card.month-cluster .mdt-month-cluster-status{color:#B74444}
+.mdt-lane-blocked .mdt-card.month-cluster .mdt-month-cluster-title span{
+  color:#B74444;background:rgba(213,72,72,.075);border-color:rgba(213,72,72,.12)
+}
+
+/* Drawer date: year and month-day are deliberately separated for scanability. */
+.mdt-drawer-item{
+  grid-template-columns:50px minmax(0,1fr) auto;
+}
+.mdt-drawer-date{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:2px;
+  min-width:44px;
+  font-family:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  line-height:1;
+}
+.mdt-drawer-year{
+  font-size:8px;
+  font-weight:620;
+  letter-spacing:.035em;
+  color:#98A0AE;
+}
+.mdt-drawer-monthday{
+  font-size:10px;
+  line-height:1.1;
+  font-weight:720;
+  color:#58667E;
+}
