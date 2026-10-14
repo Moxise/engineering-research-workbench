@@ -906,3 +906,288 @@ html[data-route="graph"] #main>.card>.card-head{
   padding-bottom:10px!important;
   border-bottom:1px solid #E4E8F0;
 }
+
+
+/* ============================================================
+ * v261014t · Equal-height top row + user heatmap scale + recent activity
+ * ============================================================ */
+
+/* Top dashboard row: both columns share one row height.
+ * Heatmap no longer has its own fixed max-height, so nothing is clipped. */
+.overview-dashboard>.overview-top-row{
+  display:grid!important;
+  align-items:stretch!important;
+  min-height:0!important;
+}
+.overview-dashboard>.overview-top-row>.heatmap-card{
+  height:100%!important;
+  min-height:250px!important;
+  max-height:none!important;
+  align-self:stretch!important;
+}
+.overview-dashboard>.overview-top-row>.overview-academic-grid{
+  height:100%!important;
+  min-height:250px!important;
+  align-self:stretch!important;
+}
+.heatmap-card{
+  overflow:visible!important;
+}
+.heatmap-card .heatmap-scroll{
+  overflow-x:auto!important;
+  overflow-y:visible!important;
+  min-height:0!important;
+  padding-bottom:2px!important;
+}
+.heatmap-card .heatmap-plot{
+  min-height:146px!important;
+  padding-bottom:1px!important;
+}
+.heatmap-card .heatmap-footer{
+  min-height:18px!important;
+  flex-basis:18px!important;
+  overflow:visible!important;
+  padding-bottom:1px!important;
+}
+.heatmap-threshold-summary{
+  margin-left:5px;
+  color:#8590A4;
+  font:500 8px/1 "JetBrains Mono",Consolas,monospace;
+  white-space:nowrap;
+}
+.heatmap-scale-btn{
+  height:30px!important;
+  min-width:68px!important;
+  padding:0 10px!important;
+}
+
+/* Three nonzero colors come from inline CSS variables chosen by the user. */
+.heatmap-card .heat-cell.level-0{background:#E9EDF4!important}
+.heatmap-card .heat-cell.level-1{background:var(--heat-low,#C9D4F7)!important}
+.heatmap-card .heat-cell.level-2{background:var(--heat-mid,#8297E5)!important}
+.heatmap-card .heat-cell.level-3,
+.heatmap-card .heat-cell.level-4{background:var(--heat-high,#4059B8)!important}
+
+/* Disable obsolete preset palette rules by making the variable-driven levels final. */
+.heatmap-card[data-heatmap-palette] .heat-cell.level-1{background:var(--heat-low,#C9D4F7)!important}
+.heatmap-card[data-heatmap-palette] .heat-cell.level-2{background:var(--heat-mid,#8297E5)!important}
+.heatmap-card[data-heatmap-palette] .heat-cell.level-3,
+.heatmap-card[data-heatmap-palette] .heat-cell.level-4{background:var(--heat-high,#4059B8)!important}
+
+/* Heatmap settings modal */
+.heatmap-scale-editor{display:grid;gap:14px}
+.heatmap-scale-copy{
+  padding:9px 10px;
+  border:1px solid #E0E6EF;
+  border-radius:9px;
+  background:#F6F8FB;
+  color:#68758A;
+  font-size:11px;
+  line-height:1.55;
+}
+.heatmap-threshold-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.heatmap-color-editor{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:8px;
+}
+.heatmap-color-editor>label{
+  display:grid;
+  grid-template-columns:auto 34px;
+  grid-template-rows:auto auto;
+  gap:6px 8px;
+  align-items:center;
+  padding:9px 10px;
+  border:1px solid #E0E6EF;
+  border-radius:9px;
+  background:#FBFCFE;
+}
+.heatmap-color-editor>label>span{
+  font-size:11px;
+  font-weight:600;
+  color:#334057;
+}
+.heatmap-color-editor input[type="color"]{
+  grid-row:1/3;
+  grid-column:2;
+  width:34px;height:34px;
+  padding:2px;
+  border:1px solid #D8E0EA;
+  border-radius:8px;
+  background:#fff;
+}
+.heatmap-color-editor code{
+  font-size:9px;
+  color:#7B8799;
+}
+.heatmap-scale-preview{
+  display:flex;
+  align-items:center;
+  gap:5px;
+}
+.heatmap-scale-preview i{
+  width:30px;height:16px;
+  border-radius:5px;
+  border:1px solid rgba(100,112,130,.12);
+}
+.heatmap-settings-thresholds{
+  display:grid;
+  grid-template-columns:80px auto 80px auto;
+  gap:7px;
+  align-items:center;
+}
+.heatmap-settings-thresholds input{
+  width:100%!important;
+}
+.heatmap-settings-thresholds span{
+  font-size:10px;
+  color:#7A8598;
+}
+.heatmap-settings-colors{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.heatmap-settings-colors label{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:10px;
+  color:#6F7B8F;
+}
+.heatmap-settings-colors input[type="color"]{
+  width:36px;height:28px;
+  padding:2px;
+  border:1px solid #D9E0EA;
+  border-radius:7px;
+  background:#fff;
+}
+
+/* ---------- Recent research activity ---------- */
+.overview-recent-section{
+  overflow:hidden;
+  border:1px solid var(--sc-line);
+  border-radius:12px;
+  background:#F9FBFD;
+}
+.overview-recent-section>.overview-recent-head{
+  margin:0!important;
+  min-height:58px;
+  padding:10px 14px 9px;
+  align-items:center!important;
+  border-bottom:1px solid var(--sc-line);
+  background:linear-gradient(180deg,#FBFCFE,#F8FAFD);
+}
+.overview-recent-head h3{
+  font-size:15px!important;
+}
+.overview-recent-head p{
+  margin-top:2px!important;
+  font-size:10px!important;
+}
+.overview-recent-group{
+  border:0!important;
+  border-radius:0!important;
+  margin:0!important;
+  align-items:stretch!important;
+  background:transparent!important;
+}
+.overview-recent-group>.recent-card{
+  min-height:250px!important;
+  height:100%!important;
+  padding:0!important;
+  display:flex!important;
+  flex-direction:column!important;
+  border:0!important;
+  border-radius:0!important;
+  background:#FBFCFE!important;
+}
+.overview-recent-group>.recent-card+.recent-card{
+  border-left:1px solid var(--sc-line)!important;
+}
+.recent-card-head{
+  flex:0 0 auto;
+  min-height:48px;
+  margin:0!important;
+  padding:9px 12px!important;
+  border-bottom:1px solid #E8ECF2;
+}
+.recent-card-title{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-width:0;
+}
+.recent-card-title h3{
+  margin:0!important;
+  font-size:13px!important;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.recent-card-icon{
+  width:24px;height:24px;
+  flex:0 0 24px;
+  display:grid;
+  place-items:center;
+  border-radius:7px;
+  font-size:12px;
+}
+.recent-card-ideas .recent-card-icon{background:#FFF3DE;color:#B97A22}
+.recent-card-notes .recent-card-icon{background:#ECF1FF;color:#5069DE}
+.recent-card-summaries .recent-card-icon{background:#F2EDFF;color:#8462CB}
+.recent-card-ideas .recent-card-head{background:linear-gradient(180deg,rgba(255,244,230,.64),rgba(255,255,255,0))}
+.recent-card-notes .recent-card-head{background:linear-gradient(180deg,rgba(236,241,255,.68),rgba(255,255,255,0))}
+.recent-card-summaries .recent-card-head{background:linear-gradient(180deg,rgba(242,237,255,.72),rgba(255,255,255,0))}
+.recent-card-list{
+  flex:1 1 auto;
+  min-height:0;
+  padding:5px 10px 9px;
+}
+.recent-activity-row{
+  min-height:43px;
+  padding:7px 6px;
+  border-bottom:1px solid #E9EDF3;
+  border-radius:6px;
+  transition:background-color var(--sc-ease);
+}
+.recent-activity-row:last-child{border-bottom:0}
+.recent-activity-row:hover{background:#F3F6FA}
+.recent-activity-row .row-title{
+  display:block!important;
+  max-width:100%!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+  font-size:11.5px!important;
+  line-height:1.3!important;
+  font-weight:600!important;
+  color:#2D394F!important;
+}
+.recent-activity-row .row-meta{
+  display:block!important;
+  margin:4px 0 0!important;
+  max-width:100%!important;
+  text-align:left!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+  font-size:9.5px!important;
+  color:#7D889B!important;
+}
+.recent-empty{
+  min-height:170px!important;
+}
+@media(max-width:1099px){
+  .overview-recent-group>.recent-card{min-height:180px!important}
+  .overview-recent-group>.recent-card+.recent-card{
+    border-left:0!important;
+    border-top:1px solid var(--sc-line)!important;
+  }
+  .heatmap-threshold-grid{grid-template-columns:1fr}
+  .heatmap-color-editor{grid-template-columns:1fr}
+}
