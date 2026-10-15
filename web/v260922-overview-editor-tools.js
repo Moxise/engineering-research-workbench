@@ -69,27 +69,16 @@
   }
 
   function paintRecentCard(card, docs){
-    const head=qs('.card-head',card); if(!head)return;
-    [...card.children].forEach(child=>{if(child!==head)child.remove();});
-    const rows=(docs||[]).slice(0,10);
-    if(!rows.length){
-      const empty=document.createElement('div');
-      empty.className='empty';
-      empty.style.minHeight='120px';
-      empty.textContent='暂无内容';
-      card.appendChild(empty);
-      return;
+    const head=qs('.card-head',card);if(!head)return;
+    [...card.children].forEach(child=>{if(child!==head)child.remove()});
+    const list=document.createElement('div');list.className='recent-card-list';
+    const rows=(docs||[]).slice(0,5);
+    if(!rows.length){const empty=document.createElement('div');empty.className='empty recent-empty';empty.textContent='暂无内容';list.appendChild(empty)}
+    else if(window.ERWRecentActivity){
+      list.innerHTML=rows.map(doc=>window.ERWRecentActivity.row(doc)).join('');
+      qsa('.recent-activity-row',list).forEach((row,i)=>row.onclick=()=>window.ERWRecentActivity.open(rows[i]));
     }
-    rows.forEach(doc=>{
-      const row=document.createElement('div');
-      row.className='list-row clickable';
-      const main=document.createElement('div'); main.className='row-main';
-      const title=document.createElement('div'); title.className='row-title'; title.textContent=doc.title||'未命名';
-      const meta=document.createElement('div'); meta.className='row-meta'; meta.textContent=`${doc.project||'未归属项目'} · ${doc.status||''}`;
-      main.append(title,meta); row.appendChild(main);
-      row.addEventListener('click',()=>openRecentDoc(card,doc.id));
-      card.appendChild(row);
-    });
+    card.appendChild(list);
   }
 
   async function expandRecentResearch(dashboard){

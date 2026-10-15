@@ -83,16 +83,17 @@
 
     const gridRect = grid.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
-    const width = gridRect.width;
-    const height = gridRect.height;
+    const zoom = Number.parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+    const width = gridRect.width / zoom;
+    const height = gridRect.height / zoom;
     if (!(width > 0 && height > 0)) {
       layer.replaceChildren();
       return;
     }
 
     /* Anchor the SVG to the final, actually rendered heat-cell grid. */
-    const layerLeft = gridRect.left - stageRect.left;
-    const layerTop = gridRect.top - stageRect.top;
+    const layerLeft = (gridRect.left - stageRect.left) / zoom;
+    const layerTop = (gridRect.top - stageRect.top) / zoom;
     layer.style.left = `${layerLeft}px`;
     layer.style.top = `${layerTop}px`;
     layer.style.width = `${width}px`;
@@ -108,11 +109,11 @@
 
     const paths = monthStarts.map(({ cell, date }) => {
       const rect = cell.getBoundingClientRect();
-      const cellLeft = rect.left - gridRect.left;
-      const cellTop = rect.top - gridRect.top;
+      const cellLeft = (rect.left - gridRect.left) / zoom;
+      const cellTop = (rect.top - gridRect.top) / zoom;
 
       const xLeft = Math.max(0, cellLeft - columnGap / 2);
-      const xRight = Math.min(width, cellLeft + rect.width + columnGap / 2);
+      const xRight = Math.min(width, cellLeft + rect.width / zoom + columnGap / 2);
       const y = Math.max(0, cellTop - rowGap / 2);
 
       const path = document.createElementNS(SVG_NS, 'path');

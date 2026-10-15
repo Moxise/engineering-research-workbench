@@ -1475,3 +1475,141 @@ html[data-route="graph"] #main>.card>.card-head{
     max-width:112px!important;
   }
 }
+
+/* ============================================================
+ * v261014w · Overview / option A: soft header blocks and icons.
+ * Keep existing grids, card/header dimensions and content spacing.
+ * Scope every treatment to the home dashboard (recentCard is shared).
+ * ============================================================ */
+.overview-dashboard .rhythm-card{
+  --overview-accent:#168C78;
+  --overview-header:#E8F8F2;
+}
+.overview-dashboard .overview-task-card{
+  --overview-accent:#5675E7;
+  --overview-header:#EDF2FF;
+}
+.overview-dashboard .overview-milestone-card{
+  --overview-accent:#DA902F;
+  --overview-header:#FFF4E5;
+}
+.overview-dashboard .project-pulse-card{
+  --overview-accent:#8864DC;
+  --overview-header:#F1EDFF;
+}
+.overview-dashboard .overview-ops-grid>.card,
+.overview-dashboard .project-pulse-card{
+  background:#FCFDFE!important;
+  border-color:#E1E7F0!important;
+  box-shadow:0 2px 5px rgba(41,57,86,.035)!important;
+}
+.overview-dashboard :is(.rhythm-card,.overview-task-card,.overview-milestone-card,.project-pulse-card)::before{
+  display:none!important;
+}
+.overview-dashboard :is(.rhythm-card,.overview-task-card,.overview-milestone-card,.project-pulse-card)>.card-head{
+  background:linear-gradient(105deg,var(--overview-header),color-mix(in srgb,var(--overview-header) 60%,#FFF))!important;
+  border-bottom-color:transparent!important;
+}
+.overview-dashboard .overview-module-heading{
+  position:relative;
+  min-width:0;
+  padding-left:42px;
+}
+/* Absolute positioning leaves the existing two-line heading height intact. */
+.overview-dashboard .overview-module-icon{
+  position:absolute;
+  left:0;
+  top:50%;
+  transform:translateY(-50%);
+  display:grid;
+  place-items:center;
+  width:32px;
+  height:32px;
+  border:1px solid color-mix(in srgb,var(--overview-accent) 17%,#FFF);
+  border-radius:10px;
+  color:var(--overview-accent);
+  background:linear-gradient(145deg,color-mix(in srgb,var(--overview-accent) 22%,#FFF),color-mix(in srgb,var(--overview-accent) 10%,#FFF));
+  box-shadow:0 2px 5px color-mix(in srgb,var(--overview-accent) 12%,transparent),inset 0 1px 0 rgba(255,255,255,.7);
+  pointer-events:none;
+}
+.overview-dashboard .overview-module-icon svg{width:20px;height:20px}
+.overview-dashboard .overview-module-heading .card-kicker{
+  color:color-mix(in srgb,var(--overview-accent) 42%,#7C889B)!important;
+  font-weight:500;
+}
+.overview-dashboard :is(.overview-ops-grid,.project-pulse-card,.overview-recent-section) .secondary-btn{
+  background:rgba(255,255,255,.84)!important;
+  border-color:#E0E6F1!important;
+  box-shadow:0 1px 2px rgba(45,61,90,.03)!important;
+}
+.overview-dashboard :is(.overview-ops-grid,.project-pulse-card,.overview-recent-section) .secondary-btn:hover{
+  background:#FFF!important;
+  border-color:#C7D2EA!important;
+}
+.overview-dashboard .project-pulse-card .primary-btn{
+  background:linear-gradient(135deg,#647BFF,#5665E9)!important;
+  border-color:#7182FA!important;
+  box-shadow:0 2px 5px rgba(86,101,233,.13)!important;
+}
+.overview-dashboard .project-pulse-card .primary-btn:hover{
+  background:linear-gradient(135deg,#566CEE,#4C5BD9)!important;
+}
+.overview-dashboard .rhythm-grid{
+  background:linear-gradient(105deg,#ECF8F3,#F3FAF7)!important;
+  border-color:transparent!important;
+}
+.overview-dashboard .rhythm-grid>div+div{border-left-color:#E1F1EB!important}
+.overview-dashboard :is(.overview-task-list,.overview-milestone-list){background:transparent}
+.overview-dashboard :is(.overview-task-row,.overview-milestone-row){
+  background:transparent!important;
+  border-color:transparent!important;
+}
+.overview-dashboard .overview-task-row:hover{background:#F0F4FF!important}
+.overview-dashboard .overview-milestone-row:hover{background:#FFF7EB!important}
+.overview-dashboard .overview-task-row .badge[data-priority="低"]{
+  background:#EDF7F5!important;color:#4C827B!important;border-color:#DFEEEA!important;
+}
+.overview-dashboard .overview-task-row .badge[data-priority="高"]{
+  background:#FFF3DE!important;color:#AE7323!important;border-color:#F3DFB9!important;
+}
+.overview-dashboard .overview-task-row .badge[data-priority="紧急"],
+.overview-dashboard .overview-milestone-row .badge[data-status="受阻"]{
+  background:#FFF0F1!important;color:#C65365!important;border-color:#F6D6DC!important;
+}
+.overview-dashboard .overview-milestone-row .badge[data-status="进行中"]{
+  background:#EDF3FF!important;color:#577DCA!important;border-color:#DDE7FA!important;
+}
+.overview-dashboard .overview-milestone-row .badge[data-status="完成"]{
+  background:#E8F7F1!important;color:#258973!important;border-color:#D2EDE3!important;
+}
+.overview-dashboard .project-pulse-item{
+  background:linear-gradient(155deg,#FFF,#FAFBFE)!important;
+  border-color:#E6EAF3!important;
+  box-shadow:0 1px 3px rgba(51,64,99,.025);
+}
+.overview-dashboard .project-pulse-item::before{display:none}
+.overview-dashboard .project-pulse-item:hover{
+  background:#FFF!important;
+  border-color:color-mix(in srgb,var(--project-accent) 26%,#E6EAF3)!important;
+}
+.overview-dashboard .project-pulse-metrics{background:#F6F8FC}
+.overview-dashboard .project-pulse-metrics span+span{border-left-color:transparent!important}
+.overview-dashboard .overview-recent-section{
+  background:#FCFDFE;
+  border-color:#E1E7F0;
+  box-shadow:0 2px 5px rgba(41,57,86,.035);
+}
+.overview-dashboard .overview-recent-head{
+  background:linear-gradient(105deg,#F0F3FF,#FAFBFF)!important;
+  border-bottom-color:transparent!important;
+}
+.overview-dashboard .recent-card-head{border-bottom-color:transparent}
+.overview-dashboard .recent-card-ideas .recent-card-head{background:linear-gradient(105deg,#FFF5E6,#FFFCF6)}
+.overview-dashboard .recent-card-notes .recent-card-head{background:linear-gradient(105deg,#EDF2FF,#F7F9FF)}
+.overview-dashboard .recent-card-summaries .recent-card-head{background:linear-gradient(105deg,#F2EDFF,#FAF8FF)}
+.overview-dashboard .recent-card-icon{
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.65),0 1px 3px rgba(60,72,103,.04);
+}
+.overview-dashboard .recent-activity-row{border-bottom-color:transparent}
+.overview-dashboard .recent-card .list-row{border-top-color:transparent!important}
+.overview-dashboard .overview-recent-group>.recent-card+.recent-card{border-left-color:#EEF1F7!important}

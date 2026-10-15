@@ -36,6 +36,26 @@ def json_bytes(data) -> bytes:
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
 
+def _batch_ids(payload) -> list[str]:
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids or len(ids) > 1000:
+        raise ValueError("请选择 1–1000 条记录")
+    if any(not isinstance(key, str) or not key.strip() for key in ids):
+        raise ValueError("记录编号无效")
+    return list(dict.fromkeys(ids))
+
+
+def _delete_documents(ids: list[str]) -> dict:
+    deleted, failed = [], []
+    for doc_id in ids:
+        try:
+            indexer.delete_doc(doc_id)
+            deleted.append(doc_id)
+        except Exception as exc:
+            failed.append({"id": doc_id, "message": str(exc)})
+    return {"deleted": deleted, "failed": failed}
+
+
 def _q_int(q, key: str, default: int, minimum: int, maximum: int) -> int:
     try:
         value = int((q.get(key) or [str(default)])[0])
@@ -401,6 +421,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/workspace/open-with":  # v261008 · 笔记页「打开原文件」：选择 VS Code / Typora 打开 md
             return self.send_json(workspace.open_file_with(
                 str(payload.get("path") or ""), str(payload.get("editor") or "")))
+        if path == "/api/docs/batch-delete":
+            return self.send_json(_delete_documents(_batch_ids(payload)))
         if path == "/api/docs":
             normalized = indexer.normalize_project_payload(payload)
             doc = store.create_doc(str(normalized.get("kind") or "note"), normalized)
@@ -481,6 +503,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(agent.test_connection())
         if path == "/api/kb/related":  # v260930d · M5 阅读中知识关联：页面正文匹配知识库条目（纯文本匹配，零 LLM 依赖）
             return self.send_json({"items": store.match_related(str(payload.get("page_text") or ""))})
+        if path == "/api/todos/batch-delete":
+            result = todos.delete_many(_batch_ids(payload), completed_only=payload.get("completed_only") is True)
+            indexer.refresh_todos()
+            return self.send_json(result)
         if path == "/api/todos":
             normalized = indexer.normalize_project_payload(payload)
             item = todos.create(normalized)

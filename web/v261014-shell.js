@@ -10,7 +10,9 @@
   const clamp = value => Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(value)));
 
   function readStoredWidth() {
-    const value = Number(localStorage.getItem(STORAGE_KEY));
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if(stored===null)return DEFAULT_WIDTH;
+    const value = Number(stored);
     return Number.isFinite(value) ? clamp(value) : DEFAULT_WIDTH;
   }
 

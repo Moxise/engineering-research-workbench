@@ -19,7 +19,7 @@
 
   const route = () => (location.hash || '#overview').slice(1).split('?')[0];
   const docKey = (u) => ['kind','q','status','project','mark'].map(k => `${k}=${u.searchParams.get(k) || ''}`).join('&');
-  const isDocsCollection = (u, init) => (!init?.method || String(init.method).toUpperCase() === 'GET') && u.pathname === '/api/docs';
+  const isDocsCollection = (u, init) => (!init?.method || String(init.method).toUpperCase() === 'GET') && u.pathname === '/api/docs' && u.searchParams.get('scope') !== 'overview';
 
   window.fetch = async function workbenchPerformanceFetch(input, init = {}) {
     let requestUrl = typeof input === 'string' ? input : input?.url;

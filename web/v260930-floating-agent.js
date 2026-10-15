@@ -78,14 +78,20 @@ function mount(){
   restoreBallPos(ball); /* v260930f · 恢复上次拖拽位置 */
   initBallDrag(ball);   /* v260930f · 拖拽移动（阈值内视为点击） */
   document.body.appendChild(ball);
+  requestAnimationFrame(()=>dockBall(ball));
+  ball.setAttribute('aria-label','打开 AI 助手（可拖动）');
+  ball.addEventListener('pointerenter',()=>revealBall(ball));
+  ball.addEventListener('pointerleave',()=>scheduleBallDock(ball));
+  ball.addEventListener('focus',()=>revealBall(ball));
+  ball.addEventListener('blur',()=>scheduleBallDock(ball));
 
   const panel=document.createElement("section");
   panel.id="erw-fab-panel";panel.hidden=true;
   panel.innerHTML=`
-    <div class="fab-resize" id="fab-resize" title="拖拽调整面板大小"></div><!-- v260930g7 · 左上角拖拽手柄（面板锚定右下） -->
+    ${['n','e','s','w','ne','nw','se','sw'].map(edge=>`<div class="fab-resize-edge fab-resize-${edge}" data-resize-edge="${edge}" title="拖动边界调整大小" aria-hidden="true"></div>`).join('')}
     <div class="fab-head">
       <div class="fab-logo">◉</div>
-      <div><strong>AI 助手</strong><div class="fab-sub">可检索知识库 · 建档 · 写文献笔记</div></div>
+      <div class="fab-title"><strong>AI 助手</strong></div>
       <div class="fab-head-actions">
         <select id="fab-persona" class="search-input" title="切换 AI 人设（角色 × 工具权限 × 写入模式）" style="font-size:11px;padding:3px 6px;max-width:120px"></select>
         <button type="button" id="fab-history" title="历史对话回看">🕘</button><!-- v260930e -->
@@ -179,8 +185,21 @@ function mount(){
 
 /* ---------- 悬浮球拖拽移动（v260930f）：Pointer Events 拖拽，位移 <5px 视为点击；位置持久化 localStorage ---------- */
 function clampBallPos(x,y){
-  const w=52,h=52; /* 球固定尺寸，与 CSS 一致 */
-  return [Math.max(6,Math.min(x,window.innerWidth-w-6)),Math.max(6,Math.min(y,window.innerHeight-h-6))];
+  return [Math.max(0,Math.min(x,fabViewport().w-52)),Math.max(8,Math.min(y,fabViewport().h-60))];
+}
+function fabZoom(){return Number.parseFloat(getComputedStyle(document.documentElement).zoom)||1}
+function fabViewport(){const z=fabZoom();return {w:innerWidth/z,h:innerHeight/z}}
+let ballDockTimer;
+function revealBall(ball){clearTimeout(ballDockTimer);ball.classList.add('is-revealed')}
+function scheduleBallDock(ball){clearTimeout(ballDockTimer);ballDockTimer=setTimeout(()=>{if(!ball.matches(':hover,:focus')&&!ball.classList.contains('dragging'))ball.classList.remove('is-revealed')},650)}
+function dockBall(ball){
+  const r=ball.getBoundingClientRect(),z=fabZoom(),v=fabViewport();
+  let [x,y]=clampBallPos(r.left/z,r.top/z);
+  const edge=x<40?'left':x+52>v.w-40?'right':'';
+  if(edge)x=edge==='left'?0:v.w-52;
+  ball.dataset.dock=edge;ball.classList.remove('is-revealed');
+  ball.style.left=x+'px';ball.style.top=y+'px';ball.style.right='auto';ball.style.bottom='auto';
+  try{localStorage.setItem('fabBallPos',JSON.stringify({x,y}))}catch{}
 }
 function restoreBallPos(ball){
   try{
@@ -195,28 +214,28 @@ function initBallDrag(ball){
   let drag=false,moved=false,sx=0,sy=0,ox=0,oy=0;
   ball.addEventListener("pointerdown",e=>{
     if(e.button!==0)return;
-    const r=ball.getBoundingClientRect();
-    drag=true;moved=false;sx=e.clientX;sy=e.clientY;ox=r.left;oy=r.top;
+    const r=ball.getBoundingClientRect(),z=fabZoom();
+    drag=true;moved=false;sx=e.clientX;sy=e.clientY;ox=r.left/z;oy=r.top/z;
     try{ball.setPointerCapture(e.pointerId)}catch{}
   });
   ball.addEventListener("pointermove",e=>{
     if(!drag)return;
     const dx=e.clientX-sx,dy=e.clientY-sy;
     if(!moved&&Math.hypot(dx,dy)<5)return; /* 小于阈值不动，保证正常点击 */
-    moved=true;ball.classList.add("dragging");
-    const [x,y]=clampBallPos(e.clientX-sx+ox,e.clientY-sy+oy);
+    moved=true;ball.classList.add("dragging");delete ball.dataset.dock;
+    const [x,y]=clampBallPos((e.clientX-sx)/fabZoom()+ox,(e.clientY-sy)/fabZoom()+oy);
     ball.style.left=x+"px";ball.style.top=y+"px";
     ball.style.right="auto";ball.style.bottom="auto";
   });
   const finish=()=>{
     if(!drag)return;drag=false;ball.classList.remove("dragging");
     if(!moved)return;
-    localStorage.setItem("fabBallPos",JSON.stringify({x:parseFloat(ball.style.left),y:parseFloat(ball.style.top)}));
+    dockBall(ball);
     /* 拖拽后吞掉紧随的 click，避免误开面板 */
     ball.addEventListener("click",ev=>{ev.stopPropagation();ev.preventDefault()},{capture:true,once:true});
   };
   ball.addEventListener("pointerup",finish);
-  ball.addEventListener("pointercancel",()=>{drag=false;moved=false;ball.classList.remove("dragging")});
+  ball.addEventListener("pointercancel",()=>{drag=false;moved=false;ball.classList.remove("dragging");dockBall(ball)});
 }
 
 function toastInPanel(msg,isErr){
@@ -388,15 +407,15 @@ async function openPanel(){
 }
 function closePanel(){
   S.open=false;const p=q("#erw-fab-panel");if(p)p.hidden=true;
-  const b=q("#erw-fab-ball");if(b)b.style.display="";
+  const b=q("#erw-fab-ball");if(b){b.style.display="";scheduleBallDock(b)}
   hideBubble();
 }
 /* ---------- v260930g7 · 面板手动调尺寸：左上角手柄拖拽，宽高持久化 ---------- */
 const FAB_SIZE_KEY="fabPanelSize";
 const fabClamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
 /* v261008b · 尺寸上下限随视口走：窗口很窄时上限会低于原下限，必须先夹住上限再夹值，否则面板顶出视口 */
-const fabMaxW=()=>Math.max(280,Math.min(760,innerWidth-40));
-const fabMaxH=()=>Math.max(260,Math.min(900,innerHeight-110));
+const fabMaxW=()=>Math.max(100,fabViewport().w-16);
+const fabMaxH=()=>Math.max(100,fabViewport().h-16);
 const fabMinW=()=>Math.min(300,fabMaxW());
 const fabMinH=()=>Math.min(280,fabMaxH());
 function applyPanelSize(){
@@ -415,8 +434,8 @@ function applyPanelPos(){
   try{
     const s=JSON.parse(localStorage.getItem(FAB_POS_KEY)||"");
     if(!s||!Number.isFinite(s.x)||!Number.isFinite(s.y))return;
-    p.style.left=fabClamp(s.x,8,Math.max(8,innerWidth-p.offsetWidth-8))+"px";
-    p.style.top=fabClamp(s.y,8,Math.max(8,innerHeight-p.offsetHeight-8))+"px";
+    p.style.left=fabClamp(s.x,8,Math.max(8,fabViewport().w-p.offsetWidth-8))+"px";
+    p.style.top=fabClamp(s.y,8,Math.max(8,fabViewport().h-p.offsetHeight-8))+"px";
     p.style.right="auto";p.style.bottom="auto";
   }catch{}
 }
@@ -429,15 +448,15 @@ function reflowPanel(){
     applyPanelSize();
     if(p.style.left!==""){ /* 只有被移动过的面板才需要重算位置（默认锚定右下，CSS 自己管） */
       const w=p.offsetWidth||0,h=p.offsetHeight||0;
-      p.style.left=fabClamp(parseFloat(p.style.left)||0,8,Math.max(8,innerWidth-w-8))+"px";
-      p.style.top=fabClamp(parseFloat(p.style.top)||0,8,Math.max(8,innerHeight-h-8))+"px";
+      p.style.left=fabClamp(parseFloat(p.style.left)||0,8,Math.max(8,fabViewport().w-w-8))+"px";
+      p.style.top=fabClamp(parseFloat(p.style.top)||0,8,Math.max(8,fabViewport().h-h-8))+"px";
       try{localStorage.setItem(FAB_POS_KEY,JSON.stringify({x:parseFloat(p.style.left),y:parseFloat(p.style.top)}))}catch{}
     }
   }
   const ball=q("#erw-fab-ball");
   if(ball&&ball.style.left){
     const [x,y]=clampBallPos(parseFloat(ball.style.left)||0,parseFloat(ball.style.top)||0);
-    ball.style.left=x+"px";ball.style.top=y+"px";
+    ball.style.left=(ball.dataset.dock==='right'?fabViewport().w-52:x)+"px";ball.style.top=y+"px";
   }
 }
 window.addEventListener("resize",()=>{clearTimeout(fabReflowTimer);fabReflowTimer=setTimeout(reflowPanel,120)});
@@ -447,12 +466,12 @@ function initPanelDrag(){  const head=q("#erw-fab-panel .fab-head"),p=q("#erw-fa
     if(e.button!==0)return;
     if(e.target.closest("button,select,input,label"))return; /* 人设/历史/新建/关闭等控件不触发拖动 */
     e.preventDefault();
-    const r=p.getBoundingClientRect(),sx=e.clientX,sy=e.clientY,ox=r.left,oy=r.top;
-    p.style.left=r.left+"px";p.style.top=r.top+"px";p.style.right="auto";p.style.bottom="auto";
+    const r=p.getBoundingClientRect(),z=fabZoom(),sx=e.clientX,sy=e.clientY,ox=r.left/z,oy=r.top/z;
+    p.style.left=ox+"px";p.style.top=oy+"px";p.style.right="auto";p.style.bottom="auto";
     head.setPointerCapture(e.pointerId);head.classList.add("dragging");
     const mv=ev=>{
-      p.style.left=fabClamp(ox+(ev.clientX-sx),8,Math.max(8,innerWidth-r.width-8))+"px";
-      p.style.top=fabClamp(oy+(ev.clientY-sy),8,Math.max(8,innerHeight-r.height-8))+"px";
+      p.style.left=fabClamp(ox+(ev.clientX-sx)/z,8,Math.max(8,fabViewport().w-r.width/z-8))+"px";
+      p.style.top=fabClamp(oy+(ev.clientY-sy)/z,8,Math.max(8,fabViewport().h-r.height/z-8))+"px";
     };
     const up=()=>{
       head.removeEventListener("pointermove",mv);head.removeEventListener("pointerup",up);
@@ -463,23 +482,32 @@ function initPanelDrag(){  const head=q("#erw-fab-panel .fab-head"),p=q("#erw-fa
   });
 }
 function initPanelResize(){
-  const h=q("#fab-resize"),p=q("#erw-fab-panel");if(!h||!p)return;
+  const p=q("#erw-fab-panel");if(!p)return;
+  qa('[data-resize-edge]',p).forEach(h=>{
   h.addEventListener("pointerdown",e=>{
-    e.preventDefault();
-    const sw=p.offsetWidth,sh=p.offsetHeight,sx=e.clientX,sy=e.clientY;
-    const hadLeft=p.style.left!=="",oleft=parseFloat(p.style.left)||0,otop=parseFloat(p.style.top)||0; /* v260930j3 · 移动过的面板 resize 时保持右下角不动 */
+    if(e.button!==0)return;
+    e.preventDefault();e.stopPropagation();
+    const edge=h.dataset.resizeEdge,r=p.getBoundingClientRect(),z=fabZoom(),v=fabViewport();
+    const left=r.left/z,top=r.top/z,right=r.right/z,bottom=r.bottom/z,sx=e.clientX,sy=e.clientY;
+    p.style.left=left+'px';p.style.top=top+'px';p.style.right='auto';p.style.bottom='auto';
+    p.classList.add('is-resizing');
     h.setPointerCapture(e.pointerId);
     const mv=ev=>{
-      const nw=fabClamp(sw+(sx-ev.clientX),fabMinW(),fabMaxW());
-      const nh=fabClamp(sh+(sy-ev.clientY),fabMinH(),fabMaxH());
-      p.style.width=nw+"px";p.style.height=nh+"px";
-      if(hadLeft){p.style.left=oleft-(nw-sw)+"px";p.style.top=otop-(nh-sh)+"px"}
+      const dx=(ev.clientX-sx)/z,dy=(ev.clientY-sy)/z;
+      const l=edge.includes('w')?fabClamp(left+dx,8,right-fabMinW()):left;
+      const t=edge.includes('n')?fabClamp(top+dy,8,bottom-fabMinH()):top;
+      const rr=edge.includes('e')?fabClamp(right+dx,left+fabMinW(),v.w-8):right;
+      const bb=edge.includes('s')?fabClamp(bottom+dy,top+fabMinH(),v.h-8):bottom;
+      p.style.left=l+'px';p.style.top=t+'px';p.style.width=(rr-l)+'px';p.style.height=(bb-t)+'px';
     };
     const up=()=>{
       h.removeEventListener("pointermove",mv);h.removeEventListener("pointerup",up);
-      try{localStorage.setItem(FAB_SIZE_KEY,JSON.stringify({w:p.offsetWidth,h:p.offsetHeight}))}catch{}
+      h.removeEventListener('pointercancel',up);h.removeEventListener('lostpointercapture',up);p.classList.remove('is-resizing');
+      try{localStorage.setItem(FAB_SIZE_KEY,JSON.stringify({w:p.offsetWidth,h:p.offsetHeight}));localStorage.setItem(FAB_POS_KEY,JSON.stringify({x:parseFloat(p.style.left),y:parseFloat(p.style.top)}))}catch{}
     };
     h.addEventListener("pointermove",mv);h.addEventListener("pointerup",up);
+    h.addEventListener('pointercancel',up);h.addEventListener('lostpointercapture',up);
+  });
   });
 }
 function contextChips(){

@@ -88,3 +88,18 @@ def delete(todo_id: str) -> dict[str, Any]:
             raise FileNotFoundError(todo_id)
         _save(new_items)
     return {"ok": True}
+
+
+def delete_many(ids: list[str], *, completed_only: bool = False) -> dict[str, Any]:
+    """Delete an explicit selection; completed-only cleanup rechecks under the lock."""
+    with _LOCK:
+        items = _load()
+        by_id = {item.get("id"): item for item in items}
+        deleted = [key for key in dict.fromkeys(ids)
+                   if key in by_id and (not completed_only or by_id[key].get("done"))]
+        failed = [{"id": key, "message": "待办不存在" if key not in by_id else "待办尚未完成，已保留"}
+                  for key in dict.fromkeys(ids) if key not in deleted]
+        if deleted:
+            removed = set(deleted)
+            _save([item for item in items if item.get("id") not in removed])
+    return {"deleted": deleted, "failed": failed}

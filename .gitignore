@@ -38,6 +38,8 @@
 !web/**/*.html
 !web/**/*.css
 !web/favicon.png
+!web/workbench-mark.svg
+!tools/ui_usability_check.js
 
 # ==========================================================
 # 文档

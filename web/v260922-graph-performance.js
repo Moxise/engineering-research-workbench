@@ -57,7 +57,7 @@
       this.selectedId = null;
       this.focusDepth = 1;
       this.focusDistances = new Map();
-      this.mode = document.querySelector('[data-gview].active')?.dataset.gview || '2d';
+      this.mode = '2d'; // A single, readable relationship view across all entry points.
       this.camera = {
         '2d': {panX:0,panY:0,zoom:1,rotX:0,rotY:0},
         '3d': {panX:0,panY:0,zoom:1,rotX:.25,rotY:0},
@@ -133,7 +133,6 @@
     }
 
     bindExistingControls() {
-      document.querySelectorAll('[data-gview]').forEach(btn=>{btn.onclick=(e)=>{e.preventDefault();e.stopPropagation();this.mode=btn.dataset.gview||'2d';document.querySelectorAll('[data-gview]').forEach(x=>x.classList.toggle('active',x===btn));this.requestRender()}});
       const fit=document.querySelector('#graph-fit'); if(fit)fit.onclick=(e)=>{e.preventDefault();this.clearFocus(true)};
       const close=document.querySelector('#graph-preview-close'); if(close)close.onclick=()=>this.clearFocus(false);
       const bundle=document.querySelector('#graph-bundle'); if(bundle)bundle.onclick=()=>this.openBundle();
