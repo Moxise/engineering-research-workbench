@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-15 · Architecture performance optimization
+
+- 将外部文件检查移到后台，缓存工作区初始化；读取使用 SQLite 快照，避免周期性全库扫描阻塞请求。
+- 统一 HTTP、Agent 和文献的文档读写入口，修复中文短词搜索、附件更新及保存后索引可见性。
+- 图谱改为局部依赖更新，批量删除共用事务；加入稳定 FTS rowid、排序索引、连接关闭和可恢复的 schema 3 升级。
+- 图谱页面只加载一次数据；MathJax/Mermaid 按需加载。删除旧研究总览、旧图谱/里程碑渲染、项目桥接和旧搜索装配路径。
+- 自检改为隔离配置，增加架构回归、浏览器按需渲染验证及可复现万篇合成基准。对比数据见 `docs/PERFORMANCE_ARCHITECTURE.md`。
+
 ## v261008.1
 
 ### Agent 接入 OpenCode Go（代理 / 直连）与火山方舟 Agent Plan

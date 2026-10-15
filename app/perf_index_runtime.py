@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +7,10 @@ from typing import Any
 
 from . import activity, store, workspace
 from .perf_index_db import _connect, _init_db, _root, _LOCK
-from .perf_index_core import _registry, _todos_path, index_doc_path, remove_doc, sync
+from .perf_index_core import (
+    _registry, index_doc_path, ensure_ready,
+    _remove_doc_conn, _affected_sources, _refresh_graph_edges, _sync_activity_conn, _refresh_status,
+)
 
 def normalize_project_payload(payload: dict[str, Any]) -> dict[str, Any]:
     out = dict(payload or {})
@@ -50,51 +52,22 @@ def normalize_project_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def apply_doc_project_ids(doc: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-    path_value = str(doc.get("path") or "")
-    if not path_value:
-        return doc
-    root = _root().resolve()
-    path = (root / path_value).resolve()
-    if root != path and root not in path.parents:
-        raise ValueError("Path escapes Workspace")
-    if not path.exists():
-        return doc
-    normalized = normalize_project_payload(payload)
-    try:
-        text = path.read_text(encoding="utf-8")
-        meta, body = store._frontmatter_parse(text)
-        meta["project"] = normalized.get("project") or ""
-        meta["projects"] = normalized.get("projects") or []
-        meta["project_id"] = normalized.get("project_id") or ""
-        meta["project_ids"] = normalized.get("project_ids") or []
-        store._atomic_write(path, store._frontmatter_dump(meta) + body.rstrip() + "\n")
-        return store._doc_from_path(str(meta.get("kind") or doc.get("kind") or "note"), path, include_body=True)
-    except Exception:
-        return doc
-
-
-def apply_todo_project_id(item: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-    normalized = normalize_project_payload(payload)
-    path = _todos_path()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        if not isinstance(data, list):
-            data = []
-        changed = False
-        for row in data:
-            if isinstance(row, dict) and row.get("id") == item.get("id"):
-                row["project"] = normalized.get("project") or ""
-                row["project_id"] = normalized.get("project_id") or ""
-                changed = True
-                break
-        if changed:
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(path)
-    except Exception:
-        pass
-    return {**item, "project": normalized.get("project") or "", "project_id": normalized.get("project_id") or ""}
+def normalize_project_update(existing: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Explicit edits replace old associations; untouched associations persist."""
+    merged = {**existing, **payload}
+    names_changed = "project" in payload or "projects" in payload
+    ids_changed = "project_id" in payload or "project_ids" in payload
+    if names_changed and not ids_changed:
+        merged.pop("project_id", None)
+        merged.pop("project_ids", None)
+    if ids_changed and not names_changed:
+        merged.pop("project", None)
+        merged.pop("projects", None)
+    if "project" in payload and "projects" not in payload:
+        merged["projects"] = [payload["project"]] if payload["project"] else []
+    if "project_id" in payload and "project_ids" not in payload:
+        merged["project_ids"] = [payload["project_id"]] if payload["project_id"] else []
+    return normalize_project_payload(merged)
 
 
 def _safe_workspace_path(rel: str) -> Path:
@@ -149,25 +122,34 @@ def workspace_children(rel: str = "") -> dict[str, Any]:
     return _tree_node(path, include_children=True)
 
 
+def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    ensure_ready()
+    with _LOCK:
+        doc = store.create_doc(kind, normalize_project_payload(payload))
+        index_doc_path(str(doc["path"]))
+        return doc
+
+
 def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    sync()
+    ensure_ready()
+    with _LOCK:
+        return _update_doc(doc_id, payload)
+
+
+def _update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _connect() as conn:
         _init_db(conn)
         row = conn.execute("SELECT path,kind FROM documents WHERE id=?", (doc_id,)).fetchone()
-    if not row:
-        sync(force=True)
-        with _connect() as conn:
-            _init_db(conn)
-            row = conn.execute("SELECT path,kind FROM documents WHERE id=?", (doc_id,)).fetchone()
     if not row:
         raise FileNotFoundError(doc_id)
     path = _root() / str(row["path"])
     kind = str(row["kind"])
     text = path.read_text(encoding="utf-8")
     meta, body = store._frontmatter_parse(text)
+    payload = normalize_project_update(meta, payload)
     allowed = {
         "title", "status", "project", "projects", "project_id", "project_ids", "tags", "kind_marks", "pinned",
-        "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key",
+        "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key", "attachment",
     }
     for key in allowed:
         if key in payload:
@@ -194,18 +176,43 @@ def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def delete_doc(doc_id: str) -> dict[str, Any]:
-    sync()
-    with _connect() as conn:
-        _init_db(conn)
-        row = conn.execute("SELECT path,kind,title,project FROM documents WHERE id=?", (doc_id,)).fetchone()
-    if not row:
-        raise FileNotFoundError(doc_id)
-    path = _root() / str(row["path"])
-    trash = _root() / "System" / "Trash" / str(row["kind"])
-    trash.mkdir(parents=True, exist_ok=True)
-    target = trash / f"{datetime.now().strftime('%Y%m%d%H%M%S')}-{path.name}"
-    with _LOCK:
-        shutil.move(str(path), str(target))
-    activity.record("doc_delete", ref=doc_id, kind=str(row["kind"]), title=str(row["title"] or doc_id), project=str(row["project"] or ""))
-    remove_doc(doc_id)
+    result = delete_docs([doc_id])
+    if result["failed"]:
+        failure = result["failed"][0]
+        if failure.get("error") == "FileNotFoundError":
+            raise FileNotFoundError(doc_id)
+        raise OSError(failure["message"])
     return {"ok": True}
+
+
+def delete_docs(doc_ids: list[str]) -> dict[str, Any]:
+    """Move an explicit selection to Trash, updating graph dependencies once."""
+    ensure_ready()
+    root = _root()
+    deleted, failed, keys = [], [], set()
+    with _LOCK:
+        with _connect(root) as conn:
+            _init_db(conn)
+            for doc_id in dict.fromkeys(doc_ids):
+                row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+                try:
+                    if not row:
+                        raise FileNotFoundError(doc_id)
+                    path = root / str(row["path"])
+                    trash = root / "System" / "Trash" / str(row["kind"])
+                    trash.mkdir(parents=True, exist_ok=True)
+                    target = trash / f"{datetime.now().strftime('%Y%m%d%H%M%S%f')}-{path.name}"
+                    shutil.move(str(path), str(target))
+                except (OSError, ValueError) as exc:
+                    failed.append({"id": doc_id, "message": str(exc), "error": type(exc).__name__})
+                    continue
+                keys.update((doc_id.casefold(), str(row["title_key"])))
+                _remove_doc_conn(conn, doc_id, update_graph=False)
+                deleted.append(doc_id)
+                activity.record("doc_delete", ref=doc_id, kind=str(row["kind"]), title=str(row["title"] or doc_id), project=str(row["project"] or ""))
+            if deleted:
+                _refresh_graph_edges(conn, _affected_sources(conn, keys) - set(deleted))
+                _sync_activity_conn(conn, root=root)
+                conn.commit()
+                _refresh_status(conn, root)
+    return {"deleted": deleted, "failed": failed}

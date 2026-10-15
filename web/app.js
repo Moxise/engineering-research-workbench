@@ -156,6 +156,7 @@
     if(state.bulkBusy){toast('正在删除所选条目，请稍候');return false}
     if(route==='research-overview')route='overview'; // Keep old bookmarks working after removing the duplicate page.
     if (state.dirty && !confirm('当前 Markdown 有未保存修改，确定离开吗？')) return false;
+    window.ERWKnowledgeGraph?.destroy();
     if(route!=='milestones')window.ERWMilestoneTimeline?.destroy?.(); /* v260930g9c · 返回 false 供 ERWNav 等调用方感知取消 */
     state.dirty=false;state.selectedDoc=null;window.ERWCurrentDoc='';++state.docSelectSeq;
     state.docSelection.clear();state.todoSelection.clear();
@@ -172,7 +173,6 @@
       else if(route==='focus') await renderFocus();
       else if(route==='agent') await renderAgent();
       else if(route==='news') await renderNews();
-      else if(route==='research-overview') await renderResearchOverview();
       else if(route==='graph') await renderGraphPage();
       else if(route==='folders') await renderFolders();
       else if(route==='billing') await renderBillingPage(); /* v261008 · 用量计费 */
@@ -744,7 +744,7 @@
   }
   async function loadAgentSession(id){try{const s=await api('/api/agent/sessions/'+encodeURIComponent(id));if(state.route!=='agent'||state.agentSession!==id)return;$('#agent-chat-title').textContent=s.title||'科研 Agent';const root=$('#agent-messages');root.innerHTML=(s.messages||[]).length?(s.messages||[]).map(agentMessageHtml).join(''):'<div class="empty">暂无消息。你可以直接提问，或先引用研究资料。</div>';for(const el of $$('.agent-message-body',root))await renderMarkdownInto(el,el.dataset.raw||'');for(const el of $$('.agent-reasoning-body',root))await renderMarkdownInto(el,el.dataset.raw||'');root.scrollTop=root.scrollHeight}catch(e){toast(e.message,true)}}
   function agentMessageHtml(m){const refs=(m.refs||[]).map(r=>`<span class="badge">${esc(r.title)}</span>`).join('');const imgs=(m.images||[]).map(p=>`<img src="/workspace-file/${esc(typeof p==='string'?p:(p.path||''))}" alt="对话图片">`).join('');const showReasoning=state.config?.app?.llm?.show_reasoning!==false;const reasoning=showReasoning&&String(m.reasoning||'').trim()?`<details class="agent-reasoning"><summary>模型思考过程</summary><div class="agent-reasoning-body" data-raw="${esc(m.reasoning||'')}"></div></details>`:'';const tlHtml=(m.role==='assistant'&&window.ERWFabTimeline?.html)?window.ERWFabTimeline.html(m):''; /* v261008b · 复用悬浮球的时间条（工具耗时 + 总耗时 + 过程明细） */const metaParts=(window.ERWFabTimeline?.metaParts?window.ERWFabTimeline.metaParts(m):[String(m.model||'').trim(),String(m.request_preset_label||'').trim()].filter(Boolean)); /* v261008b · 元信息去重：标签已含模型名时不再重复显示 model */return `<article class="agent-message ${m.role==='assistant'?'assistant':'user'}"><div class="agent-avatar">${m.role==='assistant'?'AI':'YOU'}</div><div class="agent-bubble">${refs?`<div class="agent-msg-refs">${refs}</div>`:''}${imgs?`<div class="agent-msg-images">${imgs}</div>`:''}${reasoning}<div class="agent-message-body" data-raw="${esc(m.content||'')}"></div>${tlHtml}<div class="agent-msg-meta">${[...metaParts.map(esc),esc(fmtTime(m.created))].join(' · ')}</div></div></article>`}
-  async function renderMarkdownInto(out,raw){const seq=++state.previewSeq;let html='';if(window.marked&&window.DOMPurify){const renderer=new marked.Renderer();renderer.code=(tokenOrCode,info)=>{let code='',lang='';if(tokenOrCode&&typeof tokenOrCode==='object'){code=tokenOrCode.text||'';lang=tokenOrCode.lang||''}else{code=String(tokenOrCode||'');lang=String(info||'')}lang=lang.trim();if(lang==='mermaid')return `<div class="mermaid">${esc(code)}</div>`;return `<pre><code class="language-${esc(lang)}">${esc(code)}</code></pre>`};try{html=marked.parse(raw||'',{gfm:true,renderer})}catch{html=basicMarkdown(raw)}}else html=basicMarkdown(raw);out.innerHTML=window.DOMPurify?DOMPurify.sanitize(html,{ADD_TAGS:['mjx-container']}):html;out.innerHTML=out.innerHTML.replace(/<table[\s\S]*?<\/table>/gi,m=>`<div class="fab-tbl">${m}</div>`); /* v261008b · 宽表格套气泡内滚动层，避免撑破容器 */$$('pre code',out).forEach(el=>{try{window.hljs?.highlightElement(el)}catch{}});await renderMermaidBlocks(out,seq);if(window.MathJax?.typesetPromise){try{await MathJax.typesetPromise([out])}catch{}}}
+  async function renderMarkdownInto(out,raw){const seq=++state.previewSeq;out._markdownSeq=seq;let html='';if(window.marked&&window.DOMPurify){const renderer=new marked.Renderer();renderer.code=(tokenOrCode,info)=>{let code='',lang='';if(tokenOrCode&&typeof tokenOrCode==='object'){code=tokenOrCode.text||'';lang=tokenOrCode.lang||''}else{code=String(tokenOrCode||'');lang=String(info||'')}lang=lang.trim();if(lang==='mermaid')return `<div class="mermaid">${esc(code)}</div>`;return `<pre><code class="language-${esc(lang)}">${esc(code)}</code></pre>`};try{html=marked.parse(raw||'',{gfm:true,renderer})}catch{html=basicMarkdown(raw)}}else html=basicMarkdown(raw);html=normalizePreviewPaths(html);out.innerHTML=window.DOMPurify?DOMPurify.sanitize(html,{ADD_TAGS:['mjx-container']}):html;out.innerHTML=out.innerHTML.replace(/<table[\s\S]*?<\/table>/gi,m=>`<div class="fab-tbl">${m}</div>`); /* v261008b · 宽表格套气泡内滚动层，避免撑破容器 */$$('pre code',out).forEach(el=>{try{window.hljs?.highlightElement(el)}catch{}});await renderMermaidBlocks(out,seq);try{await window.ERWRenderLibraries.renderMath([out])}catch(e){console.warn(e)}}
   function paintAgentContext(){const root=$('#agent-context-strip');if(!root)return;root.innerHTML=state.agentRefs.length?`<span class="row-meta">已引用</span>${state.agentRefs.map((r,i)=>`<button type="button" class="context-chip" data-ref-remove="${i}">${esc(r.title)}</button>`).join('')}`:'<span class="row-meta">未引用本地知识；点击“引用研究 · 知识”可手动选择上下文。</span>';$$('[data-ref-remove]',root).forEach(b=>b.onclick=()=>{state.agentRefs.splice(+b.dataset.refRemove,1);paintAgentContext()})}
   function paintAgentImages(){const root=$('#agent-image-strip');if(!root)return;root.innerHTML=state.agentImages.map((x,i)=>`<div class="agent-image-thumb"><img src="${esc(x.url)}"><button type="button" data-agent-image-remove="${i}">×</button></div>`).join('');$$('[data-agent-image-remove]',root).forEach(b=>b.onclick=()=>{state.agentImages.splice(+b.dataset.agentImageRemove,1);paintAgentImages()})}
   async function openAgentReferencePicker(){modal('引用研究 · 知识',`<div class="global-search"><div class="global-search-box"><span>⌕</span><input id="agent-ref-search" placeholder="搜索要引用的 Markdown 条目…"></div><div class="row-meta" style="margin:8px 0">只会把你最终勾选的条目发送给模型。</div><div class="agent-ref-results" id="agent-ref-results"><div class="empty">输入关键词检索研究资料</div></div></div>`,`<button class="secondary-btn" id="agent-ref-cancel">取消</button><button class="primary-btn" id="agent-ref-done">引用所选</button>`);let rows=[];const selected=new Map(state.agentRefs.map(x=>[x.id,x]));const run=debounce(async()=>{const q=$('#agent-ref-search').value.trim();if(!q){$('#agent-ref-results').innerHTML='<div class="empty">输入关键词检索研究资料</div>';return}rows=(await api('/api/docs?q='+encodeURIComponent(q))).slice(0,50);$('#agent-ref-results').innerHTML=rows.length?rows.map(x=>`<label class="bundle-item"><input type="checkbox" data-ref-id="${x.id}" ${selected.has(x.id)?'checked':''}><span class="badge">${esc(KIND_LABEL[x.kind]||x.kind)}</span><span><strong>${esc(x.title)}</strong><br><span class="row-meta">${esc(x.project||'未归属项目')} · ${esc(x.excerpt||'')}</span></span></label>`).join(''):'<div class="empty">未找到条目</div>';$$('[data-ref-id]').forEach(c=>c.onchange=()=>{const d=rows.find(x=>x.id===c.dataset.refId);if(c.checked&&d)selected.set(d.id,{id:d.id,title:d.title,kind:d.kind,project:d.project||''});else selected.delete(c.dataset.refId)})},180);$('#agent-ref-search').oninput=run;$('#agent-ref-cancel').onclick=closeModal;$('#agent-ref-done').onclick=()=>{state.agentRefs=[...selected.values()];closeModal();paintAgentContext()};setTimeout(()=>$('#agent-ref-search').focus(),20)}
@@ -840,18 +840,6 @@
       } catch(e){ if(state.route!=='news')return; $('#main').innerHTML=`<div class="card card-pad"><div class="card-head"><h3>资讯</h3><button class="secondary-btn" id="news-refresh">重试</button></div><div class="rss-alert danger"><strong>资讯接口调用失败</strong><span>${esc(e.message)}</span></div></div>`; $('#news-refresh').onclick=()=>load(true); }
     }
     load(false);
-  }
-
-  async function renderResearchOverview(){
-    const [dash,g]=await Promise.all([api('/api/dashboard'),api('/api/graph')]); state.graph=g;
-    $('#main').innerHTML=`<div class="research-overview">
-      <div class="recent-cards">${recentCard('最近灵感',dash.recent.ideas,'ideas')}${recentCard('最近笔记',dash.recent.notes,'notes')}${recentCard('最近工作总结',dash.recent.summaries,'summaries')}</div>
-      <div class="overview-split">
-        <section class="card card-pad"><div class="card-head"><div><h3>近期里程碑</h3></div><button class="ghost-btn" data-go="milestones">全部</button></div>${milestoneTimelineHtml(dash.upcoming_milestones,true)}</section>
-        <section class="card card-pad"><div class="card-head"><div><h3>知识关系预览</h3></div><button class="ghost-btn" data-go="graph">完整图谱</button></div><div class="graph-canvas-wrap mini-graph"><canvas class="graph-canvas" id="overview-graph"></canvas></div></section>
-      </div>
-    </div>`;
-    wireGo(); requestAnimationFrame(()=>drawGraph($('#overview-graph'),g,{interactive:true,mini:true,onSelect:(n)=>openGraphBundleFromNode(n)}));
   }
 
   async function renderDocsPage(kind){
@@ -1255,17 +1243,22 @@
   }
   async function renderMermaidBlocks(out,seq){
     const nodes=$$('.mermaid',out); if(!nodes.length)return;
+    try{await window.ERWRenderLibraries.ensureMermaid()}catch(error){
+      nodes.forEach(node=>{node.className='mermaid-error';node.textContent=`Mermaid 加载失败：${error.message}\n\n${node.textContent}`});
+      return;
+    }
+    if(out._markdownSeq!==seq||!out.isConnected)return;
     if(!window.mermaid){nodes.forEach(n=>{n.className='mermaid-error';n.textContent='Mermaid 渲染库暂未加载。联网后 Reload 页面即可恢复图形渲染；Markdown 源码不会丢失。\n\n'+n.textContent;});return;}
     try{mermaid.initialize({startOnLoad:false,theme:document.documentElement.dataset.theme==='dark'?'dark':'default',securityLevel:'strict',fontFamily:'Microsoft YaHei, 微软雅黑, sans-serif'});}catch(e){console.warn(e)}
     for(let i=0;i<nodes.length;i++){
       const node=nodes[i],code=node.textContent.trim(); if(!code)continue;
-      try{const id=`erw-mermaid-${seq}-${i}-${Date.now()}`;const result=await mermaid.render(id,code);if(seq!==state.previewSeq||!document.body.contains(out))return;node.innerHTML=result.svg;result.bindFunctions?.(node);}
+      try{const id=`erw-mermaid-${seq}-${i}-${Date.now()}`;const result=await mermaid.render(id,code);if(seq!==out._markdownSeq||!document.body.contains(out))return;node.innerHTML=result.svg;result.bindFunctions?.(node);}
       catch(e){console.warn('Mermaid render failed',e);node.className='mermaid-error';node.textContent=`Mermaid 渲染失败：${e?.message||e}\n\n${code}`;}
     }
   }
 
   async function renderMarkdownPreview(){
-    const ta=$('#md-input'), out=$('#md-preview'); if(!ta||!out)return; const seq=++state.previewSeq; const raw=ta.value;
+    const ta=$('#md-input'), out=$('#md-preview'); if(!ta||!out)return; const seq=++state.previewSeq;out._markdownSeq=seq; const raw=ta.value;
     let html='';
     if(window.marked && window.DOMPurify){
       const renderer=new marked.Renderer();
@@ -1299,15 +1292,17 @@
       return `<a href="#" class="wiki-link kb-ref" data-wiki="${esc(text)}"><code>${inner}</code></a>`;
     });
     html=normalizePreviewPaths(html);
-    if(seq!==state.previewSeq||!document.body.contains(out))return;
+    if(seq!==out._markdownSeq||!document.body.contains(out))return;
     out.innerHTML=window.DOMPurify?DOMPurify.sanitize(html,{ADD_ATTR:['target','rel','data-wiki','checked','disabled'],ADD_TAGS:['mjx-container']}):html;
     $$('pre code',out).forEach(el=>{try{window.hljs?.highlightElement(el)}catch{}});
     await renderMermaidBlocks(out,seq);
-    if(seq!==state.previewSeq||!document.body.contains(out))return;
-    if(window.MathJax?.typesetPromise){try{MathJax.typesetClear?.([out]);await MathJax.typesetPromise([out])}catch(e){console.warn(e)}}
-    if(seq!==state.previewSeq||!document.body.contains(out))return;
+    if(seq!==out._markdownSeq||!document.body.contains(out))return;
+    try{await window.ERWRenderLibraries.renderMath([out])}catch(e){console.warn(e)}
+    if(seq!==out._markdownSeq||!document.body.contains(out))return;
     $$('.wiki-link',out).forEach(a=>a.onclick=async e=>{e.preventDefault();const q=a.dataset.wiki;const results=await api('/api/docs?q='+encodeURIComponent(q));const self=state.selectedDoc&&state.selectedDoc.id;const exact=results.find(x=>x.id===q||x.title===q)||results.find(x=>x.id!==self)||null;if(exact){const r=routeForKind(exact.kind);await navigate(r);setTimeout(()=>selectDoc(exact.id),10)}else toast(`未找到关联条目：${q}`,true)});
   }
+  window.ERWMarkdown = {renderInto: renderMarkdownInto};
+
   function applyMdCommand(cmd){
     const ta=$('#md-input'); const a=ta.selectionStart,b=ta.selectionEnd,sel=ta.value.slice(a,b);
     const map={h1:`# ${sel||'标题'}`,h2:`## ${sel||'标题'}`,h3:`### ${sel||'标题'}`,bold:`**${sel||'粗体'}**`,italic:`*${sel||'斜体'}*`,strike:`~~${sel||'删除线'}~~`,inlinecode:'`'+(sel||'code')+'`',ul:`- ${sel||'列表项'}`,ol:`1. ${sel||'列表项'}`,task:`- [ ] ${sel||'待办'}`,quote:`> ${sel||'引用'}`,hr:'\n---\n',link:`[${sel||'链接文字'}](https://)`,math:`$${sel||'E=mc^2'}$`,mathblock:'$$\n'+(sel||'\\int_0^1 x^2 \\, dx')+'\n$$',code:'```python\n'+(sel||'# code')+'\n```',table:'| 列1 | 列2 |\n| --- | --- |\n| 内容 | 内容 |',mermaid:'```mermaid\nflowchart LR\n  A[开始] --> B[结果]\n```',wiki:`[[${sel||'关联笔记标题'}]]`};
@@ -1357,141 +1352,15 @@
   }
   function milestoneTimelineHtml(docs,compact=false){ if(!docs.length)return '<div class="empty">暂无里程碑</div>'; return `<div class="timeline ${compact?'compact':''}">${docs.map(d=>`<div class="timeline-item" data-ms-id="${d.id}"><div class="timeline-date">${fmtDate(d.due)}</div><span class="timeline-dot"></span><div class="timeline-card"><div style="display:flex;justify-content:space-between;gap:10px"><strong>${esc(d.title)}</strong><span class="badge">${esc(d.status||'')}</span></div><div class="row-meta">${esc((d.projects||[]).join(', ')||d.project||'未归属项目')} · ${esc(d.excerpt||'')}</div></div></div>`).join('')}</div>`}
   function wireMilestoneCards(){ $$('[data-ms-id]').forEach(x=>x.onclick=async()=>{state.milestoneView='docs';renderMilestoneView();setTimeout(()=>selectDoc(x.dataset.msId),10)}); }
-  function milestoneFishboneHtml(docs){
-    if(!docs.length)return '<div class="empty">暂无里程碑</div>';
-    const todayKey=today();
-    const nextIndex=docs.findIndex(d=>(d.due||'')>=todayKey && (d.status||'')!=='完成');
-    return `<div class="milestone-fishbone-layout" id="milestone-fishbone-layout">
-      <div class="milestone-fishbone" id="milestone-fishbone">
-        <div class="fishbone-head">
-          <div><h3>科研里程碑鱼骨图</h3><p>按时间从左到右排列，节点交替分布于主轴两侧。</p></div>
-          <div class="fishbone-legend"><span><i class="dot planned"></i>计划</span><span><i class="dot active"></i>进行中</span><span><i class="dot blocked"></i>受阻</span><span><i class="dot done"></i>完成</span></div>
-        </div>
-        <div class="fishbone-scroll">
-          <div class="fishbone-track" style="--fish-count:${docs.length}">
-            <div class="fishbone-axis"></div>
-            ${docs.map((d,i)=>{
-              const side=i%2===0?'top':'bottom';
-              const status=String(d.status||'计划');
-              const statusClass=status==='完成'?'done':status==='进行中'?'active':status==='受阻'?'blocked':'planned';
-              const current=i===nextIndex?' current':'';
-              return `<article class="fishbone-node ${side} ${statusClass}${current}" data-ms-id="${d.id}" data-status="${esc(status)}" style="--fish-index:${i}">
-                <div class="fishbone-branch"></div>
-                <button class="fishbone-card" type="button">
-                  <div class="fishbone-date mono">${fmtDate(d.due)}</div>
-                  <div class="fishbone-title">${esc(d.title)}</div>
-                  <div class="fishbone-meta">${esc((d.projects||[]).join(', ')||d.project||'未归属项目')}</div>
-                  <div class="fishbone-status"><span class="status-mark"></span><span>${esc(status)}</span></div>
-                </button>
-                <span class="fishbone-joint"></span>
-              </article>`;
-            }).join('')}
-          </div>
-        </div>
-      </div>
-      <aside class="card milestone-preview hidden" id="milestone-preview"><div class="preview-pane-head"><div><h3 id="milestone-preview-title">里程碑预览</h3></div><button class="ghost-btn" id="milestone-preview-close" type="button">关闭</button></div><div class="preview-pane-meta" id="milestone-preview-meta"></div><div class="md-preview milestone-preview-body" id="milestone-preview-body"></div><div class="preview-pane-actions"><button class="primary-btn" id="milestone-preview-edit" type="button">打开编辑</button></div></aside>
-    </div>`;
-  }
-
-  function wireMilestoneFishbone(){
-    $$('.fishbone-node[data-ms-id]').forEach(x=>{
-      const btn=$('.fishbone-card',x);
-      if(!btn)return;
-      btn.onclick=async e=>{e.stopPropagation();await showMilestonePreview(x.dataset.msId)};
-    });
-    $('#milestone-fishbone')?.addEventListener('click',e=>{
-      if(!e.target.closest('.fishbone-card'))hideMilestonePreview();
-    });
-  }
-
-  function milestone3dHtml(docs){return `<div class="milestone-3d-layout" id="milestone-3d-layout"><div class="timeline-3d" id="timeline-3d"><div class="timeline-3d-controls"><span>拖动空白处平移 · Alt/右键拖动旋转 · 滚轮缩放</span><button class="ghost-btn" type="button" id="timeline-3d-auto">暂停旋转</button><button class="ghost-btn" type="button" id="timeline-3d-reset">复位</button></div><div class="timeline-3d-viewport" id="timeline-3d-viewport"><div class="timeline-3d-axis"></div><div class="timeline-3d-stage" id="timeline-3d-stage">${docs.map((d,i)=>{const angle=i*0.72,x=50+Math.sin(angle)*30,y=10+i*68,z=Math.cos(angle)*160;return `<article class="timeline-3d-card" data-ms-id="${d.id}" style="left:calc(${x}% - 115px);top:${y}px;transform:translateZ(${z}px) rotateY(${-angle*18}deg)"><div class="mono" style="font-size:11px;color:var(--accent)">${fmtDate(d.due)}</div><strong>${esc(d.title)}</strong><div class="row-meta">${esc((d.projects||[]).join(', ')||d.project||'未归属项目')} · ${esc(d.status||'')}</div></article>`}).join('')}</div></div></div><aside class="card milestone-preview hidden" id="milestone-preview"><div class="preview-pane-head"><div><h3 id="milestone-preview-title">里程碑预览</h3></div><button class="ghost-btn" id="milestone-preview-close" type="button">关闭</button></div><div class="preview-pane-meta" id="milestone-preview-meta"></div><div class="md-preview milestone-preview-body" id="milestone-preview-body"></div><div class="preview-pane-actions"><button class="primary-btn" id="milestone-preview-edit" type="button">打开编辑</button></div></aside></div>`}
-  async function showMilestonePreview(id){
-    const layout=$('#milestone-fishbone-layout')||$('#milestone-3d-layout'),panel=$('#milestone-preview');if(!layout||!panel)return;
-    try{
-      const doc=await api('/api/docs/'+encodeURIComponent(id));
-      layout.classList.add('preview-open');panel.classList.remove('hidden');
-      $('#milestone-preview-title').textContent=doc.title||'里程碑';
-      $('#milestone-preview-meta').textContent=`${fmtDate(doc.due)} · ${((doc.projects||[]).join(', ')||doc.project||'未归属项目')} · ${doc.status||'—'}`;
-      $$('.timeline-3d-card,.fishbone-node').forEach(x=>x.classList.toggle('selected',x.dataset.msId===id));
-      await renderMarkdownInto($('#milestone-preview-body'),doc.body||'');
-      $('#milestone-preview-edit').onclick=()=>{state.milestoneView='docs';renderMilestoneView();setTimeout(()=>selectDoc(id),10)};
-      $('#milestone-preview-close').onclick=hideMilestonePreview;
-    }catch(e){toast('无法读取里程碑：'+e.message,true)}
-  }
-  function hideMilestonePreview(){const layout=$('#milestone-fishbone-layout')||$('#milestone-3d-layout'),panel=$('#milestone-preview');layout?.classList.remove('preview-open');panel?.classList.add('hidden');$$('.timeline-3d-card,.fishbone-node').forEach(x=>x.classList.remove('selected'))}
-  function animateMilestones3D(){
-    const stage=$('#timeline-3d-stage'),viewport=$('#timeline-3d-viewport');if(!stage||!viewport)return;
-    let rotX=-5,rotY=0,panX=0,panY=0,zoom=-40,raf,drag=null,moved=false,auto=true;
-    const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const apply=()=>{stage.style.transform=`translate3d(${panX}px,${panY}px,${zoom}px) rotateX(${rotX}deg) rotateY(${rotY}deg)`}; apply();
-    const tick=()=>{if(!document.body.contains(stage)){if(raf)cancelAnimationFrame(raf);return}if(auto&&!drag&&!reduce){rotY=(rotY+.035)%360;apply()}raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);
-    viewport.oncontextmenu=e=>e.preventDefault();
-    viewport.onpointerdown=e=>{if(e.target.closest('.timeline-3d-controls')||e.target.closest('.milestone-preview'))return;drag={x:e.clientX,y:e.clientY,mode:(e.altKey||e.button===2)?'rotate':'pan'};moved=false;viewport.setPointerCapture?.(e.pointerId);viewport.classList.add('dragging')};
-    viewport.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.hypot(dx,dy)>2)moved=true;if(drag.mode==='rotate'){rotY+=dx*.22;rotX=Math.max(-70,Math.min(70,rotX-dy*.16))}else{panX+=dx;panY+=dy}drag.x=e.clientX;drag.y=e.clientY;apply()};
-    viewport.onpointerup=e=>{drag=null;viewport.classList.remove('dragging');try{viewport.releasePointerCapture?.(e.pointerId)}catch{};if(!moved&&!e.target.closest('[data-ms-id]'))hideMilestonePreview()};
-    viewport.onwheel=e=>{e.preventDefault();zoom=Math.max(-520,Math.min(240,zoom-e.deltaY*.35));apply()};
-    $('#timeline-3d-reset').onclick=()=>{rotX=-5;rotY=0;panX=0;panY=0;zoom=-40;apply()};
-    $('#timeline-3d-auto').onclick=e=>{auto=!auto;e.currentTarget.textContent=auto?'暂停旋转':'自动旋转'};
-    $$('[data-ms-id]',stage).forEach(x=>x.onclick=async e=>{e.stopPropagation();if(moved){moved=false;return}await showMilestonePreview(x.dataset.msId)});
-  }
-
   async function renderGraphPage(){ const g=await api('/api/graph');state.graph=g;
     const filterKinds=[['idea','灵感'],['journal','实验记录'],['note','笔记'],['milestone','里程碑'],['summary','工作总结'],['literature','文献'],['tag','标签'],['project','项目']];
     const relationKinds=[['wikilink','显式引用'],['tag','标签关联'],['project','项目归属']];
     $('#main').innerHTML=`<div class="card card-pad"><div class="card-head"><div><h3>知识图谱</h3></div><div class="graph-view-tools"><span class="graph-view-label">关系网络</span><button class="secondary-btn" id="graph-fit" type="button">⤢ 全览</button></div></div>
       <div class="graph-wrap" id="graph-wrap"><div class="graph-canvas-wrap"><canvas class="graph-canvas" id="graph-canvas"></canvas><div class="graph-canvas-help">拖动平移 · Ctrl + 滚轮缩放 · 点击节点查看文档与关联</div></div><section class="card graph-preview hidden" id="graph-preview"><div class="preview-pane-head"><div><h3 id="graph-preview-title">节点预览</h3></div><button class="ghost-btn" id="graph-preview-close" type="button">关闭</button></div><div class="preview-pane-meta" id="graph-preview-meta"></div><div class="md-preview graph-preview-body" id="graph-preview-body"></div></section><aside class="card graph-side"><div class="graph-side-tabs"><button class="active" data-graph-panel="overview">概况</button><button data-graph-panel="detail">详情</button><button data-graph-panel="filters">筛选</button></div><div class="graph-side-panel active" data-graph-panel-view="overview"><div class="graph-overview-metrics"><div><strong>${g.nodes?.length||0}</strong><span>节点</span></div><div><strong>${g.edges?.length||0}</strong><span>关系</span></div><div><strong>${filterKinds.length}</strong><span>知识类型</span></div></div><div class="graph-side-copy">拖动空白区域平移；Ctrl + 滚轮缩放。点击节点后会自动进入详情面板并突出直接关联。</div></div><div class="graph-side-panel" data-graph-panel-view="detail"><h3 id="graph-node-title">选择节点</h3><div class="graph-node-info" id="graph-node-info">点击任意节点后，将高亮相邻节点与关系边。点击画布空白处可取消高亮。</div><div style="margin-top:12px"><button class="primary-btn" id="graph-bundle" disabled>整理关联 Markdown</button></div></div><div class="graph-side-panel" data-graph-panel-view="filters"><div class="graph-filter"><strong>显示节点类别</strong><div class="graph-filter-grid">${filterKinds.map(([k,label])=>`<label><input type="checkbox" data-graph-kind="${k}" ${state.graphKinds.has(k)?'checked':''}> ${label}</label>`).join('')}</div><div class="graph-filter-actions"><button class="ghost-btn" id="graph-filter-all">全选</button><button class="ghost-btn" id="graph-filter-docs">仅知识条目</button></div></div><div class="graph-filter"><strong>关系来源</strong><div class="graph-filter-grid">${relationKinds.map(([k,label])=>`<label><input type="checkbox" data-graph-relation="${k}" ${state.graphRelations.has(k)?'checked':''}> ${label}</label>`).join('')}</div><div class="row-meta">隐藏“标签”或“项目”节点时，对应关系边也会立即从图谱和导出结果中移除。</div></div></div></aside></div>
     </div>`;
-    $$('[data-graph-kind]').forEach(c=>c.onchange=()=>{if(c.checked)state.graphKinds.add(c.dataset.graphKind);else state.graphKinds.delete(c.dataset.graphKind);localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()});
-    $$('[data-graph-relation]').forEach(c=>c.onchange=()=>{if(c.checked)state.graphRelations.add(c.dataset.graphRelation);else state.graphRelations.delete(c.dataset.graphRelation);localStorage.setItem('graphRelations',JSON.stringify([...state.graphRelations]));renderGraphCanvas()});
-    $('#graph-filter-all').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=true);state.graphKinds=new Set(filterKinds.map(x=>x[0]));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
-    $('#graph-filter-docs').onclick=()=>{$$('[data-graph-kind]').forEach(c=>c.checked=!['project','tag'].includes(c.dataset.graphKind));state.graphKinds=new Set(filterKinds.map(x=>x[0]).filter(x=>!['project','tag'].includes(x)));localStorage.setItem('graphKinds',JSON.stringify([...state.graphKinds]));renderGraphCanvas()};
-    $$('[data-graph-panel]').forEach(b=>b.onclick=()=>setGraphSidePanel(b.dataset.graphPanel));
-        $('#graph-bundle').onclick=()=>state.graphSelected&&openGraphBundleFromNode(state.graphSelected);
-    $('#graph-preview-close').onclick=()=>onGraphSelect(null);
-    $('#graph-fit').onclick=()=>{if(state.graphSelected)onGraphSelect(null);requestAnimationFrame(()=>$('#graph-canvas')?._graphResetView?.())};
-    renderGraphCanvas();
-  }
-  function setGraphSidePanel(name){
-    $$('[data-graph-panel]').forEach(b=>b.classList.toggle('active',b.dataset.graphPanel===name));
-    $$('[data-graph-panel-view]').forEach(p=>p.classList.toggle('active',p.dataset.graphPanelView===name));
-  }
-  function filteredGraph(){const allowed=state.graphKinds,relations=state.graphRelations;const nodes=(state.graph?.nodes||[]).filter(n=>allowed.has(n.kind));const ids=new Set(nodes.map(n=>n.id));return {nodes,edges:(state.graph?.edges||[]).filter(e=>relations.has(e.relation)&&ids.has(e.source)&&ids.has(e.target))}}
-  function hideGraphPreview(){state.graphPreviewSeq++;$('#graph-wrap')?.classList.remove('preview-open');$('#graph-preview')?.classList.add('hidden');const body=$('#graph-preview-body');if(body)body.innerHTML='';}
-  function graphVirtualMarkdown(n){const g=filteredGraph(),map=new Map(g.nodes.map(x=>[x.id,x])),rels=g.edges.filter(e=>e.source===n.id||e.target===n.id);const relLabel={wikilink:'显式引用',tag:'标签关联',project:'项目归属'};const kind={...KIND_LABEL,project:'项目',tag:'标签'};const rows=rels.map(e=>{const other=map.get(e.source===n.id?e.target:e.source);return other?`- [[${other.label}]] · ${kind[other.kind]||other.kind} · ${relLabel[e.relation]||e.relation}`:''}).filter(Boolean);return `# ${n.label}\n\n> 这是一个由知识图谱自动生成的${kind[n.kind]||n.kind}节点预览。\n\n## 当前可见关联\n\n${rows.join('\n')||'- 当前筛选条件下暂无可见关联。'}\n`;}
-  async function showGraphPreview(n){const wrap=$('#graph-wrap'),panel=$('#graph-preview'),body=$('#graph-preview-body');if(!wrap||!panel||!body||!n)return;const seq=++state.graphPreviewSeq;wrap.classList.add('preview-open');panel.classList.remove('hidden');$('#graph-preview-title').textContent=n.label;const kind={...KIND_LABEL,project:'项目',tag:'标签'};$('#graph-preview-meta').textContent=`${kind[n.kind]||n.kind}${nodeProjects(n).length?' · '+nodeProjects(n).join(', '):''}`;body.innerHTML='<div class="empty" style="min-height:120px">正在加载 Markdown…</div>';try{const raw=n.virtual?graphVirtualMarkdown(n):(await api('/api/docs/'+encodeURIComponent(n.id))).body||'';if(seq!==state.graphPreviewSeq||state.graphSelected?.id!==n.id)return;await renderMarkdownInto(body,raw||'*暂无正文*');requestAnimationFrame(()=>renderGraphCanvas())}catch(e){if(seq===state.graphPreviewSeq)body.innerHTML=`<div class="empty danger">预览失败：${esc(e.message)}</div>`}}
-  function renderGraphCanvas(){ $$('[data-gview]').forEach(b=>b.classList.toggle('active',b.dataset.gview===state.graphView)); const c=$('#graph-canvas');if(!c)return;const g=filteredGraph();if(state.graphSelected&&!g.nodes.some(n=>n.id===state.graphSelected.id)){state.graphSelected=null;$('#graph-node-title').textContent='选择节点';$('#graph-node-info').textContent='当前筛选已隐藏原选中节点。';$('#graph-bundle').disabled=true;hideGraphPreview()} drawGraph(c,g,{mode:state.graphView,interactive:true,selectedId:state.graphSelected?.id,onSelect:onGraphSelect}); }
-  function nodeProjects(n){return (n.projects||[]).length?n.projects:(n.project?[n.project]:[])}
-  function onGraphSelect(n){state.graphSelected=n||null;if(!n){setGraphSidePanel('overview');$('#graph-node-title').textContent='选择节点';$('#graph-node-info').textContent='点击任意节点后，将高亮相邻节点与关系边；点击画布空白处可取消高亮。导出严格使用当前可见节点和关系。';$('#graph-bundle').disabled=true;hideGraphPreview();renderGraphCanvas();return}setGraphSidePanel('detail');$('#graph-node-title').textContent=n.label;const projects=nodeProjects(n);const tags=n.tags||[];$('#graph-node-info').innerHTML=`<div><b>类型：</b>${esc(kindLabel(n.kind)||({project:'项目',tag:'标签'}[n.kind])||n.kind)}</div><div><b>项目：</b>${esc(projects.join(', ')||'—')}</div><div><b>标签：</b>${esc(tags.join(', ')||'—')}</div><div><b>状态：</b>${esc(n.status||'—')}</div><div class="row-meta graph-selection-hint">相邻节点和边已高亮；点击空白处恢复全图。导出会继承当前图谱筛选。</div>`;$('#graph-bundle').disabled=false;showGraphPreview(n);renderGraphCanvas();}
-  function drawGraph(canvas,g,opts={}){
-    const token=(canvas._graphRenderToken||0)+1;canvas._graphRenderToken=token;
-    const mode=opts.mode||'2d';canvas._graphCameras=canvas._graphCameras||{};const camera=canvas._graphCameras[mode]||(canvas._graphCameras[mode]={panX:0,panY:0,zoom:1,rotX:.25,rotY:0});
-    const resetCamera=()=>{camera.panX=0;camera.panY=0;camera.zoom=1;camera.rotX=.25;camera.rotY=0};canvas._graphResetView=()=>{resetCamera();paint()};
-    const dpr=Math.min(devicePixelRatio||1,2),rect=canvas.getBoundingClientRect();canvas.width=Math.max(1,rect.width*dpr);canvas.height=Math.max(1,rect.height*dpr);const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height,nodes=g.nodes.map((n,i)=>({...n,_i:i})),edges=g.edges;const byId=new Map(nodes.map(n=>[n.id,n]));
-    let drag=null,dragMoved=false,pressNode=null,selected=byId.get(opts.selectedId)||null; const R=Math.min(w,h)*(opts.mini?.28:.34);
-    nodes.forEach((n,i)=>{const a=(i/Math.max(1,nodes.length))*Math.PI*2*2.39996;const r=R*(.25+.75*Math.sqrt((i+1)/Math.max(1,nodes.length)));n.bx=Math.cos(a)*r;n.by=Math.sin(a)*r*.72;n.bz=Math.sin(a*1.7)*R*.45;});
-    function project(n){ if(mode==='3d'){const cy=Math.cos(camera.rotY),sy=Math.sin(camera.rotY),cx=Math.cos(camera.rotX),sx=Math.sin(camera.rotX);let x=n.bx*cy-n.bz*sy,z=n.bx*sy+n.bz*cy,y=n.by*cx-z*sx;z=n.by*sx+z*cx;const ss=560/(560+z);return{x:w/2+camera.panX+x*ss*camera.zoom,y:h/2+camera.panY+y*ss*camera.zoom,z,s:ss*camera.zoom}} return{x:w/2+camera.panX+n.bx*camera.zoom,y:h/2+camera.panY+n.by*camera.zoom,z:0,s:camera.zoom}; }
-    function paint(){if(canvas._graphRenderToken!==token)return;ctx.clearRect(0,0,w,h);const pos=new Map(nodes.map(n=>[n.id,project(n)]));const neighborIds=new Set();if(selected){for(const e of edges){if(e.source===selected.id)neighborIds.add(e.target);else if(e.target===selected.id)neighborIds.add(e.source)}}
-      edges.forEach(e=>{const a=pos.get(e.source),b=pos.get(e.target);if(!a||!b)return;const hi=!!selected&&(e.source===selected.id||e.target===selected.id);ctx.globalAlpha=selected?(hi?1:.12):.5;ctx.lineWidth=hi?3:1;ctx.strokeStyle=hi?getCss('--accent'):getCss('--line-strong');ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()});ctx.globalAlpha=1;
-      const sorted=[...nodes].sort((a,b)=>project(a).z-project(b).z);for(const n of sorted){const p=pos.get(n.id),isSel=selected?.id===n.id,isNei=neighborIds.has(n.id),base=n.virtual?8:6,rad=Math.max(3,(base+(isSel?4:isNei?2:0))*Math.max(.55,Math.min(1.8,p.s)));ctx.globalAlpha=selected?(isSel||isNei?1:.32):1;ctx.beginPath();ctx.arc(p.x,p.y,rad,0,Math.PI*2);ctx.fillStyle=n.kind==='project'?getCss('--accent'):kindColor(n.kind);ctx.fill();if(isSel){ctx.strokeStyle=getCss('--text');ctx.lineWidth=3;ctx.stroke()}else if(isNei){ctx.strokeStyle=getCss('--accent');ctx.lineWidth=1.8;ctx.stroke()}if(!opts.mini||nodes.length<18||isSel||isNei){ctx.font=`${isSel||isNei?'700':'400'} ${Math.max(9,(isSel?12:isNei?11:10)*Math.max(.75,Math.min(1.4,camera.zoom)))}px Microsoft YaHei`;ctx.fillStyle=isSel||isNei?getCss('--text'):getCss('--muted');ctx.fillText(truncate(n.label,isSel?22:14),p.x+rad+4,p.y+3)}}ctx.globalAlpha=1;canvas._positions=pos; }
-    function hit(x,y){let best=null,bd=22;for(const n of nodes){const p=canvas._positions?.get(n.id);if(!p)continue;const d=Math.hypot(x-p.x,y-p.y);if(d<bd){bd=d;best=n}}return best}
-    canvas.oncontextmenu=e=>{if(mode==='3d')e.preventDefault()};
-    canvas.onpointerdown=e=>{pressNode=hit(e.offsetX,e.offsetY);dragMoved=false;if(!pressNode&&!selected){drag={x:e.offsetX,y:e.offsetY,mode:(mode==='3d'&&(e.altKey||e.button===2))?'rotate':'pan'};canvas.setPointerCapture?.(e.pointerId)}else drag=null};
-    canvas.onpointermove=e=>{if(!drag)return;const dx=e.offsetX-drag.x,dy=e.offsetY-drag.y;if(Math.hypot(dx,dy)>1)dragMoved=true;if(drag.mode==='rotate'){camera.rotY+=dx*.008;camera.rotX=Math.max(-1.2,Math.min(1.2,camera.rotX+dy*.006))}else{camera.panX+=dx;camera.panY+=dy}drag.x=e.offsetX;drag.y=e.offsetY;paint()};
-    canvas.onpointerup=e=>{const n=hit(e.offsetX,e.offsetY);try{canvas.releasePointerCapture?.(e.pointerId)}catch{};const wasDrag=dragMoved;drag=null;if(!wasDrag){if(pressNode&&n?.id===pressNode.id){selected=n;paint();opts.onSelect?.(n)}else if(!pressNode){selected=null;paint();opts.onSelect?.(null)}}pressNode=null};
-    canvas.onpointercancel=e=>{drag=null;pressNode=null;try{canvas.releasePointerCapture?.(e.pointerId)}catch{}};
-    canvas.onwheel=e=>{if(!(e.ctrlKey||e.metaKey))return;e.preventDefault();const old=camera.zoom,next=Math.max(.35,Math.min(4,old*Math.exp(-e.deltaY*.0015)));if(Math.abs(next-old)<1e-4)return;const cx=e.offsetX-w/2,cy=e.offsetY-h/2,localX=(cx-camera.panX)/old,localY=(cy-camera.panY)/old;camera.zoom=next;camera.panX=cx-localX*next;camera.panY=cy-localY*next;paint()};
-    paint();
-    if(mode==='3d'&&state.config?.app?.ui?.animations&&!matchMedia('(prefers-reduced-motion: reduce)').matches){const loop=()=>{if(canvas._graphRenderToken!==token||!document.body.contains(canvas))return;if(!drag&&!selected){camera.rotY+=.0015;paint()}requestAnimationFrame(loop)};requestAnimationFrame(loop)}
+    await window.ERWKnowledgeGraph.mount($('#graph-canvas'), g);
   }
 
-  function kindColor(kind){const c={idea:'#C58A31',journal:'#168C78',note:'#5069DE',milestone:'#8462CB',summary:'#C65E86',literature:'#3488BE',tag:'#7E8CA5',project:'#4056B5'};return c[kind]||getCss('--accent')}
-  function getCss(name){return getComputedStyle(document.documentElement).getPropertyValue(name).trim()}
-  function truncate(s,n){s=String(s||'');return s.length>n?s.slice(0,n)+'…':s}
-  function visibleGraphNeighborhood(rootId,depth=2){const g=filteredGraph(),nodeMap=new Map(g.nodes.map(n=>[n.id,n])),adj=new Map();for(const e of g.edges){if(!adj.has(e.source))adj.set(e.source,[]);if(!adj.has(e.target))adj.set(e.target,[]);adj.get(e.source).push([e.target,e]);adj.get(e.target).push([e.source,e])}const dist=new Map([[rootId,0]]),q=[rootId];for(let qi=0;qi<q.length;qi++){const cur=q[qi],d=dist.get(cur);if(d>=depth)continue;for(const [nxt] of adj.get(cur)||[]){if(!dist.has(nxt)){dist.set(nxt,d+1);q.push(nxt)}}}return {graph:g,nodeMap,dist};}
-  async function openGraphBundleFromNode(node){ if(!node)return; const neighborhood=visibleGraphNeighborhood(node.id,2); const selectable=[...neighborhood.dist.entries()].filter(([id,d])=>id!==node.id&&d<=2&&!neighborhood.nodeMap.get(id)?.virtual).map(([id,d])=>({...neighborhood.nodeMap.get(id),distance:d})).sort((a,b)=>a.distance-b.distance||String(a.label).localeCompare(String(b.label),'zh-CN')); const rootKindLabel={project:'项目',tag:'标签'}[node.kind]||kindLabel(node.kind); modal('整理关联 Markdown',`<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><strong>${esc(node.label)}</strong><span class="badge accent">${esc(rootKindLabel)}核心</span><label class="badge"><input type="radio" name="bundle-depth" value="1" checked> 一阶</label><label class="badge"><input type="radio" name="bundle-depth" value="2"> 二阶</label></div><div class="row-meta" style="margin-bottom:10px">候选关系只来自当前图谱中可见的节点类别与关系来源；隐藏项目/标签后，其边不会进入本次导出。</div><div style="display:flex;gap:7px;margin-bottom:10px"><button class="secondary-btn" id="bundle-all">全选</button><button class="secondary-btn" id="bundle-none">清空</button></div><div class="bundle-list" id="bundle-list">${selectable.map(x=>`<label class="bundle-item" data-distance="${x.distance}"><input type="checkbox" value="${x.id}" ${x.distance===1?'checked':''}><span class="badge">${x.distance} 阶</span><span><strong>${esc(x.label)}</strong><br><span class="row-meta">${esc(kindLabel(x.kind))} · ${esc(nodeProjects(x).join(', ')||'未归属项目')}</span></span></label>`).join('')||'<div class="empty">当前筛选条件下没有关联 Markdown</div>'}</div>`,`<button class="secondary-btn" id="bundle-cancel">取消</button><button class="primary-btn" id="bundle-generate">生成 Markdown</button>`);
-    function applyDepth(){const depth=+$('input[name="bundle-depth"]:checked').value;$$('.bundle-item').forEach(i=>{i.classList.toggle('hidden',+i.dataset.distance>depth);const cb=$('input',i);if(+i.dataset.distance>depth)cb.checked=false;});}$$('input[name="bundle-depth"]').forEach(r=>r.onchange=applyDepth);$('#bundle-all').onclick=()=>{$$('.bundle-item:not(.hidden) input').forEach(x=>x.checked=true)};$('#bundle-none').onclick=()=>{$$('.bundle-item input').forEach(x=>x.checked=false)};$('#bundle-cancel').onclick=closeModal;applyDepth();$('#bundle-generate').onclick=async()=>{const depth=+$('input[name="bundle-depth"]:checked').value,ids=$$('.bundle-item:not(.hidden) input:checked').map(x=>x.value);const activeVirtual=[...neighborhood.dist.entries()].filter(([id,d])=>d<=depth&&neighborhood.nodeMap.get(id)?.virtual).map(([id])=>id);const activeNodeIds=[node.id,...ids,...activeVirtual];const activeSet=new Set(activeNodeIds);const relations=neighborhood.graph.edges.filter(e=>activeSet.has(e.source)&&activeSet.has(e.target));const r=await api('/api/graph/bundle',{method:'POST',body:{root:node.id,selected_ids:ids,active_node_ids:activeNodeIds,relations}});showBundleResult(node,r.content)};
-  }
-  function showBundleResult(node,content){modal('关联 Markdown 已生成',`<textarea id="bundle-content" class="search-input mono" style="height:460px">${esc(content)}</textarea>`,`<button class="secondary-btn" id="bundle-copy">复制到剪贴板</button><button class="primary-btn" id="bundle-save">保存到本地</button>`);$('#bundle-copy').onclick=()=>copyText(content);$('#bundle-save').onclick=async()=>{const name=`${node.label}-关联汇总.md`;const r=await api('/api/graph/bundle/save',{method:'POST',body:{filename:name,content}});toast('已保存：'+r.path);closeModal()};}
   async function copyText(text){try{await navigator.clipboard.writeText(text);toast('已复制到剪贴板')}catch{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();toast('已复制到剪贴板')}}
 
 

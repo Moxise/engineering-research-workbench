@@ -121,7 +121,8 @@ def _t_kb_search(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("query 不能为空")
     kind = str(args.get("kind") or "").strip() or None
     limit = max(1, min(int(args.get("limit") or 8), 20))
-    rows = store.list_docs(kind=kind, query=query)[:limit]
+    from . import indexer
+    rows = indexer.list_docs(kind=kind, query=query, page_size=limit)
     return {"count": len(rows), "items": [{
         "id": r.get("id"), "title": r.get("title"), "kind": r.get("kind"),
         "project": ", ".join(r.get("projects") or ([r.get("project")] if r.get("project") else [])),
@@ -133,7 +134,8 @@ def _t_kb_read(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     doc_id = str(args.get("doc_id") or "").strip()
     if not doc_id:
         raise ValueError("doc_id 不能为空")
-    doc = store.get_doc(doc_id)  # 不存在抛 FileNotFoundError → execute 统一转 ok=False
+    from . import indexer
+    doc = indexer.get_doc(doc_id)
     return {"id": doc["id"], "title": doc.get("title"), "kind": doc.get("kind"),
             "projects": doc.get("projects") or [], "body": _clip(doc.get("body"), _MAX_BODY_CHARS)}
 
@@ -147,7 +149,8 @@ def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
     if not validation["ok"]:
         return {"ok": False, "error": "命名校验未通过，请修正后重试", "validation": validation}
     # 查重先行：同题条目已存在 → 拒绝创建，提示走增补
-    dup = [r for r in store.list_docs(kind=kind, query=title) if str(r.get("title") or "").strip() == title]
+    from . import indexer
+    dup = [r for r in indexer.list_docs(kind=kind, query=title, page_size=200) if str(r.get("title") or "").strip() == title]
     if dup:
         return {"ok": False, "error": f"同名条目已存在（{dup[0]['id']}），请改用 kb_update_entry 增补而非重复建档",
                 "duplicates": [{"id": r.get("id"), "title": r.get("title")} for r in dup]}
@@ -163,7 +166,7 @@ def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
         if m not in payload["kind_marks"]:
             payload["kind_marks"].append(m)
     if ctx.get("write_mode") == "direct":
-        doc = store.create_doc(kind, payload)
+        doc = indexer.create_doc(kind, payload)
         return {"ok": True, "doc_id": doc["id"], "title": doc.get("title"), "validation": validation}
     draft = save_draft("kb_create_entry", {"kind": kind, **payload})
     return {"pending": True, "draft_id": draft["id"], "message": "建档草稿已生成，等待用户确认后写入知识库",
@@ -174,7 +177,8 @@ def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
     doc_id = str(args.get("doc_id") or "").strip()
     if not doc_id:
         raise ValueError("doc_id 不能为空")
-    doc = store.get_doc(doc_id)
+    from . import indexer
+    doc = indexer.get_doc(doc_id)
     body = str(args.get("body") or "")
     append = bool(args.get("append"))
     if append:
@@ -183,7 +187,7 @@ def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
     if not body.strip():
         raise ValueError("body 不能为空（注意：更新为整体覆盖，须发送全文）")
     if ctx.get("write_mode") == "direct":
-        updated = store.update_doc(doc_id, {"body": body})
+        updated = indexer.update_doc(doc_id, {"body": body})
         return {"ok": True, "doc_id": doc_id, "title": updated.get("title"), "updated": updated.get("updated")}
     draft = save_draft("kb_update_entry", args)
     return {"pending": True, "draft_id": draft["id"], "message": "更新草稿已生成，等待用户确认后写入（覆盖正文）",

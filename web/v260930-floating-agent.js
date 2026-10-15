@@ -925,10 +925,7 @@ function renderMessages(){
   root.innerHTML=clipped+rows.map((m,i)=>msgHtml(m,start+i)).join("");
   root.scrollTop=root.scrollHeight;
   /* 只对确实含 TeX 标记的消息做 MathJax，避免每次状态刷新重扫整个对话 DOM。 */
-  if(window.MathJax?.typesetPromise){
-    const mathBodies=qa(".fab-body",root).filter(el=>/[\\$]|\\\\\(|\\\\\[/.test(el.textContent||""));
-    if(mathBodies.length){try{MathJax.typesetPromise(mathBodies)}catch{}}
-  }
+  window.ERWRenderLibraries.renderMath(qa('.fab-body',root)).catch(error=>console.warn(error));
   wireMessageActions(root);
 }
 function wireMessageActions(root){

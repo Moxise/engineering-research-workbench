@@ -634,7 +634,7 @@ flowchart TB
         GRAPH[Knowledge Graph]
         ACT[app/activity.py]
         TODO[app/todos.py]
-        SEARCH[app/search.py]
+        SEARCH[app/perf_index_query.py]
         AGENT[app/agent.py]
         RSS[app/rss.py]
         WEATHER[app/weather.py]
@@ -723,7 +723,7 @@ server.py
    ├─ store.py
    ├─ activity.py
    ├─ todos.py
-   ├─ search.py
+   ├─ perf_index_query.py
    ├─ agent.py
    ├─ rss.py
    └─ weather.py
@@ -780,7 +780,7 @@ Workspace/System/activity.jsonl
 - 连续活跃；
 - 科研节奏。
 
-### `app/search.py`
+### `app/perf_index_query.py`
 
 统一搜索：
 

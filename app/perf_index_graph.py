@@ -7,7 +7,7 @@ from typing import Any
 
 from . import store
 from .perf_index_core import (
-    DEFAULT_GRAPH_LIMIT, MAX_GRAPH_LIMIT, OVERVIEW_GRAPH_LIMIT, _connect, _init_db, _registry, _root, _row_doc, sync,
+    DEFAULT_GRAPH_LIMIT, MAX_GRAPH_LIMIT, OVERVIEW_GRAPH_LIMIT, _connect, _init_db, _registry, _root, _row_doc, ensure_ready,
 )
 from .perf_index_query import get_doc
 
@@ -49,7 +49,7 @@ def _tag_virtuals(conn: sqlite3.Connection, doc_ids: set[str]) -> dict[str, dict
 
 
 def graph(limit: int = DEFAULT_GRAPH_LIMIT) -> dict[str, Any]:
-    sync()
+    ensure_ready()
     limit = max(1, min(MAX_GRAPH_LIMIT, int(limit or DEFAULT_GRAPH_LIMIT)))
     with _connect() as conn:
         _init_db(conn)
@@ -122,7 +122,7 @@ def _node_for_id(conn: sqlite3.Connection, node_id: str) -> dict[str, Any] | Non
 
 
 def graph_neighborhood(root_id: str, depth: int = 1) -> dict[str, Any]:
-    sync()
+    ensure_ready()
     depth = 2 if int(depth or 1) >= 2 else 1
     with _connect() as conn:
         _init_db(conn)
@@ -158,7 +158,7 @@ def build_bundle(
     active_node_ids: list[str] | None = None,
     relations: list[dict[str, Any]] | None = None,
 ) -> str:
-    sync()
+    ensure_ready()
     with _connect() as conn:
         _init_db(conn)
         root_node = _node_for_id(conn, str(root_id or ""))
@@ -238,7 +238,7 @@ def build_bundle(
 
 
 def export_bibtex(ids: list[str] | None = None) -> dict[str, Any]:
-    sync()
+    ensure_ready()
     selected = [str(x) for x in (ids or []) if str(x)]
     with _connect() as conn:
         _init_db(conn)

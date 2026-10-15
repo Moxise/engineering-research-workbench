@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app import agent, config, rss, search, store, todos, workspace  # noqa: E402
+from app import agent, config, indexer, rss, store, todos, workspace  # noqa: E402
 
 
 def ok(name: str):
@@ -19,15 +19,18 @@ def ok(name: str):
 
 
 def main() -> int:
-    original_app_path = ROOT / "config" / "app.json"
-    original_text = original_app_path.read_text(encoding="utf-8")
-    original_secret_path = ROOT / "config" / "secret.json"
-    original_secret_exists = original_secret_path.exists()
-    original_secret_bytes = original_secret_path.read_bytes() if original_secret_exists else b""
+    original_config = {name: getattr(config, name) for name in
+                       ("ROOT", "CONFIG_DIR", "SECRET_PATH", "LEGACY_SECRET_PATH", "_cache")}
     temp = Path(tempfile.mkdtemp(prefix="erw-self-check-"))
+    config.ROOT = temp
+    config.CONFIG_DIR = temp / "config"
+    config.SECRET_PATH = config.CONFIG_DIR / "secret.json"
+    config.LEGACY_SECRET_PATH = config.CONFIG_DIR / "secrets.json"
+    config._cache = {}
+    workspace.reset_runtime_state()
     try:
         # v261009 · Agent 配置已迁移为 profile + config/secret.json 模型。
-        # self_check 不再使用旧 api_key_env 断言；临时写入一套独立 profile，并在 finally 原样恢复 secret.json。
+        # Self-check writes profiles only inside its isolated configuration directory.
         cfg = config.get_public()["app"]
         cfg["workspace"] = str(temp / "Workspace")
         cfg.setdefault("workspace_migration", {})["enabled"] = False
@@ -68,13 +71,13 @@ def main() -> int:
         assert (ws / p["path"] / "Experiments").exists()
         ok("Project scaffold")
 
-        idea = store.create_doc("idea", {"title": "Self check idea", "projects": ["SelfCheck", "SecondProject"], "tags": ["GraphTag", "Shared"]})
-        note = store.create_doc("note", {"title": "Self check note", "projects": ["SelfCheck", "SecondProject"], "tags": ["GraphTag"], "body": "# Note\n\n[[Self check idea]]\n\n$$E=mc^2$$\n"})
-        summary = store.create_doc("summary", {"title": "Self check summary", "project": "SelfCheck", "body": "# Summary\n\n[[Self check note]]\n"})
-        assert store.get_doc(note["id"])["title"] == "Self check note"
-        assert store.list_docs("note", query="E=mc^2")
-        assert "SecondProject" in store.get_doc(note["id"])["projects"]
-        assert store.list_docs("note", project="SecondProject")
+        idea = indexer.create_doc("idea", {"title": "Self check idea", "projects": ["SelfCheck", "SecondProject"], "tags": ["GraphTag", "Shared"]})
+        note = indexer.create_doc("note", {"title": "Self check note", "projects": ["SelfCheck", "SecondProject"], "tags": ["GraphTag"], "body": "# Note\n\n[[Self check idea]]\n\n$$E=mc^2$$\n"})
+        summary = indexer.create_doc("summary", {"title": "Self check summary", "project": "SelfCheck", "body": "# Summary\n\n[[Self check note]]\n"})
+        assert indexer.get_doc(note["id"])["title"] == "Self check note"
+        assert indexer.list_docs("note", query="E=mc^2")
+        assert "SecondProject" in indexer.get_doc(note["id"])["projects"]
+        assert indexer.list_docs("note", project="SecondProject")
         ok("Markdown CRUD + multi-project + full-text search")
 
         cfg_types = config.get_app()
@@ -92,10 +95,10 @@ def main() -> int:
         exp_type = next(x for x in registry if x["id"] == "experiment")
         assert exp_type["label"] == "实验记录" and exp_type["statuses"] == ["计划", "进行中", "完成"]
         assert next(x for x in registry if x["id"] == "journal")["hidden"] is True
-        experiment = store.create_doc("experiment", {"title": "Self check experiment"})
+        experiment = indexer.create_doc("experiment", {"title": "Self check experiment"})
         assert experiment["status"] == "计划" and "## 实验目的" in experiment["body"]
         assert (ws / "Knowledge/Custom/experiment" / f"{experiment['id']}.md").exists()
-        assert store.list_docs("experiment")[0]["id"] == experiment["id"]
+        assert indexer.list_docs("experiment")[0]["id"] == experiment["id"]
         cfg_templates = config.get_app()
         cfg_templates["knowledge_types"]["templates"] = {"note": "# {{title}}\n\n## 自定义模板\n"}
         cfg_templates["classification_marks"] = [
@@ -104,34 +107,34 @@ def main() -> int:
             {"id": "experiment", "icon": "⚗", "label": "实验", "color": "#d1569a"},
         ]
         config.save_app(cfg_templates)
-        templated = store.create_doc("note", {"title": "Template override"})
+        templated = indexer.create_doc("note", {"title": "Template override"})
         assert "## 自定义模板" in templated["body"]
         assert store.kind_default_template("note") != store.kind_template("note")
-        marked = store.update_doc(note["id"], {"kind_marks": ["knowledge", "method"]})
+        marked = indexer.update_doc(note["id"], {"kind_marks": ["knowledge", "method"]})
         assert marked["kind_marks"] == ["knowledge", "method"]
         cleaned = store.cleanup_deleted_mark("knowledge")
-        assert cleaned["updated"] >= 1 and store.get_doc(note["id"])["kind_marks"] == []
+        assert cleaned["updated"] >= 1 and indexer.get_doc(note["id"])["kind_marks"] == []
         assert store.kind_label_map()["journal"] == "实验记录"
         ok("Custom knowledge type registry + templates + classification cleanup")
 
-        lit = store.create_doc("literature", {"title": "Self check paper", "bibtex": "@article{selfcheck, title={Self Check}}"})
-        lit = store.update_doc(lit["id"], {"body": lit["body"], "bibtex": "@article{selfcheck, title={Self Check \\LaTeX}, year={2026}}"})
+        lit = indexer.create_doc("literature", {"title": "Self check paper", "bibtex": "@article{selfcheck, title={Self Check}}"})
+        lit = indexer.update_doc(lit["id"], {"body": lit["body"], "bibtex": "@article{selfcheck, title={Self Check \\LaTeX}, year={2026}}"})
         assert "year={2026}" in lit["bibtex"]
-        bib = store.export_bibtex([lit["id"]])
+        bib = indexer.export_bibtex([lit["id"]])
         assert bib["count"] == 1 and "@article{selfcheck" in bib["content"]
         ok("Literature + BibTeX export")
 
-        nb = store.graph_neighborhood(idea["id"], 2)
+        nb = indexer.graph_neighborhood(idea["id"], 2)
         ids = {x["id"] for x in nb["items"]}
         assert note["id"] in ids and summary["id"] in ids
-        bundle = store.build_bundle(idea["id"], [note["id"], summary["id"]])
+        bundle = indexer.build_bundle(idea["id"], [note["id"], summary["id"]])
         assert "Self check summary" in bundle
-        g = store.graph()
+        g = indexer.graph()
         assert any(n["id"] == "tag:GraphTag" for n in g["nodes"])
         assert any(n["id"] == "project:SecondProject" for n in g["nodes"])
         tag_edges = [e for e in g["edges"] if e["relation"] == "tag" and "tag:GraphTag" in (e["source"], e["target"])]
         assert len(tag_edges) >= 2
-        tag_bundle = store.build_bundle("tag:GraphTag", [idea["id"], note["id"]], active_node_ids=["tag:GraphTag", idea["id"], note["id"]], relations=tag_edges)
+        tag_bundle = indexer.build_bundle("tag:GraphTag", [idea["id"], note["id"]], active_node_ids=["tag:GraphTag", idea["id"], note["id"]], relations=tag_edges)
         assert "GraphTag" in tag_bundle and "Self check note" in tag_bundle
         ok("Graph wikilink + tag/project relations + filtered bundle")
 
@@ -149,7 +152,7 @@ def main() -> int:
 
         chat = agent.create_session("Self check chat")
         assert agent.get_session(chat["id"])["title"] == "Self check chat"
-        found = search.search_all("Self check")
+        found = indexer.search_all("Self check")
         assert any(x["source"] == "doc" for x in found) and any(x["source"] == "chat" for x in found)
 
         # Exercise the current profile-based OpenAI-compatible payload path without any network call.
@@ -205,7 +208,7 @@ def main() -> int:
             "graduation_conditions": [{"label": "论文", "current": 1, "target": 2, "unit": "篇"}],
         }
         config.save_app(cfg2)
-        dash = store.dashboard()
+        dash = indexer.dashboard()
         assert dash["academic"]["configured"] and dash["academic"]["conditions_total"] == 1
         assert len(dash["activity"]["days"]) >= 390 and dash["activity"]["events_month"] >= 1
         assert any(x["name"] == "SelfCheck" and x["docs"] >= 3 for x in dash.get("project_stats", []))
@@ -217,20 +220,21 @@ def main() -> int:
         milestone_timeline = (ROOT / "web" / "v261014-milestone-timeline.js").read_text(encoding="utf-8")
         assert "heatmap-month-select" in app_js and "data-row" in app_js and "--boundary-y" in app_js
         assert "data-graph-kind" in app_js and "data-graph-relation" in app_js and "ERWMilestoneTimeline" in app_js
-        assert "_graphRenderToken" in app_js and "selectedId" in app_js
+        graph_js = (ROOT / "web" / "v260922-graph-performance.js").read_text(encoding="utf-8")
+        assert "ERWKnowledgeGraph.mount" in app_js and "selectedId" in graph_js
         # v261009 · 旧 placeholder 文案已不再是稳定接口；这里只验证 Ctrl/Cmd+S 保存钩子仍存在。
         assert "key==='s'" in app_js and "doc-save" in app_js
         assert "renderAgent" in app_js and "request_preset" in app_js and "/api/agent/send" in app_js and "/api/search" in app_js
         assert "overview-new-project" in app_js and "openEditorProjectPicker" in app_js and "api_key_env" in app_js
-        assert "agent-thinking" in app_js and "模型思考过程" in app_js and "点击空白处恢复全图" in app_js
+        assert "agent-thinking" in app_js and "agent-reasoning" in app_js
         assert "global-search-btn" in index and "agent-layout" in styles and "graph-filter-grid" in styles
-        assert "graph-preview" in app_js and "graph-fit" in app_js and "_graphResetView" in app_js
+        assert "graph-preview" in app_js and "graph-fit" in app_js and "clearFocus" in graph_js
         assert "milestone-density-timeline" in milestone_timeline and "collisionComponents" in milestone_timeline and "ResizeObserver" in milestone_timeline
         assert "v261014-milestone-timeline.js" in index
-        assert "milestone-preview" in app_js and "showMilestonePreview" in app_js
+        assert "milestoneTimelineHtml" in app_js and "showMilestonePreview" not in app_js
         assert "data-set-tab=\"service\"" in app_js and "svc-host" in app_js and "svc-workspace" in app_js
         assert "data-set-tab=\"knowledge\"" in app_js and "openKnowledgeTypeEditor" in app_js and "/api/knowledge-types" in app_js
-        assert "CLASSIFICATION MARKS" in app_js and "还原为预设" in app_js and "/api/knowledge-marks/cleanup" in app_js
+        assert "classificationMarksConfig" in app_js and "/api/knowledge-marks/cleanup" in app_js
         assert "添加条目" not in app_js and "journal:'实验记录'" in app_js
         assert "graph-wrap.preview-open" in styles and "overflow-wrap:anywhere" in styles
         assert "mermaid.render" in app_js and "data-focus-preset" in app_js
@@ -252,14 +256,11 @@ def main() -> int:
         print("\nSelf check passed.")
         return 0
     finally:
-        original_app_path.write_text(original_text, encoding="utf-8")
-        if original_secret_exists:
-            original_secret_path.parent.mkdir(parents=True, exist_ok=True)
-            original_secret_path.write_bytes(original_secret_bytes)
-        else:
-            original_secret_path.unlink(missing_ok=True)
+        indexer.stop_background_sync()
+        workspace.reset_runtime_state()
+        for name, value in original_config.items():
+            setattr(config, name, value)
         os.environ.pop("WORKBENCH_SELF_CHECK_KEY", None)
-        config.reload_all()
         shutil.rmtree(temp, ignore_errors=True)
 
 

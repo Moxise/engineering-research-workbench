@@ -25,7 +25,7 @@ todos = ModuleType("isolated_todos")
 todos.__dict__.update(Any=Any, _LOCK=threading.RLock(), _load=Mock(), _save=Mock())
 isolated_definitions("app/todos.py", {"list_todos", "delete_many"}, todos.__dict__)
 server = ModuleType("isolated_server")
-server.__dict__.update(todos=todos, indexer=SimpleNamespace(delete_doc=Mock(), refresh_todos=Mock()))
+server.__dict__.update(todos=todos, indexer=SimpleNamespace(delete_docs=Mock(), refresh_todos=Mock()))
 isolated_definitions("server.py", {"_batch_ids", "_delete_documents", "handle_api_post"}, server.__dict__)
 
 
@@ -57,12 +57,12 @@ class BulkDeleteTests(unittest.TestCase):
             self.assertEqual([x["id"] for x in records], ["unselected"])
 
     def test_document_partial_failure_is_reported(self):
-        remove = Mock(side_effect=[{"ok": True}, FileNotFoundError("gone"), PermissionError("locked"), {"ok": True}])
-        with patch.object(server.indexer, "delete_doc", remove):
+        remove = Mock(return_value={"deleted": ["one", "four"], "failed": [{"id": "gone"}, {"id": "locked"}]})
+        with patch.object(server.indexer, "delete_docs", remove):
             result = server._delete_documents(["one", "gone", "locked", "four"])
         self.assertEqual(result["deleted"], ["one", "four"])
         self.assertEqual([x["id"] for x in result["failed"]], ["gone", "locked"])
-        self.assertEqual(remove.call_count, 4)
+        remove.assert_called_once_with(["one", "gone", "locked", "four"])
 
     def test_batch_routes_precede_single_record_routes(self):
         handler = SimpleNamespace(send_json=Mock(side_effect=lambda data, *args: data))

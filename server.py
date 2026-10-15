@@ -46,14 +46,7 @@ def _batch_ids(payload) -> list[str]:
 
 
 def _delete_documents(ids: list[str]) -> dict:
-    deleted, failed = [], []
-    for doc_id in ids:
-        try:
-            indexer.delete_doc(doc_id)
-            deleted.append(doc_id)
-        except Exception as exc:
-            failed.append({"id": doc_id, "message": str(exc)})
-    return {"deleted": deleted, "failed": failed}
+    return indexer.delete_docs(ids)
 
 
 def _q_int(q, key: str, default: int, minimum: int, maximum: int) -> int:
@@ -83,6 +76,10 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
     # 曾导致旧实例/开发服务与新实例同端口打架、前端 bundle 版本错乱。Windows 改为独占绑定；
     # Unix 上该标志仅用于绕过 TIME_WAIT，保留 True 方便开发时快速重启。
     allow_reuse_address = (sys.platform != "win32")
+
+    def server_close(self):
+        super().server_close()
+        indexer.stop_background_sync()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -191,7 +188,7 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/projects/"):
                 project_id = unquote(path.split("/api/projects/", 1)[1])
                 result = projects.delete_project(project_id)
-                indexer.sync(force=True)
+                indexer.sync(immediate=True)
                 return self.send_json(result)
             if path.startswith("/api/docs/"):
                 doc_id = unquote(path.split("/api/docs/", 1)[1])
@@ -396,7 +393,6 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("description") or ""),
                 str(payload.get("status") or "进行中"),
             )
-            indexer.sync(force=True)
             return self.send_json(result)
         if path == "/api/project-records":
             result = projects.create_project(
@@ -404,12 +400,11 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("description") or ""),
                 str(payload.get("status") or "进行中"),
             )
-            indexer.sync(force=True)
             return self.send_json(result, 201)
         if path.startswith("/api/projects/"):
             project_id = unquote(path.split("/api/projects/", 1)[1])
             result = projects.update_project(project_id, payload)
-            indexer.sync(force=True)
+            indexer.sync(immediate=True)
             return self.send_json(result)
         if path == "/api/workspace/migrate":
             legacy = workspace.migrate_legacy(workspace.ensure_workspace(), force_scan=True)
@@ -424,16 +419,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/docs/batch-delete":
             return self.send_json(_delete_documents(_batch_ids(payload)))
         if path == "/api/docs":
-            normalized = indexer.normalize_project_payload(payload)
-            doc = store.create_doc(str(normalized.get("kind") or "note"), normalized)
-            doc = indexer.apply_doc_project_ids(doc, normalized)
-            indexer.index_doc_path(str(doc.get("path") or ""))
+            doc = indexer.create_doc(str(payload.get("kind") or "note"), payload)
             return self.send_json(doc, 201)
         if path.startswith("/api/docs/"):
             doc_id = unquote(path.split("/api/docs/", 1)[1])
-            existing = indexer.get_doc(doc_id)
-            normalized = indexer.normalize_project_payload({**existing, **payload})
-            doc = indexer.update_doc(doc_id, normalized)
+            doc = indexer.update_doc(doc_id, payload)
             return self.send_json(doc)
         if path == "/api/assets":
             return self.send_json(store.save_asset(str(payload.get("data_url") or ""), str(payload.get("name") or "image.png")))
@@ -510,7 +500,6 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/todos":
             normalized = indexer.normalize_project_payload(payload)
             item = todos.create(normalized)
-            item = indexer.apply_todo_project_id(item, normalized)
             indexer.refresh_todos()
             return self.send_json(item, 201)
         if path.startswith("/api/todos/"):
@@ -518,9 +507,8 @@ class Handler(BaseHTTPRequestHandler):
             current = next((x for x in indexer.list_todos() if x.get("id") == todo_id), None)
             if current is None:
                 raise FileNotFoundError(todo_id)
-            normalized = indexer.normalize_project_payload({**current, **payload})
+            normalized = indexer.normalize_project_update(current, payload)
             item = todos.update(todo_id, normalized)
-            item = indexer.apply_todo_project_id(item, normalized)
             indexer.refresh_todos()
             return self.send_json(item)
         if path == "/api/billing/prices":  # v261008 · 用量计费：保存单价表

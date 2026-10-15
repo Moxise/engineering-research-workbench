@@ -49,6 +49,7 @@ def create(payload: dict[str, Any]) -> dict[str, Any]:
         "id": "todo-" + uuid.uuid4().hex[:10],
         "title": str(payload.get("title") or "新任务").strip(),
         "project": project,
+        "project_id": str(payload.get("project_id") or ""),
         "due": str(payload.get("due") or date.today().isoformat()),
         "priority": str(payload.get("priority") or "普通"),
         "done": bool(payload.get("done", False)),
@@ -68,7 +69,7 @@ def update(todo_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         for item in items:
             if item.get("id") == todo_id:
                 was_done = bool(item.get("done"))
-                for key in ("title", "project", "due", "priority", "done"):
+                for key in ("title", "project", "project_id", "due", "priority", "done"):
                     if key in payload:
                         item[key] = payload[key]
                 ensure_project(str(item.get("project") or ""))

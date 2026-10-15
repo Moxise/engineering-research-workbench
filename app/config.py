@@ -503,7 +503,8 @@ def _load_or_migrate_secret(app: dict[str, Any]) -> tuple[dict[str, Any], bool]:
 
 
 def reload_all() -> dict:
-    global _cache
+    global _cache, _workspace_cache
+    load_secrets()
     with _lock:
         raw_app = _load_json(CONFIG_DIR / "app.json", DEFAULT_APP_CONFIG)
         rss = _load_json(CONFIG_DIR / "rss.json", DEFAULT_RSS_CONFIG)
@@ -514,6 +515,7 @@ def reload_all() -> dict:
         if migrated or app != raw_app:
             _atomic_json_write(CONFIG_DIR / "app.json", app)
         _cache = {"app": app, "rss": rss, "secret": secret}
+        _workspace_cache = None
         return {"app": deepcopy(app), "rss": deepcopy(rss)}
 
 
@@ -526,7 +528,11 @@ def get_all() -> dict:
 
 
 def get_app() -> dict:
-    return get_all()["app"]
+    load_secrets()
+    with _lock:
+        if not _cache:
+            reload_all()
+        return deepcopy(_cache["app"])
 
 
 def _active_profile(secret: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -727,12 +733,17 @@ def save_rss(data: dict) -> dict:
     return get_rss()
 
 
+_workspace_cache: tuple[tuple[str, str], Path] | None = None
+
+
 def workspace_root() -> Path:
-    cfg = get_app()
-    raw = str(cfg.get("workspace") or "Workspace")
-    p = Path(raw)
-    return p if p.is_absolute() else ROOT / p
-
-
-load_secrets()
-reload_all()
+    global _workspace_cache
+    with _lock:
+        if not _cache:
+            reload_all()
+        raw = str(_cache["app"].get("workspace") or "Workspace")
+        key = (str(ROOT), raw)
+        if _workspace_cache is None or _workspace_cache[0] != key:
+            p = Path(raw)
+            _workspace_cache = (key, (p if p.is_absolute() else ROOT / p).resolve())
+        return _workspace_cache[1]

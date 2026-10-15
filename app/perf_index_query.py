@@ -6,26 +6,29 @@ from typing import Any
 
 from . import agent, config, store
 from . import perf_index_core as core
+from . import perf_index_db as db
 from .perf_index_core import (
     DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, _connect, _init_db, _registry, _root,
-    _row_doc, remove_doc, sync, status,
+    _row_doc, remove_doc, ensure_ready, status,
 )
 
 def _fts_clause(query: str) -> tuple[str, list[Any]]:
     q = str(query or "").strip()
     if not q:
         return "", []
-    like = f"%{q.casefold()}%"
-    if len(q) >= 3 or core._FTS_TOKENIZER != "trigram":
+    like = "%" + q.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    tokenizer = db._SCHEMA_READY.get(str(db._db_path()), db._FTS_TOKENIZER)
+    if len(q) >= 3 and tokenizer == "trigram":
         phrase = '"' + q.replace('"', '""') + '"'
         return (
             " AND (d.id IN (SELECT doc_id FROM documents_fts WHERE documents_fts MATCH ?) "
-            "OR lower(d.title) LIKE ? OR lower(d.excerpt) LIKE ?)",
+            "OR lower(d.title) LIKE ? ESCAPE '\\' OR lower(d.excerpt) LIKE ? ESCAPE '\\')",
             [phrase, like, like],
         )
     return (
-        " AND EXISTS (SELECT 1 FROM documents_fts f WHERE f.doc_id=d.id AND "
-        "(lower(f.title) LIKE ? OR lower(f.body) LIKE ? OR lower(f.tags) LIKE ? OR lower(f.projects) LIKE ?))",
+        " AND d.id IN (SELECT doc_id FROM documents_fts f WHERE "
+        "lower(f.title) LIKE ? ESCAPE '\\' OR lower(f.body) LIKE ? ESCAPE '\\' "
+        "OR lower(f.tags) LIKE ? ESCAPE '\\' OR lower(f.projects) LIKE ? ESCAPE '\\')",
         [like, like, like, like],
     )
 
@@ -41,7 +44,7 @@ def list_docs(
     page_size: int = DEFAULT_PAGE_SIZE,
     paged: bool = False,
 ) -> list[dict[str, Any]] | dict[str, Any]:
-    sync()
+    ensure_ready()
     page = max(1, int(page or 1))
     page_size = max(1, min(MAX_PAGE_SIZE, int(page_size or DEFAULT_PAGE_SIZE)))
     where = ["1=1"]
@@ -84,15 +87,10 @@ def list_docs(
 
 
 def get_doc(doc_id: str) -> dict[str, Any]:
-    sync()
+    ensure_ready()
     with _connect() as conn:
         _init_db(conn)
         row = conn.execute("SELECT path,kind FROM documents WHERE id=?", (doc_id,)).fetchone()
-    if not row:
-        sync(force=True)
-        with _connect() as conn:
-            _init_db(conn)
-            row = conn.execute("SELECT path,kind FROM documents WHERE id=?", (doc_id,)).fetchone()
     if not row:
         raise FileNotFoundError(doc_id)
     path = _root() / str(row["path"])
@@ -103,16 +101,16 @@ def get_doc(doc_id: str) -> dict[str, Any]:
 
 
 def search_docs(query: str, limit: int = 60) -> list[dict[str, Any]]:
-    sync()
+    ensure_ready()
     q = str(query or "").strip()
     if not q:
         return []
     limit = max(1, min(200, int(limit or 60)))
-    like = f"%{q.casefold()}%"
     with _connect() as conn:
         _init_db(conn)
         rows: list[sqlite3.Row] = []
-        if len(q) >= 3 or core._FTS_TOKENIZER != "trigram":
+        tokenizer = db._SCHEMA_READY.get(str(db._db_path()), db._FTS_TOKENIZER)
+        if len(q) >= 3 and tokenizer == "trigram":
             phrase = '"' + q.replace('"', '""') + '"'
             try:
                 rows = conn.execute(
@@ -127,23 +125,43 @@ def search_docs(query: str, limit: int = 60) -> list[dict[str, Any]]:
                 ).fetchall()
             except sqlite3.OperationalError:
                 rows = []
-        if not rows:
+        else:
+            clause, params = _fts_clause(q)
             rows = conn.execute(
-                """
-                SELECT d.* FROM documents d
-                JOIN documents_fts f ON f.doc_id=d.id
-                WHERE lower(f.title) LIKE ? OR lower(f.body) LIKE ?
-                   OR lower(f.tags) LIKE ? OR lower(f.projects) LIKE ?
-                ORDER BY d.pinned DESC, COALESCE(NULLIF(d.updated,''),d.created) DESC  -- v260924k · 搜索结果同样置顶优先
-                LIMIT ?
-                """,
-                (like, like, like, like, limit),
+                "SELECT d.* FROM documents d WHERE 1=1" + clause +
+                " ORDER BY d.pinned DESC, COALESCE(NULLIF(d.updated,''),d.created) DESC,d.id DESC LIMIT ?",
+                [*params, limit],
             ).fetchall()
     return [_row_doc(r) for r in rows]
 
 
+def get_docs_by_ids(doc_ids, include_body: bool = False) -> dict[str, dict[str, Any]]:
+    ensure_ready()
+    ids = list(dict.fromkeys(str(x) for x in doc_ids if str(x)))
+    out = {}
+    with _connect() as conn:
+        _init_db(conn)
+        for start in range(0, len(ids), 400):
+            batch = ids[start:start + 400]
+            marks = ",".join("?" for _ in batch)
+            for row in conn.execute(f"SELECT * FROM documents WHERE id IN ({marks})", batch):
+                if include_body:
+                    doc = store._doc_from_path(str(row["kind"]), _root() / str(row["path"]))
+                else:
+                    doc = _row_doc(row, check_attachment=False)
+                out[str(row["id"])] = doc
+    return out
+
+
+def document_metadata() -> list[dict[str, Any]]:
+    ensure_ready()
+    with _connect() as conn:
+        _init_db(conn)
+        return [_row_doc(row, check_attachment=False) for row in conn.execute("SELECT * FROM documents")]
+
+
 def project_names() -> list[str]:
-    sync()
+    ensure_ready()
     names = {str(x.get("name") or "").strip() for x in _registry() if str(x.get("name") or "").strip()}
     with _connect() as conn:
         _init_db(conn)
@@ -157,7 +175,7 @@ def project_names() -> list[str]:
 
 
 def project_records() -> list[dict[str, Any]]:
-    sync()
+    ensure_ready()
     records = _registry()
     with _connect() as conn:
         _init_db(conn)
@@ -221,7 +239,7 @@ def project_records() -> list[dict[str, Any]]:
 
 
 def list_todos() -> list[dict[str, Any]]:
-    sync()
+    ensure_ready()
     with _connect() as conn:
         _init_db(conn)
         rows = conn.execute(
@@ -300,7 +318,7 @@ def _activity_payload(today_obj: date, days: int = 400) -> dict[str, Any]:
 
 
 def dashboard() -> dict[str, Any]:
-    sync()
+    ensure_ready()
     today_obj = date.today(); today = today_obj.isoformat()
     with _connect() as conn:
         _init_db(conn)

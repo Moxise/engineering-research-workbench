@@ -76,12 +76,11 @@
       this.bindCanvas();
     }
 
-    async init() {
-      window.__workbenchPerf && (window.__workbenchPerf.graphLimit = Math.max(window.__workbenchPerf.graphLimit || 0, MAX_FETCH_NODES));
+    async init(initialGraph) {
       this.installToolbar();
       this.bindExistingControls();
       this.setStatus('正在建立图结构索引…');
-      const graph = await api(`/api/graph?limit=${MAX_FETCH_NODES}`);
+      const graph = initialGraph || await api(`/api/graph?limit=${MAX_FETCH_NODES}`);
       if (this.destroyed || route() !== 'graph' || !this.canvas.isConnected) return;
       this.raw = graph || {nodes:[],edges:[],meta:{}};
       this.refreshFilteredGraph(true);
@@ -133,6 +132,9 @@
     }
 
     bindExistingControls() {
+      document.querySelectorAll('[data-graph-panel]').forEach(button => {
+        button.onclick = () => this.setSidePanel(button.dataset.graphPanel);
+      });
       const fit=document.querySelector('#graph-fit'); if(fit)fit.onclick=(e)=>{e.preventDefault();this.clearFocus(true)};
       const close=document.querySelector('#graph-preview-close'); if(close)close.onclick=()=>this.clearFocus(false);
       const bundle=document.querySelector('#graph-bundle'); if(bundle)bundle.onclick=()=>this.openBundle();
@@ -140,6 +142,11 @@
       document.querySelectorAll('[data-graph-kind],[data-graph-relation]').forEach(input=>{input.onchange=(e)=>{e.stopPropagation();this.persistFilters();this.refreshFilteredGraph(true)}});
       const all=document.querySelector('#graph-filter-all'); if(all)all.onclick=(e)=>{e.preventDefault();e.stopPropagation();document.querySelectorAll('[data-graph-kind]').forEach(x=>x.checked=true);this.persistFilters();this.refreshFilteredGraph(true)};
       const docs=document.querySelector('#graph-filter-docs'); if(docs)docs.onclick=(e)=>{e.preventDefault();e.stopPropagation();this.setScope(true)};
+    }
+
+    setSidePanel(name) {
+      document.querySelectorAll('[data-graph-panel]').forEach(button => button.classList.toggle('active', button.dataset.graphPanel === name));
+      document.querySelectorAll('[data-graph-panel-view]').forEach(panel => panel.classList.toggle('active', panel.dataset.graphPanelView === name));
     }
 
     persistFilters(){
@@ -247,10 +254,10 @@
     syncFocusButtons(){document.querySelectorAll('[data-graph-focus]').forEach(b=>b.classList.toggle('active',Number(b.dataset.graphFocus||0)===this.focusDepth&&!!this.selectedId))}
 
     selectNode(id,animate=false){
-      const node=this.nodeMap.get(String(id));if(!node)return;this.selectedId=String(id);this.focusDepth=this.focusDepth||1;this.updateFocus();this.syncFocusButtons();this.updateSidePanel(node);this.openPreview(node);const bundle=document.querySelector('#graph-bundle');if(bundle)bundle.disabled=false;if(animate)this.animateCameraTo(id);else this.requestRender();
+      const node=this.nodeMap.get(String(id));if(!node)return;this.selectedId=String(id);this.focusDepth=this.focusDepth||1;this.updateFocus();this.syncFocusButtons();this.setSidePanel('detail');this.updateSidePanel(node);this.openPreview(node);const bundle=document.querySelector('#graph-bundle');if(bundle)bundle.disabled=false;if(animate)this.animateCameraTo(id);else this.requestRender();
     }
     clearFocus(resetCamera=false){
-      this.selectedId=null;this.focusDistances.clear();this.searchHits.clear();this.syncFocusButtons();const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info'),bundle=document.querySelector('#graph-bundle');if(title)title.textContent='选择节点';if(info)info.textContent='搜索或点击节点后，将进入 Focus + Context；点击空白处可恢复全图。';if(bundle)bundle.disabled=true;this.hidePreview();if(resetCamera){const c=this.camera[this.mode];c.panX=0;c.panY=0;c.zoom=1;if(this.mode==='3d'){c.rotX=.25;c.rotY=0}}this.requestRender();
+      this.setSidePanel('overview');this.selectedId=null;this.focusDistances.clear();this.searchHits.clear();this.syncFocusButtons();const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info'),bundle=document.querySelector('#graph-bundle');if(title)title.textContent='选择节点';if(info)info.textContent='搜索或点击节点后，将进入 Focus + Context；点击空白处可恢复全图。';if(bundle)bundle.disabled=true;this.hidePreview();if(resetCamera){const c=this.camera[this.mode];c.panX=0;c.panY=0;c.zoom=1;if(this.mode==='3d'){c.rotX=.25;c.rotY=0}}this.requestRender();
     }
 
     updateSidePanel(n){
@@ -263,11 +270,7 @@
     }
     hidePreview(){this.previewSeq='';const wrap=document.querySelector('#graph-wrap'),panel=document.querySelector('#graph-preview'),body=document.querySelector('#graph-preview-body');wrap?.classList.remove('preview-open');panel?.classList.add('hidden');if(body)body.innerHTML=''}
     virtualMarkdown(n){const rows=(this.adjacency.get(String(n.id))||[]).map(x=>{const other=this.nodeMap.get(x.id);return other?`- [[${other.label}]] · ${KIND_LABEL[other.kind]||other.kind} · ${REL_LABEL[x.edge.relation]||x.edge.relation}`:''}).filter(Boolean);return `# ${n.label}\n\n> 这是一个由知识图谱自动生成的${KIND_LABEL[n.kind]||n.kind}节点预览。\n\n## 当前可见关联\n\n${rows.join('\n')||'- 当前筛选条件下暂无可见关联。'}\n`}
-    async renderMarkdown(out,raw){
-      let html='';if(window.marked){const renderer=new marked.Renderer();renderer.code=(tokenOrCode,info)=>{let code='',lang='';if(tokenOrCode&&typeof tokenOrCode==='object'){code=tokenOrCode.text||'';lang=tokenOrCode.lang||''}else{code=String(tokenOrCode||'');lang=String(info||'')}if(String(lang).trim()==='mermaid')return `<div class="mermaid">${esc(code)}</div>`;return `<pre><code class="language-${esc(String(lang).trim())}">${esc(code)}</code></pre>`};try{html=marked.parse(raw||'',{gfm:true,renderer})}catch{html=`<pre>${esc(raw)}</pre>`}}else html=`<pre>${esc(raw)}</pre>`;
-      html=html.replace(/(src|href)="(?:\.\.\/)+(?:Knowledge\/)?Attachments\//g,'$1="/workspace-file/Knowledge/Attachments/').replace(/(src|href)="Attachments\//g,'$1="/workspace-file/Knowledge/Attachments/').replace(/src="(?!https?:|data:|\/|#)([^"]+)"/g,(m,p)=>'src="/workspace-file/'+p.replace(/^\.?\//,"")+'"'); /* v260929w · Workspace 相对路径图片（批注截图 / 笔记插图）：img src 经 /workspace-file/ 服务 */
-      out.innerHTML=window.DOMPurify?DOMPurify.sanitize(html,{ADD_TAGS:['mjx-container']}):html;out.querySelectorAll('pre code').forEach(el=>{try{window.hljs?.highlightElement(el)}catch{}});try{if(window.mermaid){mermaid.initialize({startOnLoad:false,securityLevel:'strict'});await mermaid.run({nodes:[...out.querySelectorAll('.mermaid')]})}}catch{};try{await window.MathJax?.typesetPromise?.([out])}catch{}
-    }
+    async renderMarkdown(out,raw){return window.ERWMarkdown.renderInto(out,raw)}
 
     async openBundle(){
       if(!this.selectedId)return;const root=this.nodeMap.get(this.selectedId);if(!root)return;const dist=new Map([[this.selectedId,0]]),q=[this.selectedId];for(let i=0;i<q.length;i++){const cur=q[i],d=dist.get(cur);if(d>=2)continue;for(const nb of this.adjacency.get(cur)||[]){if(!dist.has(nb.id)){dist.set(nb.id,d+1);q.push(nb.id)}}}const rows=[...dist.entries()].filter(([id,d])=>id!==this.selectedId&&d<=2&&!this.nodeMap.get(id)?.virtual).map(([id,d])=>({...this.nodeMap.get(id),distance:d})).sort((a,b)=>a.distance-b.distance||String(a.label).localeCompare(String(b.label),'zh-CN'));
@@ -325,14 +328,20 @@
   }
   OptimizedKnowledgeGraph.layoutCache = new Map();
 
-  let instance=null, enhancing=false;
-  function replaceCanvas(oldCanvas){const clone=oldCanvas.cloneNode(false);clone.width=oldCanvas.width;clone.height=oldCanvas.height;oldCanvas.replaceWith(clone);return clone}
-  async function enhance(){
-    if(enhancing||route()!=='graph')return;const old=document.querySelector('#graph-canvas');if(!old||old.dataset.optimizedGraph==='1')return;enhancing=true;try{instance?.destroy();const canvas=replaceCanvas(old);canvas.dataset.optimizedGraph='1';instance=new OptimizedKnowledgeGraph(canvas);window.__knowledgeGraphEngine=instance;await instance.init()}catch(err){console.error('[graph-engine]',err);document.querySelector('#graph-engine-status')?.replaceChildren(document.createTextNode('图谱优化引擎加载失败：'+err.message))}finally{enhancing=false}}
-  function maybeEnhance(){if(route()!=='graph'){instance?.destroy();instance=null;return}requestAnimationFrame(enhance)}
-
-  const observer=new MutationObserver(()=>maybeEnhance());
-  window.addEventListener('DOMContentLoaded',()=>{observer.observe(document.querySelector('#main')||document.body,{childList:true,subtree:true});maybeEnhance()});
-  window.addEventListener('hashchange',()=>setTimeout(maybeEnhance,0));
-  window.__knowledgeGraphEngineVersion=VERSION;
+  let instance = null;
+  function destroy() {
+    instance?.destroy();
+    instance = null;
+    window.__knowledgeGraphEngine = null;
+  }
+  async function mount(canvas, graph) {
+    destroy();
+    const engine = new OptimizedKnowledgeGraph(canvas);
+    instance = engine;
+    window.__knowledgeGraphEngine = engine;
+    await engine.init(graph);
+    return engine;
+  }
+  window.ERWKnowledgeGraph = {mount, destroy};
+  window.__knowledgeGraphEngineVersion = VERSION;
 })();

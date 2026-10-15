@@ -176,7 +176,8 @@ def _reference_context(ref_ids: list[str]) -> tuple[str, list[dict[str, str]]]:
             continue
         seen.add(doc_id)
         try:
-            doc = store.get_doc(str(doc_id))
+            from . import indexer
+            doc = indexer.get_doc(str(doc_id))
         except FileNotFoundError:
             continue
         body = str(doc.get("body") or "")[:_MAX_DOC_CHARS]

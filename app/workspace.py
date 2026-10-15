@@ -16,6 +16,8 @@ from . import activity
 
 _LOCK = threading.RLock()
 _MIGRATION_CHECKED = False
+_INITIALIZED_ROOTS: set[Path] = set()
+_MIGRATED_ROOTS: set[Path] = set()
 
 WORKSPACE_LAYOUT = [
     "Knowledge/Ideas",
@@ -61,15 +63,19 @@ def ensure_workspace(run_migration: bool = True) -> Path:
     global _MIGRATION_CHECKED
     with _LOCK:
         root = workspace_root()
-        root.mkdir(parents=True, exist_ok=True)
-        for rel in WORKSPACE_LAYOUT:
-            (root / rel).mkdir(parents=True, exist_ok=True)
-        _write_workspace_readme(root)
+        if root not in _INITIALIZED_ROOTS:
+            root.mkdir(parents=True, exist_ok=True)
+            for rel in WORKSPACE_LAYOUT:
+                (root / rel).mkdir(parents=True, exist_ok=True)
+            _write_workspace_readme(root)
+            _INITIALIZED_ROOTS.add(root)
         # Legacy discovery can scan sibling projects and should never run on every CRUD call.
         # Run it once per process; Reload / manual rescan call migrate_legacy explicitly.
-        if run_migration and not _MIGRATION_CHECKED and get_app().get("workspace_migration", {}).get("enabled", True):
+        if run_migration and root not in _MIGRATED_ROOTS:
             _MIGRATION_CHECKED = True
-            migrate_legacy(root)
+            if get_app().get("workspace_migration", {}).get("enabled", True):
+                migrate_legacy(root)
+            _MIGRATED_ROOTS.add(root)
         return root
 
 
@@ -77,6 +83,8 @@ def reset_runtime_state() -> None:
     global _MIGRATION_CHECKED
     with _LOCK:
         _MIGRATION_CHECKED = False
+        _INITIALIZED_ROOTS.clear()
+        _MIGRATED_ROOTS.clear()
 
 
 def _write_workspace_readme(root: Path) -> None:

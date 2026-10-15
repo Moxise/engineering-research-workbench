@@ -26,6 +26,12 @@ fs.mkdirSync(output, {recursive:true});
     browser=await chromium.launch({headless:true,channel:process.env.UI_BROWSER||'msedge'});
     const page=await browser.newPage({viewport:{width:1600,height:1000},reducedMotion:'reduce'});
     const errors=[];
+    const libraryRequests=[],graphRequests=[];
+    page.on('request',request=>{
+      const url=new URL(request.url());
+      if(/\/(mathjax-tex-svg|mermaid\.min)/.test(url.pathname))libraryRequests.push(url.pathname);
+      if(url.pathname==='/api/graph')graphRequests.push(url.href);
+    });
     page.on('pageerror',e=>errors.push(e.message));
     const date='2026-10-15';
     let todos=[{id:'ui-todo',title:'核对实验结果',project:'示例项目',due:date,priority:'普通',done:false},...['整理论文实验','复核对照结果'].map((title,i)=>({id:'ui-extra-'+i,title,project:'示例项目',due:date,priority:'普通',done:false}))];
@@ -109,6 +115,7 @@ fs.mkdirSync(output, {recursive:true});
     const shot=name=>page.screenshot({path:path.join(output,name+'.png'),fullPage:true});
     const smallText=()=>page.evaluate(()=>Array.from(document.querySelectorAll('body *')).filter(e=>e.children.length===0&&e.textContent.trim()&&e.getClientRects().length&&parseFloat(getComputedStyle(e).fontSize)<11).map(e=>({class:e.className,size:getComputedStyle(e).fontSize,text:e.textContent.slice(0,30)})));
     await page.goto(base);await ready();
+    assert.deepEqual(libraryRequests,[], 'Plain overview should not load math or diagram libraries');
     await page.waitForFunction(()=>document.querySelector('.overview-milestone-list')?.scrollTop>0);
     const aligned=async selectors=>{
       await page.mouse.move(5,5);
@@ -252,7 +259,28 @@ fs.mkdirSync(output, {recursive:true});
     assert.equal(await page.locator('[data-todo-pick]').first().isVisible(),false);
     await shot('todo-batch');
     console.log('PASS: Todo multiselect deletion and explicit manual-only completed cleanup');
+    const beforeGraph=graphRequests.length;
     await go('graph');await page.waitForSelector('#graph-smart-toolbar');
+    assert.equal(graphRequests.length-beforeGraph,1,'Graph page should fetch data exactly once');
+    assert.equal(await page.locator('#graph-smart-toolbar').count(),1);
+    await page.evaluate(async()=>{
+      const first=document.createElement('div'),second=document.createElement('div');
+      first.id='qa-lazy-markdown';second.id='qa-lazy-math';
+      first.className=second.className='md-preview';document.body.append(first,second);
+      second.textContent='$$a^2+b^2=c^2$$';
+      await Promise.all([
+        window.ERWMarkdown.renderInto(first,'$$E=mc^2$$\n\n```mermaid\nflowchart LR\n A --> B\n```'),
+        window.ERWRenderLibraries.renderMath([second]),
+      ]);
+    });
+    assert.equal(await page.locator('#qa-lazy-markdown .mermaid svg').count(),1);
+    assert.equal(await page.locator('#qa-lazy-markdown mjx-container svg').count(),1);
+    assert.equal(await page.locator('#qa-lazy-math mjx-container svg').count(),1);
+    assert.equal(libraryRequests.filter(url=>url.includes('mathjax')).length,1);
+    assert.equal(libraryRequests.filter(url=>url.includes('mermaid')).length,1);
+    await page.locator('#qa-lazy-markdown').evaluate(node=>node.remove());
+    await page.locator('#qa-lazy-math').evaluate(node=>node.remove());
+    console.log('PASS: graph fetches once; math and diagrams load once on demand');
     assert.equal(await page.locator('[data-gview]').count(),0);assert.equal(await page.locator('.graph-view-label').innerText(),'关系网络');
     console.log('PASS: milestone document opens directly, multicolor classification badges, single graph view');
 

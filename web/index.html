@@ -34,11 +34,9 @@
       options: {skipHtmlTags: ['script','noscript','style','textarea','pre','code']}
     };
   </script>
-  <script defer src="/vendor/mathjax-tex-svg.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js'"></script>
   <script defer src="/vendor/marked.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/marked@15.0.12/marked.min.js'"></script>
   <script defer src="/vendor/purify.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.6/purify.min.js'"></script>
   <script defer src="/vendor/highlight-umd.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js'"></script>
-  <script defer src="/vendor/mermaid.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/mermaid@11.4.1/dist/mermaid.min.js'"></script>
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -105,14 +103,15 @@
 
   <script defer src="/v260922-performance.js?v=261015c"></script><!-- v260924g · 分页文案/排版修复，版本参数防缓存 -->
   <script defer src="/v261014-milestone-timeline.js?v=261014o"></script><!-- v261014h · 自适应密度状态泳道里程碑时间轴 -->
-  <script defer src="/app.js?v=261015d"></script>
+  <script defer src="/render-libraries.js?v=261015-perf"></script>
+  <script defer src="/v260922-graph-performance.js?v=261015-perf"></script>
+  <script defer src="/app.js?v=261015-perf"></script>
   <script defer src="/literature.js?v=261009p"></script><!-- v260930n · 修复框选失效（move/up 未挂载）+ Esc/取消时释放截图等待；上版：ERWCapture 桥 -->
   <script defer src="/v260922-projects.js?v=261015b"></script>
   <script defer src="/v260922-overview-editor-tools.js?v=261015d"></script>
   <script defer src="/v260922-graph-performance.js?v=261015a"></script>
-  <script defer src="/v260922-overview-graph.js"></script>
   <script defer src="/v260922-agent-profiles.js?v=260930g3"></script><!-- v260930g3 · 设置页顶部「AI 助手人设」锚点入口 + 统一提示词与人设提示词区分说明；上版：请求模式行可折叠 -->
-  <script defer src="/v260930-floating-agent.js?v=261015b"></script>
+  <script defer src="/v260930-floating-agent.js?v=261015-perf"></script>
   <script defer src="/v260922-layout-bugfixes.js?v=261015c"></script>
   <script defer src="/v261008-billing.js?v=261008"></script><!-- v261008 · 用量计费仪表盘（window.ERWBilling） -->
   <script defer src="/v261014-shell.js?v=261015a"></script>

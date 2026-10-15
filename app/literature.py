@@ -142,8 +142,8 @@ def _join_doc_meta_batch(rows: list[dict[str, Any]]) -> None:
     if not ids:
         return
     try:
-        from . import store
-        docs = store.get_docs_by_ids(ids)
+        from . import indexer
+        docs = indexer.get_docs_by_ids(ids)
     except Exception:
         return
     for r in rows:
@@ -159,8 +159,8 @@ def _join_doc_meta(item: dict[str, Any]) -> dict[str, Any]:
     if not doc_id:
         return item
     try:
-        from . import store
-        doc = store.get_doc(doc_id)
+        from . import indexer
+        doc = indexer.get_doc(doc_id)
         _apply_doc_meta(item, doc)
     except Exception:
         pass
@@ -292,12 +292,8 @@ def _ensure_doc_entry(item: dict[str, Any]) -> str:
             if legacy_body.strip():
                 payload["body"] = legacy_body
 
-        doc = store.create_doc("literature", payload)
+        doc = indexer.create_doc("literature", payload)
         doc_id = str(doc["id"])
-        try:  # 直写 md 须补刷 SQLite 索引，否则文献列表页（索引查询）看不到新条目
-            indexer.index_doc_path(str(doc.get("path") or ""))
-        except Exception:
-            pass
         data = _load_registry()
         for x in data.get("items") or []:
             if x.get("id") == item.get("id"):
@@ -321,7 +317,8 @@ def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
     items = data.setdefault("items", [])
     stats = {"linked": 0, "registered": 0, "ensured": 0}
     single = bool(doc_id)
-    docs = [d for d in store.list_docs("literature") if not single or d["id"] == doc_id]
+    from . import indexer
+    docs = [d for d in indexer.document_metadata() if d["kind"] == "literature" and (not single or d["id"] == doc_id)]
     result_att = ""
     for doc in docs:
         att = str(doc.get("attachment") or "").strip()
@@ -354,7 +351,7 @@ def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
                 h.update(chunk)
         now = datetime.now().isoformat(timespec="seconds")
         try:
-            bibtex = str(store.get_doc(doc["id"]).get("bibtex") or "")
+            bibtex = str(indexer.get_doc(doc["id"]).get("bibtex") or "")
         except Exception:
             bibtex = ""
         items.append({
@@ -375,9 +372,8 @@ def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
         result_att = rel  # 单条模式：登记后的库内路径，返回给前端重试跳转
         if att.replace("\\", "/") != rel:
             try:  # v260929 · attachment 更新走 store（indexer 白名单无此键），随后补刷该行索引
-                upd = store.update_doc(doc["id"], {"attachment": rel})
                 from . import indexer
-                indexer.index_doc_path(str(upd.get("path") or ""))
+                indexer.update_doc(doc["id"], {"attachment": rel})
             except Exception:
                 pass
     if not single:  # 孤儿补建仅全量模式执行（单条登记无需扫全库）
@@ -449,7 +445,9 @@ def set_pdf_dir(new_dir: str, move_existing: bool = True) -> dict[str, Any]:
     if move_existing:
         try:
             from . import indexer, store
-            for doc in store.list_docs("literature"):
+            for doc in indexer.document_metadata():
+                if doc["kind"] != "literature":
+                    continue
                 src = store.resolve_attachment(doc)
                 if src is None:
                     continue
@@ -461,8 +459,7 @@ def set_pdf_dir(new_dir: str, move_existing: bool = True) -> dict[str, Any]:
                 if not dest.exists():
                     continue
                 try:
-                    upd = store.update_doc(doc["id"], {"attachment": _attachment_rel(dest)})
-                    indexer.index_doc_path(str(upd.get("path") or ""))
+                    indexer.update_doc(doc["id"], {"attachment": _attachment_rel(dest)})
                     updated += 1
                 except Exception:
                     pass
@@ -771,7 +768,8 @@ def _note_doc_id(paper_id: str) -> str:
 
 def get_note(paper_id: str) -> str:
     from . import store
-    return str(store.get_doc(_note_doc_id(paper_id)).get("body") or "")
+    from . import indexer
+    return str(indexer.get_doc(_note_doc_id(paper_id)).get("body") or "")
 
 def save_note(paper_id: str, content: str) -> dict[str, Any]:
     from . import indexer
