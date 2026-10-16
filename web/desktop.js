@@ -70,6 +70,8 @@
       const reload=document.querySelector('.reload-wrap');
       const slot=document.getElementById('desktop-reload-slot');
       if(reload&&reload.parentElement!==slot)slot.append(reload);
+      const sync=document.querySelector('.sync-wrap'),syncSlot=document.getElementById('desktop-sync-slot');
+      if(sync&&syncSlot&&sync.parentElement!==syncSlot)syncSlot.append(sync);
     };
     mountTools();
     new MutationObserver(mountTools).observe(topbar,{childList:true});

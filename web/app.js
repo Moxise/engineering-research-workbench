@@ -114,10 +114,11 @@
   }
 
   function modal(title, bodyHtml, footerHtml='') {
+    $('#modal').classList.remove('sync-conflict-modal');
     $('#modal-title').textContent = title; $('#modal-body').innerHTML = bodyHtml; $('#modal-footer').innerHTML = footerHtml;
     $('#modal-backdrop').classList.remove('hidden');
   }
-  function closeModal(){ $('#modal-backdrop').classList.add('hidden'); }
+  function closeModal(){ $('#modal-backdrop').classList.add('hidden');$('#modal').classList.remove('sync-conflict-modal'); }
 
   function editorPayload(doc){
     const value=id=>$('#'+id)?.value||'',projects=editorProjects();
@@ -918,16 +919,20 @@
     load(false);
   }
 
-  async function renderDocsPage(kind){
-    if(!await guardEditor('重新载入文档列表'))return;
+  async function renderDocsPage(kind,syncRefresh=false){
+    const activeId=syncRefresh?state.selectedDoc?.id:null,navSeq=state.navSeq;
+    if(!syncRefresh&&!await guardEditor('重新载入文档列表'))return;
     /* v260929 · 文献页保留原有列表/编辑器（BibTeX 同步、自动 cite_key、元数据表单均在此），
        PDF 阅读工作区不整体接管，改由列表页头部按钮进入（openLiteratureWorkspace），两套 UI 共存 */
-    const [docs,projects] = await Promise.all([api('/api/docs?kind='+encodeURIComponent(kind)), api('/api/projects')]); state.docs=docs; state.projects=projects; state.selectedDoc=null;state.draft=null;state.editorBaseline=null;state.dirty=false;
+    const [docs,projects] = await Promise.all([api('/api/docs?kind='+encodeURIComponent(kind)), api('/api/projects')]);
+    if(syncRefresh&&(editorDirty()||state.saving||state.draft||state.navSeq!==navSeq||activeId!==state.selectedDoc?.id))return false;
+    state.docs=docs; state.projects=projects; state.selectedDoc=null;state.draft=null;state.editorBaseline=null;state.dirty=false;
     if(kind==='milestone') return renderMilestoneShell(docs,projects);
     $('#main').innerHTML=docsShell(kind,docs,projects);
     wireDocList(kind); wireDocFilters(kind); $('#new-doc').onclick=()=>createAndSelect(kind);
     if(kind==='literature'){$('#export-bib').onclick=exportBibtex;const ws=$('#open-lit-workspace');if(ws)ws.onclick=openLiteratureWorkspace;}
-    if(docs.length) selectDoc(docs[0].id); else showEmptyEditor(kind);
+    if(docs.length) await selectDoc(docs.some(d=>d.id===activeId)?activeId:docs[0].id); else showEmptyEditor(kind);
+    return true;
   }
   /* v260929 · 文献列表页 → PDF 阅读工作区入口：编辑中先提示保存；进入后清选中态，
      工作区头部自带返回按钮（literature.js shell），返回时重新渲染文献列表 */
@@ -1683,10 +1688,11 @@
   }
   async function renderSettings(){const cfg=await api('/api/config');state.config=cfg;
     $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="weather">天气</button><button data-set-tab="rss">资讯源</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button></aside><section class="card settings-panel" id="settings-panel"></section></div>`;
+    const syncTab=document.createElement('button');syncTab.dataset.setTab='sync';syncTab.textContent='同步';$('.settings-nav').append(syncTab);
     if(window.pywebview?.api?.desktop_set_close_action){const button=document.createElement('button');button.dataset.setTab='desktop';button.textContent='窗口';$('.settings-nav').append(button)}
     $$('[data-set-tab]').forEach(b=>b.onclick=()=>{$$('[data-set-tab]').forEach(x=>x.classList.toggle('active',x===b));renderSettingsTab(b.dataset.setTab,cfg)});renderSettingsTab('general',cfg);
   }
-  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app,rss=cfg.rss;if(tab==='general'){
+  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app,rss=cfg.rss;if(tab==='sync'){window.ERWSync?.renderSettings(p);return}if(tab==='general'){
       p.innerHTML=`<div class="card-head"><div><h3>基础设置</h3></div></div><div class="form-grid"><div class="field span-2"><label>工作台名称</label><input id="set-app-name" value="${esc(app.app_name)}"></div><div class="field span-2"><label>副标题</label><input id="set-subtitle" value="${esc(app.subtitle)}"></div></div><div class="field-help" style="margin-top:10px">运行端口、监听地址、Workspace 路径和启动行为已移动到“服务与存储”，均可在页面中配置。</div><div style="margin-top:14px"><button class="primary-btn" id="save-settings">保存</button></div>`;$('#save-settings').onclick=async()=>{app.app_name=$('#set-app-name').value.trim()||'科研工作台';app.subtitle=$('#set-subtitle').value.trim();const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;toast('基础设置已保存');await loadBootstrap();};
     }
     else if(tab==='knowledge'){renderKnowledgeTypesSettings(p,app,cfg);}
@@ -1845,6 +1851,27 @@
     window.addEventListener('erw-lit-back',()=>renderDocsPage('literature'));
   }
 
-  async function init(){ try{bindGlobal();await loadBootstrap();renderSidebar();loadWeather();const route=location.hash.slice(1)||'overview';await navigate(route);}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
+  window.ERWSyncUI={modal,closeModal,toast,
+    openSettings:async()=>{if(await navigate('settings')){const b=document.querySelector('[data-set-tab="sync"]');b?.click()}},
+    applyPreferences:values=>{
+      for(const [k,v] of Object.entries(values))localStorage.setItem(k,String(v));
+      if(values.theme)applyTheme(values.theme);
+      if(values.uiScale)applyUiScale(values.uiScale);
+      if(values.pageDensity){localStorage.setItem('pageDensityManual','1');applyDensity(values.pageDensity)}
+      for(const k of ['sidebarPinned','sidebarOpen'])if(values[k]){try{state[k]=new Set(JSON.parse(values[k]));renderSidebar()}catch{}}
+      if(!state.focus.running){for(const k of ['focusMinutes','breakMinutes'])if(values[k])state.focus[k]=Math.max(1,Math.min(240,+values[k]||25))}
+    },
+    refresh:async()=>{
+      if(editorDirty()||state.saving||state.draft||state.route==='settings'||state.route==='agent'||state.route==='focus')return false;
+      await loadBootstrap();renderSidebar();
+      if(editorDirty()||state.saving||state.draft)return false;
+      if(kindFromRoute(state.route))return await renderDocsPage(kindFromRoute(state.route),true);
+      else if(state.route==='overview')await renderOverview();
+      else if(state.route==='projects')await window.ERWProjects.render();
+      else if(state.route==='todos')await renderTodos();
+      else if(state.route==='folders')await renderFolders();
+      return true;
+    }};
+  async function init(){ try{bindGlobal();await loadBootstrap();renderSidebar();loadWeather();const route=location.hash.slice(1)||'overview';await navigate(route);window.dispatchEvent(new Event('workbench:ready'));}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
   window.addEventListener('load',init);
 })();

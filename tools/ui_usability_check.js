@@ -65,6 +65,8 @@ fs.mkdirSync(output, {recursive:true});
     const projectStats=Array.from({length:6},(_,i)=>({id:'proj_internal_'+i,name:'研究项目 '+(i+1),description:'验证模型质量、实验结果与研究进展。',status:'进行中',docs:19,open_todos:4,milestones:3,literature:5,last_updated:date,created:'2025-12-10'}));
     const projectCards=projectStats.map((p,i)=>({...p,name:i===1?'一个需要占据两行的较长研究项目名称以检验卡片对齐':p.name,description:['简短描述。','研究长文本建模、实验验证、数据对照与结果复核，覆盖更多内容以检验两行描述的高度及省略效果。',''][i%3]}));
     const fixtureDashboard={today:date,academic:{configured:true,percent:43.4,start_date:'2024-09-05',expected_end_date:'2029-07-15',elapsed_days:770,remaining_days:1004,weekly_goal_days:5,conditions_total:1,conditions_done:0,graduation_conditions:[{label:'期刊论文',current:1,target:3,percent:33}]},counts:{journal:1,note:1,literature:0,milestone:1},recent:{ideas:[],notes:[doc('note','ui-note','研究笔记')],summaries:[]},project_stats:projectStats,upcoming_milestones:[milestone,...Array.from({length:4},(_,i)=>doc('milestone','ui-extra-ms-'+i,'下一阶段研究节点 '+(i+1)))],activity:{days,start:'2026-10-02',end:date,events_month:20,active_days_month:8}};
+    let syncRuns=0,syncChecks=0,syncResolves=0;
+    const syncState={config:{mode:'off',url:'',interval:30,scopes:['documents','attachments','records','settings']},phase:'idle',upload:0,download:0,conflicts:0,changes:[],preferences:{},applied:0,remote_known:false};
     await page.addInitScript(()=>{
       localStorage.setItem('sidebarOpen',JSON.stringify(['core','research','resources','system']));
       localStorage.setItem('sidebarPinned',JSON.stringify(['core']));
@@ -74,6 +76,18 @@ fs.mkdirSync(output, {recursive:true});
     await page.route('**/api/**',async route=>{
       const request=route.request(),url=new URL(request.url()),method=request.method();
       const send=data=>route.fulfill({json:data});
+      if(url.pathname.startsWith('/api/sync/')){
+        const action=url.pathname.split('/').pop();
+        if(action==='preferences'){Object.assign(syncState.preferences,request.postDataJSON());return send(syncState.preferences)}
+        if(action==='guard')return send({ok:true});
+        if(action==='config'){syncState.config=request.postDataJSON();return send(syncState)}
+        if(action==='test')return send({ok:true,count:25});
+        if(action==='run'){syncRuns++;syncState.phase='synced';syncState.last_success=Date.now()/1000;return send(syncState)}
+        if(action==='check'){syncChecks++;return send(syncState)}
+        if(action==='resolve'){syncResolves++;syncState.conflicts=0;syncState.changes=[];return send(syncState)}
+        if(action==='conflict')return send({key:'doc:ui-journal',label:'实验记录',local_hash:'test-hash',remote_version:4,local:{text:'本地修改\n# 实验记录',editable:true},remote:{text:'服务器修改\n# 实验记录'},base:{text:'共同版本'},can_keep_both:true});
+        return send(syncState);
+      }
       if(url.pathname==='/api/dashboard')return send(fixtureDashboard);
       if(url.pathname==='/api/todos/batch-delete'){
         const body=request.postDataJSON();if(body.completed_only)cleanupCalls++;
@@ -645,7 +659,7 @@ fs.mkdirSync(output, {recursive:true});
     await go('focus');await page.waitForSelector('#focus-apply');await page.locator('#focus-apply').click();
     await readable(['#toast-stack .toast']);await darkSurfaces(['#toast-stack .toast']);await shot('toast-dark');
     await go('settings');
-    for(const tab of ['general','knowledge','service','literature','academic','weather','rss','llm','interface','desktop']){
+    for(const tab of ['general','knowledge','service','literature','academic','weather','rss','llm','interface','sync','desktop']){
       await page.locator(`[data-set-tab="${tab}"]`).click();await page.waitForTimeout(160);
       await darkSurfaces(['#settings-panel *:not([type="color"])']);
       const bad=(await contrast(['#settings-panel h3','#settings-panel .row-title','#settings-panel .row-meta','#settings-panel .field-help','#settings-panel .field>label','#settings-panel input:not([type="color"]):not([type="checkbox"])','#settings-panel textarea','#settings-panel select','#settings-panel button:not(:disabled)'])).filter(x=>x.ratio<4.5);
@@ -672,7 +686,7 @@ fs.mkdirSync(output, {recursive:true});
     await darkSurfaces(['#erw-fab-panel','.fab-head','.fab-foot','.fab-compose']);
     await readable(['.fab-title strong','#fab-input','#fab-send']);await page.locator('#fab-shot-page').click();await page.waitForSelector('.fab-notice.error');
     await readable(['.fab-notice.error']);await shot('floating-assistant-dark');await page.locator('#fab-close').click();
-    console.log('PASS: all 10 settings tabs, template/type/icon dialogs, shared notifications, floating assistant and themed confirmations');
+    console.log('PASS: all 11 settings tabs, template/type/icon dialogs, shared notifications, floating assistant and themed confirmations');
 
     await go('notes');await page.waitForSelector('#new-doc');const writesBeforeDrafts=docWrites;
     await page.locator('#new-doc').click();await page.waitForSelector('[data-doc-draft]');
@@ -743,6 +757,25 @@ fs.mkdirSync(output, {recursive:true});
     }
     await shot('single-titlebar-zoom125');
     console.log('PASS: one titlebar, refresh dropdown, fixed Markdown export, dark contrast and 125% zoom');
+    await go('settings');await page.locator('[data-set-tab="sync"]').click();await page.waitForSelector('#sync-url');
+    assert.equal(await page.locator('.sync-wrap').isVisible(),false,'sync button hidden while disabled');
+    await page.locator('#sync-url').fill('http://192.168.1.10:8765');await page.locator('#sync-test').click();await page.waitForFunction(()=>document.querySelector('#sync-test-result').textContent.includes('连接成功'));
+    await page.locator('#sync-mode').selectOption('manual');await page.locator('#sync-save').click();await page.waitForFunction(()=>!document.querySelector('.sync-wrap').hidden);
+    assert.equal(await page.locator('#desktop-sync-slot .sync-wrap').count(),1,'sync button in desktop titlebar');
+    const syncBounds=await page.locator('.sync-wrap').boundingBox(),reloadBounds=await page.locator('#reload-btn').boundingBox();
+    assert(syncBounds.x+syncBounds.width<=reloadBounds.x,'sync precedes refresh and minimize');
+    await page.locator('#sync-now').click();await page.waitForFunction(()=>document.querySelector('.sync-wrap').dataset.phase==='synced');assert.equal(syncRuns,1);
+    await page.locator('#sync-more').click();await Promise.all([page.waitForResponse(r=>r.url().endsWith('/api/sync/check')),page.locator('#sync-menu [data-sync-check]').click()]);assert.equal(syncChecks,1);
+    syncState.phase='conflict';syncState.conflicts=1;syncState.changes=[{key:'doc:ui-journal',code:'!',doc_id:'ui-journal',label:'实验记录',scope:'documents'}];await page.evaluate(()=>window.ERWSync.poll());
+    await page.locator('#sync-more').click();await page.locator('#sync-menu [data-sync-conflict]').click();await page.waitForSelector('.sync-conflict-modal textarea');
+    await shot('sync-conflict-light');
+    await page.locator('#theme-btn').click();await page.waitForSelector('html[data-theme="dark"]');
+    await readable(['.sync-conflict textarea','.sync-conflict .sync-caption','#modal-footer button']);await darkSurfaces(['.sync-conflict textarea','#modal']);await shot('sync-conflict-dark');
+    await respond(()=>page.locator('[data-sync-choice="both"]').click());await page.waitForSelector('#modal-backdrop',{state:'hidden'});assert.equal(syncResolves,1);
+    await page.locator('[data-set-tab="sync"]').click();await page.waitForSelector('#sync-mode');await shot('sync-settings-dark');
+    await page.locator('#sync-mode').selectOption('auto');await page.locator('#sync-save').click();await page.waitForSelector('#sync-mode');assert.equal(syncState.config.mode,'auto');
+    await page.locator('#sync-mode').selectOption('off');await page.locator('#sync-save').click();await page.waitForFunction(()=>document.querySelector('.sync-wrap').hidden);
+    console.log('PASS: centralized sync settings, disabled/active/auto modes, desktop placement, Git status, conflict comparison and resolution in light/dark themes');
     assert.deepEqual(errors,[]);
     console.log('PASS: responsive layout, legacy overview redirect and no browser errors');
     console.log('Screenshots:',output);

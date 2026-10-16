@@ -5,6 +5,8 @@ import copy
 import ast
 from pathlib import Path
 import threading
+from functools import wraps
+from contextlib import nullcontext
 from types import ModuleType, SimpleNamespace
 from typing import Any
 import unittest
@@ -25,8 +27,9 @@ todos = ModuleType("isolated_todos")
 todos.__dict__.update(Any=Any, _LOCK=threading.RLock(), _load=Mock(), _save=Mock())
 isolated_definitions("app/todos.py", {"list_todos", "delete_many"}, todos.__dict__)
 server = ModuleType("isolated_server")
-server.__dict__.update(todos=todos, indexer=SimpleNamespace(delete_docs=Mock(), refresh_todos=Mock()))
-isolated_definitions("server.py", {"_batch_ids", "_delete_documents", "handle_api_post"}, server.__dict__)
+server.__dict__.update(todos=todos, indexer=SimpleNamespace(delete_docs=Mock(), refresh_todos=Mock()),
+                       wraps=wraps, nullcontext=nullcontext, mutation_lock=threading.RLock())
+isolated_definitions("server.py", {"serialized_write", "_batch_ids", "_delete_documents", "handle_api_post"}, server.__dict__)
 
 
 class BulkDeleteTests(unittest.TestCase):

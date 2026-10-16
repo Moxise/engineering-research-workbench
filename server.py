@@ -8,6 +8,8 @@ import threading
 import time
 import webbrowser
 import tempfile
+from functools import wraps
+from contextlib import nullcontext
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -26,10 +28,23 @@ from app.paths import ASSET_ROOT, DATA_ROOT
 from app import literature
 from app import billing  # v261008 · 用量计费
 from app import scratch  # v261008 · 操作临时空间 .scratch
+from app import sync_service
+from app.sync_engine import mutation_lock, CHUNK
 
 # v260923 · 打包 exe 后：只读资源（web/、VERSION）在 PyInstaller 解压目录；可写数据在 exe 同级
 ROOT = DATA_ROOT
 WEB = ASSET_ROOT / "web"
+
+
+def serialized_write(fn):
+    @wraps(fn)
+    def call(self, *args, **kwargs):
+        path = args[0] if args else urlparse(self.path).path
+        # Agent/lookup requests can wait on external APIs; never lock during those waits.
+        locked = not path.startswith(("/api/sync/", "/api/agent/", "/api/literature/lookup"))
+        with mutation_lock if locked else nullcontext():
+            return fn(self, *args, **kwargs)
+    return call
 
 
 def json_bytes(data) -> bytes:
@@ -80,11 +95,34 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
 
     def server_close(self):
         super().server_close()
+        sync_service.stop()
         indexer.stop_background_sync()
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "Workbench/260922-perf"
+
+    @property
+    def sync_engine(self):
+        return getattr(self.server, "sync_engine", None) or sync_service.get()
+
+    def do_PUT(self):
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/sync/blob":
+            return self.send_json({"error": "not_found"}, 404)
+        try:
+            q = parse_qs(parsed.query)
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 <= length <= CHUNK:
+                raise ValueError("附件分块大小无效")
+            result = self.sync_engine.receive_blob(q["hash"][0], self.rfile.read(length), int(q["offset"][0]), int(q["total"][0]))
+            self.send_json(result)
+        except (ValueError, KeyError) as exc:
+            self.send_json({"message": str(exc)}, 400)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+        except Exception as exc:
+            self.send_json({"message": str(exc)}, 500)
 
     def log_message(self, fmt, *args):
         sys.stdout.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
@@ -174,7 +212,8 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         try:
             if path == "/api/literature/import":
-                return self.handle_literature_import()
+                with mutation_lock:
+                    return self.handle_literature_import()
             payload = self.read_json()
             return self.handle_api_post(path, payload)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -186,6 +225,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self.send_json({"error": type(e).__name__, "message": str(e)}, 500)
 
+    @serialized_write
     def do_DELETE(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -225,6 +265,32 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": type(e).__name__, "message": str(e)}, 500)
 
     def handle_api_get(self, path, q):
+        if path.startswith("/api/sync/"):
+            engine = self.sync_engine
+            if path == "/api/sync/status":
+                return self.send_json(engine.status())
+            if path == "/api/sync/manifest":
+                scopes = q.get("scopes", [""])[0]
+                return self.send_json(engine.manifest(scopes.split(",") if scopes else None))
+            if path == "/api/sync/blob-info":
+                return self.send_json(engine.blob_info(q.get("hash", [""])[0]))
+            if path == "/api/sync/conflict":
+                return self.send_json(engine.conflict_detail(q.get("key", [""])[0]))
+            if path == "/api/sync/blob":
+                source = engine._blob_path(q.get("hash", [""])[0])
+                size = source.stat().st_size
+                offset = int(q.get("offset", ["0"])[0])
+                if not 0 <= offset <= size:
+                    raise ValueError("附件断点无效")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(size - offset))
+                self.end_headers()
+                with source.open("rb") as handle:
+                    handle.seek(offset)
+                    while chunk := handle.read(CHUNK):
+                        self.wfile.write(chunk)
+                return
         if path == "/api/health":
             return self.send_json({
                 "ok": True,
@@ -357,7 +423,23 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(billing.load_prices())
         return self.send_json({"error": "not_found"}, 404)
 
+    @serialized_write
     def handle_api_post(self, path, payload):
+        if path.startswith("/api/sync/"):
+            engine = self.sync_engine
+            actions = {
+                "/api/sync/config": lambda: engine.configure(payload),
+                "/api/sync/test": lambda: engine.test_connection(payload.get("url")),
+                "/api/sync/run": lambda: engine.launch(),
+                "/api/sync/check": lambda: engine.launch(check_only=True),
+                "/api/sync/apply": lambda: engine.apply_many(payload.get("changes")),
+                "/api/sync/preferences": lambda: engine.save_preferences(payload),
+                "/api/sync/guard": lambda: engine.guard_editor(payload.get("client"), payload.get("doc_id"), payload.get("dirty")),
+                "/api/sync/resolve": lambda: engine.resolve(payload),
+            }
+            if path in actions:
+                return self.send_json(actions[path]())
+            return self.send_json({"error": "not_found"}, 404)
         if path == "/api/config/app":
             return self.send_json(config.save_app(payload))
         if path == "/api/config/rss":
@@ -635,6 +717,7 @@ def build_server(port_override: int | None = None, auto_open_browser: bool | Non
     host = str(cfg.get("host") or "127.0.0.1")
     port = int(port_override or cfg.get("port") or 8765)
     server = WorkbenchHTTPServer((host, port), Handler)
+    sync_service.get()
     url = f"http://{host}:{port}"
     print(f"Engineering Research Workbench running at {url}")
     print(f"Workspace: {workspace.ensure_workspace()}")

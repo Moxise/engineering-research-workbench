@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from . import activity, store, workspace
+from .sync_engine import mutation_lock
 from .perf_index_db import _connect, _init_db, _root, _LOCK
 from .perf_index_core import (
     _registry, index_doc_path, ensure_ready,
@@ -124,7 +125,7 @@ def workspace_children(rel: str = "") -> dict[str, Any]:
 
 def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     ensure_ready()
-    with _LOCK:
+    with mutation_lock, _LOCK:
         doc = store.create_doc(kind, normalize_project_payload(payload))
         index_doc_path(str(doc["path"]))
         return doc
@@ -132,7 +133,7 @@ def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     ensure_ready()
-    with _LOCK:
+    with mutation_lock, _LOCK:
         return _update_doc(doc_id, payload)
 
 
@@ -168,7 +169,7 @@ def _update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         store._normalize_projects(meta)
     for project_name in meta.get("projects", []) or []:
         workspace.ensure_project(str(project_name))
-    with _LOCK:
+    with mutation_lock, _LOCK:
         store._atomic_write(path, store._frontmatter_dump(meta) + body.rstrip() + "\n")
     activity.record("doc_update", ref=doc_id, kind=kind, title=str(meta.get("title") or doc_id), project=str(meta.get("project") or ""))
     index_doc_path(path)
@@ -190,7 +191,7 @@ def delete_docs(doc_ids: list[str]) -> dict[str, Any]:
     ensure_ready()
     root = _root()
     deleted, failed, keys = [], [], set()
-    with _LOCK:
+    with mutation_lock, _LOCK:
         with _connect(root) as conn:
             _init_db(conn)
             for doc_id in dict.fromkeys(doc_ids):

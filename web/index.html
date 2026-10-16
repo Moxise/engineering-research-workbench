@@ -26,6 +26,7 @@
   <link rel="stylesheet" href="/desktop.css?v=261015c">
   <link rel="stylesheet" href="/theme-dark.css?v=261016b">
   <link rel="stylesheet" href="/workbench-ui.css?v=261016e">
+  <link rel="stylesheet" href="/sync.css?v=261016f">
   <link rel="stylesheet" href="/vendor/github.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css'">
   <script>
     window.MathJax = {
@@ -51,6 +52,7 @@
     <div class="desktop-page-tools desktop-drag-region" id="desktop-page-tools"></div>
     <div class="desktop-status" id="desktop-save-status" hidden aria-live="polite"><i></i><span>已保存</span></div>
     <button id="desktop-search" class="desktop-tool" type="button" title="搜索 · Ctrl+K" aria-label="搜索"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m12.5 12.5 4 4"/></svg></button>
+    <div id="desktop-sync-slot"></div>
     <div id="desktop-reload-slot"></div>
     <div class="desktop-window-controls">
       <button id="desktop-minimize" class="desktop-control" type="button" aria-label="最小化到任务栏" title="最小化到任务栏"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h12"/></svg></button>
@@ -124,8 +126,9 @@
   <script defer src="/render-libraries.js?v=261015-perf"></script>
   <script defer src="/v260922-graph-performance.js?v=261015-dialog"></script>
   <script defer src="/ui-dialogs.js?v=261016b"></script>
-  <script defer src="/desktop.js?v=261016d"></script>
-  <script defer src="/app.js?v=261016e"></script>
+  <script defer src="/desktop.js?v=261016f"></script>
+  <script defer src="/app.js?v=261016f"></script>
+  <script defer src="/sync.js?v=261016f"></script>
   <script defer src="/literature.js?v=261016b"></script><!-- v260930n · 修复框选失效（move/up 未挂载）+ Esc/取消时释放截图等待；上版：ERWCapture 桥 -->
   <script defer src="/v260922-projects.js?v=261016c"></script>
   <script defer src="/v260922-overview-editor-tools.js?v=261015d"></script>
