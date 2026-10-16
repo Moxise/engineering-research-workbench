@@ -4,9 +4,9 @@
   "css": [
     {
       "file": "styles.css",
-      "v": "261009k",
+      "v": "261010b",
       "theme": "base",
-      "note": "v261009k · 笔记卡片的时间标签默认右对齐（无项目名时也贴右）；上版：天气样式搬出内核"
+      "note": "v261010b · 条目卡片统一高度：标题固定两行（超出省略 + title 悬停）、摘要固定两行、徽章行固定单行（放不下时右端淡出）；列宽锁定面板宽（.doc-list minmax(0,1fr)、.doc-item/.proj-text min-width:0）修多项目卡片撑宽网格轨道；上版：笔记卡片的时间标签默认右对齐（无项目名时也贴右）；再上版：天气样式搬出内核"
     },
     {
       "file": "projects-manager.css",
@@ -112,9 +112,9 @@
     },
     {
       "file": "app.js",
-      "v": "261009t",
+      "v": "261010b",
       "theme": "base",
-      "note": "v261009t · 插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）；上版：删除内核自带的图谱渲染与交互"
+      "note": "v261010b · 条目卡片统一高度：卡片标题/摘要/项目名补 title 悬停提示（配合 styles.css 的两行省略）；上版：插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）；再上版：删除内核自带的图谱渲染与交互"
     },
     {
       "file": "plugin-host.js",
