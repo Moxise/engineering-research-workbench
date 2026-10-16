@@ -45,8 +45,8 @@
 
   function projectCard(p){
     return `<section class="card project-manager-card">
-      <div class="project-card-top"><div><h3>${esc(p.name)}</h3></div><span class="badge ${p.status==='进行中'?'accent':''}">${esc(p.status||'进行中')}</span></div>
-      ${p.description?`<p class="project-desc">${esc(p.description)}</p>`:''}
+      <div class="project-card-top"><div><h3 title="${esc(p.name)}">${esc(p.name)}</h3></div><span class="badge ${p.status==='进行中'?'accent':''}">${esc(p.status||'进行中')}</span></div>
+      <p class="project-desc" title="${esc(p.description||'')}">${esc(p.description||'暂无项目描述')}</p>
       <div class="project-card-metrics"><span><b>${p.docs||0}</b> 知识条目</span><span><b>${p.open_todos||0}</b> 待办</span><span><b>${p.milestones||0}</b> 里程碑</span></div>
       <div class="project-card-meta"><span>更新 ${esc(fmtDate(p.last_updated))}</span><span>创建 ${esc(fmtDate(p.created))}</span></div>
       <div class="project-card-actions"><button class="secondary-btn" data-project-edit="${esc(p.id)}">编辑</button><button class="ghost-btn danger-text" data-project-delete="${esc(p.id)}">删除</button></div>
@@ -74,7 +74,7 @@
 
   async function deleteProject(p){
     if(!p)return;
-    if(!confirm(`删除项目“${p.name}”？\n\n知识条目不会被删除，只会解除该项目关联；项目工程目录会移入 Workspace/System/Trash/Projects。`))return;
+    if(!await window.ERWDialog.confirm(`删除项目“${p.name}”？\n\n知识条目不会被删除，只会解除该项目关联；项目工程目录会移入 Workspace/System/Trash/Projects。`))return;
     try{await api('/api/projects/'+encodeURIComponent(p.id),{method:'DELETE'});toast('项目已删除，工程目录已移入回收目录');await showProjects()}catch(e){toast(e.message,true)}
   }
 

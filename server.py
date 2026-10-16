@@ -72,6 +72,7 @@ def _project_registry_needs_migration() -> bool:
 
 class WorkbenchHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
+    request_queue_size = 32  # Asset loading and bootstrap reads arrive together.
     # v260923v · Windows 上 allow_reuse_address=1(SO_REUSEADDR) 允许第二个进程静默重复绑定同一端口，
     # 曾导致旧实例/开发服务与新实例同端口打架、前端 bundle 版本错乱。Windows 改为独占绑定；
     # Unix 上该标志仅用于绕过 TIME_WAIT，保留 True 方便开发时快速重启。
@@ -159,6 +160,8 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/workspace-file/"):
                 return self.serve_workspace_file(path[len("/workspace-file/"):])
             return self.serve_static(path)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return  # Window reload/exit can cancel a response in flight.
         except FileNotFoundError as e:
             self.send_json({"error": "not_found", "message": str(e)}, 404)
         except ValueError as e:
@@ -174,6 +177,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.handle_literature_import()
             payload = self.read_json()
             return self.handle_api_post(path, payload)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
         except FileNotFoundError as e:
             self.send_json({"error": "not_found", "message": str(e)}, 404)
         except ValueError as e:
@@ -212,6 +217,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/billing/records":  # v261008 · 用量计费：清空账本
                 return self.send_json(billing.clear())
             self.send_json({"error": "not_found"}, 404)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
         except FileNotFoundError as e:
             self.send_json({"error": "not_found", "message": str(e)}, 404)
         except Exception as e:
@@ -251,6 +258,8 @@ class Handler(BaseHTTPRequestHandler):
                 kind, query, status, project, mark,
                 page=page, page_size=page_size, paged=paged,
             ))
+        if path == "/api/docs/draft":
+            return self.send_json(store.prepare_doc((q.get("kind") or ["note"])[0], {}))
         # v260923 · 文献 PDF 附件下载：/api/docs/<id>/attachment，路径须置于 /api/docs/ 泛匹配之前
         if path.startswith("/api/docs/") and path.endswith("/attachment"):
             doc_id = unquote(path[len("/api/docs/"):-len("/attachment")])

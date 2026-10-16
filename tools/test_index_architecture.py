@@ -19,6 +19,33 @@ from app import perf_index_core as core, perf_index_db as db
 
 
 class IndexArchitectureTests(unittest.TestCase):
+    def test_unmodified_draft_creates_no_files_activity_or_index_rows(self):
+        before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        with patch.object(store.activity, 'record') as record:
+            draft = store.prepare_doc('note', {'project':'Not yet created'})
+            self.assertTrue(draft['draft'])
+            self.assertEqual(draft['path'], '')
+            self.assertIn('## 摘要', draft['body'])
+            record.assert_not_called()
+        after = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)
+        self.assertEqual(indexer.list_docs('note'), [])
+        saved = indexer.create_doc('note', {'title':'Edited draft', 'body':draft['body']+'\nNew result'})
+        self.assertFalse(saved.get('draft', False))
+        self.assertEqual(len(indexer.list_docs('note')), 1)
+        self.assertTrue((self.root / saved['path']).is_file())
+
+    def test_draft_respects_custom_template_and_explicit_empty_body(self):
+        with patch.object(store, 'kind_template', return_value='# {{title}}\nDate: {{date}}\n'):
+            draft = store.prepare_doc('note', {'title':'Customized'})
+        self.assertIn('# Customized', draft['body'])
+        self.assertNotIn('{{date}}', draft['body'])
+        literature_draft = store.prepare_doc('literature', {})
+        self.assertIn('```bibtex', literature_draft['body'])
+        self.assertIn('@article', literature_draft['bibtex'])
+        saved = indexer.create_doc('note', {'title':'Empty on purpose', 'body':''})
+        self.assertEqual(saved['body'].strip(), '')
+
     def setUp(self):
         core.stop_background_sync()
         self.temp = tempfile.TemporaryDirectory(prefix="erw-index-tests-")

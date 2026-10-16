@@ -8,7 +8,7 @@ rem Only build artifacts are changed. Existing config/ and Workspace/ are not to
 set "BUILD_LOG=%CD%\build_client.log"
 set "VENV_DIR=%CD%\build\.venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
-set "ICON_ARG="
+set "BUILD_NAME=ResearchWorkbench"
 set "STAGE=initialization"
 > "%BUILD_LOG%" echo ResearchWorkbench desktop build log
 >> "%BUILD_LOG%" echo Working directory: %CD%
@@ -21,24 +21,23 @@ echo.
 
 set "STAGE=isolated Python environment"
 echo [1/3] Creating or reusing isolated build environment...
-python -c "import sys; print('Bootstrap Python:', sys.executable, sys.version); sys.exit(0 if sys.version_info >= (3, 11) else 1)" >> "%BUILD_LOG%" 2>&1
-if errorlevel 1 goto :failed
 if not exist "build" mkdir "build"
 if not exist "%VENV_PY%" (
     echo Creating virtual environment in build\.venv...
-    python -m venv "%VENV_DIR%" >> "%BUILD_LOG%" 2>&1
+    if not defined ERW_BUILD_PYTHON set "ERW_BUILD_PYTHON=python"
+    call :create_venv
     if errorlevel 1 goto :failed
 )
 if not exist "%VENV_PY%" (
     >> "%BUILD_LOG%" echo ERROR: Virtual environment Python was not created.
     goto :failed
 )
-"%VENV_PY%" -c "import sys; print('Build Python:', sys.executable); print('base:', sys.base_prefix); assert sys.prefix != sys.base_prefix" >> "%BUILD_LOG%" 2>&1
+"%VENV_PY%" -c "import sys; print('Build Python:', sys.executable, sys.version); assert sys.prefix != sys.base_prefix; assert sys.version_info >= (3, 11)" >> "%BUILD_LOG%" 2>&1
 if errorlevel 1 goto :failed
 "%VENV_PY%" -m pip --version >> "%BUILD_LOG%" 2>&1
 if errorlevel 1 goto :failed
 echo Installing build dependencies into build\.venv...
-"%VENV_PY%" -m pip install --disable-pip-version-check --prefer-binary pyinstaller pywebview pillow >> "%BUILD_LOG%" 2>&1
+"%VENV_PY%" -m pip install --disable-pip-version-check --prefer-binary -r requirements-desktop.txt >> "%BUILD_LOG%" 2>&1
 if errorlevel 1 goto :failed
 
 set "STAGE=resources and icon"
@@ -55,11 +54,6 @@ if not exist "VERSION" (
     >> "%BUILD_LOG%" echo ERROR: Missing VERSION
     goto :failed
 )
-if not exist "build" mkdir "build"
-if not exist "build\research-workstation.ico" (
-    "%VENV_PY%" -c "from PIL import Image; img=Image.open('web/favicon.png'); img.save('build/research-workstation.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])" >> "%BUILD_LOG%" 2>&1
-)
-if exist "build\research-workstation.ico" set "ICON_ARG=--icon build\research-workstation.ico"
 
 set "STAGE=PyInstaller packaging"
 echo [3/3] Packaging ResearchWorkbench.exe...
@@ -67,21 +61,22 @@ echo Detailed PyInstaller output is written to build_client.log.
 rem Do not terminate a running application: that could lose unsaved edits.
 tasklist /FI "IMAGENAME eq ResearchWorkbench.exe" 2>nul | find /I "ResearchWorkbench.exe" >nul
 if not errorlevel 1 (
-    >> "%BUILD_LOG%" echo ERROR: ResearchWorkbench.exe is running. Please close it before packaging.
-    goto :failed
+    set "BUILD_NAME=ResearchWorkbench-Updated"
+    echo A running application is retained. Building ResearchWorkbench-Updated.exe instead.
+    >> "%BUILD_LOG%" echo Running app retained; output renamed ResearchWorkbench-Updated.exe.
 )
-"%VENV_PY%" -m PyInstaller --noconfirm --clean --onefile --windowed --name ResearchWorkbench --distpath "." %ICON_ARG% --add-data "web;web" --add-data "VERSION;." client.py >> "%BUILD_LOG%" 2>&1
+"%VENV_PY%" tools\build_windows.py --name "%BUILD_NAME%" >> "%BUILD_LOG%" 2>&1
 if errorlevel 1 goto :failed
-if not exist "ResearchWorkbench.exe" (
-    >> "%BUILD_LOG%" echo ERROR: PyInstaller finished without producing ResearchWorkbench.exe
+if not exist "%BUILD_NAME%.exe" (
+    >> "%BUILD_LOG%" echo ERROR: PyInstaller finished without producing %BUILD_NAME%.exe
     goto :failed
 )
 
 echo.
-echo SUCCESS: "%CD%\ResearchWorkbench.exe"
+echo SUCCESS: "%CD%\%BUILD_NAME%.exe"
 echo The existing Workspace and config folders were left unchanged.
 echo Full log: "%BUILD_LOG%"
-pause
+if /I not "%~1"=="--no-pause" pause
 exit /b 0
 
 :failed
@@ -94,5 +89,11 @@ powershell -NoProfile -Command "Get-Content -LiteralPath $env:BUILD_LOG -Tail 80
 if errorlevel 1 type "%BUILD_LOG%"
 echo.
 echo Copy the above error output or share build_client.log for troubleshooting.
-pause
+if /I not "%~1"=="--no-pause" pause
 exit /b 1
+
+:create_venv
+"%ERW_BUILD_PYTHON%" -c "import sys; print('Bootstrap Python:', sys.executable, sys.version); sys.exit(0 if sys.version_info >= (3, 11) else 1)" >> "%BUILD_LOG%" 2>&1
+if errorlevel 1 exit /b 1
+"%ERW_BUILD_PYTHON%" -m venv "%VENV_DIR%" >> "%BUILD_LOG%" 2>&1
+exit /b %errorlevel%

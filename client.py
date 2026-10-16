@@ -1,214 +1,254 @@
-"""v260923 · 桌面客户端入口：后台线程跑 HTTP 服务，pywebview（Edge WebView2）承载前端窗口。
-
-用法：
-- 开发调试：python client.py
-- 打包产物：PyInstaller onefile exe（build_client.bat）
-  v260923w · exe 生成在项目根目录（--distpath .），frozen 时 DATA_ROOT=exe 所在目录，
-  即直接使用根目录的 config/ 与 Workspace/，与开发环境共用同一份数据，不再产生独立副本。
-"""
+"""Portable Windows desktop: local server, borderless WebView2 and system tray."""
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import socket
 import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 from pathlib import Path
 
-from app.paths import DATA_ROOT, FROZEN
-
-# v260923x · 窗口状态记忆文件：记住上次关闭时的尺寸与最大化状态，下次启动原样恢复
-_WINDOW_STATE_FILE = DATA_ROOT / "window-state.json"
+from app import paths
+from app.desktop import DesktopBridge, DesktopController, SingleInstance
 
 
 def _setup_logging():
-    """windowed exe 无控制台，把输出落到 exe 同级 workbench.log 便于排查。"""
-    if not FROZEN:
-        return
-    try:
-        log_path = DATA_ROOT / "workbench.log"
-        # 覆盖式写入，避免便携目录下日志无限增长
-        stream = open(log_path, "w", encoding="utf-8", buffering=1)
-        sys.stdout = stream
-        sys.stderr = stream
-    except OSError:
-        pass
+    if paths.FROZEN or sys.stdout is None:
+        stream = open(paths.DATA_ROOT / "workbench.log", "w", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stderr = stream
 
 
 def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
-def _wait_ready(url: str, timeout: float = 10.0) -> bool:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(f"{url}/api/health", timeout=1.5) as resp:
-                if resp.status == 200:
-                    return True
-        except Exception:
-            time.sleep(0.15)
+def _health(url: str) -> dict:
+    try:
+        with urllib.request.urlopen(f"{url}/api/health", timeout=1.5) as resp:
+            return json.load(resp) if resp.status == 200 else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _wait_ready(url: str, timeout: float = 15) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        health = _health(url)
+        if health.get("ok") and health.get("version"):
+            return True
+        time.sleep(0.15)
     return False
 
 
-def _clamped_window_size(preferred_w: int = 1440, preferred_h: int = 900) -> tuple[int, int]:
-    """v260923v · 按屏幕工作区预收缩窗口尺寸。小屏上若按原始尺寸建窗，
-    Windows 会先显示大窗再压回屏幕，产生用户可见的「拉伸」闪动。
-    v260923x · 接受任意期望尺寸（含窗口状态记忆的恢复值），统一向工作区收缩。"""
+def _clamped_window_size(width: int = 1440, height: int = 900) -> tuple[int, int]:
     try:
         import ctypes
         from ctypes import wintypes
         rect = wintypes.RECT()
-        # SPI_GETWORKAREA：任务栏以外的可用区域，返回值与窗口逻辑坐标一致
-        if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
-            preferred_w = min(preferred_w, rect.right - rect.left)
-            preferred_h = min(preferred_h, rect.bottom - rect.top)
+        user = ctypes.windll.user32
+        if user.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
+            dpi = user.GetDpiForSystem() if hasattr(user, "GetDpiForSystem") else 96
+            scale = max(1, dpi / 96)
+            width = min(width, int((rect.right - rect.left) / scale))
+            height = min(height, int((rect.bottom - rect.top) / scale))
     except Exception:
         pass
-    return preferred_w, preferred_h
+    return width, height
 
 
 def _load_window_state() -> dict:
-    """v260923x · 读取上次关闭时的窗口状态。尺寸需通过合理性校验才采信。
-    v260923y · 用 utf-8-sig 读以免疫 BOM（外部工具写的带 BOM 文件不再静默失效），
-    解析失败时打印原始字节前 16 位，便于从 workbench.log 直接定位坏文件。"""
-    fallback = {"maximized": False, "width": 0, "height": 0}
-    raw = b""
+    fallback = {"maximized": False, "width": 0, "height": 0, "close_action": "tray"}
     try:
-        raw = _WINDOW_STATE_FILE.read_bytes()
-        data = json.loads(raw.decode("utf-8-sig"))
-        w, h = int(data.get("width") or 0), int(data.get("height") or 0)
-        if 400 <= w <= 8000 and 300 <= h <= 4000:
-            return {"maximized": bool(data.get("maximized")), "width": w, "height": h}
-        print(f"[client] window state ignored (size out of range): {raw[:64]!r}")
-    except Exception as e:
-        print(f"[client] window state unreadable ({e}): bytes={raw[:16]!r}")
+        data = json.loads((paths.DATA_ROOT / "window-state.json").read_text(encoding="utf-8-sig"))
+        width, height = int(data.get("width") or 0), int(data.get("height") or 0)
+        if 400 <= width <= 8000 and 300 <= height <= 4000:
+            return {"maximized": bool(data.get("maximized")), "width": width, "height": height,
+                    "close_action": "quit" if data.get("close_action") == "quit" else "tray"}
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        print(f"[desktop] invalid saved window state: {exc}")
     return fallback
 
 
+_state_lock = threading.Lock()
+
+
 def _save_window_state(state: dict) -> None:
-    try:
-        _WINDOW_STATE_FILE.write_text(
-            json.dumps(state, ensure_ascii=False), encoding="utf-8"
-        )
-        print(f"[client] {time.strftime('%H:%M:%S')} window state saved: {state}")
-    except OSError as e:
-        print(f"[client] window state save failed: {e}")
-
-
-def _run_window(url: str, cfg, httpd=None):
-    """打开桌面窗口。httpd 为 None 表示连接到已有实例（次生窗口），退出时不触碰对方服务。"""
-    try:
-        import webview
-    except ImportError:
-        print("pywebview 未安装：pip install pywebview", file=sys.stderr)
-        if httpd is not None:
-            httpd.shutdown()
-        sys.exit(1)
-
-    title = str(cfg.get("app_name") or "科研工作台")
-    # v260923x · 恢复上次窗口状态：有有效记忆则用记忆尺寸，否则默认 1440x900；均向工作区收缩
-    saved = _load_window_state()
-    print(f"[client] {time.strftime('%H:%M:%S')} window state restored: {saved}")
-    pref_w = saved["width"] or 1440
-    pref_h = saved["height"] or 900
-    win_w, win_h = _clamped_window_size(pref_w, pref_h)
-    # v260923v · 尺寸与 min_size 都按工作区收缩，min_size 超过实际窗口会触发二次调整（同样可见）
-    window = webview.create_window(
-        title, url, width=win_w, height=win_h,
-        min_size=(min(1080, win_w), min(720, win_h)),
-        maximized=saved["maximized"],
-    )
-
-    # v260923x · 运行期采集窗口状态：maximized/restored 维护标志，resized 仅在非最大化时记录
-    # 尺寸（事件按 maximized/restored → resized 顺序触发，标志总是先就位）。pywebview 的
-    # events.resized 回传逻辑像素，与 create_window 同单位，可直接存档复用。
-    # v260923y · live 尺寸用 saved 值兜底：最大化恢复打开的窗口从未处于非最大化，
-    # resized 不会记录尺寸，若无兜底则退出时 live["width"]=0 导致状态漏存。
-    live = {"maximized": saved["maximized"], "width": saved["width"], "height": saved["height"]}
-
-    def _on_maximized():
-        live["maximized"] = True
-
-    def _on_restored():
-        live["maximized"] = False
-
-    def _on_resized(w, h):
-        if not live["maximized"] and w and h:
-            live["width"], live["height"] = int(w), int(h)
-
-    window.events.maximized += _on_maximized
-    window.events.restored += _on_restored
-    window.events.resized += _on_resized
-
-    # storage_path 指向 exe 同级，保证 localStorage（自定义标记、侧栏状态等）便携持久化
-    webview.start(storage_path=str(DATA_ROOT / ".webview-profile"))
-
-    # v260923x · 窗口关闭后落盘窗口状态，供下次启动恢复
-    if live["width"] > 0:
-        _save_window_state(live)
-
-    if httpd is None:
-        return
-    httpd.shutdown()
-    httpd.server_close()
-
-    # 设置页触发「快速重启」时：拉起新进程接管，当前进程退出（此时端口已释放，新进程可直接绑定）
-    if getattr(httpd, "restart_requested", False):
-        print("Restarting client...")
-        subprocess.Popen([sys.executable])
-        sys.exit(0)
-
-
-def main():
-    _setup_logging()
-    t0 = time.time()
-    now = lambda: time.strftime("%H:%M:%S")
-
-    import server
-
-    # v260923v · 端口被占时先探测是否为另一个健康的工作台实例：是则开一个次生窗口（单服务多窗口），
-    # 避免回退随机端口造成双服务并存；探测失败（陌生进程占用）才回退空闲端口。
-    try:
-        httpd, cfg, url = server.build_server(auto_open_browser=False)
-    except OSError as first_err:
-        print(f"[client] {now()} bind failed ({first_err}), probing existing instance...")
-        from app import config as _config
-        _cfg = _config.get_app()
-        _host = str(_cfg.get("host") or "127.0.0.1")
-        _port = int(_cfg.get("port") or 8765)
-        _url = f"http://{_host}:{_port}"
-        if _wait_ready(_url, timeout=2.0):
-            print(f"[client] {now()} existing workbench at {_url} is healthy, opening a secondary window.")
-            _run_window(_url, _cfg)
-            return
-        print(f"[client] {now()} no healthy instance detected, falling back to a free port.")
-        httpd, cfg, url = server.build_server(port_override=_free_port(), auto_open_browser=False)
-
-    # v260923v · 服务线程兜底：异常打印完整堆栈到 workbench.log，避免线程静默死亡无从排查
-    def _serve():
+    with _state_lock:
         try:
-            httpd.serve_forever(poll_interval=0.25)
-        except Exception:
-            import traceback
-            traceback.print_exc()
+            target = paths.DATA_ROOT / "window-state.json"
+            temporary = target.with_suffix(".json.tmp")
+            temporary.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(target)
+        except OSError as exc:
+            print(f"[desktop] could not save window state: {exc}")
 
-    serve_thread = threading.Thread(target=_serve, daemon=True)
-    serve_thread.start()
-    print(f"[client] {now()} serve thread started (+{time.time() - t0:.1f}s)")
 
-    if not _wait_ready(url):
-        print(f"Server failed to become ready at {url}", file=sys.stderr)
-        httpd.shutdown()
-        sys.exit(1)
+def _preferred_service_port(host: str, configured_port: int) -> int:
+    try:
+        saved = json.loads((paths.DATA_ROOT / "desktop-service.json").read_text(encoding="utf-8"))
+        port = int(saved["port"])
+        if saved.get("host") == host and saved.get("configured_port") == configured_port and 1 <= port <= 65535:
+            return port
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        pass
+    return configured_port
 
-    print(f"[client] {now()} server ready (+{time.time() - t0:.1f}s) at {url}")
-    _run_window(url, cfg, httpd=httpd)
+
+def _remember_service_port(host: str, configured_port: int, port: int) -> None:
+    try:
+        target = paths.DATA_ROOT / "desktop-service.json"
+        temporary = target.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps({"host":host,"configured_port":configured_port,"port":port}), encoding="utf-8")
+        temporary.replace(target)
+    except OSError as exc:
+        print(f"[desktop] could not save local service port: {exc}")
+
+
+def _open_service():
+    import server
+    from app import config, workspace
+    cfg = config.get_app()
+    host = str(cfg.get("host") or "127.0.0.1")
+    local_host = "127.0.0.1" if host == "0.0.0.0" else host
+    configured_port = int(cfg.get("port") or 8765)
+    preferred_port = _preferred_service_port(host, configured_port)
+    url = f"http://{local_host}:{preferred_port}"
+    health = _health(url)
+    expected = (workspace.ensure_workspace() / "System" / "Cache" / "index.sqlite").resolve()
+    # Reuse only a workbench serving this workspace, never an unrelated app.
+    index_path = health.get("index", {}).get("path")
+    if health.get("ok") and index_path and Path(index_path).resolve() == expected:
+        return None, cfg, url
+    try:
+        httpd, cfg, _ = server.build_server(port_override=preferred_port, auto_open_browser=False)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) != 10048 and exc.errno != 98:
+            raise
+        httpd, cfg, _ = server.build_server(port_override=_free_port(), auto_open_browser=False)
+    port = httpd.server_address[1]
+    _remember_service_port(host, configured_port, port)
+    return httpd, cfg, f"http://{local_host}:{port}"
+
+
+def _run_window(url: str, cfg: dict, gate: SingleInstance, server_stopped: threading.Event | None,
+                httpd, *, background: bool = False, smoke_output: Path | None = None) -> bool:
+    import webview
+    saved = _load_window_state()
+    width, height = _clamped_window_size(saved["width"] or 1440, saved["height"] or 900)
+    saved.update(width=width, height=height)
+    controller = DesktopController(str(cfg.get("app_name") or "科研工作台"), paths.ASSET_ROOT,
+                                   saved, _save_window_state, start_hidden=background)
+    webview.settings["DRAG_REGION_SELECTOR"] = ".desktop-drag-region"
+    webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
+    window = webview.create_window(
+        controller.title, url, js_api=DesktopBridge(controller), width=width, height=height,
+        min_size=(min(1000, width), min(680, height)),
+        frameless=True, easy_drag=False, shadow=True, resizable=True,
+        hidden=True, background_color="#F7F8FB", text_select=True,
+    )
+    controller.attach(window)
+    gate.listen(controller.show)
+
+    def started():
+        controller.start()
+        if server_stopped:
+            def supervise():
+                server_stopped.wait()
+                if not controller.quitting:
+                    restarting = bool(getattr(httpd, "restart_requested", False))
+                    controller.request_quit(restart=restarting, force=restarting)
+            threading.Thread(target=supervise, name="desktop-server-monitor", daemon=True).start()
+        if smoke_output:
+            from app.desktop_smoke import run
+            run(controller, url, smoke_output, paths.DATA_ROOT)
+
+    icon = paths.ASSET_ROOT / "research-workstation.ico"
+    try:
+        webview.start(started, gui="edgechromium", private_mode=False,
+                      storage_path=str(paths.DATA_ROOT / ".webview-profile"),
+                      icon=str(icon) if icon.exists() else None)
+    finally:
+        controller.stop()
+    return controller.restart_requested
+
+
+def _launch_arguments(argv: list[str]) -> list[str]:
+    return [sys.executable, *([] if paths.FROZEN else [str(Path(__file__).resolve())]), *argv]
+
+
+def _restart_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    if paths.FROZEN:
+        # A onefile restart must unpack its own resources before the old
+        # bootloader removes its temporary directory (PyInstaller >= 6.9).
+        environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return environment
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    parser = argparse.ArgumentParser(description="科研工作台 Windows 桌面客户端")
+    parser.add_argument("--background", action="store_true", help="启动后隐藏到系统托盘")
+    parser.add_argument("--data-dir", type=Path, help="指定便携数据目录（默认 exe 所在目录）")
+    parser.add_argument("--smoke-test", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    if args.data_dir:
+        paths.DATA_ROOT = args.data_dir.expanduser().resolve()
+    paths.DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    gate = SingleInstance(paths.DATA_ROOT)
+    if not gate.primary:
+        gate.close()
+        return 0
+    httpd = None
+    restart = False
+    try:
+        _setup_logging()
+        httpd, cfg, url = _open_service()
+        stopped = None
+        if httpd:
+            stopped = threading.Event()
+            def serve():
+                try:
+                    httpd.serve_forever(poll_interval=0.25)
+                except Exception:
+                    traceback.print_exc()
+                finally:
+                    stopped.set()
+            threading.Thread(target=serve, name="workbench-http", daemon=True).start()
+        if not _wait_ready(url):
+            raise RuntimeError(f"本地服务未能就绪：{url}")
+        restart = _run_window(url, cfg, gate, stopped, httpd, background=args.background,
+                              smoke_output=args.smoke_test)
+    finally:
+        if httpd:
+            httpd.shutdown()
+            httpd.server_close()
+        gate.close()
+    if restart:
+        subprocess.Popen(_launch_arguments(argv), env=_restart_environment(),
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        traceback.print_exc()
+        if "--smoke-test" in sys.argv:
+            output = Path(sys.argv[sys.argv.index("--smoke-test") + 1])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps({"ok":False,"error":traceback.format_exc()}), encoding="utf-8")
+        elif sys.platform == "win32":
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, f"启动失败：{exc}\n\n请查看数据目录中的 workbench.log。\n需要 Microsoft Edge WebView2 Runtime。", "科研工作台", 0x10)
+        raise SystemExit(1)

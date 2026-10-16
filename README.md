@@ -2,7 +2,9 @@
 
 > 一个面向科研人员的本地优先、Markdown-first 工科科研工作台：项目管理、研究笔记、文献卡片、知识图谱、科研时间线、全文检索、RSS 资讯与可引用本地知识的 LLM Agent，统一在一个轻量 Web 界面中完成。
 
-**当前版本：`workbench-v260924.1`**
+**当前版本：`v261015.1`**
+
+**Windows 桌面版**：双击 `ResearchWorkbench.exe` 打开独立窗口，支持右侧窗口控制、可配置关闭行为、托盘后台运行和重复启动唤回。最大化保留 Windows 任务栏。源码构建执行 `build_client.bat`，操作与数据位置见 [Windows 使用说明](docs/WINDOWS.md)。
 
 ---
 
@@ -1268,7 +1270,8 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 - [ ] Agent 流式输出；
 - [ ] 更完整的 OpenAI-compatible provider presets；
 - [ ] 数据备份 / 导入 / 导出；
-- [ ] PWA / 桌面端封装。
+- [x] Windows 桌面封装与托盘后台运行；
+- [ ] PWA。
 
 ---
 

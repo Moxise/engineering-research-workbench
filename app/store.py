@@ -129,7 +129,7 @@ def builtin_kind_default_template(kind: str) -> str:
     if kind == "summary":
         return "# {{title}}\n\n## 本阶段完成\n\n\n## 结果与产出\n\n\n## 问题与经验\n\n\n## 下一阶段\n\n- [ ] \n"
     if kind == "literature":
-        return "# {{title}}\n\n## BibTeX\n\n\`\`\`bibtex\n{{bibtex}}\n\`\`\`\n\n## 核心结论\n\n\n## 方法与数据\n\n\n## 与当前研究的关系\n\n\n## 摘录与批注\n\n"
+        return "# {{title}}\n\n## BibTeX\n\n```bibtex\n{{bibtex}}\n```\n\n## 核心结论\n\n\n## 方法与数据\n\n\n## 与当前研究的关系\n\n\n## 摘录与批注\n\n"
     return "# {{title}}\n\n## 要点\n\n\n## 正文\n\n\n## 关联\n\n"
 
 
@@ -488,7 +488,8 @@ def _make_default_body(kind: str, title: str, payload: dict[str, Any]) -> str:
     )
 
 
-def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+def prepare_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Build a new editor draft without files, activity events or index entries."""
     if kind not in kind_dir_map():
         raise ValueError("Invalid kind")
     title = str(payload.get("title") or f"未命名{kind_label_map().get(kind, kind)}").strip()
@@ -520,7 +521,20 @@ def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not meta["cite_key"]:
             meta["cite_key"] = _slug(title).replace("-", "_")[:48]
     _normalize_projects(meta)
-    body = payload.get("body") or _make_default_body(kind, title, payload)
+    body = str(payload["body"]) if payload.get("body") is not None else _make_default_body(kind, title, payload)
+    bibtex = BIBTEX_BLOCK_RE.search(body) if kind == "literature" else None
+    return {**meta, "body": body, "path": "", "draft": True,
+            "bibtex": payload.get("bibtex") or (bibtex.group(1).strip() if bibtex else "")}
+
+
+def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    draft = prepare_doc(kind, payload)
+    body = draft.pop("body")
+    draft.pop("path")
+    draft.pop("draft")
+    draft.pop("bibtex")
+    meta = draft
+    doc_id, title = meta["id"], meta["title"]
     for project_name in meta.get("projects", []):
         ensure_project(project_name)
     path = _kind_path(kind) / f"{doc_id}.md"

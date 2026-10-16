@@ -31,12 +31,16 @@
     graphRelations: new Set(storedArray('graphRelations', ['wikilink','tag','project'])),
     agentSession: null, agentRefs: [], agentImages: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false,
     heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapThresholds: savedHeatmapThresholds, heatmapColors: savedHeatmapColors, heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact', /* v260922h · 默认紧凑型（并排一屏收纳） */
-    focus: {mode:'专注', focusMinutes:savedFocusMinutes, breakMinutes:savedBreakMinutes, seconds:savedFocusMinutes*60, total:savedFocusMinutes*60, timer:null, running:false},
+    focus: {mode:'专注', focusMinutes:savedFocusMinutes, breakMinutes:savedBreakMinutes, seconds:savedFocusMinutes*60, total:savedFocusMinutes*60, timer:null, running:false,remaining:savedFocusMinutes*60,endsAt:null,busy:false,native:false,completionId:null},
     sidebarPinned: new Set(storedArray('sidebarPinned', ['core'])),
     sidebarOpen: new Set(storedArray('sidebarOpen', ['core','resources','system'])),
     knowledgeTypes: [],
-    dirty: false, docSelectSeq: 0, docSelection: new Set(), todoSelection: new Set(), docSelectionMode:false, todoSelectionMode:false, bulkBusy:false,
+    dirty: false, editorBaseline:null, draft:null, saving:null, leaving:null, docSelectSeq: 0, docSelection: new Set(), todoSelection: new Set(), docSelectionMode:false, todoSelectionMode:false, bulkBusy:false,
   };
+  window.ERWDesktop = {...window.ERWDesktop, hasUnsavedChanges: () => editorDirty()||!!state.saving,
+    documentOpen: () => !!state.selectedDoc, documentDraft: () => !!state.selectedDoc?.draft,
+    prepareToLeave: () => guardEditor('退出工作台'),
+    requestExit: async token => {let approved=false;try{approved=await guardEditor('退出工作台');if(approved){state.dirty=false;state.editorBaseline=null}}catch(error){toast(error.message,true)}await window.pywebview.api.desktop_resolve_exit(token,approved)}};
 
   const BUILTIN_KIND_ROUTE = {ideas:'idea', journals:'journal', notes:'note', milestones:'milestone', summaries:'summary', literature:'literature'};
   const BUILTIN_ROUTE_KIND = {idea:'ideas', journal:'journals', note:'notes', milestone:'milestones', summary:'summaries', literature:'literature'};
@@ -90,8 +94,18 @@
     if (init.body && typeof init.body !== 'string') init.body = JSON.stringify(init.body);
     const res = await fetch(url, init);
     let data = null; try { data = await res.json(); } catch { data = {}; }
-    if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+    if (!res.ok) {const error=new Error(data.message || data.error || `HTTP ${res.status}`);error.status=res.status;throw error;}
     return data;
+  }
+
+  async function bootstrapRead(url){
+    for(let attempt=0;attempt<3;attempt++){
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
+      try{return await api(url,{signal:controller.signal})}
+      catch(error){if(attempt===2||(error.status&&error.status<500))throw error}
+      finally{clearTimeout(timeout)}
+      await new Promise(resolve=>setTimeout(resolve,150*(attempt+1)));
+    }
   }
 
   function toast(message, error=false) {
@@ -104,6 +118,32 @@
     $('#modal-backdrop').classList.remove('hidden');
   }
   function closeModal(){ $('#modal-backdrop').classList.add('hidden'); }
+
+  function editorPayload(doc){
+    const value=id=>$('#'+id)?.value||'',projects=editorProjects();
+    const body={title:value('f-title').trim(),project:projects[0]||'',projects,status:value('f-status'),tags:editorTags(),kind_marks:$$('#f-marks .mark-chip.on').map(b=>b.dataset.mark),body:value('md-input'),pinned:!!$('#f-pinned')?.checked};
+    const dateField=({journal:'record_date',milestone:'due',summary:'record_date',literature:'added_date'})[doc.kind];
+    if(dateField)body[dateField]=value('f-date')||today();
+    if(doc.kind==='summary')body.summary_type=value('f-summary-type');
+    if(doc.kind==='literature')Object.assign(body,{authors:value('f-authors'),year:value('f-year'),venue:value('f-venue'),doi:value('f-doi'),url:value('f-url'),cite_key:value('f-cite-key'),attachment:value('f-attachment').trim(),bibtex:value('f-bibtex')});
+    return body;
+  }
+  function editorDirty(){
+    if(state.editorBaseline!==null&&state.selectedDoc&&$('#md-input'))state.dirty=JSON.stringify(editorPayload(state.selectedDoc))!==state.editorBaseline;
+    return state.dirty;
+  }
+  async function guardEditor(action='离开当前文档'){
+    if(state.saving){try{await state.saving}catch{return false}}
+    if(!editorDirty())return true;
+    if(state.leaving)return state.leaving;
+    state.leaving=(async()=>{
+      const answer=await window.ERWDialog.choose(`“${$('#f-title')?.value||state.selectedDoc?.title||'当前文档'}”有未保存的修改。${action}前是否保存？`,{title:'保存文档修改？',buttons:[{value:'cancel',label:'继续编辑'},{value:'discard',label:'不保存'},{value:'save',label:'保存并继续',primary:true}]});
+      if(answer==='cancel')return false;
+      if(answer==='save'){try{await saveCurrentDoc(state.selectedDoc);if(editorDirty()){toast('当次内容已保存，但还有新的修改，请确认后再离开');return false}}catch{return false}}
+      return true;
+    })();
+    try{return await state.leaving}finally{state.leaving=null}
+  }
 
   function saveSidebarState(){
     localStorage.setItem('sidebarPinned', JSON.stringify([...state.sidebarPinned]));
@@ -124,14 +164,15 @@
       const pinned = state.sidebarPinned.has(g.id);
       const open = pinned || state.sidebarOpen.has(g.id);
       return `<section class="nav-group ${open?'':'collapsed'} ${pinned?'pinned':''}" data-group="${g.id}">
-        <div class="nav-group-head"><button class="group-toggle" type="button" data-group-toggle="${g.id}"><span class="chev">⌄</span><span>${g.label}</span></button><button class="pin" type="button" data-pin-group="${g.id}" title="常驻展开">◆</button></div>
+        <div class="nav-group-head"><button class="group-toggle" type="button" data-group-toggle="${g.id}" aria-expanded="${open}"><span class="group-disclosure" aria-hidden="true"></span><span>${g.label}</span></button><button class="pin" type="button" data-pin-group="${g.id}" title="常驻展开" aria-label="${pinned?'取消常驻展开':'常驻展开'}：${g.label}" aria-pressed="${pinned}">◆</button></div>
         <div class="nav-items">${g.items.map(([id,label,ico])=>`<a class="nav-item ${state.route===id?'active':''}" href="#${id}" data-route="${id}" aria-label="${esc(label)}" title="${esc(label)}"><span class="nav-ico">${ico}</span><span>${label}</span></a>`).join('')}</div>
       </section>`;
     }).join('');
     $$('[data-group-toggle]', nav).forEach(btn => btn.addEventListener('click', e => {
       if (e.target.closest('[data-pin-group]')) return;
       const id=btn.dataset.groupToggle; if(state.sidebarPinned.has(id)) return;
-      if(state.sidebarOpen.has(id)) state.sidebarOpen.delete(id); else state.sidebarOpen.add(id); saveSidebarState(); renderSidebar();
+      if(state.sidebarOpen.has(id)) state.sidebarOpen.delete(id); else state.sidebarOpen.add(id);
+      const open=state.sidebarOpen.has(id);btn.setAttribute('aria-expanded',String(open));btn.closest('.nav-group').classList.toggle('collapsed',!open);saveSidebarState();
     }));
     $$('[data-pin-group]', nav).forEach(btn => btn.addEventListener('click', e => {
       e.stopPropagation(); const id=btn.dataset.pinGroup;
@@ -155,10 +196,10 @@
   async function navigate(route){
     if(state.bulkBusy){toast('正在删除所选条目，请稍候');return false}
     if(route==='research-overview')route='overview'; // Keep old bookmarks working after removing the duplicate page.
-    if (state.dirty && !confirm('当前 Markdown 有未保存修改，确定离开吗？')) return false;
+    if (!await guardEditor('离开当前页面')){if(location.hash.slice(1)!==state.route)location.replace('#'+state.route);return false}
     window.ERWKnowledgeGraph?.destroy();
     if(route!=='milestones')window.ERWMilestoneTimeline?.destroy?.(); /* v260930g9c · 返回 false 供 ERWNav 等调用方感知取消 */
-    state.dirty=false;state.selectedDoc=null;window.ERWCurrentDoc='';++state.docSelectSeq;
+    state.dirty=false;state.editorBaseline=null;state.draft=null;state.selectedDoc=null;window.ERWCurrentDoc='';++state.docSelectSeq;
     state.docSelection.clear();state.todoSelection.clear();
     state.docSelectionMode=false;state.todoSelectionMode=false;
     state.route=route; location.hash=route; document.documentElement.dataset.route=route; document.documentElement.dataset.knowledgeKind=kindFromRoute(route)||''; renderSidebar(); setHeader(route);
@@ -464,7 +505,8 @@
     const z=parseFloat(document.documentElement.style.zoom)||1;
     const s=document.documentElement.style;
     s.setProperty('--vw-px',(window.innerWidth/z)+'px');
-    s.setProperty('--vh-px',(window.innerHeight/z)+'px');
+    const chrome=document.documentElement.dataset.desktop==='true'?(window.ERWDesktop?.chromeHeight||48):0;
+    s.setProperty('--vh-px',((window.innerHeight-chrome)/z)+'px');
   }
 
   function applyUiScale(pct){
@@ -518,7 +560,7 @@
     rows.forEach((d,i)=>{const value=Date.parse((d.due||'')+'T12:00:00'),distance=Math.abs(value-reference);if(distance<best){best=distance;nearest=i}});
     return `<section class="card card-pad overview-milestone-card theme-card theme-milestone"><div class="card-head">${overviewCardHeading('近期节点','NEXT MILESTONE','milestone')}<button class="secondary-btn" data-go="milestones">时间轴</button></div>
       <div class="overview-ms-toolbar"><span>${rows.length} 个节点</span><button class="ghost-btn" id="overview-ms-center" ${nearest<0?'disabled':''}>回到临近节点</button></div>
-      <div class="overview-milestone-list" tabindex="0" aria-label="里程碑列表，滚动浏览过去与未来节点" data-nearest-index="${nearest}">${rows.length?`<div class="overview-list-spacer" aria-hidden="true"></div>${rows.map((d,i)=>`<div class="overview-milestone-row clickable ${i===nearest?'is-nearest':''}" data-open-doc="${esc(d.id)}" data-doc-route="milestones" ${i===nearest?'aria-current="date"':''}><div class="mini-ms-date"><strong>${esc(fmtDate(d.due))}</strong><i></i></div><div class="row-main"><div class="row-title" title="${esc(d.title)}">${esc(d.title)}</div><div class="row-meta">${esc(d.project||'未关联项目')}</div></div><span class="badge" data-status="${esc(d.status||'计划')}">${esc(d.status||'计划')}</span></div>`).join('')}<div class="overview-list-spacer" aria-hidden="true"></div>`:'<div class="empty compact-empty">暂无里程碑</div>'}</div></section>`;
+      <div class="overview-milestone-track">${rows.length?'<span class="overview-milestone-rail" aria-hidden="true"></span>':''}<div class="overview-milestone-list" tabindex="0" aria-label="里程碑列表，滚动浏览过去与未来节点" data-nearest-index="${nearest}">${rows.length?`<div class="overview-list-spacer" aria-hidden="true"></div>${rows.map((d,i)=>`<div class="overview-milestone-row clickable ${i===nearest?'is-nearest':''}" data-open-doc="${esc(d.id)}" data-doc-route="milestones" ${i===nearest?'aria-current="date"':''}><div class="mini-ms-date"><i class="milestone-ring" aria-hidden="true"></i><strong>${esc(fmtDate(d.due))}</strong></div><div class="row-main"><div class="row-title" title="${esc(d.title)}">${esc(d.title)}</div><div class="row-meta">${esc(d.project||'未关联项目')}</div></div><span class="badge" data-status="${esc(d.status||'计划')}">${esc(d.status||'计划')}</span></div>`).join('')}<div class="overview-list-spacer" aria-hidden="true"></div>`:'<div class="empty compact-empty">暂无里程碑</div>'}</div></div></section>`;
   }
 
   function centerOverviewMilestone(){
@@ -573,7 +615,7 @@
       b.addEventListener('click',open);
       b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open()}});
     });
-    $$('[data-quick-doc]').forEach(b=>b.addEventListener('click',async()=>{await navigate(b.dataset.quickDoc);setTimeout(()=>$('#new-doc')?.click(),30);}));
+    $$('[data-quick-doc]').forEach(b=>b.addEventListener('click',async()=>{if(await navigate(b.dataset.quickDoc))setTimeout(()=>($('#new-doc')||$('#new-ms'))?.click(),30);}));
     const hm=$('#heatmap-month-select'); if(hm)hm.addEventListener('change',async()=>{await setHeatmapMonths(hm.value);await renderOverview();animateMain();});
     const center=$('#overview-ms-center');if(center)center.onclick=centerOverviewMilestone;
     const hs=$('#heatmap-scale-settings'); if(hs)hs.addEventListener('click',openHeatmapScaleSettings);
@@ -595,7 +637,7 @@
   async function confirmTodoCompletion(input,id,refresh){
     const done=input.checked;
     const title=input.closest('.overview-task-row,.todo-row')?.querySelector('.row-title,.todo-title')?.textContent||'这项待办';
-    if(done&&!confirm(`确认完成“${title}”？`)){input.checked=false;return}
+    if(done&&!await window.ERWDialog.confirm(`确认完成“${title}”？`)){input.checked=false;return}
     input.disabled=true;
     try{await api('/api/todos/'+encodeURIComponent(id),{method:'POST',body:{done}});toast(done?'待办已完成':'待办已恢复');await refresh()}
     catch(e){input.checked=!done;toast(e.message,true)}
@@ -653,7 +695,7 @@
     const toolbar=$(`#${type}-selection-toolbar`);if(toolbar)toolbar.hidden=!mode;
     const panel=type==='doc'?$('.doc-list-panel'):$('.todo-page');panel?.classList.toggle('is-selecting',mode);
     const toggle=$(`#${type}-batch-toggle`);if(toggle){toggle.setAttribute('aria-pressed',String(mode));toggle.title=mode?'退出批量删除':'批量删除';toggle.disabled=!items.length||state.bulkBusy}
-    $$(`[data-${type}-pick]`).forEach(c=>{c.hidden=!mode;c.checked=selected.has(c.dataset[type+'Pick']);c.closest('.doc-item,.todo-row')?.classList.toggle('is-selected',mode&&c.checked)});
+    $$(`[data-${type}-pick]`).forEach(c=>{c.hidden=!mode||c.disabled;c.checked=!c.disabled&&selected.has(c.dataset[type+'Pick']);c.closest('.doc-item,.todo-row')?.classList.toggle('is-selected',mode&&c.checked)});
     const all=$(`#${type}-select-all`),count=items.filter(x=>selected.has(x.id)).length;
     if(all){all.checked=items.length>0&&count===items.length;all.indeterminate=count>0&&count<items.length;all.disabled=!items.length||state.bulkBusy}
     const counter=$(`#${type}-selected-count`);if(counter)counter.textContent=`已选 ${selected.size} 条`;
@@ -682,9 +724,9 @@
     </section>`;
     $('#todo-add').onclick=async()=>{const title=$('#todo-title').value.trim();if(!title)return;try{await api('/api/todos',{method:'POST',body:{title,project:$('#todo-project').value,due:$('#todo-due').value,priority:$('#todo-priority').value}});toast('任务已添加');await renderTodos()}catch(e){toast(e.message,true)}};
     $$('[data-todo-check]').forEach(x=>x.onclick=()=>{x.checked=x.getAttribute('aria-checked')!=='true';confirmTodoCompletion(x,x.dataset.todoCheck,renderTodos)});
-    $$('[data-todo-del]').forEach(x=>x.onclick=async()=>{if(confirm('删除该任务？')){try{await api('/api/todos/'+encodeURIComponent(x.dataset.todoDel),{method:'DELETE'});state.todoSelection.delete(x.dataset.todoDel);await renderTodos()}catch(e){toast(e.message,true)}}});
+    $$('[data-todo-del]').forEach(x=>x.onclick=async()=>{if(await window.ERWDialog.confirm('删除该任务？')){try{await api('/api/todos/'+encodeURIComponent(x.dataset.todoDel),{method:'DELETE'});state.todoSelection.delete(x.dataset.todoDel);await renderTodos()}catch(e){toast(e.message,true)}}});
     const remove=async(ids,onlyDone=false)=>{
-      if(!ids.length||!confirm(onlyDone?`确认清理 ${ids.length} 条已完成待办？未完成待办会保留。`:`确认删除所选 ${ids.length} 条待办？`))return;
+      if(!ids.length||!await window.ERWDialog.confirm(onlyDone?`确认清理 ${ids.length} 条已完成待办？未完成待办会保留。`:`确认删除所选 ${ids.length} 条待办？`))return;
       const result=await deleteSelection('todos',ids,onlyDone);if(!result)return;
       state.todoSelection=new Set(result.failed.map(x=>x.id));state.todoSelectionMode=state.todoSelection.size>0;await renderTodos();
     };
@@ -693,31 +735,65 @@
   }
   function todoRow(t){return `<div class="todo-row ${t.done?'done':''}"><input class="row-select" type="checkbox" ${state.todoSelectionMode?'':'hidden'} data-todo-pick="${esc(t.id)}" data-bulk-control aria-label="选择待办：${esc(t.title)}"><button type="button" class="todo-complete" role="checkbox" aria-checked="${!!t.done}" data-todo-check="${esc(t.id)}" aria-label="${t.done?'恢复待办':'完成任务'}：${esc(t.title)}" title="${t.done?'恢复待办':'标记完成'}">${t.done?'✓':''}</button><div class="todo-copy"><div class="todo-title">${esc(t.title)}</div><div class="row-meta">${esc(t.project||'未关联项目')}</div></div><time>${fmtDate(t.due)}</time><span class="badge" data-priority="${esc(t.priority||'普通')}">${esc(t.priority||'普通')}</span><button class="ghost-btn danger" data-todo-del="${esc(t.id)}">删除</button></div>`}
 
-  function renderFocus(){
-    $('#main').innerHTML=`<section class="card focus-panel"><h3>专注计时</h3><p class="focus-caption">专注与休息时长均可自定义，设置保存在当前浏览器。</p><div class="progress-ring" id="focus-ring"></div><div class="focus-time" id="focus-time">25:00</div><div class="focus-mode" id="focus-mode">专注 · 25 分钟</div>
+  async function renderFocus(){
+    $('#main').innerHTML=`<section class="card focus-panel"><h3>专注计时</h3><p class="focus-caption">${hasNativeFocus()?'隐藏到托盘后仍会计时；结束时在屏幕右下角显示提醒，手动点击后关闭。':'专注与休息时长均可自定义，设置保存在当前浏览器。'}</p><div class="progress-ring" id="focus-ring"></div><div class="focus-time" id="focus-time">25:00</div><div class="focus-mode" id="focus-mode">专注 · 25 分钟</div>
       <div class="focus-duration-panel"><div class="focus-duration-grid"><label><span>专注时长</span><div><input id="focus-minutes" type="number" min="1" max="240" step="1" value="${state.focus.focusMinutes}"><em>分钟</em></div></label><label><span>休息时长</span><div><input id="break-minutes" type="number" min="1" max="120" step="1" value="${state.focus.breakMinutes}"><em>分钟</em></div></label><button class="secondary-btn" id="focus-apply">应用时长</button></div><div class="focus-presets"><span>快速预设</span>${[25,45,60,90].map(n=>`<button type="button" data-focus-preset="${n}">${n} min</button>`).join('')}</div></div>
       <div class="focus-actions"><button class="primary-btn" id="focus-start">开始</button><button class="secondary-btn" id="focus-reset">重置</button><button class="secondary-btn" id="focus-mode-btn">切换休息</button></div></section>`;
     paintFocus();
     $('#focus-start').onclick=()=>{ state.focus.running?pauseFocus():startFocus(); };
     $('#focus-reset').onclick=()=>resetFocus();
-    $('#focus-mode-btn').onclick=()=>{ pauseFocus(); state.focus.mode=state.focus.mode==='专注'?'休息':'专注'; syncFocusModeDuration(); paintFocus(); };
+    $('#focus-mode-btn').onclick=()=>focusCommand(async()=>{const mode=state.focus.mode==='专注'?'休息':'专注';await resetFocusClock((mode==='专注'?state.focus.focusMinutes:state.focus.breakMinutes)*60,mode)});
     $('#focus-apply').onclick=()=>applyFocusDurations();
     $$('[data-focus-preset]').forEach(btn=>btn.onclick=()=>{ $('#focus-minutes').value=btn.dataset.focusPreset; applyFocusDurations(); });
+    await refreshNativeFocus();paintFocus();
   }
   function clampFocusMinutes(value,min,max,fallback){ const n=Math.round(Number(value)); return Number.isFinite(n)?Math.max(min,Math.min(max,n)):fallback; }
-  function syncFocusModeDuration(){ state.focus.total=(state.focus.mode==='专注'?state.focus.focusMinutes:state.focus.breakMinutes)*60; state.focus.seconds=state.focus.total; }
-  function applyFocusDurations(){
+  function applyFocusDurations(){return focusCommand(async()=>{
     const focus=clampFocusMinutes($('#focus-minutes')?.value,1,240,state.focus.focusMinutes);
     const rest=clampFocusMinutes($('#break-minutes')?.value,1,120,state.focus.breakMinutes);
-    pauseFocus(); state.focus.focusMinutes=focus; state.focus.breakMinutes=rest;
+    await resetFocusClock((state.focus.mode==='专注'?focus:rest)*60,state.focus.mode);
+    state.focus.focusMinutes=focus; state.focus.breakMinutes=rest;
     localStorage.setItem('focusMinutes',String(focus)); localStorage.setItem('breakMinutes',String(rest));
     if($('#focus-minutes')) $('#focus-minutes').value=focus; if($('#break-minutes')) $('#break-minutes').value=rest;
-    syncFocusModeDuration(); paintFocus(); toast(`已设置：专注 ${focus} 分钟 · 休息 ${rest} 分钟`);
-  }
+    paintFocus(); toast(`已设置：专注 ${focus} 分钟 · 休息 ${rest} 分钟`);
+  })}
   function paintFocus(){ const el=$('#focus-time'); if(!el)return; const s=state.focus.seconds; el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; $('#focus-mode').textContent=`${state.focus.mode} · ${Math.round(state.focus.total/60)} 分钟`; $('#focus-start').textContent=state.focus.running?'暂停':'开始'; const deg=state.focus.total?Math.max(0,Math.min(360,(1-s/state.focus.total)*360)):0; $('#focus-ring').style.background=`conic-gradient(var(--accent) ${deg}deg,var(--surface-3) ${deg}deg)`; }
-  function startFocus(){ if(state.focus.timer)return; state.focus.running=true; state.focus.timer=setInterval(()=>{state.focus.seconds=Math.max(0,state.focus.seconds-1);paintFocus();if(state.focus.seconds===0){pauseFocus();toast(`${state.focus.mode}计时完成`)}},1000);paintFocus(); }
-  function pauseFocus(){clearInterval(state.focus.timer);state.focus.timer=null;state.focus.running=false;paintFocus();}
-  function resetFocus(){pauseFocus();state.focus.seconds=state.focus.total;paintFocus();}
+  function hasNativeFocus(){return typeof window.pywebview?.api?.desktop_focus_state==='function'}
+  function clearFocusTick(){clearInterval(state.focus.timer);state.focus.timer=null}
+  function acceptNativeFocus(value){
+    if(!value?.initialized)return;
+    const f=state.focus;clearFocusTick();f.native=true;f.mode=value.mode;f.total=value.total;f.seconds=value.seconds;f.remaining=value.remaining;f.running=value.running;
+    f.endsAt=value.running?performance.now()+value.remaining*1000:null;
+    if(f.running)f.timer=setInterval(tickFocus,1000);
+    if(value.completed&&f.completionId!==value.completion_id){f.completionId=value.completion_id;toast(`${value.completion_mode||value.mode}计时完成`)}
+    paintFocus();
+  }
+  async function refreshNativeFocus(){if(hasNativeFocus()){try{acceptNativeFocus(await window.pywebview.api.desktop_focus_state())}catch(error){console.warn('读取后台计时失败',error)}}}
+  function tickFocus(){
+    const f=state.focus;if(!f.running)return;
+    f.remaining=Math.max(0,(f.endsAt-performance.now())/1000);f.seconds=Math.ceil(f.remaining);paintFocus();
+    if(f.seconds===0){clearFocusTick();if(f.native){refreshNativeFocus()}else{f.running=false;f.endsAt=null;toast(`${f.mode}计时完成`);paintFocus()}}
+  }
+  async function focusCommand(action){
+    if(state.focus.busy)return;
+    state.focus.busy=true;setFocusBusy();
+    try{await action()}catch(error){toast('计时操作失败：'+error.message,true)}finally{state.focus.busy=false;setFocusBusy();paintFocus()}
+  }
+  function setFocusBusy(){$$('.focus-actions button,#focus-apply,[data-focus-preset]').forEach(b=>b.disabled=state.focus.busy)}
+  async function resetFocusClock(seconds,mode){
+    if(hasNativeFocus()){acceptNativeFocus(await window.pywebview.api.desktop_focus_reset(seconds,mode))}
+    else{clearFocusTick();Object.assign(state.focus,{running:false,native:false,mode,total:seconds,seconds,remaining:seconds,endsAt:null})}
+  }
+  function startFocus(){return focusCommand(async()=>{
+    const f=state.focus;if(f.running)return;const seconds=f.remaining>0?f.remaining:f.total;
+    if(hasNativeFocus()){acceptNativeFocus(await window.pywebview.api.desktop_focus_start(seconds,f.mode,f.total))}
+    else{f.running=true;f.native=false;f.remaining=seconds;f.seconds=Math.ceil(seconds);f.endsAt=performance.now()+seconds*1000;clearFocusTick();f.timer=setInterval(tickFocus,1000)}
+  })}
+  function pauseFocus(){return focusCommand(async()=>{
+    if(hasNativeFocus()){acceptNativeFocus(await window.pywebview.api.desktop_focus_pause())}
+    else{const f=state.focus;if(f.running){f.remaining=Math.max(0,(f.endsAt-performance.now())/1000);f.seconds=Math.ceil(f.remaining)}clearFocusTick();f.running=false;f.endsAt=null}
+  })}
+  function resetFocus(){return focusCommand(()=>resetFocusClock(state.focus.total,state.focus.mode))}
 
 
   async function openGlobalSearch(initial=''){
@@ -725,7 +801,7 @@
     const input=$('#global-search-input'); const run=debounce(async()=>{const q=input.value.trim();if(!q){$('#global-search-results').innerHTML='<div class="empty">输入关键词开始检索</div>';return}try{const rows=await api('/api/search?q='+encodeURIComponent(q));$('#global-search-results').innerHTML=rows.length?rows.map(searchResultRow).join(''):'<div class="empty">没有找到相关条目</div>';$$('[data-search-result]').forEach(b=>b.onclick=()=>openSearchResult(rows[+b.dataset.searchResult]));}catch(e){$('#global-search-results').innerHTML=`<div class="empty danger">${esc(e.message)}</div>`}},180);input.oninput=run;setTimeout(()=>input.focus(),20);if(initial)run();
   }
   function searchResultRow(r,i){const label=r.source==='chat'?'Agent 对话':r.source==='todo'?'待办':kindLabel(r.kind);return `<button class="global-search-row" type="button" data-search-result="${i}"><span class="global-search-kind">${esc(label)}</span><span class="global-search-copy"><strong>${esc(r.title||'未命名')}</strong><small>${esc(r.project||'')}${r.project?' · ':''}${esc(r.excerpt||'')}</small></span><span>↗</span></button>`}
-  async function openSearchResult(r){closeModal();if(!r)return;if(r.source==='chat'){state.agentSession=r.id;await navigate('agent');return}if(r.source==='todo'){await navigate('todos');return}const route=routeForKind(r.kind);await navigate(route);setTimeout(()=>selectDoc(r.id),30)}
+  async function openSearchResult(r){closeModal();if(!r)return;if(r.source==='chat'){state.agentSession=r.id;await navigate('agent');return}if(r.source==='todo'){await navigate('todos');return}await openDocRoute(routeForKind(r.kind),r.id)}
 
   async function renderAgent(){
     const sessions=await api('/api/agent/sessions');
@@ -738,7 +814,7 @@
     $('#main').innerHTML=`<div class="agent-layout"><aside class="card agent-sessions"><div class="agent-side-head"><div><h3>Agent 对话</h3></div><button class="primary-btn" id="agent-new">＋</button></div><div class="agent-session-list">${sessions.length?sessions.map(x=>`<button type="button" class="agent-session ${x.id===state.agentSession?'active':''}" data-agent-session="${x.id}"><strong>${esc(x.title)}</strong><small>${esc(fmtTime(x.updated))} · ${x.message_count||0} 条</small></button>`).join(''):'<div class="empty compact">暂无对话</div>'}</div></aside><section class="card agent-chat"><div class="agent-chat-head"><div><h3 id="agent-chat-title">科研 Agent</h3></div><div class="agent-head-actions"><button class="secondary-btn" id="agent-ref">＋ 引用研究 · 知识</button><button class="ghost-btn danger" id="agent-delete" ${state.agentSession?'':'disabled'}>删除对话</button></div></div><div class="agent-messages" id="agent-messages"><div class="empty">${state.agentSession?'正在载入对话…':'新建一个对话开始'}</div></div><div class="agent-context-strip" id="agent-context-strip"></div><div class="agent-composer"><div class="agent-image-strip" id="agent-image-strip"></div><textarea id="agent-input" placeholder="向科研 Agent 提问。可粘贴/拖入图片，或手动引用研究 · 知识中的 Markdown…"></textarea><div class="agent-compose-actions"><div class="agent-compose-left"><button class="ghost-btn" id="agent-image">▧ 图片</button><label class="agent-preset-label">请求模式 <select class="search-input agent-preset-select" id="agent-preset">${requestPresetHtml}</select></label><span class="row-meta">Enter 发送 · Shift+Enter 换行</span></div><button class="primary-btn" id="agent-send">发送</button></div></div></section></div>`;
     $('#agent-new').onclick=async()=>{const s=await api('/api/agent/sessions',{method:'POST',body:{}});state.agentSession=s.id;state.agentRefs=[];state.agentImages=[];renderAgent()};
     $$('[data-agent-session]').forEach(b=>b.onclick=()=>{state.agentSession=b.dataset.agentSession;state.agentRefs=[];state.agentImages=[];renderAgent()});
-    $('#agent-ref').onclick=openAgentReferencePicker;$('#agent-image').onclick=pickAgentImage;$('#agent-delete').onclick=async()=>{if(state.agentSession&&confirm('将该对话移入 Trash？')){await api('/api/agent/sessions/'+encodeURIComponent(state.agentSession),{method:'DELETE'});state.agentSession=null;renderAgent()}};
+    $('#agent-ref').onclick=openAgentReferencePicker;$('#agent-image').onclick=pickAgentImage;$('#agent-delete').onclick=async()=>{if(state.agentSession&&await window.ERWDialog.confirm('将该对话移入 Trash？')){await api('/api/agent/sessions/'+encodeURIComponent(state.agentSession),{method:'DELETE'});state.agentSession=null;renderAgent()}};
     const input=$('#agent-input');input.addEventListener('paste',onAgentPasteImage);input.addEventListener('dragover',e=>e.preventDefault());input.addEventListener('drop',onAgentDropImage);input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();sendAgentMessage()}});$('#agent-send').onclick=sendAgentMessage;const presetSelect=$('#agent-preset');if(presetSelect)presetSelect.onchange=()=>{state.agentPreset=presetSelect.value;localStorage.setItem('agentRequestPreset',state.agentPreset)};
     paintAgentContext(); paintAgentImages(); if(state.agentSession)await loadAgentSession(state.agentSession);
   }
@@ -843,9 +919,10 @@
   }
 
   async function renderDocsPage(kind){
+    if(!await guardEditor('重新载入文档列表'))return;
     /* v260929 · 文献页保留原有列表/编辑器（BibTeX 同步、自动 cite_key、元数据表单均在此），
        PDF 阅读工作区不整体接管，改由列表页头部按钮进入（openLiteratureWorkspace），两套 UI 共存 */
-    const [docs,projects] = await Promise.all([api('/api/docs?kind='+encodeURIComponent(kind)), api('/api/projects')]); state.docs=docs; state.projects=projects; state.selectedDoc=null;
+    const [docs,projects] = await Promise.all([api('/api/docs?kind='+encodeURIComponent(kind)), api('/api/projects')]); state.docs=docs; state.projects=projects; state.selectedDoc=null;state.draft=null;state.editorBaseline=null;state.dirty=false;
     if(kind==='milestone') return renderMilestoneShell(docs,projects);
     $('#main').innerHTML=docsShell(kind,docs,projects);
     wireDocList(kind); wireDocFilters(kind); $('#new-doc').onclick=()=>createAndSelect(kind);
@@ -856,14 +933,15 @@
      工作区头部自带返回按钮（literature.js shell），返回时重新渲染文献列表 */
   async function openLiteratureWorkspace(){
     if(!window.ERWLiterature){toast('PDF 阅读工作区未加载',true);return}
-    if(state.dirty){toast('请先保存当前条目',true);return}
-    state.selectedDoc=null; await window.ERWLiterature.start();
+    if(!await guardEditor('打开 PDF 工作区'))return;
+    state.selectedDoc=null;state.draft=null;state.editorBaseline=null;state.dirty=false; await window.ERWLiterature.start();
   }
   /* v260929 · 附件入口统一：徽章点击一律跳 PDF 阅读区（原新窗口直开功能并入工作区）；
      未登记的附件先自动单条登记（迁移入 Knowledge/Literature/PDF/）再重试，仍失败才提示 */
   async function openAttachmentInWorkspace(d){
     if(!window.ERWLiterature)throw new Error('PDF 阅读工作区未加载');
-    if(state.dirty)throw new Error('请先保存当前条目');
+    if(!await guardEditor('打开文献附件'))return;
+    state.selectedDoc=null;state.draft=null;state.editorBaseline=null;state.dirty=false;
     if(!d||!d.attachment)throw new Error('该条目未配置 PDF 附件');
     try{await window.ERWLiterature.openByAttachment(d.attachment);return}
     catch(e){
@@ -877,7 +955,7 @@
   /* v260929 · 重建关联（真值归一）：以文献 md 条目为准补齐 PDF 工作区登记——
      未登记的附件 PDF 迁入 PDF 存放目录（设置 · 文献 / PDF 可配置）统一存放并建立双向关联；幂等可重复执行 */
   async function rebuildLiteratureLinks(){
-    if(!confirm('将以文献条目为准重建 PDF 工作区关联：未登记的附件 PDF 会迁入 PDF 存放目录（默认 Workspace/Knowledge/Literature/PDF，可在设置 · 文献 / PDF 中修改）统一存放（Workspace 内为移动，外部路径保留原件复制）并建立关联。继续？'))return;
+    if(!await window.ERWDialog.confirm('将以文献条目为准重建 PDF 工作区关联：未登记的附件 PDF 会迁入 PDF 存放目录（默认 Workspace/Knowledge/Literature/PDF，可在设置 · 文献 / PDF 中修改）统一存放（Workspace 内为移动，外部路径保留原件复制）并建立关联。继续？'))return;
     const r=await api('/api/literature/rebuild',{method:'POST',body:{}});
     toast(`重建完成：补关联 ${r.linked||0} 篇，新登记 ${r.registered||0} 篇，补建条目 ${r.ensured||0} 篇`);
     if(state.route==='settings')renderSettings();else renderDocsPage('literature');
@@ -936,7 +1014,7 @@
     const meta=`<span class="doc-project" title="${esc(project)}">${esc(project)}</span>${markBadges(d)}${d.status?`<span class="doc-status">${esc(d.status)}</span>`:''}${val?`<time>${esc(fmtDate(val))}</time>`:''}`;
     const attB=d.attachment_exists?'<span class="doc-mini-flag" title="有 PDF 附件">⧉</span>':'';
     const pinB=d.pinned?'<span class="doc-mini-flag" title="已置顶">📌</span>':'';
-    return `<article class="doc-item${d.pinned?' pinned':''}" data-doc-id="${d.id}" data-doc-kind="${esc(d.kind||'')}"><input type="checkbox" class="row-select doc-select" ${state.docSelectionMode?'':'hidden'} data-doc-pick="${esc(d.id)}" data-bulk-control aria-label="选择文档：${esc(d.title)}"><div class="doc-type-rail" aria-hidden="true"></div><div class="doc-compact-main"><div class="title">${esc(d.title)}</div><div class="doc-compact-meta">${meta}</div><div class="excerpt">${esc(d.excerpt||'')}</div></div><div class="doc-mini-flags">${attB}${pinB}</div></article>`
+    return `<article class="doc-item${d.pinned?' pinned':''}" data-doc-id="${d.id}" data-doc-kind="${esc(d.kind||'')}" ${d.draft?'data-doc-draft="true"':''}><input type="checkbox" class="row-select doc-select" ${state.docSelectionMode&&!d.draft?'':'hidden'} ${d.draft?'disabled':''} data-doc-pick="${esc(d.id)}" data-bulk-control aria-label="选择文档：${esc(d.title)}"><div class="doc-type-rail" aria-hidden="true"></div><div class="doc-compact-main"><div class="title">${esc(d.title)}</div><div class="doc-compact-meta">${meta}</div><div class="excerpt">${esc(d.draft?'新建草稿 · 尚未保存':d.excerpt||'')}</div></div><div class="doc-mini-flags">${attB}${pinB}</div></article>`
   }).join(''):'<div class="empty" style="min-height:140px">暂无内容</div>'}
   function dateBadge(d){ const val=d.due||d.record_date||d.added_date; if(val)return `<span class="badge mono">${fmtDate(val)}</span>`; return d.updated?`<span class="badge mono" title="更新时间">更新 ${fmtDate(d.updated)}</span>`:''; }
   function wireDocList(kind){
@@ -952,9 +1030,9 @@
   async function deleteSelectedDocs(kind){
     const ids=[...state.docSelection];if(!ids.length)return;
     const current=state.selectedDoc?.id;
-    if(!confirm(`确认删除所选 ${ids.length} 条文档？文件会移入回收目录。${state.dirty?'当前文档有未保存修改，继续将丢弃这些修改。':''}`))return;
+    if(!await window.ERWDialog.confirm(`确认删除所选 ${ids.length} 条文档？文件会移入回收目录。${state.dirty?'当前文档有未保存修改，继续将丢弃这些修改。':''}`))return;
     const result=await deleteSelection('docs',ids);if(!result)return;
-    state.docSelection=new Set(result.failed.map(x=>x.id));state.docSelectionMode=state.docSelection.size>0;state.dirty=false;
+    state.docSelection=new Set(result.failed.map(x=>x.id));state.docSelectionMode=state.docSelection.size>0;state.dirty=false;state.editorBaseline=null;state.selectedDoc=null;state.draft=null;
     const params=new URLSearchParams({kind,q:$('#doc-search')?.value||'',status:$('#doc-status')?.value||'',project:$('#doc-project')?.value||'',mark:$('#doc-mark')?.value||''});
     try{
       state.docs=await api('/api/docs?'+params);
@@ -967,15 +1045,27 @@
   }
 
   function wireDocFilters(kind){ const run=debounce(async()=>{const q=$('#doc-search').value,status=$('#doc-status').value,project=$('#doc-project').value,mark=$('#doc-mark')?.value||'';const url=`/api/docs?kind=${kind}&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&project=${encodeURIComponent(project)}&mark=${encodeURIComponent(mark)}`;state.docs=await api(url);$('#doc-list').innerHTML=docItems(state.docs);wireDocList(kind);},180); $('#doc-search').oninput=run;$('#doc-status').onchange=run;$('#doc-project').onchange=run;if($('#doc-mark'))$('#doc-mark').onchange=run; }
-  async function createAndSelect(kind){ const doc=await api('/api/docs',{method:'POST',body:{kind,title:`未命名${kindLabel(kind)}`}}); await renderDocsPage(kind); setTimeout(()=>selectDoc(doc.id),10); }
+  async function createAndSelect(kind){
+    if(!await guardEditor('新建另一篇文档'))return;
+    const seq=++state.docSelectSeq;
+    try{
+      const doc=await api('/api/docs/draft?kind='+encodeURIComponent(kind));
+      if(seq!==state.docSelectSeq)return;
+      if(kind==='milestone'){state.milestoneView='docs';renderMilestoneView()}
+      state.draft=doc;state.selectedDoc=doc;window.ERWCurrentDoc='';
+      const list=$('#doc-list');if(list){list.innerHTML=docItems([doc,...state.docs]);wireDocList(kind);$('[data-doc-id="'+doc.id+'"]',list)?.classList.add('active')}
+      renderDocEditor(doc);
+    }catch(error){toast('新建文档失败：'+error.message,true)}
+  }
   function showEmptyEditor(kind){ $('#doc-editor').className='card doc-editor empty-editor'; $('#doc-editor').innerHTML=`<div class="empty"><div><div class="empty-symbol">${esc(kindLabel(kind).toUpperCase())}</div>选择一条${kindLabel(kind)}，或点击左侧 ＋ 新建</div></div>`; }
   async function selectDoc(id){
-    if(state.dirty && !confirm('当前 Markdown 有未保存修改，确定切换吗？'))return;
-    state.dirty=false;
+    if(state.selectedDoc?.id===id)return true;
+    if(!await guardEditor('切换文档'))return false;
     const seq=++state.docSelectSeq;
     const doc=await api('/api/docs/'+encodeURIComponent(id));
     if(seq!==state.docSelectSeq)return; /* later selection wins; prevents milestone jump race */
-    state.selectedDoc=doc;
+    state.draft=null;state.selectedDoc=doc;state.dirty=false;
+    $$('#doc-list [data-doc-draft]').forEach(x=>x.remove());
     window.ERWCurrentDoc=doc.id;
     const list=$('#doc-list');
     const rows=$$('[data-doc-id]',list||document);
@@ -999,9 +1089,9 @@
     $('#doc-editor').className='card doc-editor';
     const tagsSpan=special||kind==='summary'?'span-4':(dateField?'span-2':'span-3');
     const metaFold=metaCollapsed(kind);
-    $('#doc-editor').innerHTML=`<div class="meta-block${metaFold?' collapsed':''}" id="meta-block">
-      <div class="meta-head"><span class="meta-head-title">条目信息</span><span class="meta-summary">${esc(metaSummary(doc))}</span><button type="button" class="ghost-btn meta-toggle" id="meta-toggle">${metaFold?'展开':'收起'}</button></div>
-      <div class="form-grid">
+    $('#doc-editor').innerHTML=`<div class="doc-editor-content"><div class="meta-block${metaFold?' collapsed':''}" id="meta-block">
+      <div class="meta-head"><span class="meta-head-title">条目信息</span><span class="meta-summary">${esc(metaSummary(doc))}</span><button type="button" class="ghost-btn meta-toggle" id="meta-toggle" aria-expanded="${!metaFold}" aria-controls="meta-fields">${metaFold?'展开':'收起'}</button></div>
+      <div class="form-grid" id="meta-fields">
       <div class="field span-2"><label>标题</label><input id="f-title" value="${esc(doc.title)}"></div>
       <div class="field span-2"><div class="field-label-row"><label>项目</label><span class="field-help">默认为空；点击 ＋ 从已有项目中勾选，可同时关联多个项目。</span></div><div class="project-picker-row"><div class="project-chip-box" id="f-projects" data-projects="${esc(JSON.stringify(doc.projects||[]))}"></div><button type="button" class="secondary-btn project-add-btn" id="f-project-add" title="从已有项目中添加">＋</button></div></div>
       <div class="field"><label>状态</label><select id="f-status">${(state.statuses[kind]||[]).map(s=>`<option ${s===doc.status?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
@@ -1013,13 +1103,16 @@
       <div class="field span-4"><div class="field-label-row"><label>分类标记</label><label class="pin-toggle" title="勾选后该条目固定显示在列表最前"><input id="f-pinned" type="checkbox" ${doc.pinned?'checked':''}>📌 置顶显示</label></div><div class="mark-chip-box" id="f-marks">${markChipsHtml(doc.kind_marks||[])}</div></div>
       </div>
     </div>
-    <div class="editor-wrap">${editorHtml(doc.body||'')}</div>
-    <div class="editor-actions"><span class="row-meta">${esc(doc.path)} · 更新 ${fmtTime(doc.updated)}</span><div class="right"><button class="secondary-btn" id="doc-open-file" title="在外部编辑器中打开该 Markdown 原文件">↗ 打开原文件</button><button class="secondary-btn" id="doc-delete">删除</button><button class="primary-btn" id="doc-save">保存</button></div></div>`;
+    <div class="editor-wrap">${editorHtml(doc.body||'')}</div></div>
+    <div class="editor-actions"><span class="row-meta">${doc.draft?'新建草稿 · 首次保存后生成 Markdown 文件':`${esc(doc.path)} · 更新 ${fmtTime(doc.updated)}`}</span><div class="right"><button class="secondary-btn" id="doc-open-file" ${doc.draft?'disabled':''} title="在外部编辑器中打开该 Markdown 原文件">↗ 打开原文件</button><button class="secondary-btn" id="doc-delete">${doc.draft?'丢弃草稿':'删除'}</button><button class="primary-btn" id="doc-save">保存</button></div></div>`;
     wireEditor();
     const metaBtn=$('#meta-toggle'); /* v260929 · 条目信息收起/展开：只切类名不动输入值，保存仍带全部字段 */
     if(metaBtn)metaBtn.onclick=()=>{
       const folded=$('#meta-block').classList.toggle('collapsed');
       metaBtn.textContent=folded?'展开':'收起';
+      metaBtn.setAttribute('aria-expanded',String(!folded));
+      $('#meta-block').scrollTop=0;
+      $('.doc-editor-content').scrollTop=0;
       try{localStorage.setItem('erwMetaCollapsed:'+kind,folded?'1':'0')}catch{}
     };
     ['f-title','f-status','f-date','f-summary-type','f-pinned','f-authors','f-year','f-venue','f-doi','f-url','f-cite-key','f-bibtex'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('input',()=>state.dirty=true)}); /* v260924i · 含置顶开关脏标记 */
@@ -1027,9 +1120,11 @@
     paintEditorProjects(doc.projects||[]); $('#f-project-add').onclick=openEditorProjectPicker;
     paintEditorTags(doc.tags||[]); $('#f-tag-add').onclick=openEditorTagPicker;
     wireMarkChips();
-    $('#doc-save').onclick=()=>saveCurrentDoc(doc,dateField); $('#doc-delete').onclick=()=>deleteCurrentDoc(doc);
+    $('#doc-save').onclick=()=>saveCurrentDoc(state.selectedDoc).catch(()=>{}); $('#doc-delete').onclick=()=>deleteCurrentDoc(state.selectedDoc);
     $('#doc-open-file').onclick=()=>openSourceFile(doc);
     renderMarkdownPreview();
+    state.editorBaseline=JSON.stringify(editorPayload(doc));state.dirty=false;
+    window.dispatchEvent(new Event('workbench:editor-state'));
   }
   /* v261008 · 打开原文件：选择外部编辑器（VS Code / Typora）打开该条目的 Markdown 原文件（服务端按编辑器解析可执行文件） */
   function openSourceFile(doc){
@@ -1299,7 +1394,7 @@
     if(seq!==out._markdownSeq||!document.body.contains(out))return;
     try{await window.ERWRenderLibraries.renderMath([out])}catch(e){console.warn(e)}
     if(seq!==out._markdownSeq||!document.body.contains(out))return;
-    $$('.wiki-link',out).forEach(a=>a.onclick=async e=>{e.preventDefault();const q=a.dataset.wiki;const results=await api('/api/docs?q='+encodeURIComponent(q));const self=state.selectedDoc&&state.selectedDoc.id;const exact=results.find(x=>x.id===q||x.title===q)||results.find(x=>x.id!==self)||null;if(exact){const r=routeForKind(exact.kind);await navigate(r);setTimeout(()=>selectDoc(exact.id),10)}else toast(`未找到关联条目：${q}`,true)});
+    $$('.wiki-link',out).forEach(a=>a.onclick=async e=>{e.preventDefault();const q=a.dataset.wiki;const results=await api('/api/docs?q='+encodeURIComponent(q));const self=state.selectedDoc&&state.selectedDoc.id;const exact=results.find(x=>x.id===q||x.title===q)||results.find(x=>x.id!==self)||null;if(exact){await openDocRoute(routeForKind(exact.kind),exact.id)}else toast(`未找到关联条目：${q}`,true)});
   }
   window.ERWMarkdown = {renderInto: renderMarkdownInto};
 
@@ -1314,9 +1409,32 @@
   async function onPasteImage(e){ const files=[...e.clipboardData.items].filter(x=>x.type.startsWith('image/')).map(x=>x.getAsFile()).filter(Boolean); if(!files.length)return;e.preventDefault();for(const f of files)await uploadImage(f); }
   async function onDropImage(e){e.preventDefault();const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));for(const f of files)await uploadImage(f);}
   async function uploadImage(file){ if(file.size>15*1024*1024)return toast('图片不能超过 15 MB',true); const dataUrl=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file)}); const res=await api('/api/assets',{method:'POST',body:{data_url:dataUrl,name:file.name}});insertAtSelection($('#md-input'),'\n'+res.markdown+'\n');toast('图片已保存到 Workspace/Knowledge/Attachments'); }
-  async function saveCurrentDoc(doc,dateField){ const projects=editorProjects(); const body={title:$('#f-title').value.trim(),project:projects[0]||'',projects,status:$('#f-status').value,tags:editorTags(),kind_marks:$$('#f-marks .mark-chip.on').map(b=>b.dataset.mark),body:$('#md-input').value,pinned:!!($('#f-pinned')&&$('#f-pinned').checked)}; if(dateField)body[dateField]=$('#f-date').value||today(); if(doc.kind==='summary')body.summary_type=$('#f-summary-type').value; if(doc.kind==='literature'){Object.assign(body,{authors:$('#f-authors').value,year:$('#f-year').value,venue:$('#f-venue').value,doi:$('#f-doi').value,url:$('#f-url').value,cite_key:$('#f-cite-key').value,attachment:$('#f-attachment')?.value.trim()||'',bibtex:$('#f-bibtex').value,added_date:$('#f-date').value||today()});} const saved=await api('/api/docs/'+doc.id,{method:'POST',body});state.dirty=false;toast('已保存 Markdown');state.selectedDoc=saved; await refreshListAfterSave(doc.kind,saved.id); }
+  async function saveCurrentDoc(doc){
+    if(state.saving)return state.saving;
+    if(!doc)return;
+    if(doc.draft&&!editorDirty()){toast('草稿尚未修改，无需保存');return}
+    const body=editorPayload(doc),snapshot=JSON.stringify(body);
+    state.saving=(async()=>{
+      const button=$('#doc-save');if(button)button.disabled=true;
+      try{
+        const saved=await api(doc.draft?'/api/docs':'/api/docs/'+encodeURIComponent(doc.id),{method:'POST',body:doc.draft?{...body,kind:doc.kind}:body});
+        state.draft=null;state.selectedDoc=saved;window.ERWCurrentDoc=saved.id;
+        // Do not drop edits typed while the request was in flight.
+        if(JSON.stringify(editorPayload(doc))===snapshot){renderDocEditor(saved)}
+        else{state.editorBaseline=snapshot;state.dirty=true;$('#doc-open-file').disabled=false;$('#doc-delete').textContent='删除'}
+        toast('已保存 Markdown');window.dispatchEvent(new Event('workbench:editor-state'));
+        await refreshListAfterSave(doc.kind,saved.id);return saved;
+      }catch(error){toast('保存失败：'+error.message,true);throw error}
+      finally{const b=$('#doc-save');if(b)b.disabled=false}
+    })();
+    try{return await state.saving}finally{state.saving=null}
+  }
   async function refreshListAfterSave(kind,id){ state.docs=await api('/api/docs?kind='+kind);const list=$('#doc-list');if(list){list.innerHTML=docItems(state.docs);wireDocList(kind);$$('[data-doc-id]').forEach(x=>x.classList.toggle('active',x.dataset.docId===id));} }
-  async function deleteCurrentDoc(doc){ if(!confirm(`删除“${doc.title}”？文件会移入 Workspace/System/Trash。`))return;await api('/api/docs/'+doc.id,{method:'DELETE'});toast('已移入回收目录');state.docSelection.delete(doc.id);state.dirty=false;renderDocsPage(doc.kind); }
+  async function deleteCurrentDoc(doc){
+    if(doc.draft){if(editorDirty()&&!await window.ERWDialog.confirm('丢弃这篇草稿及其修改？',{title:'丢弃草稿'}))return;state.draft=null;state.selectedDoc=null;state.editorBaseline=null;state.dirty=false;await renderDocsPage(doc.kind);return}
+    if(!await window.ERWDialog.confirm(`删除“${doc.title}”？文件会移入 Workspace/System/Trash。`))return;
+    await api('/api/docs/'+doc.id,{method:'DELETE'});toast('已移入回收目录');state.docSelection.delete(doc.id);state.selectedDoc=null;state.editorBaseline=null;state.dirty=false;await renderDocsPage(doc.kind);
+  }
   function routeForKind(k){ return BUILTIN_ROUTE_KIND[k] || ('kind-'+encodeURIComponent(k))}
   async function exportBibtex(){
     const docs=await api('/api/docs?kind=literature');
@@ -1329,8 +1447,8 @@
     state.docs=docs; state.projects=projects;
     if(state.milestoneView==='3d'||state.milestoneView==='fishbone')state.milestoneView='timeline';
     $('#main').innerHTML=`<div class="card card-pad milestone-page-card"><div class="card-head milestone-page-head"><div><h3>里程碑</h3></div><div style="display:flex;gap:7px"><div class="view-tabs"><button data-ms-view="timeline" class="${state.milestoneView==='timeline'?'active':''}">时间轴</button><button data-ms-view="list" class="${state.milestoneView==='list'?'active':''}">列表</button><button data-ms-view="docs" class="${state.milestoneView==='docs'?'active':''}">文档</button></div><button class="primary-btn" id="new-ms">＋ 新建</button>${batchModeButton('doc')}</div></div><div id="ms-view"></div></div>`;
-    $('#new-ms').onclick=async()=>{const d=await api('/api/docs',{method:'POST',body:{kind:'milestone',title:'未命名里程碑',due:today()}});state.milestoneView='docs';await renderDocsPage('milestone');setTimeout(()=>selectDoc(d.id),10)};
-    $$('[data-ms-view]').forEach(b=>b.onclick=()=>{state.milestoneView=b.dataset.msView;renderMilestoneView()}); renderMilestoneView();
+    $('#new-ms').onclick=()=>createAndSelect('milestone');
+    $$('[data-ms-view]').forEach(b=>b.onclick=async()=>{if(!await guardEditor('切换里程碑视图'))return;state.dirty=false;state.editorBaseline=null;state.draft=null;state.selectedDoc=null;state.milestoneView=b.dataset.msView;renderMilestoneView()}); renderMilestoneView();
   }
   function renderMilestoneView(){
     $$('[data-ms-view]').forEach(b=>b.classList.toggle('active',b.dataset.msView===state.milestoneView));
@@ -1431,7 +1549,7 @@
   async function deleteClassificationMark(app,cfg,id){
     const marks=classificationMarksConfig(app),mark=marks.find(x=>x.id===id);
     if(!mark)return;
-    if(!confirm(`删除分类“${mark.label}”？所有使用该分类的笔记、灵感、文献等条目将自动清空分类标记。`))return;
+    if(!await window.ERWDialog.confirm(`删除分类“${mark.label}”？所有使用该分类的笔记、灵感、文献等条目将自动清空分类标记。`))return;
     app.classification_marks=marks.filter(x=>x.id!==id);
     await saveKnowledgeTypes(app,cfg,'分类标记已删除');
     const result=await api('/api/knowledge-marks/cleanup',{method:'POST',body:{mark_id:id}});
@@ -1534,7 +1652,7 @@
     $$('[data-kt-delete]',p).forEach(b=>b.onclick=async()=>{
       const id=b.dataset.ktDelete,label=knowledgeType(id)?.label||id,docs=await api('/api/docs?kind='+encodeURIComponent(id));
       if(docs.length){toast(`“${label}”已有 ${docs.length} 条或更多文档，不能删除定义；请改为隐藏。`,true);return}
-      if(!confirm(`删除自定义条目类型“${label}”的定义？空目录会保留，现有其它数据不受影响。`))return;
+      if(!await window.ERWDialog.confirm(`删除自定义条目类型“${label}”的定义？空目录会保留，现有其它数据不受影响。`))return;
       reg.custom=reg.custom.filter(x=>x.id!==id);reg.order=reg.order.filter(x=>x!==id);reg.hidden=reg.hidden.filter(x=>x!==id);delete reg.templates[id];
       await saveKnowledgeTypes(app,cfg,'自定义条目类型定义已删除');renderSettingsTab('knowledge',cfg);
     });
@@ -1549,20 +1667,36 @@
     $('#km-add').onclick=()=>addClassificationMark(app,cfg);
     $$('[data-km-delete]',p).forEach(b=>b.onclick=()=>deleteClassificationMark(app,cfg,b.dataset.kmDelete));
   }
+  async function renderDesktopSettings(panel){
+    panel.innerHTML='<div class="empty">读取窗口设置…</div>';
+    try{
+      const preferences=await window.pywebview.api.desktop_get_state();
+      if(!panel.isConnected||!$('[data-set-tab="desktop"].active'))return;
+      panel.innerHTML=`<div class="card-head"><div><h3>窗口与后台运行</h3><p class="row-meta">选择点击标题栏“关闭”按钮时的行为。</p></div></div><div class="form-grid"><div class="field span-2"><label for="desktop-close-action">点击关闭按钮时</label><select id="desktop-close-action"><option value="tray" ${preferences.close_action!=='quit'?'selected':''}>最小化到系统托盘，继续后台运行</option><option value="quit" ${preferences.close_action==='quit'?'selected':''}>退出应用</option></select><span class="field-help">同样适用于 Alt+F4。选择退出时，有未保存的 Markdown 会先询问确认。</span></div><div class="field span-4"><span class="field-help">标题栏的最小化按钮会缩到 Windows 任务栏。托盘右键菜单始终提供“打开科研工作台”和“退出”；最大化保留 Windows 任务栏。</span></div></div><div style="margin-top:14px"><button class="primary-btn" id="desktop-settings-save">保存窗口设置</button><span class="field-help" id="desktop-settings-feedback" role="status"></span></div>`;
+      $('#desktop-settings-save').onclick=async()=>{
+        const button=$('#desktop-settings-save');button.disabled=true;
+        try{const saved=await window.pywebview.api.desktop_set_close_action($('#desktop-close-action').value);window.dispatchEvent(new CustomEvent('workbench:window-state',{detail:saved}));$('#desktop-settings-feedback').textContent='已保存，立即生效';toast('窗口设置已保存')}
+        catch(error){toast('保存窗口设置失败：'+error.message,true)}
+        finally{if(button.isConnected)button.disabled=false}
+      };
+    }catch(error){if(panel.isConnected)panel.textContent='读取窗口设置失败：'+error.message}
+  }
   async function renderSettings(){const cfg=await api('/api/config');state.config=cfg;
     $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="weather">天气</button><button data-set-tab="rss">资讯源</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button></aside><section class="card settings-panel" id="settings-panel"></section></div>`;
+    if(window.pywebview?.api?.desktop_set_close_action){const button=document.createElement('button');button.dataset.setTab='desktop';button.textContent='窗口';$('.settings-nav').append(button)}
     $$('[data-set-tab]').forEach(b=>b.onclick=()=>{$$('[data-set-tab]').forEach(x=>x.classList.toggle('active',x===b));renderSettingsTab(b.dataset.setTab,cfg)});renderSettingsTab('general',cfg);
   }
   function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app,rss=cfg.rss;if(tab==='general'){
       p.innerHTML=`<div class="card-head"><div><h3>基础设置</h3></div></div><div class="form-grid"><div class="field span-2"><label>工作台名称</label><input id="set-app-name" value="${esc(app.app_name)}"></div><div class="field span-2"><label>副标题</label><input id="set-subtitle" value="${esc(app.subtitle)}"></div></div><div class="field-help" style="margin-top:10px">运行端口、监听地址、Workspace 路径和启动行为已移动到“服务与存储”，均可在页面中配置。</div><div style="margin-top:14px"><button class="primary-btn" id="save-settings">保存</button></div>`;$('#save-settings').onclick=async()=>{app.app_name=$('#set-app-name').value.trim()||'科研工作台';app.subtitle=$('#set-subtitle').value.trim();const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;toast('基础设置已保存');await loadBootstrap();};
     }
     else if(tab==='knowledge'){renderKnowledgeTypesSettings(p,app,cfg);}
+    else if(tab==='desktop'){renderDesktopSettings(p);}
     else if(tab==='service'){
       const mig=app.workspace_migration||{};
       p.innerHTML=`<div class="card-head"><div><h3>服务与存储</h3><p class="row-meta">这些参数直接对应 config/app.json 中的运行与 Workspace 配置。</p></div><span class="badge warn">Host / Port 修改后需快速重启</span></div><div class="form-grid"><div class="field span-2"><label>监听地址 Host</label><input id="svc-host" value="${esc(app.host||'127.0.0.1')}" placeholder="127.0.0.1"><span class="field-help">仅本机使用建议 127.0.0.1；局域网访问可配置 0.0.0.0，并自行确认防火墙安全。</span></div><div class="field"><label>端口 Port</label><input id="svc-port" type="number" min="1" max="65535" value="${Number(app.port||8765)}"></div><div class="field"><label>启动时打开浏览器</label><select id="svc-browser"><option value="1" ${app.auto_open_browser!==false?'selected':''}>是</option><option value="0" ${app.auto_open_browser===false?'selected':''}>否 / 静默启动</option></select></div><div class="field span-4"><label>Workspace 路径</label><input id="svc-workspace" value="${esc(app.workspace||'Workspace')}" placeholder="Workspace"><span class="field-help">支持项目相对路径或绝对路径。修改后后续数据读写会使用新目录；建议修改前先备份 Workspace。</span></div><div class="field"><label>旧数据自动识别</label><select id="svc-migrate"><option value="1" ${mig.enabled!==false?'selected':''}>启用</option><option value="0" ${mig.enabled===false?'selected':''}>关闭</option></select></div><div class="field"><label>迁移时复制旧数据</label><select id="svc-copy"><option value="1" ${mig.copy_legacy_data!==false?'selected':''}>复制（非破坏）</option><option value="0" ${mig.copy_legacy_data===false?'selected':''}>仅识别</option></select></div></div><div style="margin-top:14px;display:flex;gap:8px"><button class="primary-btn" id="svc-save">保存服务与存储设置</button><button class="secondary-btn" id="svc-restart">保存后快速重启</button></div>`;
-      const collect=()=>{const newWs=$('#svc-workspace').value.trim()||'Workspace';if(newWs!==String(app.workspace||'Workspace')&&!confirm(`Workspace 将从“${app.workspace||'Workspace'}”切换到“${newWs}”。确定保存吗？`))return null;app.host=$('#svc-host').value.trim()||'127.0.0.1';app.port=Math.max(1,Math.min(65535,+$('#svc-port').value||8765));app.auto_open_browser=$('#svc-browser').value==='1';app.workspace=newWs;app.workspace_migration={...mig,enabled:$('#svc-migrate').value==='1',copy_legacy_data:$('#svc-copy').value==='1'};return app};
-      $('#svc-save').onclick=async()=>{const data=collect();if(!data)return;const saved=await api('/api/config/app',{method:'POST',body:data});state.config.app=saved;cfg.app=saved;toast('服务与存储设置已保存；Host / Port 修改需重启生效')};
-      $('#svc-restart').onclick=async()=>{const data=collect();if(!data)return;await api('/api/config/app',{method:'POST',body:data});systemAction('restart')};
+      const collect=async()=>{const newWs=$('#svc-workspace').value.trim()||'Workspace';if(newWs!==String(app.workspace||'Workspace')&&!await window.ERWDialog.confirm(`Workspace 将从“${app.workspace||'Workspace'}”切换到“${newWs}”。确定保存吗？`))return null;app.host=$('#svc-host').value.trim()||'127.0.0.1';app.port=Math.max(1,Math.min(65535,+$('#svc-port').value||8765));app.auto_open_browser=$('#svc-browser').value==='1';app.workspace=newWs;app.workspace_migration={...mig,enabled:$('#svc-migrate').value==='1',copy_legacy_data:$('#svc-copy').value==='1'};return app};
+      $('#svc-save').onclick=async()=>{const data=await collect();if(!data)return;const saved=await api('/api/config/app',{method:'POST',body:data});state.config.app=saved;cfg.app=saved;toast('服务与存储设置已保存；Host / Port 修改需重启生效')};
+      $('#svc-restart').onclick=async()=>{const data=await collect();if(!data)return;await api('/api/config/app',{method:'POST',body:data});systemAction('restart')};
     }
     else if(tab==='academic'){
       const ac=app.academic_profile||{}; const conditions=Array.isArray(ac.graduation_conditions)?ac.graduation_conditions:[];
@@ -1623,7 +1757,7 @@
     <div style="margin-top:12px"><button class="primary-btn" id="lit-ai-save">保存 AI 助手设置</button></div>`;
     $('#lit-pdf-save').onclick=async()=>{
       const dir=$('#lit-pdf-dir').value.trim(),move=$('#lit-pdf-move').checked;
-      if(move&&!confirm(`将把现有 PDF 迁移到「${dir||'默认目录 Knowledge/Literature/PDF'}」并回写文献条目的附件指向。继续？`))return;
+      if(move&&!await window.ERWDialog.confirm(`将把现有 PDF 迁移到「${dir||'默认目录 Knowledge/Literature/PDF'}」并回写文献条目的附件指向。继续？`))return;
       try{
         const r=await api('/api/literature/storage',{method:'POST',body:{pdf_dir:dir,move_existing:move}});
         toast(`已保存：迁移 ${r.moved||0} 个 PDF（跳过 ${r.skipped||0}），更新 ${r.updated||0} 条附件指向`);
@@ -1661,16 +1795,31 @@
 
   function applyTheme(theme){ document.documentElement.dataset.animations=state.config?.app?.ui?.animations===false?"off":"on";document.documentElement.dataset.theme=theme||'light';localStorage.setItem('theme',theme||'light');if($('#md-preview')&&state.editorMode!=='edit')setTimeout(()=>renderMarkdownPreview(),20)}
   async function loadWeather(force=false){try{const w=await api('/api/weather'+(force?'?force=1':''));if(!w.enabled){$('#weather-text').textContent='天气关闭';return}const d=w.daily?.[0];$('#weather-text').textContent=`${w.location} · ${w.current.condition} ${w.current.temperature}° · ${d?.low ?? '—'}~${d?.high ?? '—'}°`;$('#weather-pill').title=`Open-Meteo · 体感 ${w.current.apparent}° · 降水 ${w.current.precipitation} mm`; }catch(e){$('#weather-text').textContent='天气不可用';$('#weather-pill').title=e.message;}}
-  async function systemAction(action){ if(action==='reload'){try{await api('/api/system/reload',{method:'POST',body:{}});await loadBootstrap();toast('所有配置文件已 Reload');navigate(state.route)}catch(e){toast(e.message,true)}} else if(action==='restart'){if(!confirm('快速重启本地服务？浏览器将在约 1 秒后自动重连。'))return;try{await api('/api/system/restart',{method:'POST',body:{}})}catch{}toast('服务正在重启');setTimeout(waitForRestart,700)} }
+  async function systemAction(action){
+    const desktop=document.documentElement.dataset.desktop==='true';
+    if(action==='restart'&&!editorDirty()&&!await window.ERWDialog.confirm(desktop?'快速重启工作台？桌面窗口将自动重新打开。':'快速重启本地服务？浏览器将在约 1 秒后自动重连。'))return;
+    if(!await guardEditor(action==='restart'?'重启工作台':'重新加载工作台'))return;
+    try{
+      await api('/api/system/'+action,{method:'POST',body:{}});
+      state.dirty=false;state.editorBaseline=null;
+      if(action==='reload'){await loadBootstrap();toast('配置与索引已重新加载');await navigate(state.route)}
+      else{toast('服务正在重启');if(!desktop)setTimeout(waitForRestart,700)}
+    }catch(e){toast('操作失败：'+e.message,true)}
+  }
 
   async function waitForRestart(attempt=0){
     if(attempt>18){toast('服务重启等待超时，请手动刷新页面',true);return;}
     try{await api('/api/health');location.reload();}catch{setTimeout(()=>waitForRestart(attempt+1),450);}
   }
 
-  async function loadBootstrap(){ const [cfg,statuses,projects,health,ws,knowledgeTypes]=await Promise.all([api('/api/config'),api('/api/statuses'),api('/api/projects'),api('/api/health'),api('/api/workspace/info'),api('/api/knowledge-types')]); state.config=cfg;state.statuses=statuses;state.projects=projects;state.knowledgeTypes=Array.isArray(knowledgeTypes)?knowledgeTypes:[];if(localStorage.getItem('sidebarPinned')===null){state.sidebarPinned=new Set(cfg.app.ui?.sidebar_pinned_groups||['core']);saveSidebarState();}$('#brand-title').textContent=cfg.app.app_name;$('#brand-subtitle').textContent=cfg.app.subtitle;$('#version-label').textContent=health.version;$('#workspace-mini').textContent='Workspace · '+ws.relative;state.milestoneView=(['3d','fishbone'].includes(cfg.app.ui?.milestone_default_view)?'timeline':cfg.app.ui?.milestone_default_view)||state.milestoneView;state.graphView='2d';state.heatmapMonths=Math.max(1,Math.min(12,Number(cfg.app.ui?.heatmap_months)||state.heatmapMonths||12));if(Array.isArray(cfg.app.ui?.heatmap_thresholds)&&cfg.app.ui.heatmap_thresholds.length===2)state.heatmapThresholds=[Math.max(1,Math.round(+cfg.app.ui.heatmap_thresholds[0]||1)),Math.max(Math.max(1,Math.round(+cfg.app.ui.heatmap_thresholds[0]||1))+1,Math.round(+cfg.app.ui.heatmap_thresholds[1]||3))];if(Array.isArray(cfg.app.ui?.heatmap_colors)&&cfg.app.ui.heatmap_colors.length===3)state.heatmapColors=cfg.app.ui.heatmap_colors;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));localStorage.setItem('heatmapThresholds',JSON.stringify(state.heatmapThresholds));localStorage.setItem('heatmapColors',JSON.stringify(state.heatmapColors));const theme=localStorage.getItem('theme')||cfg.app.ui?.theme||'light';applyTheme(theme); }
+  async function loadBootstrap(){ const [cfg,statuses,projects,health,ws,knowledgeTypes]=await Promise.all(['/api/config','/api/statuses','/api/projects','/api/health','/api/workspace/info','/api/knowledge-types'].map(bootstrapRead)); state.config=cfg;state.statuses=statuses;state.projects=projects;state.knowledgeTypes=Array.isArray(knowledgeTypes)?knowledgeTypes:[];if(localStorage.getItem('sidebarPinned')===null){state.sidebarPinned=new Set(cfg.app.ui?.sidebar_pinned_groups||['core']);saveSidebarState();}$('#brand-title').textContent=cfg.app.app_name;$('#brand-subtitle').textContent=cfg.app.subtitle;$('#version-label').textContent=health.version;$('#workspace-mini').textContent='Workspace · '+ws.relative;state.milestoneView=(['3d','fishbone'].includes(cfg.app.ui?.milestone_default_view)?'timeline':cfg.app.ui?.milestone_default_view)||state.milestoneView;state.graphView='2d';state.heatmapMonths=Math.max(1,Math.min(12,Number(cfg.app.ui?.heatmap_months)||state.heatmapMonths||12));if(Array.isArray(cfg.app.ui?.heatmap_thresholds)&&cfg.app.ui.heatmap_thresholds.length===2)state.heatmapThresholds=[Math.max(1,Math.round(+cfg.app.ui.heatmap_thresholds[0]||1)),Math.max(Math.max(1,Math.round(+cfg.app.ui.heatmap_thresholds[0]||1))+1,Math.round(+cfg.app.ui.heatmap_thresholds[1]||3))];if(Array.isArray(cfg.app.ui?.heatmap_colors)&&cfg.app.ui.heatmap_colors.length===3)state.heatmapColors=cfg.app.ui.heatmap_colors;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));localStorage.setItem('heatmapThresholds',JSON.stringify(state.heatmapThresholds));localStorage.setItem('heatmapColors',JSON.stringify(state.heatmapColors));const theme=localStorage.getItem('theme')||cfg.app.ui?.theme||'light';applyTheme(theme); }
 
   function bindGlobal(){
+    window.addEventListener('workbench:focus-state',event=>acceptNativeFocus(event.detail));
+    window.addEventListener('pywebviewready',refreshNativeFocus);
+    window.addEventListener('workbench:window-state',event=>{if(!event.detail.hidden)refreshNativeFocus()});
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(state.focus.native)refreshNativeFocus();else tickFocus()}});
+    document.addEventListener('keydown',async e=>{if(document.documentElement.dataset.desktop==='true'&&(e.key==='F5'||((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='r'))){e.preventDefault();if(await guardEditor('刷新页面')){state.dirty=false;state.editorBaseline=null;location.reload()}}});
     $('#modal-close').onclick=closeModal;$('#modal-backdrop').addEventListener('click',e=>{if(e.target===$('#modal-backdrop'))closeModal()});
     $('#theme-btn').onclick=()=>applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
     $('#zoom-btn').onclick=()=>$('#zoom-menu').classList.toggle('hidden');
@@ -1683,9 +1832,13 @@
     applyDensity(manualDensity&&savedDensity?savedDensity:'compact'); /* v260922h · 默认紧凑型：并排一屏、免滚动 */
     $('#global-search-btn').onclick=()=>openGlobalSearch();
     document.addEventListener('keydown',e=>{const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();if(mod&&key==='s'&&$('#md-input')&&state.selectedDoc){e.preventDefault();$('#doc-save')?.click();return}if(mod&&key==='k'){e.preventDefault();openGlobalSearch();}});
-    $('#reload-btn').onclick=()=>systemAction('reload');$('#reload-menu-btn').onclick=()=>$('#reload-menu').classList.toggle('hidden');$$('[data-system-action]').forEach(b=>b.onclick=()=>{ $('#reload-menu').classList.add('hidden');systemAction(b.dataset.systemAction)});
-    document.addEventListener('click',e=>{if(!e.target.closest('.reload-wrap'))$('#reload-menu').classList.add('hidden');if(!e.target.closest('.zoom-wrap'))$('#zoom-menu').classList.add('hidden')});
-    window.addEventListener('beforeunload',e=>{if(state.dirty){e.preventDefault();e.returnValue=''}});
+    const toggleReloadMenu=show=>{$('#reload-menu').classList.toggle('hidden',!show);$('#reload-btn').setAttribute('aria-expanded',String(show))};
+    $('#reload-btn').onclick=()=>toggleReloadMenu($('#reload-menu').classList.contains('hidden'));
+    $$('[data-system-action]').forEach(b=>b.onclick=()=>{toggleReloadMenu(false);systemAction(b.dataset.systemAction)});
+    $('#reload-btn').onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();toggleReloadMenu(true);$('#reload-menu button')?.focus()}};
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#reload-menu').classList.contains('hidden')){toggleReloadMenu(false);$('#reload-btn').focus()}});
+    document.addEventListener('click',e=>{if(!e.target.closest('.reload-wrap'))toggleReloadMenu(false);if(!e.target.closest('.zoom-wrap'))$('#zoom-menu').classList.add('hidden')});
+    window.addEventListener('beforeunload',e=>{if(editorDirty()||state.saving){e.preventDefault();e.returnValue=''}});
     window.addEventListener('hashchange',()=>{const r=location.hash.slice(1)||'overview';if(r!==state.route)navigate(r)});
     /* v260929 · PDF 工作区「返回文献列表」事件：启动即注册（此前挂在 openLiteratureWorkspace 内，
        从附件徽章进入时无人监听，点击返回无反应）；hash 未变不触发路由，须显式重渲染列表页 */

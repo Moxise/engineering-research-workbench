@@ -18,6 +18,8 @@
 !/LICENSE.txt
 !/VERSION
 !/requirements.txt
+!/requirements-desktop.txt
+!/run_client.bat
 !/server.py
 !/client.py
 !/build_client.bat

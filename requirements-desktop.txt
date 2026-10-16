@@ -1,0 +1,5 @@
+# Desktop runtime and Windows packaging; install into build/.venv only.
+pywebview==6.2.1
+pystray==0.19.5
+Pillow==12.3.0
+PyInstaller==6.22.3
