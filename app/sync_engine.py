@@ -93,6 +93,7 @@ class SyncEngine:
         self._thread = None
         self._cache = {}
         self._guards = {}
+        self._blob_locks = {}
         self._status = {"phase": "idle", "error": "", "last_success": None, "last_check": None,
                         "peer": None, "remote_known": False, "applied": 0, "transferred": 0}
         with self._db() as db:
@@ -175,6 +176,39 @@ class SyncEngine:
             raise ValueError("文件校验值无效")
         return self.blobs / sha
 
+    def _blob_lock(self, sha):
+        self._blob_path(sha)
+        with self._lock:
+            return self._blob_locks.setdefault(sha, threading.Lock())
+
+    def _commit_blob(self, source, sha, size):
+        """Publish verified content once; never replace a blob held by a reader.
+
+        Windows rename fails if the destination exists. POSIX hard-link creation
+        gives the same no-replacement guarantee when different publishers race.
+        """
+        target = self._blob_path(sha)
+        for attempt in range(5):
+            if target.is_file():
+                if target.stat().st_size != size:
+                    raise ValueError(f"同步缓存大小校验失败，已停止同步：{sha}")
+                return
+            try:
+                if os.name == "nt":
+                    os.rename(source, target)
+                else:
+                    os.link(source, target)
+                return
+            except OSError as exc:
+                if target.is_file():
+                    continue  # Another publisher finished after our existence check.
+                if getattr(exc, "winerror", None) not in (5, 32, 33) or attempt == 4:
+                    raise
+                time.sleep(.05 * (2 ** attempt))
+        if target.is_file() and target.stat().st_size == size:
+            return
+        raise ValueError("同步缓存写入未完成，请稍后重试")
+
     def _store_blob(self, path):
         stat = path.stat()
         if stat.st_size > MAX_BLOB:
@@ -194,7 +228,7 @@ class SyncEngine:
             if signature != (after.st_mtime_ns, after.st_size, after.st_ino):
                 raise ValueError(f"文件仍在写入，稍后重试：{path.name}")
             key = sha.hexdigest()
-            os.replace(temp, self._blob_path(key))
+            self._commit_blob(temp, key, stat.st_size)
             self._cache[str(path)] = (signature, key)
             return key, stat.st_size
         finally:
@@ -209,7 +243,7 @@ class SyncEngine:
         path = self._blob_path(sha)
         if not 0 <= offset <= total <= MAX_BLOB or len(chunk) > CHUNK or offset + len(chunk) > total:
             raise ValueError("附件分块大小无效")
-        with self._lock:
+        with self._blob_lock(sha):
             if path.exists():
                 return self.blob_info(sha)
             part = path.with_suffix(".part")
@@ -227,7 +261,8 @@ class SyncEngine:
                 if actual != sha:
                     part.unlink()
                     raise ValueError("附件校验失败，请重新上传")
-                os.replace(part, path)
+                self._commit_blob(part, sha, total)
+                part.unlink(missing_ok=True)
             return self.blob_info(sha)
 
     def _row(self, row):
@@ -612,7 +647,7 @@ class SyncEngine:
         if offset < 0 or offset > size:
             raise ValueError("服务器附件断点无效")
         with self._blob_path(sha).open("rb") as source:
-            while offset < size or size == 0:
+            while not info.get("ready"):
                 if self._stop.is_set():
                     raise ValueError("同步已停止")
                 source.seek(offset)
@@ -630,6 +665,12 @@ class SyncEngine:
                     break
 
     def _download_blob(self, url, desc):
+        # The shared .part file must have only one writer, including HTTP uploads
+        # arriving at this instance. Do not hold the main lock during networking.
+        with self._blob_lock(desc["blob"]):
+            self._download_blob_locked(url, desc)
+
+    def _download_blob_locked(self, url, desc):
         sha, size = desc["blob"], desc["size"]
         if not isinstance(size, int) or not 0 <= size <= MAX_BLOB:
             raise ValueError("服务器附件大小无效")
@@ -659,7 +700,8 @@ class SyncEngine:
         if actual.hexdigest() != sha:
             part.unlink(missing_ok=True)
             raise ValueError("附件校验失败，未应用到资料库")
-        os.replace(part, target)
+        self._commit_blob(part, sha, size)
+        part.unlink(missing_ok=True)
 
     def _transfer(self, url, row, upload=False):
         if row["hash"] is not None and row["descriptor"]["type"] == "file":

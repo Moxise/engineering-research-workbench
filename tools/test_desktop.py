@@ -11,11 +11,22 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import client
 from app.desktop import DesktopController, SingleInstance
-from app.windows_frame import work_area_bounds
+from app.windows_frame import work_area_bounds, resize_hit_test
 from ctypes import wintypes
 
 
 class DesktopTests(unittest.TestCase):
+    def test_native_resize_edges_and_corners_on_negative_monitor(self):
+        bounds = wintypes.RECT(-1920, -100, -720, 700)
+        points = [("w",-1919,300,10),("e",-722,300,11),("n",-1300,-99,12),("s",-1300,698,15),
+                  ("nw",-1918,-98,13),("ne",-722,-98,14),("sw",-1918,698,16),("se",-722,698,17)]
+        for name,x,y,expected in points:
+            with self.subTest(edge=name):
+                self.assertEqual(resize_hit_test(x,y,bounds,9,15),expected)
+        self.assertIsNone(resize_hit_test(-1300,300,bounds,9,15))
+        self.assertIsNone(resize_hit_test(-1930,300,bounds,9,15))
+        self.assertEqual(resize_hit_test(-1904,-99,bounds,18,30),13)
+
     def setUp(self):
         self.window = Mock()
         self.saved = []

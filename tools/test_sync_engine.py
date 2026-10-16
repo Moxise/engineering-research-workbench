@@ -1,6 +1,7 @@
 """Two real HTTP workspaces: bidirectional edits, CAS, recovery and scope isolation."""
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -9,6 +10,7 @@ import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.sync_engine import SyncEngine, atomic_json, read_json, digest, normalized_url
@@ -242,6 +244,121 @@ class SyncTests(unittest.TestCase):
         self.assertTrue(self.b.receive_blob(sha, value[100:], 100, len(value))['ready'])
         with self.assertRaisesRegex(ValueError, '校验失败'):
             self.b.receive_blob('0' * 64, b'invalid', 0, 7)
+
+    def test_identical_blob_can_be_reused_while_a_reader_holds_it_open(self):
+        first = self.doc(self.a)
+        sha, size = self.a._store_blob(first)
+        second = self.a.root / 'Knowledge/Notes/copy.md'
+        second.write_bytes(first.read_bytes())
+        cached = self.a._blob_path(sha)
+        before = cached.stat().st_mtime_ns
+        with cached.open('rb') as reader:
+            self.assertEqual(self.a._store_blob(second), (sha, size))
+            self.assertEqual(reader.read(), first.read_bytes())
+        self.assertEqual(cached.stat().st_mtime_ns, before)
+        self.assertEqual(list(self.a.blobs.glob('*.tmp')), [])
+
+    def test_parallel_publishers_do_not_replace_each_other(self):
+        data = b'Identical saved attachment\n' * 10000
+        paths = [self.a.root / ('Knowledge/asset-' + str(i) + '.txt') for i in range(2)]
+        paths[0].parent.mkdir(parents=True, exist_ok=True)
+        for path in paths:
+            path.write_bytes(data)
+        barrier = threading.Barrier(2)
+        operation = 'rename' if os.name == 'nt' else 'link'
+        original = getattr(os, operation)
+        def racing(source, target):
+            barrier.wait(timeout=3)
+            return original(source, target)
+        with patch('app.sync_engine.os.' + operation, side_effect=racing):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                values = list(pool.map(self.a._store_blob, paths))
+        self.assertEqual(values[0], values[1])
+        self.assertEqual(self.a._blob_path(values[0][0]).read_bytes(), data)
+        self.assertEqual(list(self.a.blobs.glob('*.tmp')), [])
+
+    def test_commit_reuses_blob_created_after_the_existence_check(self):
+        source = self.doc(self.a)
+        handles = []
+        operation = 'rename' if os.name == 'nt' else 'link'
+        def racing(temp, target):
+            target.write_bytes(temp.read_bytes())
+            handles.append(target.open('rb'))
+            error = PermissionError('A reader holds the existing blob')
+            error.winerror = 5
+            raise error
+        try:
+            with patch('app.sync_engine.os.' + operation, side_effect=racing) as publish:
+                sha, size = self.a._store_blob(source)
+            publish.assert_called_once()
+            self.assertEqual(self.a._blob_path(sha).stat().st_size, size)
+            self.assertEqual(handles[0].read(), source.read_bytes())
+        finally:
+            for handle in handles:
+                handle.close()
+
+    def test_temporary_new_blob_lock_retries_without_touching_source(self):
+        source = self.doc(self.a)
+        data = source.read_bytes()
+        operation = 'rename' if os.name == 'nt' else 'link'
+        original = getattr(os, operation)
+        calls = []
+        def busy(temp, target):
+            calls.append(True)
+            if len(calls) < 3:
+                error = PermissionError('Temporary scanner lock')
+                error.winerror = 5
+                raise error
+            return original(temp, target)
+        with patch('app.sync_engine.os.' + operation, side_effect=busy), patch('app.sync_engine.time.sleep') as sleep:
+            sha, _ = self.a._store_blob(source)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual(source.read_bytes(), data)
+        self.assertEqual(self.a._blob_path(sha).read_bytes(), data)
+
+    def test_permanent_blob_access_failure_preserves_documents(self):
+        source = self.doc(self.a)
+        data = source.read_bytes()
+        error = PermissionError('Persistent access failure')
+        error.winerror = 5
+        operation = 'rename' if os.name == 'nt' else 'link'
+        with patch('app.sync_engine.os.' + operation, side_effect=error) as publish, patch('app.sync_engine.time.sleep'):
+            self.assertEqual(self.a.synchronize()['phase'], 'error')
+        self.assertEqual(publish.call_count, 5)
+        self.assertEqual(source.read_bytes(), data)
+        self.assertEqual(list(self.a.blobs.glob('*.tmp')), [])
+        self.assertEqual(self.sync()['phase'], 'synced')
+
+    def test_finished_partial_upload_is_finalized_on_retry(self):
+        source = self.doc(self.a)
+        row = self.a.manifest()['resources'][0]
+        desc = row['descriptor']
+        part = self.b._blob_path(desc['blob']).with_suffix('.part')
+        part.write_bytes(source.read_bytes())
+        self.assertFalse(self.b.blob_info(desc['blob'])['ready'])
+        self.a._upload_blob(self.url, desc)
+        self.assertTrue(self.b.blob_info(desc['blob'])['ready'])
+        self.assertFalse(part.exists())
+
+    def test_concurrent_downloads_share_one_partial_writer(self):
+        self.doc(self.b)
+        row = self.b.manifest()['resources'][0]
+        desc = row['descriptor']
+        import app.sync_engine as engine_module
+        original = engine_module.urlopen
+        downloads = []
+        def observe(request, **kwargs):
+            downloads.append(request.full_url)
+            return original(request, **kwargs)
+        with patch('app.sync_engine.urlopen', side_effect=observe):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(self.a._download_blob, self.url, desc) for _ in range(2)]
+                for future in futures:
+                    future.result(timeout=5)
+        self.assertEqual(len(downloads), 1)
+        self.assertEqual(self.a._blob_path(desc['blob']).read_bytes(), self.b._blob_path(desc['blob']).read_bytes())
+        self.assertEqual(list(self.a.blobs.glob('*.part')), [])
 
     def test_file_rename_by_stable_id(self):
         p = self.doc(self.a)

@@ -4,7 +4,8 @@
   const prefs=['theme','pageDensity','uiScale','focusMinutes','breakMinutes','sidebarPinned','sidebarOpen','heatmapMonths','heatmapThresholds','heatmapColors'];
   const scopeLabels={documents:'Markdown 文档',attachments:'PDF、图片与附件',records:'项目、待办、文献与批注',settings:'通用设置与界面偏好',history:'Agent 对话记录'};
   const phases={idle:'待同步',syncing:'正在同步',synced:'已同步',pending:'有待同步变化',conflict:'有冲突待处理',error:'同步未完成'};
-  const icon='<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 8a6.5 6.5 0 0 0-11-3L3 7m0-4v4h4M3.5 12a6.5 6.5 0 0 0 11 3l2.5-2m0 4v-4h-4"/></svg>';
+  const icon='<svg class="sync-symbol" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 6.5A7 7 0 0 0 4.6 5.3L2.5 7.5m0-4v4h4M3.5 13.5a7 7 0 0 0 11.9 1.2l2.1-2.2m0 4v-4h-4"/></svg>';
+  const chevron='<svg class="sync-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.25 3.5 3.5 3.5-3.5"/></svg>';
   let state=null,wrap=null,polling=false,applied=null,prefSnapshot=null,pendingRefresh=false,guardSignature='',guardStamp=0;
   const client=crypto.randomUUID?.()||String(Math.random());
   const ui=()=>window.ERWSyncUI;
@@ -16,7 +17,7 @@
   function ensureControl(){
     if(wrap?.isConnected)return;
     wrap=document.createElement('div');wrap.className='sync-wrap';wrap.hidden=true;
-    wrap.innerHTML=`<button class="sync-trigger" id="sync-now" type="button" aria-label="立即同步">${icon}<span id="sync-count"></span></button><button class="sync-more" id="sync-more" type="button" title="同步状态与变化" aria-label="同步状态与变化" aria-expanded="false">⌄</button><section class="sync-menu" id="sync-menu" hidden aria-label="同步状态"><div id="sync-menu-content"></div></section>`;
+    wrap.innerHTML=`<button class="sync-trigger" id="sync-now" type="button" aria-label="立即同步">${icon}<span id="sync-count" aria-hidden="true"></span></button><button class="sync-more" id="sync-more" type="button" title="同步状态与变化" aria-label="同步状态与变化" aria-controls="sync-menu" aria-expanded="false">${chevron}</button><section class="sync-menu" id="sync-menu" hidden aria-label="同步状态"><div id="sync-menu-content"></div></section>`;
     const slot=$('#desktop-sync-slot'),reload=$('.reload-wrap');
     if(document.documentElement.dataset.desktop==='true'&&slot)slot.append(wrap);else reload?.before(wrap);
     $('#sync-now').onclick=()=>run();
@@ -40,7 +41,9 @@
   function draw(){
     ensureControl();wrap.hidden=state.config.mode==='off';wrap.dataset.phase=state.phase;
     $('#sync-now').disabled=state.phase==='syncing';
-    $('#sync-count').textContent=state.conflicts?`! ${state.conflicts}`:state.upload||state.download?`↑${state.upload||0} ↓${state.download||0}`:'';
+    $('#sync-count').textContent=state.conflicts?String(state.conflicts):state.upload||state.download?`↑${state.upload||0} ↓${state.download||0}`:'';
+    $('#sync-count').dataset.kind=state.conflicts?'conflict':'pending';
+    $('#sync-now').setAttribute('aria-label',`${phases[state.phase]||'待同步'}${state.conflicts?'，'+state.conflicts+' 项冲突':''}，点击立即同步`);
     $('#sync-now').title=`${phases[state.phase]||'待同步'} · 点击立即同步`;
     if(!$('#sync-menu').hidden)drawMenu();
     decorate();

@@ -81,9 +81,10 @@
       const handle = document.createElement('div');
       handle.dataset.desktopResize = edge;
       handle.setAttribute('aria-hidden', 'true');
-      handle.onmousedown = event => {
-        if (event.button !== 0) return;
+      handle.onpointerdown = event => {
+        if (event.button !== 0 || nativeState.maximized) return;
         event.preventDefault();
+        event.stopPropagation();
         call('desktop_resize', edge);
       };
       borders.append(handle);

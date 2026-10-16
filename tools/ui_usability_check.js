@@ -434,6 +434,18 @@ fs.mkdirSync(output, {recursive:true});
     await page.locator('.desktop-page-tools .page-heading').dblclick();
     await page.waitForSelector('html[data-window-maximized="false"]');
     assert.equal(await page.locator('[data-desktop-resize="e"]').isVisible(),true);
+    for(const zoom of [100,125]){
+      await page.locator('#zoom-btn').click();await page.locator(`[data-zoom="${zoom}"]`).click();
+      for(const edge of ['n','e','s','w','ne','nw','se','sw']){
+        const b=await page.locator(`[data-desktop-resize="${edge}"]`).boundingBox();
+        assert(b.width>=6.9&&b.height>=6.9,'resize target has a stable physical size: '+edge+' '+zoom);
+        const target=await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.dataset.desktopResize,{x:b.x+b.width/2,y:b.y+b.height/2});
+        assert.equal(target,edge,'resize target stays above page overlays');
+        await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.mouse.up();
+        await page.waitForFunction(e=>window.__desktopCommands.includes('resize:'+e),edge);
+      }
+    }
+    await page.locator('#zoom-btn').click();await page.locator('[data-zoom="100"]').click();
     await page.locator('#desktop-minimize').click();
     await go('settings');await page.locator('[data-set-tab="desktop"]').click();await page.waitForSelector('#desktop-close-action');
     await page.locator('#desktop-close-action').selectOption('quit');await page.locator('#desktop-settings-save').click();
@@ -464,7 +476,7 @@ fs.mkdirSync(output, {recursive:true});
     assert((await page.locator('#desktop-close').getAttribute('title')).includes('任务栏'));
     await page.setViewportSize({width:1100,height:800});
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-    assert.deepEqual(await page.evaluate(()=>window.__desktopCommands),['maximize','maximize','minimize','preference:quit','close:quit','preference:tray','close:tray']);
+    assert.deepEqual(await page.evaluate(()=>window.__desktopCommands.filter(c=>!c.startsWith('resize:'))),['maximize','maximize','minimize','preference:quit','close:quit','preference:tray','close:tray']);
     await page.reload();await ready();
     await go('settings');await page.locator('[data-set-tab="desktop"]').click();await page.waitForSelector('#desktop-close-action');
     assert.equal(await page.locator('#desktop-close-action').inputValue(),'tray');
@@ -762,10 +774,16 @@ fs.mkdirSync(output, {recursive:true});
     await page.locator('#sync-url').fill('http://192.168.1.10:8765');await page.locator('#sync-test').click();await page.waitForFunction(()=>document.querySelector('#sync-test-result').textContent.includes('连接成功'));
     await page.locator('#sync-mode').selectOption('manual');await page.locator('#sync-save').click();await page.waitForFunction(()=>!document.querySelector('.sync-wrap').hidden);
     assert.equal(await page.locator('#desktop-sync-slot .sync-wrap').count(),1,'sync button in desktop titlebar');
+    assert.equal(await page.locator('#sync-more svg.sync-chevron').count(),1,'sync dropdown uses a crisp vector chevron');
+    assert.equal((await page.locator('#sync-more').textContent()).trim(),'','dropdown is not a text glyph');
     const syncBounds=await page.locator('.sync-wrap').boundingBox(),reloadBounds=await page.locator('#reload-btn').boundingBox();
     assert(syncBounds.x+syncBounds.width<=reloadBounds.x,'sync precedes refresh and minimize');
     await page.locator('#sync-now').click();await page.waitForFunction(()=>document.querySelector('.sync-wrap').dataset.phase==='synced');assert.equal(syncRuns,1);
-    await page.locator('#sync-more').click();await Promise.all([page.waitForResponse(r=>r.url().endsWith('/api/sync/check')),page.locator('#sync-menu [data-sync-check]').click()]);assert.equal(syncChecks,1);
+    await page.locator('#sync-more').click();
+    assert.equal(await page.locator('#sync-more').getAttribute('aria-expanded'),'true');
+    assert.notEqual(await page.locator('#sync-more svg').evaluate(e=>getComputedStyle(e).transform),'none','expanded chevron rotates');
+    await shot('sync-menu-light');
+    await Promise.all([page.waitForResponse(r=>r.url().endsWith('/api/sync/check')),page.locator('#sync-menu [data-sync-check]').click()]);assert.equal(syncChecks,1);
     syncState.phase='conflict';syncState.conflicts=1;syncState.changes=[{key:'doc:ui-journal',code:'!',doc_id:'ui-journal',label:'实验记录',scope:'documents'}];await page.evaluate(()=>window.ERWSync.poll());
     await page.locator('#sync-more').click();await page.locator('#sync-menu [data-sync-conflict]').click();await page.waitForSelector('.sync-conflict-modal textarea');
     await shot('sync-conflict-light');
