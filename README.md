@@ -4,7 +4,7 @@
 
 **当前版本：`v261015.1`**
 
-**Windows 桌面版**：双击 `ResearchWorkbench.exe` 打开独立窗口，支持右侧窗口控制、可配置关闭行为、托盘后台运行和重复启动唤回。最大化保留 Windows 任务栏。源码构建执行 `build_client.bat`，操作与数据位置见 [Windows 使用说明](docs/WINDOWS.md)。
+**Windows 桌面版**：默认单文件便携版，将发布 ZIP 解压到可写目录后双击 `ResearchWorkbench.exe`；无需同级运行库目录，缺少同名 `.exe.config` 时会自动补建。支持右侧窗口控制、可配置关闭行为、托盘后台运行和重复启动唤回。最大化保留 Windows 任务栏。源码构建执行 `build_client.bat`，操作与数据位置见 [Windows 使用说明](docs/WINDOWS.md)。
 
 > 📐 **项目结构与功能总览（含结构图）见 [`docs/OVERVIEW.md`](docs/OVERVIEW.md)**——三层结构、目录树、
 > 数据流与插件生命周期图、11 个插件一览、内核功能清单、数据位置、闸门表、加功能决策表。

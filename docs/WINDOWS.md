@@ -27,9 +27,13 @@
 
 这是便携版：默认读取 exe 同级的 `config/` 和 `Workspace/`。把 exe 放在当前项目根目录，会沿用现有配置和资料。也可使用 `ResearchWorkbench.exe --data-dir "D:\ResearchData"` 指定另一数据目录。
 
-将 ZIP 解压到有写入权限的目录后再运行，不要直接在 ZIP 内或 `Program Files` 中启动。首次运行会初始化配置和 Workspace。窗口大小、最大化状态及关闭行为保存在 `window-state.json`；主题、缩放等偏好保存在 `.webview-profile/`；日志为 `workbench.log`。端口被占用时会使用可用端口，并将其记在 `desktop-service.json`，使重启后的界面偏好仍能恢复；修改服务监听地址或配置端口后会重新选择。
+将 ZIP 解压到有写入权限的目录后再运行，不要直接在 ZIP 内或 `Program Files` 中启动。首次运行会初始化配置和 Workspace。窗口大小、最大化状态及关闭行为保存在 `window-state.json`；主题、缩放等偏好保存在 `.webview-profile/`；日志为 `workbench.log`。桌面版和 `run.bat` 都会先检查端口：已有同一 Workspace 的服务就复用；端口被其他程序占用时会选择空闲端口，并将选择记在 `desktop-service.json`，让之后两种入口连到同一服务。修改服务监听地址或配置端口后会重新选择。
 
-升级时先通过托盘退出，再替换 exe。发布 ZIP 仅包含程序、许可证和本说明，不包含任何个人资料、API Key 或聊天记录。浏览器版仍可通过 `run.bat` / `python server.py` 使用。
+当前默认构建为单文件便携版，与参考 `D:\ResearchWorkbench.exe` 使用相同版本的启动器和 .NET 桥接依赖。EXE 内包含运行库、前端、插件、手册和 PDF 阅读资源，无需同级运行库文件夹。启动时在当前工作目录创建临时 `_MEI*` 文件夹，正常退出后清理；因此启动目录必须可写。双击 EXE 通常使用它所在的目录，创建快捷方式时请将“起始位置”设为 EXE 所在目录。该方式避开本机系统临时目录创建失败，不修改系统 TEMP/TMP。
+
+同名 `ResearchWorkbench.exe.config` 仅为本程序启用随包 .NET 程序集加载，修复 Windows 将运行库判定为网络来源而拒绝加载的问题，不修改系统配置。ZIP 已带上该文件；单独移动 EXE 后，首次启动会在 EXE 同级自动补建。已有同名配置文件会原样保留。
+
+升级时先通过托盘退出，再将新版 ZIP 解压到原数据目录。发布 ZIP 仅包含程序、应用加载配置、许可证和本说明，不包含任何个人资料、API Key 或聊天记录。浏览器版仍可通过 `run.bat` / `python server.py` 使用。
 
 若构建时旧程序正在运行，新版会另存为同目录的 `ResearchWorkbench-Updated.exe`。先从托盘退出旧版再打开新版；同目录程序共用数据，旧版未退出时启动新版只会唤回原窗口。`run_client.bat` 会选择最近构建的 exe；ZIP 内仍统一命名为 `ResearchWorkbench.exe`。
 
@@ -38,10 +42,13 @@
 安装 Windows x64 Python 3.11+，双击 `build_client.bat`。它在 `build/.venv` 安装固定版本的桌面依赖，生成：
 
 - 项目根目录 `ResearchWorkbench.exe`；
+- 同名 `ResearchWorkbench.exe.config` 应用加载配置（须与 EXE 一起保留，Updated 版对应 `ResearchWorkbench-Updated.exe.config`）；
 - `dist/ResearchWorkbench-Windows-x64.zip`；
 - `dist/windows-build.json`，记录版本、文件大小和 SHA-256；
 - `build_client.log`，记录构建输出。
 
 已有 `build/.venv` 时会直接复用；创建环境时也可通过环境变量 `ERW_BUILD_PYTHON` 指定 Python 路径。自动构建可执行 `build_client.bat --no-pause`。源码变更后须重新构建 exe。
+
+默认单文件版固定使用 PyInstaller 6.22.3、Python.NET 3.2.1 和 CLR 加载器 0.3.1。需要免解压目录版时，可运行 `build/.venv/Scripts/python.exe tools/build_windows.py --layout directory`；该模式还需保留同级的 `ResearchWorkbench.runtime-<版本号>/` 文件夹，移动时一并带上。
 
 底层采用 [pywebview](https://pywebview.flowrl.com/api/) 与 [pystray](https://pystray.readthedocs.io/en/latest/usage.html)，由 WebView2 承载现有前端，本地 Python 服务负责数据处理。Windows 11 使用系统圆角和阴影；Windows 10 的圆角效果由系统能力决定。

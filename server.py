@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import socket
 import sys
 import threading
 import time
@@ -11,6 +12,7 @@ import tempfile
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.request import urlopen
 
 from app import config
 from app import external_access
@@ -1006,8 +1008,122 @@ def build_server(port_override: int | None = None, auto_open_browser: bool | Non
     return server, cfg, url
 
 
+def _is_address_in_use(exc: OSError) -> bool:
+    """Recognize the Windows and POSIX forms of a bind collision."""
+    return getattr(exc, "winerror", None) == 10048 or getattr(exc, "errno", None) in (98, 10048)
+
+
+def _bind_host(host: str) -> str:
+    # 0.0.0.0 is a bind address, not a useful browser/probe address.
+    return "127.0.0.1" if host in ("", "0.0.0.0") else host
+
+
+def _port_available(host: str, port: int) -> bool:
+    """Check the configured port before initializing the full application."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            probe.bind((host, int(port)))
+        return True
+    except OSError:
+        return False
+
+
+def _free_port(host: str) -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind((_bind_host(host), 0))
+        return int(probe.getsockname()[1])
+
+
+def _existing_workbench_url(host: str, port: int, expected_index: Path) -> str | None:
+    """Return a healthy same-workspace service URL, if one already owns the port."""
+    url = f"http://{_bind_host(host)}:{int(port)}"
+    try:
+        with urlopen(url + "/api/health", timeout=1.5) as response:
+            health = json.load(response)
+        if not isinstance(health, dict):
+            return None
+        index_path = health.get("index", {}).get("path")
+        if not health.get("ok") or not index_path:
+            return None
+        same = os.path.normcase(os.path.abspath(str(index_path))) == os.path.normcase(os.path.abspath(str(expected_index)))
+        return url if same else None
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _preferred_server_port(host: str, configured_port: int) -> int:
+    """Share the desktop client's last working port when it had to fall back."""
+    try:
+        from app.paths import DATA_ROOT
+        saved = json.loads((DATA_ROOT / "desktop-service.json").read_text(encoding="utf-8"))
+        port = int(saved["port"])
+        if (saved.get("host") == host and saved.get("configured_port") == configured_port
+                and 1 <= port <= 65535):
+            return port
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        pass
+    return configured_port
+
+
+def _remember_server_port(host: str, configured_port: int, port: int) -> None:
+    """Persist fallback choice so run.bat and the desktop EXE find one server."""
+    try:
+        from app.paths import DATA_ROOT
+        target = DATA_ROOT / "desktop-service.json"
+        temporary = target.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps({"host": host, "configured_port": configured_port,
+                                         "port": int(port)}), encoding="utf-8")
+        temporary.replace(target)
+    except OSError as exc:
+        print(f"Could not save the selected service port: {exc}")
+
+
+def _start_or_reuse_server():
+    """Plan startup without producing a noisy second-server bind traceback.
+
+    ``run.bat`` is often launched while the workbench is already running. In
+    that case opening the existing same-workspace service is the intended
+    behavior. An unrelated process on the configured port gets a fresh port.
+    """
+    config.init()
+    from app.config import workspace_root
+    expected_index = workspace_root() / "System" / "Cache" / "index.sqlite"
+    cfg = config.get_app()
+    host = str(cfg.get("host") or "127.0.0.1")
+    configured_port = int(cfg.get("port") or 8765)
+    preferred_port = _preferred_server_port(host, configured_port)
+    if not _port_available(host, preferred_port):
+        existing = _existing_workbench_url(host, preferred_port, expected_index)
+        if existing:
+            print(f"已有同一工作区服务在运行，打开 {existing}")
+            if cfg.get("auto_open_browser", True):
+                threading.Timer(0.1, lambda: webbrowser.open(existing)).start()
+            return None
+        fallback = _free_port(host)
+        print(f"端口 {preferred_port} 已被其他程序占用，改用空闲端口 {fallback}")
+        preferred_port = fallback
+    try:
+        started = build_server(port_override=preferred_port)
+    except OSError as exc:
+        # A race between the probe and bind should have the same friendly
+        # fallback as a port occupied before startup.
+        if not _is_address_in_use(exc):
+            raise
+        fallback = _free_port(host)
+        print(f"端口 {preferred_port} 在启动时被占用，改用空闲端口 {fallback}")
+        started = build_server(port_override=fallback)
+    server = started[0]
+    _remember_server_port(host, configured_port, server.server_address[1])
+    return started
+
+
 def main():
-    server, _cfg, _url = build_server()
+    started = _start_or_reuse_server()
+    if started is None:
+        return
+    server, _cfg, _url = started
     restart_requested = False
     try:
         server.serve_forever(poll_interval=0.25)

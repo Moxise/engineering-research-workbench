@@ -141,6 +141,9 @@ def _open_service():
 
 def _run_window(url: str, cfg: dict, gate: SingleInstance, server_stopped: threading.Event | None,
                 httpd, *, background: bool = False, smoke_output: Path | None = None) -> bool:
+    if paths.FROZEN and sys.platform == "win32":
+        from app.windows_runtime import ensure_clr_config
+        ensure_clr_config(Path(sys.executable))
     import webview
     saved = _load_window_state()
     width, height = _clamped_window_size(saved["width"] or 1440, saved["height"] or 900)

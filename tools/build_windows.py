@@ -1,4 +1,4 @@
-"""Build a portable x64 executable and a distribution ZIP without personal data."""
+"""Build a portable x64 desktop and a distribution ZIP without personal data."""
 from __future__ import annotations
 
 import hashlib
@@ -12,6 +12,8 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from app.windows_runtime import CLR_CONFIG
 
 
 def stage_resources(root: Path, target: Path) -> list[tuple[Path, str]]:
@@ -41,6 +43,7 @@ def stage_resources(root: Path, target: Path) -> list[tuple[Path, str]]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", choices=("ResearchWorkbench","ResearchWorkbench-Updated"), default="ResearchWorkbench")
+    parser.add_argument("--layout", choices=("directory", "onefile"), default="onefile")
     args = parser.parse_args()
     if sys.platform != "win32" or sys.version_info < (3, 11) or struct.calcsize("P") != 8:
         raise SystemExit("Build with Windows x64 Python 3.11+ in build/.venv.")
@@ -55,12 +58,17 @@ def main() -> None:
     import tempfile
     scratch = ROOT / ".scratch" / "tmp"
     scratch.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="windows-assets-", dir=scratch) as temporary:
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    runtime_name = f"ResearchWorkbench.runtime-{version}"
+    with tempfile.TemporaryDirectory(prefix="windows-assets-", dir=scratch) as temporary, \
+            tempfile.TemporaryDirectory(prefix="windows-output-", dir=scratch) as output:
         resources = stage_resources(ROOT, Path(temporary))
         data_args = [arg for source, dest in resources for arg in ("--add-data", f"{source};{dest}")]
+        layout_args = (["--onedir", "--contents-directory", runtime_name]
+                       if args.layout == "directory" else ["--onefile", "--runtime-tmpdir", "."])
         subprocess.run([
-            sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed",
-            "--name", args.name, "--distpath", str(ROOT), "--specpath", str(build),
+            sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", *layout_args, "--windowed",
+            "--name", args.name, "--distpath", output, "--specpath", str(build),
             "--workpath", str(build / "pyinstaller"), "--icon", str(icon),
             *data_args, "--add-data", f"{ROOT / 'VERSION'};.",
             "--collect-submodules", "app", "--collect-submodules", "core",
@@ -68,7 +76,15 @@ def main() -> None:
             "--hidden-import", "xml.sax.saxutils",
             "--add-data", f"{icon};.", str(ROOT / "client.py"),
         ], cwd=ROOT, check=True)
+        built = Path(output) / args.name if args.layout == "directory" else Path(output)
+        if args.layout == "directory":
+            shutil.copytree(built / runtime_name, ROOT / runtime_name, dirs_exist_ok=True)
+        shutil.copy2(built / (args.name + ".exe"), ROOT / (args.name + ".exe"))
+        staged_runtime_files = [p.relative_to(built) for p in (built / runtime_name).rglob("*")
+                                if p.is_file()] if args.layout == "directory" else []
     executable = ROOT / (args.name + ".exe")
+    executable_config = executable.with_suffix(".exe.config")
+    executable_config.write_text(CLR_CONFIG, encoding="utf-8")
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
     archive = dist / "ResearchWorkbench-Windows-x64.zip"
@@ -76,6 +92,10 @@ def main() -> None:
     # staged or included. Fresh installs initialize their own data beside the exe.
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
         bundle.write(executable, "ResearchWorkbench.exe")
+        bundle.write(executable_config, "ResearchWorkbench.exe.config")
+        if args.layout == "directory":
+            for relative in sorted(staged_runtime_files):
+                bundle.write(ROOT / relative, relative.as_posix())
         bundle.write(ROOT / "docs" / "WINDOWS.md", "使用说明.md")
         bundle.write(ROOT / "LICENSE.txt", "LICENSE.txt")
     artifacts = []
@@ -84,7 +104,8 @@ def main() -> None:
             digest = hashlib.file_digest(source, "sha256").hexdigest()
         artifacts.append({"file":file.name,"bytes":file.stat().st_size,"sha256":digest})
     manifest = {
-        "version": (ROOT / "VERSION").read_text(encoding="utf-8").strip(),
+        "version": version, "layout": args.layout,
+        "runtime_directory": runtime_name if args.layout == "directory" else None,
         "architecture": "Windows x64", "python": sys.version.split()[0],
         "artifacts": artifacts,
     }

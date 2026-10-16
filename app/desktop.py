@@ -143,6 +143,7 @@ class DesktopController:
             return
         try:
             import pystray
+            from .windows_tray import WindowsTrayIcon
             from PIL import Image
             with Image.open(self.asset_root / "web" / "favicon.png") as source:
                 image = source.convert("RGBA").resize((64, 64))
@@ -152,7 +153,7 @@ class DesktopController:
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("退出", lambda *_: self.request_quit()),
             )
-            self.tray = pystray.Icon("ResearchWorkbench", image, self.title, menu)
+            self.tray = WindowsTrayIcon("ResearchWorkbench", image, self.title, menu)
             def ready(icon):
                 icon.visible = True
                 self._tray_ready.set()

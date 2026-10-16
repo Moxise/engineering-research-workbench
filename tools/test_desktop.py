@@ -16,6 +16,31 @@ from ctypes import wintypes
 
 
 class DesktopTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Windows tray API")
+    def test_tray_filter_access_denied_keeps_created_window(self):
+        from app.windows_tray import WindowsTrayIcon, win32
+        error = PermissionError("restricted message filter")
+        error.winerror = 5
+        with patch.object(win32, "CreateWindowEx", return_value=123), \
+                patch.object(win32, "GetModuleHandle", return_value=456), \
+                patch.object(win32, "ChangeWindowMessageFilterEx", side_effect=error), \
+                patch.object(win32, "DestroyWindow") as destroy:
+            self.assertEqual(WindowsTrayIcon._create_window(None, 1), 123)
+            destroy.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows tray API")
+    def test_other_tray_filter_errors_release_window_and_propagate(self):
+        from app.windows_tray import WindowsTrayIcon, win32
+        error = OSError("invalid filter")
+        error.winerror = 87
+        with patch.object(win32, "CreateWindowEx", return_value=123), \
+                patch.object(win32, "GetModuleHandle", return_value=456), \
+                patch.object(win32, "ChangeWindowMessageFilterEx", side_effect=error), \
+                patch.object(win32, "DestroyWindow") as destroy:
+            with self.assertRaises(OSError):
+                WindowsTrayIcon._create_window(None, 1)
+            destroy.assert_called_once_with(123)
+
     def setUp(self):
         self.window = Mock()
         self.saved = []

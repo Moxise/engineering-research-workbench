@@ -100,11 +100,10 @@
             </div>
           </div>
           <div class="reload-wrap">
-            <button class="primary-btn reload-btn" id="reload-btn" type="button" title="重新读取所有配置并刷新本地缓存">↻ Reload</button>
-            <button class="primary-btn reload-menu-btn" id="reload-menu-btn" type="button" aria-label="Reload 菜单">⌄</button>
-            <div class="dropdown hidden" id="reload-menu">
-              <button type="button" data-system-action="reload">Reload 全部配置</button>
-              <button type="button" data-system-action="restart">快速重启服务</button>
+            <button class="reload-btn" id="reload-btn" type="button" title="刷新与重启" aria-label="刷新与重启" aria-haspopup="menu" aria-expanded="false" aria-controls="reload-menu"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 7a6.4 6.4 0 1 0 .2 5M16 3v4h-4"/></svg></button>
+            <div class="dropdown hidden" id="reload-menu" role="menu" aria-label="刷新与重启">
+              <button type="button" role="menuitem" data-system-action="reload">重新加载配置与索引</button>
+              <button type="button" role="menuitem" data-system-action="restart">快速重启服务</button>
             </div>
           </div>
         </div>

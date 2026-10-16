@@ -9,10 +9,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.build_windows import stage_resources
 from core.plugins.registry import default_roots
 from app import paths
+from app.windows_runtime import CLR_CONFIG, ensure_clr_config
 import core_api
 
 
 class WindowsResourcesTests(unittest.TestCase):
+    def test_portable_clr_config_created_without_overwriting_existing_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            executable = Path(folder) / "ResearchWorkbench.exe"
+            target = ensure_clr_config(executable)
+            self.assertEqual(target.name, "ResearchWorkbench.exe.config")
+            self.assertEqual(target.read_text(encoding="utf-8"), CLR_CONFIG)
+            custom = '<configuration><runtime /></configuration>'
+            target.write_text(custom, encoding="utf-8")
+            ensure_clr_config(executable)
+            self.assertEqual(target.read_text(encoding="utf-8"), custom)
+
     def test_resource_allowlist_keeps_plugins_manual_and_vendor(self):
         with tempfile.TemporaryDirectory() as folder:
             root, out = Path(folder) / "source", Path(folder) / "out"
