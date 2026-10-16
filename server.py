@@ -35,6 +35,19 @@ def json_bytes(data) -> bytes:
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
 
+def _batch_ids(payload) -> list[str]:
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids or len(ids) > 1000:
+        raise ValueError("请选择 1–1000 条记录")
+    if any(not isinstance(key, str) or not key.strip() for key in ids):
+        raise ValueError("记录编号无效")
+    return list(dict.fromkeys(ids))
+
+
+def _delete_documents(ids: list[str]) -> dict:
+    return indexer.delete_docs(ids)
+
+
 def _q_int(q, key: str, default: int, minimum: int, maximum: int) -> int:
     try:
         value = int((q.get(key) or [str(default)])[0])
@@ -62,6 +75,10 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
     # 曾导致旧实例/开发服务与新实例同端口打架、前端 bundle 版本错乱。Windows 改为独占绑定；
     # Unix 上该标志仅用于绕过 TIME_WAIT，保留 True 方便开发时快速重启。
     allow_reuse_address = (sys.platform != "win32")
+
+    def server_close(self):
+        super().server_close()
+        indexer.stop_background_sync()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -209,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/projects/"):
                 project_id = unquote(path.split("/api/projects/", 1)[1])
                 result = projects.delete_project(project_id)
-                indexer.sync(force=True)
+                indexer.sync(immediate=True)
                 return self.send_json(result)
             if path.startswith("/api/docs/"):
                 doc_id = unquote(path.split("/api/docs/", 1)[1])
@@ -305,6 +322,8 @@ class Handler(BaseHTTPRequestHandler):
             # ?detail=1 → 插件预览（设置页的插件管理页用）：多带状态/权限/路由/工具/配置接口等
             detail = (q.get("detail") or [""])[0] in ("1", "true", "yes")
             return self.send_json(self.plugin_payload(detail=detail))
+        if path == "/api/knowledge-types":
+            return self.send_json(store.knowledge_type_registry())
         if path == "/api/projects":
             return self.send_json(indexer.project_names())
         if path == "/api/project-records":
@@ -364,6 +383,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(external_access.save(payload if isinstance(payload, dict) else {}))
         if path == "/api/config/app":
             return self.send_json(config.save_app(payload))
+        if path == "/api/knowledge-marks/cleanup":
+            result = store.cleanup_deleted_mark(str(payload.get("mark_id") or ""))
+            indexer.rebuild()
+            return self.send_json(result)
         if path == "/api/system/index/rebuild":
             return self.send_json(indexer.rebuild())
         if path == "/api/system/reload":
@@ -398,7 +421,6 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("description") or ""),
                 str(payload.get("status") or "进行中"),
             )
-            indexer.sync(force=True)
             return self.send_json(result)
         if path == "/api/project-records":
             result = projects.create_project(
@@ -406,12 +428,11 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("description") or ""),
                 str(payload.get("status") or "进行中"),
             )
-            indexer.sync(force=True)
             return self.send_json(result, 201)
         if path.startswith("/api/projects/"):
             project_id = unquote(path.split("/api/projects/", 1)[1])
             result = projects.update_project(project_id, payload)
-            indexer.sync(force=True)
+            indexer.sync(immediate=True)
             return self.send_json(result)
         if path == "/api/workspace/migrate":
             legacy = workspace.migrate_legacy(workspace.ensure_workspace(), force_scan=True)
@@ -423,6 +444,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/workspace/open-with":  # v261008 · 笔记页「打开原文件」：选择 VS Code / Typora 打开 md
             return self.send_json(workspace.open_file_with(
                 str(payload.get("path") or ""), str(payload.get("editor") or "")))
+        if path == "/api/docs/batch-delete":
+            return self.send_json(_delete_documents(_batch_ids(payload)))
         if path == "/api/docs":
             normalized = indexer.normalize_project_payload(payload)
             doc = store.create_doc(str(normalized.get("kind") or "note"), normalized,
@@ -504,10 +527,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(agent.test_connection())
         if path == "/api/kb/related":  # v260930d · M5 阅读中知识关联：页面正文匹配知识库条目（纯文本匹配，零 LLM 依赖）
             return self.send_json({"items": store.match_related(str(payload.get("page_text") or ""))})
+        if path == "/api/todos/batch-delete":
+            result = todos.delete_many(_batch_ids(payload), completed_only=payload.get("completed_only") is True)
+            indexer.refresh_todos()
+            return self.send_json(result)
         if path == "/api/todos":
             normalized = indexer.normalize_project_payload(payload)
             item = todos.create(normalized)
-            item = indexer.apply_todo_project_id(item, normalized)
             indexer.refresh_todos()
             return self.send_json(item, 201)
         if path.startswith("/api/todos/"):
@@ -515,9 +541,8 @@ class Handler(BaseHTTPRequestHandler):
             current = next((x for x in indexer.list_todos() if x.get("id") == todo_id), None)
             if current is None:
                 raise FileNotFoundError(todo_id)
-            normalized = indexer.normalize_project_payload({**current, **payload})
+            normalized = indexer.normalize_project_update(current, payload)
             item = todos.update(todo_id, normalized)
-            item = indexer.apply_todo_project_id(item, normalized)
             indexer.refresh_todos()
             return self.send_json(item)
         return self.send_json({"error": "not_found"}, 404)

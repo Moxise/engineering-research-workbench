@@ -143,8 +143,8 @@ def _join_doc_meta_batch(rows: list[dict[str, Any]]) -> None:
     if not ids:
         return
     try:
-        from . import store
-        docs = store.get_docs_by_ids(ids)
+        from . import indexer
+        docs = indexer.get_docs_by_ids(ids)
     except Exception:
         return
     for r in rows:
@@ -160,8 +160,8 @@ def _join_doc_meta(item: dict[str, Any]) -> dict[str, Any]:
     if not doc_id:
         return item
     try:
-        from . import store
-        doc = store.get_doc(doc_id)
+        from . import indexer
+        doc = indexer.get_doc(doc_id)
         _apply_doc_meta(item, doc)
     except Exception:
         pass
@@ -323,7 +323,8 @@ def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
     items = data.setdefault("items", [])
     stats = {"linked": 0, "registered": 0, "ensured": 0}
     single = bool(doc_id)
-    docs = [d for d in store.list_docs("literature") if not single or d["id"] == doc_id]
+    from . import indexer
+    docs = [d for d in indexer.document_metadata() if d["kind"] == "literature" and (not single or d["id"] == doc_id)]
     result_att = ""
     for doc in docs:
         att = str(doc.get("attachment") or "").strip()
@@ -356,7 +357,7 @@ def rebuild_registry(doc_id: str = "") -> dict[str, Any]:
                 h.update(chunk)
         now = datetime.now().isoformat(timespec="seconds")
         try:
-            bibtex = str(store.get_doc(doc["id"]).get("bibtex") or "")
+            bibtex = str(indexer.get_doc(doc["id"]).get("bibtex") or "")
         except Exception:
             bibtex = ""
         items.append({
@@ -452,7 +453,9 @@ def set_pdf_dir(new_dir: str, move_existing: bool = True) -> dict[str, Any]:
     if move_existing:
         try:
             from . import indexer, store
-            for doc in store.list_docs("literature"):
+            for doc in indexer.document_metadata():
+                if doc["kind"] != "literature":
+                    continue
                 src = store.resolve_attachment(doc)
                 if src is None:
                     continue
@@ -775,7 +778,8 @@ def _note_doc_id(paper_id: str) -> str:
 
 def get_note(paper_id: str) -> str:
     from . import store
-    return str(store.get_doc(_note_doc_id(paper_id)).get("body") or "")
+    from . import indexer
+    return str(indexer.get_doc(_note_doc_id(paper_id)).get("body") or "")
 
 def save_note(paper_id: str, content: str) -> dict[str, Any]:
     from . import indexer

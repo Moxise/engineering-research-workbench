@@ -25,19 +25,35 @@ _LOCK=threading.RLock()
 _LAST_SYNC_MONO=0.0
 _LAST_SYNC_ISO=""
 _FTS_TOKENIZER=""
+_SCHEMA_READY: dict[str, str] = {}
+_SCHEMA_LOCK = threading.RLock()
+
+
+class _Connection(sqlite3.Connection):
+    """A transaction scope also owns and closes its connection."""
+
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
 
 def _root() -> Path:
     return workspace.ensure_workspace(run_migration=False)
 
 
-def _db_path() -> Path:
-    path = _root() / "System" / "Cache" / "index.sqlite"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+def _db_path(root: Path | None = None) -> Path:
+    return (root or _root()) / "System" / "Cache" / "index.sqlite"
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(_db_path(), timeout=30.0)
+def _connect(root: Path | None = None) -> sqlite3.Connection:
+    path = _db_path(root)
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with _SCHEMA_LOCK:
+            _SCHEMA_READY.pop(str(path), None)
+    conn = sqlite3.connect(path, timeout=30.0, factory=_Connection)
+    conn.db_path = str(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -122,7 +138,17 @@ def _ensure_schema_marker() -> None:
         tmp.replace(path)
 
 
-def _init_db(conn: sqlite3.Connection) -> None:
+def _init_db(conn: sqlite3.Connection) -> bool:
+    global _FTS_TOKENIZER
+    with _SCHEMA_LOCK:
+        path = conn.db_path
+        if path in _SCHEMA_READY:
+            _FTS_TOKENIZER = _SCHEMA_READY[path]
+            return False
+        return _initialize_schema(conn)
+
+
+def _initialize_schema(conn: sqlite3.Connection) -> bool:
     global _FTS_TOKENIZER
     conn.executescript(
         """
@@ -237,6 +263,21 @@ def _init_db(conn: sqlite3.Connection) -> None:
     disk_version = index_migrate.guard_disk_version(conn, SCHEMA_VERSION)  # 磁盘版本高于代码 → 拒写
     result = index_migrate.apply(conn)
     upgraded = bool(result["changed"]) or disk_version != SCHEMA_VERSION
+    # v3 · 归一化链接查询与列表排序：补 title_key / token_key 列与排序索引（幂等；迁移框架外的前向增列）。
+    cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(documents)")}
+    if "title_key" not in cols:
+        conn.execute("ALTER TABLE documents ADD COLUMN title_key TEXT NOT NULL DEFAULT ''")
+        upgraded = True
+    link_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(document_links)")}
+    if "token_key" not in link_cols:
+        conn.execute("ALTER TABLE document_links ADD COLUMN token_key TEXT NOT NULL DEFAULT ''")
+        upgraded = True
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_documents_title_key ON documents(title_key, updated DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_links_token_key ON document_links(token_key, doc_id);
+        CREATE INDEX IF NOT EXISTS idx_documents_order ON documents(pinned DESC, COALESCE(NULLIF(updated,''),created) DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_documents_kind_order ON documents(kind, pinned DESC, COALESCE(NULLIF(updated,''),created) DESC, id DESC);
+    """)
 
     fts_exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents_fts'"
@@ -254,11 +295,17 @@ def _init_db(conn: sqlite3.Connection) -> None:
                 "doc_id UNINDEXED, title, body, tags, projects, tokenize='unicode61')"
             )
             _FTS_TOKENIZER = "unicode61"
-    elif not _FTS_TOKENIZER:
+    else:
         sql = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='documents_fts'"
         ).fetchone()
         text = str(sql[0] if sql else "")
         _FTS_TOKENIZER = "trigram" if "trigram" in text else "unicode61"
+    if upgraded:
+        # Older FTS rowids were independent of documents.rowid. initialize()
+        # reparses files once to establish the mapping and normalized columns.
+        conn.execute("DELETE FROM documents_fts")
+        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('index_rebuild_required','1')")
     conn.commit()
+    _SCHEMA_READY[conn.db_path] = _FTS_TOKENIZER
     return upgraded

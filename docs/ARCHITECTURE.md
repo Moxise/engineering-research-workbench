@@ -1,4 +1,6 @@
-# Architecture · workbench-v260920.2
+# Architecture
+
+Current performance details and validation: [PERFORMANCE_ARCHITECTURE.md](PERFORMANCE_ARCHITECTURE.md). Markdown remains authoritative; all document-facing features use the shared `indexer` service. External file reconciliation runs in the background while read requests use SQLite snapshots.
 
 > ⚠️ **本文是历史技术笔记的堆积**（v260920–v261008 期间的实现记录），其中不少模块位置已变
 > ——例如 `app/rss.py`、`app/weather.py`、`app/kb_naming.py`、`web/literature.js`、
@@ -19,10 +21,12 @@ ThreadingHTTPServer (server.py)
        │
        ├─ app/config.py       配置、环境变量密钥状态、Agent 请求预设
        ├─ app/workspace.py    Workspace / 项目目录 / 迁移
-       ├─ app/store.py        Markdown、标签/项目/WikiLink 图谱、BibTeX、导出
+       ├─ app/store.py        Markdown 编解码、文件写入、附件与共享格式工具
+       ├─ app/indexer.py      文档读写统一入口（HTTP / Agent / 文献）
+       ├─ app/perf_index_*    SQLite 查询、增量关系图、后台同步与写入
        ├─ app/activity.py     科研活动 / 热力图
        ├─ app/todos.py        Todo
-       ├─ app/search.py       全局检索
+       ├─ app/perf_index_query.py  全局检索、分页与仪表盘
        ├─ app/agent.py        会话、图像、知识引用、工具调用循环、OpenAI-compatible 调用
         ├─ app/agent_tools.py  M1 工具层：kb_search/kb_read/kb_create_entry/kb_update_entry/lit_context/lit_note_write + 写工具草稿确认流
         ├─ app/kb_naming.py    M1 命名规范校验：知识库条目标题 error/warn 双级（error 拒写）

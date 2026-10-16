@@ -86,6 +86,8 @@ DEFAULT_APP_CONFIG = {
         "graph_default_view": "2d",
         "animations": True,
         "heatmap_months": 12,
+        "heatmap_thresholds": [1, 3],
+        "heatmap_colors": ["#C9D4F7", "#8297E5", "#4059B8"],
     },
     "academic_profile": {
         "degree_name": "博士进度",
@@ -98,6 +100,20 @@ DEFAULT_APP_CONFIG = {
         "enabled": True,
         "copy_legacy_data": True,
     },
+    # v261009 · “研究 · 知识”条目类型注册表。内置类型只保存显示/排序偏好；
+    # 自定义类型由用户定义 label/icon/statuses/template，文件固定落在 Knowledge/Custom/<id>/。
+    "knowledge_types": {
+        "order": ["idea", "journal", "note", "milestone", "summary", "literature"],
+        "hidden": [],
+        "custom": [],
+        "templates": {},
+    },
+    # v261009 · 分类标记改为配置驱动；默认仅保留 3 个常用标记，其余由用户在设置中增减。
+    "classification_marks": [
+        {"id": "knowledge", "icon": "◈", "label": "知识", "color": "#2a9d8f"},
+        {"id": "method", "icon": "⚒", "label": "方法", "color": "#e76f51"},
+        {"id": "experiment", "icon": "⚗", "label": "实验", "color": "#d1569a"},
+    ],
     # Non-secret, global Agent options stay in app.json. Provider profiles and
     # API keys live only in config/secret.json, which is ignored by git.
     "llm": {
@@ -495,7 +511,8 @@ def _load_or_migrate_secret(app: dict[str, Any]) -> tuple[dict[str, Any], bool]:
 
 
 def reload_all() -> dict:
-    global _cache
+    global _cache, _workspace_cache
+    load_secrets()
     with _lock:
         raw_app = _load_json(CONFIG_DIR / "app.json", DEFAULT_APP_CONFIG)
         secret, migrated = _load_or_migrate_secret(raw_app)
@@ -505,6 +522,7 @@ def reload_all() -> dict:
         if migrated or app != raw_app:
             _atomic_json_write(CONFIG_DIR / "app.json", app)
         _cache = {"app": app, "secret": secret}
+        _workspace_cache = None
         return {"app": deepcopy(app)}
 
 
@@ -533,7 +551,11 @@ def get_all() -> dict:
 
 
 def get_app() -> dict:
-    return get_all()["app"]
+    load_secrets()
+    with _lock:
+        if not _cache:
+            reload_all()
+        return deepcopy(_cache["app"])
 
 
 def _active_profile(secret: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -631,12 +653,76 @@ def _merge_profiles_from_public(incoming_llm: dict[str, Any], current_secret: di
     }
 
 
+def _clean_knowledge_types(value: Any) -> dict[str, Any]:
+    raw = value if isinstance(value, dict) else {}
+    builtin = {"idea", "journal", "note", "milestone", "summary", "literature"}
+    custom: list[dict[str, Any]] = []
+    seen = set(builtin)
+    for item in (raw.get("custom") or []):
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("id") or "").strip().lower()
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{0,47}", kind) or kind in seen:
+            continue
+        label = str(item.get("label") or kind).strip()[:32] or kind
+        icon = str(item.get("icon") or "◆").strip()[:4] or "◆"
+        statuses = [str(x).strip()[:24] for x in (item.get("statuses") or []) if str(x).strip()]
+        if not statuses:
+            statuses = ["草稿", "进行中", "完成", "已归档"]
+        custom.append({
+            "id": kind,
+            "label": label,
+            "icon": icon,
+            "statuses": list(dict.fromkeys(statuses))[:12],
+            "template": str(item.get("template") or "")[:20000].replace("\r\n", "\n"),
+            "hidden": bool(item.get("hidden", False)),
+        })
+        seen.add(kind)
+    valid = builtin | {x["id"] for x in custom}
+    order = [str(x) for x in (raw.get("order") or []) if str(x) in valid]
+    order = list(dict.fromkeys(order + ["idea","journal","note","milestone","summary","literature"] + [x["id"] for x in custom]))
+    hidden = [str(x) for x in (raw.get("hidden") or []) if str(x) in valid]
+    templates_raw = raw.get("templates") if isinstance(raw.get("templates"), dict) else {}
+    templates: dict[str, str] = {}
+    for kind, value in templates_raw.items():
+        key = str(kind).strip()
+        if key in valid:
+            templates[key] = str(value or "")[:30000].replace("\r\n", "\n")
+    return {"order": order, "hidden": list(dict.fromkeys(hidden)), "custom": custom, "templates": templates}
+
+
+def _clean_classification_marks(value: Any) -> list[dict[str, str]]:
+    rows = value if isinstance(value, list) else []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(rows):
+        if not isinstance(item, dict):
+            continue
+        mark_id = str(item.get("id") or "").strip().lower()
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{0,47}", mark_id) or mark_id in seen:
+            continue
+        label = str(item.get("label") or mark_id).strip()[:16] or mark_id
+        icon = str(item.get("icon") or "◆").strip()[:4] or "◆"
+        color = str(item.get("color") or "#4a6fa5").strip().lower()
+        if not re.fullmatch(r"#[0-9a-f]{6}", color):
+            color = "#4a6fa5"
+        out.append({"id": mark_id, "icon": icon, "label": label, "color": color})
+        seen.add(mark_id)
+        if len(out) >= 24:
+            break
+    return out
+
+
 def save_app(data: dict) -> dict:
     incoming = deepcopy(data or {})
     incoming_llm = incoming.get("llm") if isinstance(incoming.get("llm"), dict) else {}
     with _lock:
         if not _cache:
             reload_all()
+        if "knowledge_types" not in incoming:
+            incoming["knowledge_types"] = deepcopy(_cache["app"].get("knowledge_types") or DEFAULT_APP_CONFIG["knowledge_types"])
+        if "classification_marks" not in incoming:
+            incoming["classification_marks"] = deepcopy(_cache["app"].get("classification_marks") or DEFAULT_APP_CONFIG["classification_marks"])
         current_secret = deepcopy(_cache["secret"])
         secret = _merge_profiles_from_public(incoming_llm, current_secret)
         assist = incoming_llm.get("assist") if isinstance(incoming_llm.get("assist"), dict) else {}
@@ -648,6 +734,8 @@ def save_app(data: dict) -> dict:
             "personas": _clean_personas(incoming_llm.get("personas")),  # v260930 · M3 人设档案：随 app.json 持久化，否则 save 时被清掉导致回退默认 confirm
         }
         incoming["llm"] = clean_llm
+        incoming["knowledge_types"] = _clean_knowledge_types(incoming.get("knowledge_types"))
+        incoming["classification_marks"] = _clean_classification_marks(incoming.get("classification_marks"))
         merged = _deep_merge(DEFAULT_APP_CONFIG, incoming)
         _atomic_json_write(CONFIG_DIR / "app.json", merged)
         _atomic_json_write(SECRET_PATH, secret)
@@ -655,8 +743,17 @@ def save_app(data: dict) -> dict:
     return get_public()["app"]
 
 
+_workspace_cache: tuple[tuple[str, str], Path] | None = None
+
+
 def workspace_root() -> Path:
-    cfg = get_app()
-    raw = str(cfg.get("workspace") or "Workspace")
-    p = Path(raw)
-    return p if p.is_absolute() else ROOT / p
+    global _workspace_cache
+    with _lock:
+        if not _cache:
+            reload_all()
+        raw = str(_cache["app"].get("workspace") or "Workspace")
+        key = (str(ROOT), raw)
+        if _workspace_cache is None or _workspace_cache[0] != key:
+            p = Path(raw)
+            _workspace_cache = (key, (p if p.is_absolute() else ROOT / p).resolve())
+        return _workspace_cache[1]

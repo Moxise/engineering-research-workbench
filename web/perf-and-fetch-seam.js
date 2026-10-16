@@ -19,7 +19,7 @@
 
   const route = () => (location.hash || '#overview').slice(1).split('?')[0];
   const docKey = (u) => ['kind','q','status','project','mark'].map(k => `${k}=${u.searchParams.get(k) || ''}`).join('&');
-  const isDocsCollection = (u, init) => (!init?.method || String(init.method).toUpperCase() === 'GET') && u.pathname === '/api/docs';
+  const isDocsCollection = (u, init) => (!init?.method || String(init.method).toUpperCase() === 'GET') && u.pathname === '/api/docs' && u.searchParams.get('scope') !== 'overview';
 
   /* v261009 · A10：原先这里是 `window.fetch = ...` —— 求值期的全局猴子补丁，
      它同时造成一个**假的加载顺序约束**（「本文件必须排在 app.js 之前」，否则后来者

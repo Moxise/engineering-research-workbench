@@ -57,6 +57,24 @@
       "note": "v261009s · 插件设置页新增「演示预览」：悬停/点击插件卡片浮出摘要+功能点+截图（内容由插件 manifest 的 preview 声明，内核不认识具体插件）；上版：v261009q · 设置页新增「单文件包安装结果」区块（解包/升级/拒收/冲突逐条显示，空列表时也显示）；上版：v26"
     },
     {
+      "file": "v261014-linear-luxe.css",
+      "v": "261014o",
+      "theme": "base",
+      "note": "v261014o · 线性奢华版壳层（v3 UI 重设计）"
+    },
+    {
+      "file": "v261014-soft-chromatic.css",
+      "v": "261014w",
+      "theme": "overview",
+      "note": "261014w · Soft Chromatic Workspace · 概览方案 A 柔和标题色块"
+    },
+    {
+      "file": "v261015-usability.css",
+      "v": "261015d",
+      "theme": "base",
+      "note": "v261015d · 可用性修订：统一无卡头（card-kicker 隐藏）、密度与动效开关联动"
+    },
+    {
       "file": "vendor/github.min.css",
       "theme": "vendor",
       "cdn": "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css"
@@ -111,10 +129,22 @@
       "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009r · A9：文档级观察改走 ERWDom.onChildList（带 ignore "
     },
     {
+      "file": "render-libraries.js",
+      "v": "261015-perf",
+      "theme": "render",
+      "note": "渲染库按需加载接缝：window.ERWRenderLibraries = {ensureMermaid, renderMath}，走 /vendor/mermaid.min.js 与 /vendor/mathjax-tex-svg.js"
+    },
+    {
+      "file": "v261014-milestone-timeline.js",
+      "v": "261014o",
+      "theme": "milestones",
+      "note": "v261014h · 自适应密度状态泳道里程碑时间轴（window.ERWMilestoneTimeline）"
+    },
+    {
       "file": "app.js",
-      "v": "261010b",
+      "v": "261015c",
       "theme": "base",
-      "note": "v261010b · 条目卡片统一高度：卡片标题/摘要/项目名补 title 悬停提示（配合 styles.css 的两行省略）；上版：插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）；再上版：删除内核自带的图谱渲染与交互"
+      "note": "v261015c · 合并上游 UI 重设计 v3：移除重复页 research-overview（导航项/路由分支/渲染函数），保留旧书签别名；上版：条目卡片统一高度：卡片标题/摘要/项目名补 title 悬停提示（配合 styles.css 的两行省略）；再上版：插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）"
     },
     {
       "file": "plugin-host.js",
@@ -139,6 +169,18 @@
       "v": "261009s",
       "theme": "plugin-manager",
       "note": "v261009s · 插件设置页新增「演示预览」：悬停/点击插件卡片浮出摘要+功能点+截图（内容由插件 manifest 的 preview 声明，内核不认识具体插件）；上版：v261009q · 设置页新增「单文件包安装结果」区块（解包/升级/拒收/冲突逐条显示，空列表时也显示）；上版：v26"
+    },
+    {
+      "file": "v261014-shell.js",
+      "v": "261015a",
+      "theme": "shell",
+      "note": "v261014e · 柔和工作台壳层 + 可拖拽侧栏宽度（纯 IIFE，无 window.ERW* 接缝）"
+    },
+    {
+      "file": "v261014-soft-chromatic.js",
+      "v": "261015b",
+      "theme": "overview",
+      "note": "v261014q · Markdown 分栏拖拽与视觉增强（v261015b · 文档级 DOM 变更改走 ERWDom）"
     },
     {
       "file": "manual.js",

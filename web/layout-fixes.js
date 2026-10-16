@@ -62,8 +62,10 @@
       round(firstRect.left), round(firstRect.top), round(firstRect.width), round(firstRect.height),
       round(lastRect.left), round(lastRect.top),
       computed.columnGap, computed.rowGap,
-      getComputedStyle(card).getPropertyValue('--heat-cell-size').trim(),
-      getComputedStyle(card).getPropertyValue('--heat-gap').trim(),
+      getComputedStyle(card).getPropertyValue('--heat-cell-width').trim(),
+      getComputedStyle(card).getPropertyValue('--heat-cell-height').trim(),
+      getComputedStyle(card).getPropertyValue('--heat-gap-x').trim(),
+      getComputedStyle(card).getPropertyValue('--heat-gap-y').trim(),
       cells.length,
     ].join('|');
   }
@@ -81,16 +83,17 @@
 
     const gridRect = grid.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
-    const width = gridRect.width;
-    const height = gridRect.height;
+    const zoom = Number.parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+    const width = gridRect.width / zoom;
+    const height = gridRect.height / zoom;
     if (!(width > 0 && height > 0)) {
       layer.replaceChildren();
       return;
     }
 
     /* Anchor the SVG to the final, actually rendered heat-cell grid. */
-    const layerLeft = gridRect.left - stageRect.left;
-    const layerTop = gridRect.top - stageRect.top;
+    const layerLeft = (gridRect.left - stageRect.left) / zoom;
+    const layerTop = (gridRect.top - stageRect.top) / zoom;
     layer.style.left = `${layerLeft}px`;
     layer.style.top = `${layerTop}px`;
     layer.style.width = `${width}px`;
@@ -106,11 +109,11 @@
 
     const paths = monthStarts.map(({ cell, date }) => {
       const rect = cell.getBoundingClientRect();
-      const cellLeft = rect.left - gridRect.left;
-      const cellTop = rect.top - gridRect.top;
+      const cellLeft = (rect.left - gridRect.left) / zoom;
+      const cellTop = (rect.top - gridRect.top) / zoom;
 
       const xLeft = Math.max(0, cellLeft - columnGap / 2);
-      const xRight = Math.min(width, cellLeft + rect.width + columnGap / 2);
+      const xRight = Math.min(width, cellLeft + rect.width / zoom + columnGap / 2);
       const y = Math.max(0, cellTop - rowGap / 2);
 
       const path = document.createElementNS(SVG_NS, 'path');
@@ -129,7 +132,7 @@
   }
 
   /*
-   * fitResearchHeatmap() updates --heat-cell-size/--heat-gap after the card is
+   * fitResearchHeatmap() updates split heat-cell width/height and gap variables after the card is
    * inserted. Measuring immediately can therefore catch the previous geometry.
    * Wait until the real grid geometry is unchanged for three animation frames,
    * then draw. This reproduces the useful part of a browser zoom/resize without
@@ -185,7 +188,7 @@
       resizeObserver.observe(grid);
     }
 
-    /* fitResearchHeatmap writes the fitted size as inline CSS variables on card. */
+    /* fitResearchHeatmap writes the fitted width/height/gap variables inline on card. */
     const styleObserver = new MutationObserver(mutations => {
       if (mutations.some(m => m.type === 'attributes' && m.attributeName === 'style')) {
         settleAndAlign(card);

@@ -78,7 +78,7 @@ if (!window.ERWGraphRenderers || typeof window.ERWGraphRenderers.register !== 'f
       this.selectedId = null;
       this.focusDepth = 1;
       this.focusDistances = new Map();
-      this.mode = document.querySelector('[data-gview].active')?.dataset.gview || '2d';
+      this.mode = '2d'; // A single, readable relationship view across all entry points.
       this.camera = {
         '2d': {panX:0,panY:0,zoom:1,rotX:0,rotY:0},
         '3d': {panX:0,panY:0,zoom:1,rotX:.25,rotY:0},
@@ -97,12 +97,11 @@ if (!window.ERWGraphRenderers || typeof window.ERWGraphRenderers.register !== 'f
       this.bindCanvas();
     }
 
-    async init() {
-      window.__workbenchPerf && (window.__workbenchPerf.graphLimit = Math.max(window.__workbenchPerf.graphLimit || 0, MAX_FETCH_NODES));
+    async init(initialGraph) {
       this.installToolbar();
       this.bindExistingControls();
       this.setStatus('正在建立图结构索引…');
-      const graph = await api(`/api/graph?limit=${MAX_FETCH_NODES}`);
+      const graph = initialGraph || await api(`/api/graph?limit=${MAX_FETCH_NODES}`);
       if (this.destroyed || route() !== 'graph' || !this.canvas.isConnected) return;
       this.raw = graph || {nodes:[],edges:[],meta:{}};
       this.refreshFilteredGraph(true);
@@ -154,7 +153,9 @@ if (!window.ERWGraphRenderers || typeof window.ERWGraphRenderers.register !== 'f
     }
 
     bindExistingControls() {
-      document.querySelectorAll('[data-gview]').forEach(btn=>{btn.onclick=(e)=>{e.preventDefault();e.stopPropagation();this.mode=btn.dataset.gview||'2d';document.querySelectorAll('[data-gview]').forEach(x=>x.classList.toggle('active',x===btn));this.requestRender()}});
+      document.querySelectorAll('[data-graph-panel]').forEach(button => {
+        button.onclick = () => this.setSidePanel(button.dataset.graphPanel);
+      });
       const fit=document.querySelector('#graph-fit'); if(fit)fit.onclick=(e)=>{e.preventDefault();this.clearFocus(true)};
       const close=document.querySelector('#graph-preview-close'); if(close)close.onclick=()=>this.clearFocus(false);
       const bundle=document.querySelector('#graph-bundle'); if(bundle)bundle.onclick=()=>this.openBundle();
@@ -162,6 +163,11 @@ if (!window.ERWGraphRenderers || typeof window.ERWGraphRenderers.register !== 'f
       document.querySelectorAll('[data-graph-kind],[data-graph-relation]').forEach(input=>{input.onchange=(e)=>{e.stopPropagation();this.persistFilters();this.refreshFilteredGraph(true)}});
       const all=document.querySelector('#graph-filter-all'); if(all)all.onclick=(e)=>{e.preventDefault();e.stopPropagation();document.querySelectorAll('[data-graph-kind]').forEach(x=>x.checked=true);this.persistFilters();this.refreshFilteredGraph(true)};
       const docs=document.querySelector('#graph-filter-docs'); if(docs)docs.onclick=(e)=>{e.preventDefault();e.stopPropagation();this.setScope(true)};
+    }
+
+    setSidePanel(name) {
+      document.querySelectorAll('[data-graph-panel]').forEach(button => button.classList.toggle('active', button.dataset.graphPanel === name));
+      document.querySelectorAll('[data-graph-panel-view]').forEach(panel => panel.classList.toggle('active', panel.dataset.graphPanelView === name));
     }
 
     persistFilters(){
@@ -269,10 +275,10 @@ if (!window.ERWGraphRenderers || typeof window.ERWGraphRenderers.register !== 'f
     syncFocusButtons(){document.querySelectorAll('[data-graph-focus]').forEach(b=>b.classList.toggle('active',Number(b.dataset.graphFocus||0)===this.focusDepth&&!!this.selectedId))}
 
     selectNode(id,animate=false){
-      const node=this.nodeMap.get(String(id));if(!node)return;this.selectedId=String(id);this.focusDepth=this.focusDepth||1;this.updateFocus();this.syncFocusButtons();this.updateSidePanel(node);this.openPreview(node);const bundle=document.querySelector('#graph-bundle');if(bundle)bundle.disabled=false;if(animate)this.animateCameraTo(id);else this.requestRender();
+      const node=this.nodeMap.get(String(id));if(!node)return;this.selectedId=String(id);this.focusDepth=this.focusDepth||1;this.updateFocus();this.syncFocusButtons();this.setSidePanel('detail');this.updateSidePanel(node);this.openPreview(node);const bundle=document.querySelector('#graph-bundle');if(bundle)bundle.disabled=false;if(animate)this.animateCameraTo(id);else this.requestRender();
     }
     clearFocus(resetCamera=false){
-      this.selectedId=null;this.focusDistances.clear();this.searchHits.clear();this.syncFocusButtons();const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info'),bundle=document.querySelector('#graph-bundle');if(title)title.textContent='选择节点';if(info)info.textContent='搜索或点击节点后，将进入 Focus + Context；点击空白处可恢复全图。';if(bundle)bundle.disabled=true;this.hidePreview();if(resetCamera){const c=this.camera[this.mode];c.panX=0;c.panY=0;c.zoom=1;if(this.mode==='3d'){c.rotX=.25;c.rotY=0}}this.requestRender();
+      this.setSidePanel('overview');this.selectedId=null;this.focusDistances.clear();this.searchHits.clear();this.syncFocusButtons();const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info'),bundle=document.querySelector('#graph-bundle');if(title)title.textContent='选择节点';if(info)info.textContent='搜索或点击节点后，将进入 Focus + Context；点击空白处可恢复全图。';if(bundle)bundle.disabled=true;this.hidePreview();if(resetCamera){const c=this.camera[this.mode];c.panX=0;c.panY=0;c.zoom=1;if(this.mode==='3d'){c.rotX=.25;c.rotY=0}}this.requestRender();
     }
 
     updateSidePanel(n){

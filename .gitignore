@@ -47,6 +47,8 @@
 !web/**/*.css
 !web/**/*.json
 !web/favicon.png
+!web/workbench-mark.svg
+!tools/ui_usability_check.js
 
 
 # ==========================================================

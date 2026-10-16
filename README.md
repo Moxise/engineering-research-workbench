@@ -669,7 +669,7 @@ flowchart TB
     GRAPH["perf_index_graph.py"]
     ACT["app/activity.py"]
     TODO["app/todos.py"]
-    SEARCH["app/search.py"]
+    SEARCH["app/perf_index_query.py"]
     AGENT["app/agent.py + agent_tools.py"]
     LIT["app/literature.py"]
     API["core_api.py<br/>插件唯一门面（I3）"]
@@ -773,7 +773,7 @@ server.py
    ├─ store.py
    ├─ activity.py
    ├─ todos.py
-   ├─ search.py
+   ├─ perf_index_query.py
    ├─ agent.py
    ├─ rss.py
    └─ weather.py
@@ -830,7 +830,7 @@ Workspace/System/activity.jsonl
 - 连续活跃；
 - 科研节奏。
 
-### `app/search.py`
+### `app/perf_index_query.py`
 
 统一搜索：
 

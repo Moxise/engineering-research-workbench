@@ -45,6 +45,8 @@ BROWSER_EVENTS = {
     # 缺了会让 web_check 把标准事件误报成「没人派发的自定义事件」（实测 mouseenter/mouseleave 踩到）
     "mouseenter", "mouseleave", "mouseover", "mouseout", "dblclick", "select", "reset",
     "focusin", "focusout", "invalid", "play", "pause", "ended", "canplay", "timeupdate",
+    # v261015 · 指针捕获是浏览器原生事件（截断拖拽用），同样不需要派发方
+    "lostpointercapture", "gotpointercapture",
 }
 
 #: 派发自定义事件：`new CustomEvent("x")` 与 `new Event("x")` 两种写法都要认

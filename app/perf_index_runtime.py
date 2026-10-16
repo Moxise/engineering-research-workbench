@@ -9,7 +9,10 @@ from typing import Any
 from . import activity, store, workspace
 from . import versions
 from .perf_index_db import _connect, _init_db, _root, _LOCK
-from .perf_index_core import _registry, _todos_path, index_doc_path, remove_doc, sync
+from .perf_index_core import (
+    _registry, _todos_path, index_doc_path, ensure_ready, sync,
+    _remove_doc_conn, _affected_sources, _refresh_graph_edges, _sync_activity_conn, _refresh_status,
+)
 
 def normalize_project_payload(payload: dict[str, Any]) -> dict[str, Any]:
     out = dict(payload or {})
@@ -98,6 +101,24 @@ def apply_todo_project_id(item: dict[str, Any], payload: dict[str, Any]) -> dict
     return {**item, "project": normalized.get("project") or "", "project_id": normalized.get("project_id") or ""}
 
 
+def normalize_project_update(existing: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Explicit edits replace old associations; untouched associations persist."""
+    merged = {**existing, **payload}
+    names_changed = "project" in payload or "projects" in payload
+    ids_changed = "project_id" in payload or "project_ids" in payload
+    if names_changed and not ids_changed:
+        merged.pop("project_id", None)
+        merged.pop("project_ids", None)
+    if ids_changed and not names_changed:
+        merged.pop("project", None)
+        merged.pop("projects", None)
+    if "project" in payload and "projects" not in payload:
+        merged["projects"] = [payload["project"]] if payload["project"] else []
+    if "project_id" in payload and "project_ids" not in payload:
+        merged["project_ids"] = [payload["project_id"]] if payload["project_id"] else []
+    return normalize_project_payload(merged)
+
+
 def _safe_workspace_path(rel: str) -> Path:
     root = _root().resolve()
     target = (root / str(rel or "")).resolve()
@@ -150,6 +171,14 @@ def workspace_children(rel: str = "") -> dict[str, Any]:
     return _tree_node(path, include_children=True)
 
 
+def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    ensure_ready()
+    with _LOCK:
+        doc = store.create_doc(kind, normalize_project_payload(payload))
+        index_doc_path(str(doc["path"]))
+        return doc
+
+
 def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | None = None) -> dict[str, Any]:
     """更新条目（**索引层入口**）。
 
@@ -180,18 +209,43 @@ def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | No
 
 
 def delete_doc(doc_id: str) -> dict[str, Any]:
-    sync()
-    with _connect() as conn:
-        _init_db(conn)
-        row = conn.execute("SELECT path,kind,title,project FROM documents WHERE id=?", (doc_id,)).fetchone()
-    if not row:
-        raise FileNotFoundError(doc_id)
-    path = _root() / str(row["path"])
-    trash = _root() / "System" / "Trash" / str(row["kind"])
-    trash.mkdir(parents=True, exist_ok=True)
-    target = trash / f"{datetime.now().strftime('%Y%m%d%H%M%S')}-{path.name}"
-    with _LOCK:
-        shutil.move(str(path), str(target))
-    activity.record("doc_delete", ref=doc_id, kind=str(row["kind"]), title=str(row["title"] or doc_id), project=str(row["project"] or ""))
-    remove_doc(doc_id)
+    result = delete_docs([doc_id])
+    if result["failed"]:
+        failure = result["failed"][0]
+        if failure.get("error") == "FileNotFoundError":
+            raise FileNotFoundError(doc_id)
+        raise OSError(failure["message"])
     return {"ok": True}
+
+
+def delete_docs(doc_ids: list[str]) -> dict[str, Any]:
+    """Move an explicit selection to Trash, updating graph dependencies once."""
+    ensure_ready()
+    root = _root()
+    deleted, failed, keys = [], [], set()
+    with _LOCK:
+        with _connect(root) as conn:
+            _init_db(conn)
+            for doc_id in dict.fromkeys(doc_ids):
+                row = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+                try:
+                    if not row:
+                        raise FileNotFoundError(doc_id)
+                    path = root / str(row["path"])
+                    trash = root / "System" / "Trash" / str(row["kind"])
+                    trash.mkdir(parents=True, exist_ok=True)
+                    target = trash / f"{datetime.now().strftime('%Y%m%d%H%M%S%f')}-{path.name}"
+                    shutil.move(str(path), str(target))
+                except (OSError, ValueError) as exc:
+                    failed.append({"id": doc_id, "message": str(exc), "error": type(exc).__name__})
+                    continue
+                keys.update((doc_id.casefold(), str(row["title_key"])))
+                _remove_doc_conn(conn, doc_id, update_graph=False)
+                deleted.append(doc_id)
+                activity.record("doc_delete", ref=doc_id, kind=str(row["kind"]), title=str(row["title"] or doc_id), project=str(row["project"] or ""))
+            if deleted:
+                _refresh_graph_edges(conn, _affected_sources(conn, keys) - set(deleted))
+                _sync_activity_conn(conn, root=root)
+                conn.commit()
+                _refresh_status(conn, root)
+    return {"deleted": deleted, "failed": failed}
