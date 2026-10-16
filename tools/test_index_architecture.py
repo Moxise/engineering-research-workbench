@@ -19,6 +19,33 @@ from app import perf_index_core as core, perf_index_db as db
 
 
 class IndexArchitectureTests(unittest.TestCase):
+    def test_unmodified_draft_creates_no_files_activity_or_index_rows(self):
+        before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        with patch.object(store.activity, 'record') as record:
+            draft = store.prepare_doc('note', {'project':'Not yet created'})
+            self.assertTrue(draft['draft'])
+            self.assertEqual(draft['path'], '')
+            self.assertIn('## 摘要', draft['body'])
+            record.assert_not_called()
+        after = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)
+        self.assertEqual(indexer.list_docs('note'), [])
+        saved = indexer.create_doc('note', {'title':'Edited draft', 'body':draft['body']+'\nNew result'})
+        self.assertFalse(saved.get('draft', False))
+        self.assertEqual(len(indexer.list_docs('note')), 1)
+        self.assertTrue((self.root / saved['path']).is_file())
+
+    def test_draft_respects_custom_template_and_explicit_empty_body(self):
+        with patch.object(store, 'kind_template', return_value='# {{title}}\nDate: {{date}}\n'):
+            draft = store.prepare_doc('note', {'title':'Customized'})
+        self.assertIn('# Customized', draft['body'])
+        self.assertNotIn('{{date}}', draft['body'])
+        literature_draft = store.prepare_doc('literature', {})
+        self.assertIn('```bibtex', literature_draft['body'])
+        self.assertIn('@article', literature_draft['bibtex'])
+        saved = indexer.create_doc('note', {'title':'Empty on purpose', 'body':''})
+        self.assertEqual(saved['body'].strip(), '')
+
     def setUp(self):
         core.stop_background_sync()
         self.temp = tempfile.TemporaryDirectory(prefix="erw-index-tests-")
@@ -56,6 +83,25 @@ class IndexArchitectureTests(unittest.TestCase):
     def test_import_does_not_load_or_migrate_config(self):
         code = "import sys; sys.path.insert(0, sys.argv[1]); from app import indexer, config; assert not config._cache"
         subprocess.run([sys.executable, "-c", code, str(ROOT)], cwd=self.data, check=True)
+
+    def test_mcp_bridge_loads_and_updates_through_index(self):
+        from mcp.bridge import Workbench
+        from app import versions
+        bridge = Workbench()
+        doc = bridge.create_entry('note', {'title': 'MCP merge regression', 'body': 'mcpbefore'},
+                                  origin=versions.origin('mcp', 'kb_create_entry'))
+        bridge.update_entry(doc['id'], {'body': 'mcpafter'},
+                            origin=versions.origin('mcp', 'kb_update_entry'))
+        self.assertTrue(bridge.search('mcpafter'))
+        self.assertFalse(bridge.search('mcpbefore'))
+        self.assertEqual(bridge.get_entry(doc['id'])['origin_surface'], 'mcp')
+
+    def test_store_delete_moves_file_to_trash(self):
+        doc = self.doc(body='trashregression')
+        source = self.root / doc['path']
+        store.delete_doc(doc['id'])
+        self.assertFalse(source.exists())
+        self.assertTrue(list((self.root / 'System/Trash').rglob('*-' + source.name)))
 
     def test_workspace_initialization_is_cached_and_resettable(self):
         with patch.object(Path, "mkdir", side_effect=AssertionError("repeated mkdir")):

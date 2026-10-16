@@ -182,7 +182,7 @@
     if (filter) filter.onclick = async () => { st.rec.sessionId = document.querySelector('#billing-sid').value.trim(); try { await loadRecords(0, true); } catch(e){ toast(e.message,true); } };
     const clear = document.querySelector('#billing-clear');
     if (clear) clear.onclick = async () => {
-      if (!confirm('确定清空全部用量账本？此操作不可撤销。')) return;
+      if (!await window.ERWDialog.confirm('确定清空全部用量账本？此操作不可撤销。')) return;
       try { const r = await api('/api/plugins/billing/records', {method:'DELETE'}); toast(`已清空 ${r.removed||0} 条记录`); await loadSummary(); st.rec = {items:[], total:0, offset:0, sessionId:''}; paintBody(); }
       catch(e){ toast(e.message,true); }
     };
@@ -199,7 +199,7 @@
     };
     const def = document.querySelector('#billing-price-default');
     if (def) def.onclick = async () => {
-      if (!confirm('载入预置模板将覆盖当前编辑框内容（需再点「保存」才生效）。继续？')) return;
+      if (!await window.ERWDialog.confirm('载入预置模板将覆盖当前编辑框内容（需再点「保存」才生效）。继续？')) return;
       try { const d = await api('/api/plugins/billing/prices?defaults=1'); ta.value = JSON.stringify(d, null, 2); toast('已载入预置模板，点击保存后生效'); }
       catch(e){ toast(e.message, true); }
     };

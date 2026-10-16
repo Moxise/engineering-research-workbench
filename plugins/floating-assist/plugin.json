@@ -1,7 +1,7 @@
 {
   "id": "floating-assist",
   "name": "悬浮球 AI 助手",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "悬浮球助手：随时对话 / 检索知识库 / 建档；含工具轨迹时间线、本页关联知识、历史对话回看、写模式开关与 AI 助手人设编辑器。纯前端插件；LLM 调用与草稿确认闸门仍在内核。",
   "api_version": 1,
   "core_min": "v261009.16",

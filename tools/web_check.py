@@ -36,6 +36,7 @@ MANIFEST = WEB / "manifest.json"
 
 BROWSER_EVENTS = {
     "DOMContentLoaded", "load", "beforeunload", "click", "change", "input", "keydown", "keyup",
+    "pywebviewready",  # 由 pywebview 原生桥接派发，不属于仓库内的自定义事件
     "resize", "scroll", "hashchange", "popstate", "paste", "drop", "dragover", "dragleave",
     "pointerdown", "pointermove", "pointerup", "pointercancel", "mousedown", "mousemove",
     "mouseup", "wheel", "focus", "blur", "submit", "animationend", "transitionend",

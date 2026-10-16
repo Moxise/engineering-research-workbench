@@ -2,6 +2,14 @@
 
 Current performance details and validation: [PERFORMANCE_ARCHITECTURE.md](PERFORMANCE_ARCHITECTURE.md). Markdown remains authoritative; all document-facing features use the shared `indexer` service. External file reconciliation runs in the background while read requests use SQLite snapshots.
 
+桌面标题栏复用页面标题与工具控件的 DOM，保留原有事件与偏好；浏览器版继续使用页内工具栏。`theme-dark.css` 集中提供暗色语义色板和旧模块的背景覆盖。关联 Markdown 弹窗按固定尺寸布局并限制在可用视口内，文本区域独立滚动，避免单行输入框样式压缩文本域。启动并发读取使用 8 秒超时、最多 3 次重试；HTTP 连接队列为 32，避免资源加载高峰挤占初始化请求。
+
+Windows 桌面版见 [WINDOWS.md](WINDOWS.md)：`client.py` 管理本地服务与 WebView2 生命周期；`app/desktop.py` 负责窗口控制、原生缩放、系统托盘和每个数据目录的单实例互斥/唤回事件；`web/desktop.js` / `desktop.css` 仅在原生桥接存在时启用标题栏。隐藏保留 WebView 和 HTTP 服务；托盘退出先检查 Markdown 未保存状态，随后关闭窗口、索引同步线程和监听端口。浏览器版与桌面版共用业务代码与数据层。
+
+`app/windows_frame.py` 在窗口所属 UI 线程安装原生 subclass，在 `WM_GETMINMAXINFO` 中按当前显示器 `rcWork` 设置最大化位置和尺寸，保留任务栏并兼容负坐标副屏。窗口关闭时移除 hook。设置页的“窗口”选项通过原生桥将关闭偏好保存到 `window-state.json`，标题栏关闭与 Alt+F4 共用处理逻辑；最小化单独保留任务栏入口。备用服务端口记在 `desktop-service.json`，避免重启更换 origin 导致 WebView localStorage 偏好丢失。
+
+桌面模式启用持久 WebView profile，数据位于 exe 同级目录（可用 `--data-dir` 覆盖）。配置修改后的快速重启会释放服务、profile 和单实例句柄，再以相同参数拉起客户端；onefile exe 使用独立解包环境，遵循 [PyInstaller 的重启要求](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#using-sys-executable-to-spawn-subprocesses-that-outlive-the-application-process-implementing-application-restart)。`tools/build_windows.py` 使用发布文件白名单构建 ZIP，不包含配置、Workspace 或密钥。
+
 > ⚠️ **本文是历史技术笔记的堆积**（v260920–v261008 期间的实现记录），其中不少模块位置已变
 > ——例如 `app/rss.py`、`app/weather.py`、`app/kb_naming.py`、`web/literature.js`、
 > `web/v260930-floating-agent.*` 都已搬进 `plugins/`。**要看当前结构与功能请读
@@ -183,3 +191,15 @@ Agent 只依赖一种协议——OpenAI-compatible **Chat Completions**，所以
 - **币种与汇率**：单价条目可带 `currency`（默认取表头 `currency`，直接粘贴官方人民币标价就写 `CNY`），价格表顶层 `fx` 语义为「1 USD = N 该币种」（预置 CNY≈7.1，参考值、可改）；`convert_cost()` 统一折算，缺汇率的条目标 `fx_missing` 且等价记 0（不猜数）。
 - **等价标价**（v261008b）：订阅/免费档案实付口径不适用，但仍按同一份单价表（官方标价）折算 `equiv_usd`，`summary()` 另给 `subscription_equiv_usd`；页面以「等价标价合计」卡片与各表「等价标价」列呈现，并明示为参考而非实付。老账本读取时用当前单价表补算等价标价，但 token 模式写入时冻结的 `cost_usd` 不改（历史实付口径不追溯）。
 - **已预置标价来源**：DeepSeek 官方 [模型 & 价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)（2026-10-08）——`deepseek-v4.1-flash` / `deepseek-flash` 空闲时段 输入 1 元、缓存命中 0.02 元、输出 4 元 / 百万 tokens，高峰时段 ×2；其余条目沿用 dsh-cost-meter 参考价，需按实际账单核对。
+
+## 编辑草稿与公共交互
+
+- `GET /api/docs/draft?kind=...` 通过 `store.prepare_doc` 预览当前模板与默认元数据，不创建 Markdown、项目、活动记录或索引行。首次保存复用 `POST /api/docs`；后续保存更新同一文档。
+- 编辑器以初始字段快照判断实际修改，离开时通过异步保存 / 丢弃 / 取消对话框处理。保存失败或保存期间产生新修改时保留编辑器。
+- `web/ui-dialogs.js` 为各模块提供独立、可排队且支持键盘的确认层；`web/workbench-ui.css` 统一通知、浮层和设置表面。原生退出通过一次性令牌等待前端保存决策，不阻塞 WebView UI 线程。
+
+## 后台专注时钟
+
+`app/focus_timer.py` 使用单调时钟与可取消的后台定时器，快照提供精确剩余时长。每次开始、暂停或重置递增代次，忽略过期回调；完全退出时取消计时。桌面桥负责开始、暂停、重置和恢复快照，前端只渲染剩余秒数。完成后由 `app/desktop_notification.py` 在现有 WinForms UI 线程显示独立的置顶提醒，不依赖隐藏 WebView 的 JavaScript 调度，也不使用会自动消失的托盘气泡。提醒使用 `ToolStripDropDown` 承载，`AutoClose=false`，没有自动关闭定时器，只有手动确认、关闭或退出应用才销毁；多个未确认提醒合并，主题经桌面桥同步，窗口按所在显示器工作区和 DPI 定位。通过该原生浮层的 `SW_SHOWNOACTIVATE` 显示方式及 `WS_EX_NOACTIVATE` 保留输入焦点，避免普通 `Form.Show` 再次激活窗口。
+
+提醒在 `Closed` 事件中先清除业务引用，再通过 UI 队列释放窗口及字体资源；不在该事件内同步 `Dispose`，避免 WinForms 后续菜单清理访问已释放对象。关闭入口会显式授权关闭，其余自动关闭请求取消。

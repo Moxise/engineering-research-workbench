@@ -311,6 +311,7 @@ FORBIDDEN_TITLE_CHARS: list[str] = ["《", "》", "[", "]"]
 
 FRONTMATTER_ORDER: list[str] = [
     "id", "kind", "title", "created", "updated", "status", "project", "projects", "tags", "kind_marks",
+    "project_id", "project_ids",
     "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
     "record_date", "due", "added_date", "summary_type", "pinned", "authors", "year", "venue", "doi", "url", "cite_key",
     "has_variants",
@@ -329,6 +330,7 @@ IMMUTABLE_FIELDS: list[str] = ["id", "kind", "created"]
 
 CREATE_FIELDS: list[str] = [
     "title", "status", "project", "projects", "tags", "kind_marks", "pinned", "body",
+    "project_id", "project_ids",
     "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key",
     "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
     "has_variants",
@@ -337,6 +339,7 @@ CREATE_FIELDS: list[str] = [
 
 UPDATE_FIELDS: list[str] = [
     "title", "status", "project", "projects", "tags", "kind_marks", "pinned", "body",
+    "project_id", "project_ids",
     "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key",
     "attachment",
     "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",

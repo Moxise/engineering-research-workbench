@@ -40,25 +40,10 @@
   function fmtDate(s){return s?String(s).slice(0,10):'—'}
   function fmtTime(s){try{return s?new Date(s).toLocaleString('zh-CN',{hour12:false}):'—'}catch{return s||'—'}}
 
-  function ensureProjectNav(){
-    const overview=$('[data-route="overview"]'); if(!overview || $('[data-project-route]'))return;
-    const a=document.createElement('a'); a.className='nav-item';a.href='#projects';a.dataset.projectRoute='1';
-    a.innerHTML='<span class="nav-ico">▥</span><span>项目</span>';
-    overview.insertAdjacentElement('afterend',a);
-    a.addEventListener('click',e=>{e.preventDefault();showProjects()});
-  }
-
-  function setProjectHeader(){
-    $('#page-eyebrow').textContent='CORE WORK';$('#page-title').textContent='项目';
-    document.title='项目 · 科研工作台';
-    $$('.nav-item').forEach(x=>x.classList.remove('active'));$('[data-project-route]')?.classList.add('active');
-    history.replaceState(null,'','#projects');
-  }
-
   async function showProjects(){
     if(projectsLoading)return;
     projectsLoading=true;
-    setProjectHeader(); const main=$('#main');
+    const main=$('#main');
     main.innerHTML='<div class="empty"><div><div class="empty-symbol">PROJECTS</div>正在加载项目…</div></div>';
     try{
       const rows=await api('/api/project-records');
@@ -106,7 +91,7 @@
 
   async function deleteProject(p){
     if(!p)return;
-    if(!confirm(`删除项目“${p.name}”？\n\n知识条目不会被删除，只会解除该项目关联；项目工程目录会移入 Workspace/System/Trash/Projects。`))return;
+    if(!await window.ERWDialog.confirm(`删除项目“${p.name}”？\n\n知识条目不会被删除，只会解除该项目关联；项目工程目录会移入 Workspace/System/Trash/Projects。`))return;
     try{await api('/api/projects/'+encodeURIComponent(p.id),{method:'DELETE'});toast('项目已删除，工程目录已移入回收目录');await showProjects()}catch(e){toast(e.message,true)}
   }
 
@@ -138,19 +123,12 @@
   }
 
   window.ERWDom.onChildList(()=>{   /* v261009 · A9：共享 DOM 变更接缝 */
-    ensureProjectNav();
-    if(location.hash==='#projects' && $('#main') && !$('.project-manager')) showProjects();
     enhanceMilestones();
     fixPreviewImages(document);
   }, {root:'html'});
 
-  window.addEventListener('hashchange',()=>{if(location.hash==='#projects')showProjects()});
-  document.addEventListener('click',e=>{
-    const nav=e.target.closest('[data-project-route]');if(nav){e.preventDefault();showProjects()}
-  },true);
-
-  ensureProjectNav();
-  if(location.hash==='#projects')setTimeout(showProjects,50);
+  window.ERWPanels.register({id:'projects',group:'core',before:'todos',label:'项目',icon:'▥',
+    eyebrow:'CORE WORK',title:'项目',render:showProjects});
   setTimeout(()=>{enhanceMilestones();fixPreviewImages()},100);
 })();
 

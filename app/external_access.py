@@ -22,7 +22,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+from .paths import DATA_ROOT
+
+ROOT = DATA_ROOT
 CONFIG_PATH = ROOT / "config" / "external-access.json"
 
 DEFAULTS: dict[str, bool] = {"mcp_write": False, "plugin_write": True}

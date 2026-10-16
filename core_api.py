@@ -19,15 +19,18 @@ API_VERSION = 1
 
 
 def _data_root() -> Path:
-    """可写数据根：打包态是 exe 同级，开发态是仓库根（镜像 app/paths.py 的判定）。"""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    """可写数据根，沿用桌面端的 --data-dir 设置。"""
+    from app.paths import DATA_ROOT
+
+    return DATA_ROOT
 
 
 def plugin_dir(plugin_id: str) -> Path:
     """插件自己的目录（只读代码 + 资源）。"""
-    for source_root in (_data_root() / "plugins",):
+    from core.plugins.registry import default_roots
+    from app.paths import ASSET_ROOT
+
+    for _, source_root in default_roots(_data_root(), asset_root=ASSET_ROOT):
         candidate = source_root / plugin_id
         if candidate.is_dir():
             return candidate
@@ -151,7 +154,7 @@ def entry_update(doc_id: str, *, body: str | None = None, origin: dict | None = 
     原子写、记 `doc_update` 活动），不是"帮插件绕开规则直接改文件"。
     条目不存在时抛 `FileNotFoundError`；没有可写内容时抛 `ValueError`。
     """
-    from app import store
+    from app import indexer
 
     payload: dict = {k: v for k, v in fields.items() if v is not None}
     if body is not None:
@@ -170,7 +173,7 @@ def entry_update(doc_id: str, *, body: str | None = None, origin: dict | None = 
     # v261009.41 · 来源：插件可用 `origin={"tool": "<插件 id>"}` 说明是谁写的
     _origin = dict(origin or versions.origin("plugin"))
     _origin.setdefault("origin_surface", "plugin")
-    return store.update_doc(doc_id, payload, origin=_origin)
+    return indexer.update_doc(doc_id, payload, origin=_origin)
 
 
 def entries(kind: str | None = None, *, query: str = "", status: str = "", project: str = "",

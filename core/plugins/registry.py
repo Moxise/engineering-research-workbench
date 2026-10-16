@@ -71,15 +71,18 @@ class PluginCandidate:
         }
 
 
-def default_roots(repo_root: Path | None = None) -> list[tuple[str, Path]]:
+def default_roots(repo_root: Path | None = None, *, asset_root: Path | None = None) -> list[tuple[str, Path]]:
     """(source, dir) 列表，ASSET 在前（同名 ASSET 优先）。
 
     这里镜像 `app/paths.py` 的 frozen 判定（3 行），而不是 import app：
     `core/` 必须保持不依赖 `app`（`tools/plugin_check.py` 会静态检查）。
     """
     root = (repo_root or Path(__file__).resolve().parents[2]).resolve()
-    if getattr(sys, "frozen", False):  # 打包态：随包资源在解压目录，数据在 exe 同级
-        data_root = Path(sys.executable).resolve().parent
+    if asset_root is not None:
+        data_root = root
+        asset_root = Path(asset_root).resolve()
+    elif getattr(sys, "frozen", False):  # 打包态：随包资源在解压目录，数据在 exe 同级
+        data_root = Path(repo_root).resolve() if repo_root else Path(sys.executable).resolve().parent
         asset_root = Path(getattr(sys, "_MEIPASS", data_root))
     else:
         data_root = asset_root = root

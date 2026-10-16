@@ -194,7 +194,7 @@ def main() -> int:
     check("store 建档路径拒绝越界 status",
           _rejects(lambda: store.create_doc("idea", {"title": "灵感-越界状态测试", "status": "进行中"})))
     check("store 建档路径补齐契约标记",
-          "derive_marks" in inspect.getsource(store.create_doc))
+          "experiment" in store.prepare_doc("experiment", {"title": "实验-索引验证（1）"})["kind_marks"])
     check("store 更新路径拒绝越界 status",
           _rejects(lambda: store.update_doc("idea-20260924104458-90ee1b", {"status": "进行中"})))
     check("MCP 建档工具消费同一校验器",

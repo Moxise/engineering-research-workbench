@@ -173,7 +173,7 @@ def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
             payload[key] = str(args[key]).strip()
     payload["kind_marks"] = naming.derive_marks(kind, title, payload["kind_marks"])
     if ctx.get("write_mode") == "direct":
-        doc = store.create_doc(kind, payload, origin=_versions.origin("agent", "kb_create_entry"))
+        doc = indexer.create_doc(kind, payload, origin=_versions.origin("agent", "kb_create_entry"))
         return {"ok": True, "doc_id": doc["id"], "title": doc.get("title"), "validation": validation}
     draft = save_draft("kb_create_entry", {"kind": kind, **payload})
     return {"pending": True, "draft_id": draft["id"], "message": "建档草稿已生成，等待用户确认后写入知识库",
@@ -194,7 +194,7 @@ def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
     if not body.strip():
         raise ValueError("body 不能为空（注意：更新为整体覆盖，须发送全文）")
     if ctx.get("write_mode") == "direct":
-        updated = store.update_doc(doc_id, {"body": body},
+        updated = indexer.update_doc(doc_id, {"body": body},
                                    origin=_versions.origin("agent", "kb_update_entry"))
         return {"ok": True, "doc_id": doc_id, "title": updated.get("title"), "updated": updated.get("updated")}
     draft = save_draft("kb_update_entry", args)

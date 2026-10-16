@@ -171,10 +171,10 @@ def workspace_children(rel: str = "") -> dict[str, Any]:
     return _tree_node(path, include_children=True)
 
 
-def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None = None) -> dict[str, Any]:
     ensure_ready()
     with _LOCK:
-        doc = store.create_doc(kind, normalize_project_payload(payload))
+        doc = store.create_doc(kind, normalize_project_payload(payload), origin=origin)
         index_doc_path(str(doc["path"]))
         return doc
 
@@ -203,6 +203,11 @@ def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | No
     kind = str(row["kind"])
 
     # 走唯一写入路径：契约校验、来源记录、分叉/冲突留版、活动日志都在 store 里
+    if any(key in payload for key in ("project", "projects", "project_id", "project_ids")):
+        existing = store._doc_from_path(kind, path, include_body=False, root=_root())
+        normalized = normalize_project_update(existing, payload)
+        payload = {**payload, **{key: normalized[key] for key in
+                                ("project", "projects", "project_id", "project_ids")}}
     doc = store.update_doc(doc_id, payload, origin=origin)
     index_doc_path(path)
     return store._doc_from_path(kind, path, include_body=True, root=_root())

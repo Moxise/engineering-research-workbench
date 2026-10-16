@@ -58,7 +58,7 @@
     },
     {
       "file": "v261014-linear-luxe.css",
-      "v": "261014o",
+      "v": "261016-v3",
       "theme": "base",
       "note": "v261014o · 线性奢华版壳层（v3 UI 重设计）"
     },
@@ -70,7 +70,7 @@
     },
     {
       "file": "v261015-usability.css",
-      "v": "261015d",
+      "v": "261016-v3",
       "theme": "base",
       "note": "v261015d · 可用性修订：统一无卡头（card-kicker 隐藏）、密度与动效开关联动"
     },
@@ -90,6 +90,21 @@
       "v": "261009ab",
       "theme": "base",
       "note": "v261009.38 · 「设置 → 外部接入」版式"
+    },
+    {
+      "file": "desktop.css",
+      "v": "261016-v3",
+      "theme": "base"
+    },
+    {
+      "file": "theme-dark.css",
+      "v": "261016-v3",
+      "theme": "base"
+    },
+    {
+      "file": "workbench-ui.css",
+      "v": "261016-v3",
+      "theme": "base"
     }
   ],
   "vendor_js": [
@@ -117,6 +132,11 @@
   ],
   "js": [
     {
+      "file": "ui-dialogs.js",
+      "v": "261016-v3",
+      "theme": "base"
+    },
+    {
       "file": "dom-seam.js",
       "v": "261009",
       "theme": "seam",
@@ -142,7 +162,7 @@
     },
     {
       "file": "app.js",
-      "v": "261015c",
+      "v": "261016-v3",
       "theme": "base",
       "note": "v261015c · 合并上游 UI 重设计 v3：移除重复页 research-overview（导航项/路由分支/渲染函数），保留旧书签别名；上版：条目卡片统一高度：卡片标题/摘要/项目名补 title 悬停提示（配合 styles.css 的两行省略）；再上版：插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）"
     },
@@ -154,7 +174,7 @@
     },
     {
       "file": "research-pages.js",
-      "v": "261009ac",
+      "v": "261016-v3",
       "theme": "research-pages",
       "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-set"
     },
@@ -193,6 +213,11 @@
       "v": "261009ab",
       "theme": "base",
       "note": "v261009.38 · 设置新增「外部接入」tab：MCP/插件写入知识库的授权开关（默认 MCP 只读）"
+    },
+    {
+      "file": "desktop.js",
+      "v": "261016-v3",
+      "theme": "base"
     }
   ]
 }

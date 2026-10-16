@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import uuid
 import threading
 from datetime import date, datetime
@@ -613,9 +614,8 @@ def _enforce_write(kind: str, payload: dict[str, Any], *, partial: bool = False,
         raise ValueError("字段校验未通过：" + contract_validate.summarize(issues))
 
 
-def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None = None,
-               _skip_versioning: bool = False) -> dict[str, Any]:
-    """新建条目。`origin` 记录来源（ui/agent/mcp/plugin/cli + 工具名 + 外部客户端名）。"""
+def prepare_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Build an editor draft without files, events or index entries."""
     if kind not in kind_dir_map():
         raise ValueError("Invalid kind")
     title = str(payload.get("title") or f"未命名{kind_label_map().get(kind, kind)}").strip()
@@ -649,6 +649,21 @@ def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None
             meta[key] = payload.get(key) or ""
         if not meta["cite_key"]:
             meta["cite_key"] = _slug(title).replace("-", "_")[:48]
+    _normalize_projects(meta)
+    body = str(payload["body"]) if payload.get("body") is not None else _make_default_body(kind, title, payload)
+    bibtex = BIBTEX_BLOCK_RE.search(body) if kind == "literature" else None
+    return {**meta, "body": body, "path": "", "draft": True,
+            "bibtex": payload.get("bibtex") or (bibtex.group(1).strip() if bibtex else "")}
+
+
+def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None = None,
+               _skip_versioning: bool = False) -> dict[str, Any]:
+    """新建条目。`origin` 记录来源（ui/agent/mcp/plugin/cli + 工具名 + 外部客户端名）。"""
+    meta = prepare_doc(kind, payload)
+    body = meta.pop("body")
+    for key in ("path", "draft", "bibtex"):
+        meta.pop(key)
+    doc_id, title, now = meta["id"], meta["title"], meta["created"]
     # v261009.41 · 来源追踪 + 版本归族（写入收口点：界面 / Agent / MCP / 插件四条路径一视同仁）
     _origin = dict(origin or _versions.origin("cli"))
     meta.update({k: v for k, v in _origin.items() if v})
@@ -666,8 +681,6 @@ def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None
         # v261009.45 · 这条**分支的创建时间**（开分支工具会给；自动归族时取此刻）。
         # 必须在这里（写文件之前）—— 放到文件写完后再 setdefault 是无效的（实测踩到）。
         meta["variant_at"] = str(payload.get("variant_at") or "").strip() or now
-    _normalize_projects(meta)
-    body = payload.get("body") or _make_default_body(kind, title, payload)
     for project_name in meta.get("projects", []):
         ensure_project(project_name)
     path = _kind_path(kind) / f"{doc_id}.md"

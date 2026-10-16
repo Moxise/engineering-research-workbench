@@ -1,4 +1,15 @@
 /* Shared readable type scale and interaction refinements. Loaded after the theme. */
+/* Refresh opens a choice instead of running a system action immediately. */
+#reload-btn{display:grid;place-items:center;width:32px;height:32px;min-width:32px;min-height:0;padding:0;border:1px solid var(--sc-line);border-radius:7px!important;background:var(--sc-card);color:var(--sc-muted)}
+#reload-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+#reload-btn:hover,#reload-btn[aria-expanded="true"]{background:var(--sc-subtle);color:var(--sc-text)}
+#reload-btn:focus-visible{outline:2px solid var(--sc-task);outline-offset:2px}
+html[data-desktop="true"] #reload-btn{width:calc(32px * var(--desktop-chrome-scale));height:calc(30px * var(--desktop-chrome-scale));min-width:0;padding:0;border:0;background:transparent}
+/* Keep both graph bundle steps at the same size; only their contents scroll. */
+#modal:has(#opt-bundle-list,#opt-bundle-content){width:min(960px,calc(var(--vw-px,100vw) - 48px));height:min(640px,calc(var(--vh-px,100vh) - 48px));max-height:calc(var(--vh-px,100vh) - 32px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;resize:none}
+#modal:has(#opt-bundle-content) .modal-body{display:flex;min-height:0;overflow:hidden}
+#modal #opt-bundle-content{display:block;flex:1;min-width:0;min-height:0;width:100%;height:100%!important;max-height:none;padding:14px;border:1px solid var(--sc-line-strong);border-radius:8px;background:var(--sc-card);color:var(--sc-text);resize:none;overflow:auto;font-size:13px;line-height:1.65;white-space:pre-wrap;outline:none}
+#modal #opt-bundle-content:focus{border-color:var(--sc-task);box-shadow:0 0 0 2px color-mix(in srgb,var(--sc-task) 20%,transparent)}
 :root{--type-caption:11px;--type-meta:12px;--type-body:13px;--type-title:15px;--sc-muted:#59677D;--sc-subtle-text:#637187}
 html[data-theme="dark"]{--sc-muted:#A8B4C9;--sc-subtle-text:#A8B4C9}
 #app :is(small,kbd,[class$="-meta"],[class$="-hint"],[class$="-caption"]){font-size:var(--type-caption)!important;line-height:1.5!important}
@@ -256,9 +267,15 @@ html[data-animations="off"] *,html[data-animations="off"] *::before,html[data-an
 #sidebar-nav .nav-group{--group-accent:#65748F}
 #sidebar-nav .nav-group[data-group="core"]{--group-accent:var(--sc-task)}
 #sidebar-nav .nav-group[data-group="research"]{--group-accent:var(--sc-research)}
-#sidebar-nav .nav-group-head{height:30px!important;min-height:30px!important;margin:10px 2px 5px!important;padding:4px 7px!important;border:1px solid color-mix(in srgb,var(--group-accent) 22%,var(--sc-line))!important;border-radius:7px!important;background:color-mix(in srgb,var(--group-accent) 8%,var(--sc-card))!important;box-shadow:inset 3px 0 var(--group-accent)!important}
+#sidebar-nav .nav-group-head{height:36px!important;min-height:36px!important;margin:10px 2px 5px!important;padding:4px 7px!important;border:1px solid color-mix(in srgb,var(--group-accent) 22%,var(--sc-line))!important;border-radius:7px!important;background:color-mix(in srgb,var(--group-accent) 8%,var(--sc-card))!important;box-shadow:inset 3px 0 var(--group-accent)!important}
 #sidebar-nav .nav-group-head .group-toggle{font-size:11px!important;font-weight:800!important;color:color-mix(in srgb,var(--group-accent) 60%,var(--sc-text))!important}
 #sidebar-nav .nav-items{padding-left:3px}
+#sidebar-nav .nav-item{height:30px!important;min-height:30px!important;padding-top:0!important;padding-bottom:0!important}
+#sidebar-nav .group-toggle{height:100%}
+#sidebar-nav .group-disclosure{display:block;flex:0 0 7px;width:7px;height:7px;margin:0 3px;background:var(--group-accent,currentColor);border-radius:1px;transform:rotate(0deg);transition:transform 180ms ease}
+#sidebar-nav .nav-group.collapsed .group-disclosure{transform:rotate(-45deg)}
+@media(prefers-reduced-motion:reduce){#sidebar-nav .group-disclosure{transition:none}}
+html[data-animations="off"] #sidebar-nav .group-disclosure{transition:none}
 
 .selection-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:7px 8px;border-block:1px solid var(--sc-line);background:var(--sc-subtle);font-size:11px;color:var(--sc-muted)}
 .selection-toolbar label{display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer}
@@ -331,3 +348,18 @@ html[data-animations="off"] *,html[data-animations="off"] *::before,html[data-an
   #main .todo-page:not(.is-selecting) .todo-row time{grid-column:2;grid-row:2}
   #main .todo-page:not(.is-selecting) .todo-row>.badge{grid-column:3;grid-row:2}
 }
+
+/* A stationary shared rail; rings travel with the scrolling milestone rows. */
+#main .overview-milestone-track{position:relative;isolation:isolate;flex:0 0 auto;min-width:0;--milestone-axis-x:15px}
+#main .overview-milestone-rail{position:absolute;z-index:1;left:var(--milestone-axis-x);top:6px;bottom:6px;width:2px;transform:translateX(-50%);border-radius:2px;background:color-mix(in srgb,var(--sc-milestone) 48%,var(--sc-line));pointer-events:none}
+#main .overview-milestone-list{padding:2px!important}
+#main .overview-milestone-row{margin-top:0!important}
+#main .mini-ms-date{position:relative;padding-left:20px;min-height:28px}
+#main .mini-ms-date::before{content:none!important}
+#main .mini-ms-date .milestone-ring{position:absolute;z-index:2;display:block!important;left:0;top:50%;bottom:auto;width:12px;height:12px;margin:0;transform:translateY(-50%);box-sizing:border-box;border:2px solid var(--sc-milestone);border-radius:50%;background:var(--sc-card);color:var(--sc-milestone);box-shadow:0 0 0 3px var(--sc-card);pointer-events:none}
+#main .milestone-ring::after{content:"";position:absolute;inset:-6px;border:1px solid currentColor;border-inline-color:transparent;border-radius:50%;opacity:0}
+#main .overview-milestone-row.is-nearest .milestone-ring{background:var(--sc-milestone);box-shadow:0 0 0 3px var(--sc-milestone-soft)}
+#main .overview-milestone-row:is(.is-nearest,:hover) .milestone-ring::after{opacity:.8;animation:milestone-orbit 3s linear infinite}
+@keyframes milestone-orbit{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){#main .milestone-ring::after{animation:none!important}}
+html[data-animations="off"] #main .milestone-ring::after{animation:none!important}

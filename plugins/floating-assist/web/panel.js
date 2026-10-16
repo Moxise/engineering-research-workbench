@@ -157,7 +157,7 @@ function mount(host){
   /* v260930e · 历史回看：切换面板视图（对话 ⇄ 历史列表） */
   q("#fab-history").onclick=()=>{S.view=S.view==="chat"?"history":"chat";paintView()};
   /* v260930e · 截图：当前整页立即截；框选则收起面板等用户框完再回 */
-  q("#fab-shot-page").onclick=()=>{const d=window.ERWCapture?.page();if(!d){toastInPanel("仅文献阅读页可截当前页",true);return}attachImage(d)};
+  q("#fab-shot-page").onclick=()=>{const d=q(".lit-shell")?window.ERWCapture?.page():"";if(!d){toastInPanel("仅文献阅读页可截当前页",true);return}attachImage(d)};
   q("#fab-shot-area").onclick=async()=>{
     if(!window.ERWReader?.available?.()){toastInPanel("仅文献阅读页可框选截图",true);return}   /* v261009.19 · 问接缝 */
     closePanel();
@@ -258,6 +258,7 @@ function initBallDrag(ball){
 
 function toastInPanel(msg,isErr){
   const el=document.createElement("div");
+  el.className="fab-notice"+(isErr?" error":"");
   el.style.cssText="font-size:11px;padding:4px 8px;border-radius:7px;"+(isErr?"color:#b3392f;background:#fdecea;":"color:var(--accent-ink);background:var(--accent-soft);");
   el.textContent=msg;
   const box=q("#fab-messages");if(box){box.appendChild(el);box.scrollTop=box.scrollHeight;setTimeout(()=>el.remove(),2600)}
@@ -888,7 +889,7 @@ async function paintHistory(){
       }catch(e){toastInPanel(e.message,true)}
     });
     qa("[data-del]",root).forEach(b=>b.onclick=async()=>{ /* v260930n · 删除对话（后端移入 Trash，可从文件系统找回） */
-      if(!confirm(`删除对话「${b.dataset.title}」？\n会话文件将移入 AgentChats/Trash/，可从文件系统找回。`))return;
+      if(!await window.ERWDialog.confirm(`删除对话「${b.dataset.title}」？\n会话文件将移入 AgentChats/Trash/，可从文件系统找回。`))return;
       try{
         await api("/api/agent/sessions/"+encodeURIComponent(b.dataset.del),{method:"DELETE"});
         toastInPanel("已删除");
@@ -1223,7 +1224,7 @@ function paintPersonaEditor(host){
   <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">${PE.personas.map(personaRow).join("")}</div>
   <div style="margin-top:12px"><button type="button" class="primary-btn" id="pe-save">保存人设</button></div>`;
   q("#pe-open-rules").onclick=()=>{ /* v260930g5 · 跳转写作规范（个人工作区数据，经 /api/workspace/open 打开所在目录） */
-    fetch("/api/workspace/open",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:"System/AI助手写作与建档规范.md"})}).then(r=>r.json()).then(d=>{if(!d.ok)throw new Error(d.message||"打开失败")}).catch(e=>alert("打开写作规范失败："+e.message));
+    fetch("/api/workspace/open",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:"System/AI助手写作与建档规范.md"})}).then(r=>r.json()).then(d=>{if(!d.ok)throw new Error(d.message||"打开失败")}).catch(e=>window.ERWDialog.alert("打开写作规范失败："+e.message));
   };
   q("#pe-add").onclick=()=>{
     collectPersonaEditor();

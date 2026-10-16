@@ -36,14 +36,14 @@ class Workbench:
             if root not in sys.path:
                 sys.path.insert(0, root)
             try:
-                from app import (activity, config, indexer, projects, search, store, todos,
+                from app import (activity, config, indexer, projects, store, todos,
                                  versions, workspace)
             except Exception as exc:  # pragma: no cover - 环境缺失时给出可读提示
                 raise WorkbenchError(f"无法加载工作台 app 包（{self.repo_root}）：{exc}") from exc
             config.init()  # v261009 · 配置初始化改由入口显式触发（不再在 config 模块 import 期执行）
             self._mod = SimpleNamespace(
                 activity=activity, config=config, indexer=indexer, projects=projects,
-                search=search, store=store, todos=todos, workspace=workspace,
+                store=store, todos=todos, workspace=workspace,
                 versions=versions,      # v261009.45 · 版本族（MCP 的开分支/合并/族视图用它）
             )
         return self._mod
@@ -136,9 +136,7 @@ class Workbench:
         m = self.mod
         if kind not in m.store.kind_dir_map():
             raise WorkbenchError(f"未知条目类型 `{kind}`，取值限定为 " + " / ".join(m.store.kind_dir_map()))
-        doc = m.store.create_doc(kind, payload, origin=origin)
-        self._index_doc(doc)
-        return doc
+        return m.indexer.create_doc(kind, payload, origin=origin)
 
     def update_entry(self, doc_id: str, payload: dict[str, Any],
                      origin: dict[str, Any] | None = None) -> dict[str, Any]:

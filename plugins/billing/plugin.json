@@ -1,7 +1,7 @@
 {
   "id": "billing",
   "name": "用量计费",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "LLM 调用用量与费用观测（单价表 + 账本 + 聚合统计）",
   "api_version": 1,
   "core_min": "v261009",
