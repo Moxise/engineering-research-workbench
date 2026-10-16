@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-16 · UI V3 分支合并评估
+
+- 对比当前 `301398a` 与 Smooling 的 `feature/ui-redesign-v3`（`97932f3`），区分共有性能基线、当前契约/插件/版本改动与远端新增桌面/草稿保护。
+- 记录两项已复现的索引回归、打包资源缺口、7 处三方合并冲突及分组保留建议；详见 `docs/BRANCH_COMPARISON_UI_V3_20261016.md`。本次仅评估与文档记录，未合并或修改应用代码。
+
 ## 2026-10-15 · Architecture performance optimization
 
 - 将外部文件检查移到后台，缓存工作区初始化；读取使用 SQLite 快照，避免周期性全库扫描阻塞请求。
