@@ -8,6 +8,10 @@ Markdown 和原有 JSON 数据仍是资料来源。`app/sync_engine.py` 在 `Sys
 
 项目、待办、文献索引与批注按记录 ID 分别比较。因此两端修改不同待办时可以同时合入，无需把整个 JSON 文件认定为冲突。通用设置按字段比较；列表字段整体比较，修改同一列表时保留冲突。
 
+科研热力图的活动来源 `System/activity.jsonl` 也纳入默认的“记录”范围。新活动具有独立 UUID，两端操作按活动 ID 取并集，保留原始日期、类型与权重；接收历史不会额外生成一次活动。旧日志不改写：按内容校验和相同内容的出现序号产生稳定标识，已复制到多个设备的共同历史不会重复计算，同一秒真实发生的多次旧操作仍保留次数。活动按追加历史同步，不传播删除或覆盖。热力图索引在接收后立即更新，并按活动 ID 去重，重启或重建索引后计数不变。
+
+本次同步协议升级为 **2**。客户端及服务器须一起更新，旧版本连接会提示升级，不会覆盖资料。升级保留原 Workspace 与同步基线，然后执行一次“立即同步”，即可合并各设备已有活动。
+
 同步基线是持久的离线变更记录。已删除项目保留墓碑，防止再次连接时旧条目复活。文件内容以 SHA-256 保存并校验，分块最多 2 MB，单个文件最多 512 MB，重试可以从已收到的断点继续。相同内容的缓存只发布一次，已有缓存直接复用，避免 Windows 下替换正在读取的文件而触发拒绝访问。并行下载和接收按内容校验值限制为单个断点文件写入者；已完整传输但尚未发布的断点文件可以在重试时完成发布。
 
 ## 合并规则
@@ -26,7 +30,7 @@ Markdown 和原有 JSON 数据仍是资料来源。`app/sync_engine.py` 在 `Sys
 
 - 文档：`Knowledge/`、`Projects/`、`Resources/` 下的 Markdown。
 - 附件：上述资料目录下的其他文件；跳过缓存、预览、索引、回收站、隐藏文件与符号链接。
-- 记录：`System/todos.json`、`System/projects.json`、文献 `Index/library.json` 的 `items` 和 `Annotations/` 里的记录。
+- 记录：`System/todos.json`、`System/projects.json`、文献 `Index/library.json` 的 `items`、`Annotations/` 里的记录，以及 `System/activity.jsonl` 科研活动。
 - 通用设置：工作台名称、副标题、界面、学业目标、知识条目类型、分类标记、天气和资讯源；浏览器偏好通过本地服务保存到 `config/ui-preferences.json`。
 - 可选历史：`System/AgentChats/` 的对话与附件。
 
@@ -49,3 +53,5 @@ Markdown 和原有 JSON 数据仍是资料来源。`app/sync_engine.py` 在 `Sys
 ## 验证
 
 `tools/test_sync_engine.py` 使用两个独立 Workspace 和真实 HTTP 通信验证上传、下载、冲突、删除、断点、版本竞争、编辑保护、重启恢复与范围隔离。`tools/test_sync_integration.py` 启动两个独立服务进程，检查真实索引、配置回读和无浏览器窗口时的自动同步。`tools/ui_usability_check.js` 验证设置、标题栏位置、三种模式与亮暗冲突界面，同时保留现有桌面界面的回归检查。
+
+活动测试还覆盖三设备合并、旧历史重叠、同秒独立操作、反复同步和索引重建。`tools/test_billing.py` 验证用量页并行初始化、并行读写、跨 Workspace 缓存隔离及 Windows 文件句柄占用恢复；单价表使用唯一临时文件和原子替换，失败保留原表，账本金额保持原值。

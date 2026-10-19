@@ -16,9 +16,29 @@ sys.path.insert(0, str(ROOT))
 
 from app import config, indexer, store, workspace, agent_tools, literature
 from app import perf_index_core as core, perf_index_db as db
+from app import activity
 
 
 class IndexArchitectureTests(unittest.TestCase):
+    def test_activity_index_deduplicates_imports_and_preserves_legacy_multiplicity(self):
+        path = self.root / 'System/activity.jsonl'
+        event = {'timestamp':'2026-10-01T09:00:00', 'type':'doc_update', 'ref':'old', 'weight':3}
+        line = json.dumps(event) + '\n'
+        path.write_text(line * 2, encoding='utf-8')
+        indexer.sync(immediate=True)
+        legacy = activity.list_events(root=self.root)
+        activity.record('doc_create', timestamp='2026-10-02T09:00:00', weight=2, root=self.root)
+        imported = activity.list_events(root=self.root)[-1]
+        with path.open('a', encoding='utf-8') as target:
+            for item in [*legacy, imported, imported]:
+                target.write(json.dumps(item) + '\n')
+        indexer.sync(immediate=True)
+        with db._connect() as conn:
+            self.assertEqual(conn.execute('SELECT SUM(count) FROM activity_daily').fetchone()[0], 8)
+        indexer.sync(force=True)
+        with db._connect() as conn:
+            self.assertEqual(conn.execute('SELECT SUM(count) FROM activity_daily').fetchone()[0], 8)
+
     def test_unmodified_draft_creates_no_files_activity_or_index_rows(self):
         before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
         with patch.object(store.activity, 'record') as record:

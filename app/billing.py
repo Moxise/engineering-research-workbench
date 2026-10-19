@@ -23,6 +23,8 @@ import fnmatch
 import json
 import os
 import threading
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -226,37 +228,41 @@ def normalize_prices(raw: Any) -> dict[str, Any]:
     }
 
 
-_PRICE_CACHE: dict[str, Any] = {"mtime": None, "data": None}
+_PRICE_CACHE: dict[str, Any] = {"signature": None, "data": None}
+
+
+def _price_signature(path: Path) -> tuple[str, int, int]:
+    stat = path.stat()
+    return str(path.resolve()), stat.st_mtime_ns, stat.st_size
 
 
 def load_prices() -> dict[str, Any]:
-    """读价格表；文件不存在时落一份预置模板。按 mtime 缓存，避免每次调用都读盘。"""
-    path = prices_path()
-    if not path.exists():
-        data = default_prices()
-        _write_json(path, data)
-        _PRICE_CACHE.update({"mtime": path.stat().st_mtime, "data": data})
-        return data
-    mtime = path.stat().st_mtime
+    """Serialize initialization, reads and saves, including closing Windows handles."""
     with _LOCK:
-        if _PRICE_CACHE["mtime"] == mtime and _PRICE_CACHE["data"] is not None:
+        path = prices_path()
+        if not path.exists():
+            data = default_prices()
+            _write_json(path, data)
+            _PRICE_CACHE.update(signature=_price_signature(path), data=data)
+            return data
+        signature = _price_signature(path)
+        if _PRICE_CACHE["signature"] == signature and _PRICE_CACHE["data"] is not None:
             return _PRICE_CACHE["data"]
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        raw = default_prices()
-    data = normalize_prices(raw)
-    with _LOCK:
-        _PRICE_CACHE.update({"mtime": mtime, "data": data})
-    return data
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (ValueError, UnicodeError):
+            raw = default_prices()
+        data = normalize_prices(raw)
+        _PRICE_CACHE.update(signature=signature, data=data)
+        return data
 
 
 def save_prices(raw: Any) -> dict[str, Any]:
     data = normalize_prices(raw)
-    path = prices_path()
-    _write_json(path, data)
     with _LOCK:
-        _PRICE_CACHE.update({"mtime": path.stat().st_mtime, "data": data})
+        path = prices_path()
+        _write_json(path, data)
+        _PRICE_CACHE.update(signature=_price_signature(path), data=data)
     return data
 
 
@@ -412,6 +418,11 @@ def record(cfg: dict[str, Any], usage_raw: Any) -> dict[str, Any] | None:
 
 
 def _read_records() -> list[dict[str, Any]]:
+    with _LOCK:
+        return _read_records_locked()
+
+
+def _read_records_locked() -> list[dict[str, Any]]:
     path = ledger_path()
     if not path.exists():
         return []
@@ -603,6 +614,18 @@ def clear() -> dict[str, Any]:
 
 def _write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    tmp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        for attempt in range(6):
+            try:
+                os.replace(tmp, path)
+                break
+            except OSError as exc:
+                # Antivirus/indexers can briefly retain a handle after our own
+                # readers have closed. Never truncate the previous price table.
+                if getattr(exc, "winerror", None) not in (5, 32, 33) or attempt == 5:
+                    raise
+                time.sleep(.025 * (2 ** attempt))
+    finally:
+        tmp.unlink(missing_ok=True)

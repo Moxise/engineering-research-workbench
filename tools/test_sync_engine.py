@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.sync_engine import SyncEngine, atomic_json, read_json, digest, normalized_url
 from app.store import _frontmatter_dump, _frontmatter_parse
 from server import Handler
+from app import activity
 
 
 class QuietHandler(Handler):
@@ -75,6 +76,73 @@ class SyncTests(unittest.TestCase):
         self.doc(self.b, 'web edit')
         self.sync()
         self.assertIn('web edit', p.read_text())
+
+    def test_activity_two_device_union_keeps_same_second_actions_and_original_dates(self):
+        for engine in (self.a, self.b):
+            activity.record('doc_update', ref='same-doc', title='same action', weight=2,
+                            timestamp='2026-10-12T10:00:00', root=engine.root)
+        self.assertEqual(self.sync()['phase'], 'synced')
+        a, b = activity.list_events(root=self.a.root), activity.list_events(root=self.b.root)
+        self.assertEqual({e['id'] for e in a}, {e['id'] for e in b})
+        self.assertEqual(len(a), 2)
+        self.assertEqual(sum(e['weight'] for e in b), 4)
+        self.assertEqual({e['timestamp'] for e in b}, {'2026-10-12T10:00:00'})
+        before = (self.b.root / 'System/activity.jsonl').read_bytes()
+        for _ in range(2):
+            self.assertEqual(self.sync()['phase'], 'synced')
+        self.assertEqual((self.b.root / 'System/activity.jsonl').read_bytes(), before)
+        self.a = SyncEngine(self.a.root, self.a.data_root)
+        self.assertEqual(self.sync()['phase'], 'synced')
+        self.assertEqual(len(activity.list_events(root=self.a.root)), 2)
+
+    def test_legacy_activity_shared_history_is_deduplicated_without_rewriting(self):
+        event = {'timestamp':'2026-10-01T09:00:00', 'type':'doc_update', 'ref':'old', 'weight':3}
+        raw = (json.dumps(event) + '\n').encode()
+        for engine, repeats in ((self.a, 2), (self.b, 1)):
+            path = engine.root / 'System/activity.jsonl'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw * repeats)
+        self.assertEqual(self.sync()['phase'], 'synced')
+        for engine in (self.a, self.b):
+            events = activity.list_events(root=engine.root)
+            self.assertEqual(len(events), 2)
+            self.assertEqual(sum(e['weight'] for e in events), 6)
+        self.assertEqual((self.a.root / 'System/activity.jsonl').read_bytes(), raw * 2)
+        self.assertEqual(self.sync()['phase'], 'synced')
+        self.assertEqual(len(activity.list_events(root=self.b.root)), 2)
+
+    def test_activity_converges_on_a_third_device_and_respects_records_scope(self):
+        activity.record('todo_done', root=self.a.root)
+        self.a.configure({'url':self.url, 'mode':'manual', 'scopes':['documents']})
+        self.sync()
+        self.assertFalse(activity.list_events(root=self.b.root))
+        self.a.configure({'url':self.url, 'mode':'manual', 'scopes':['records']})
+        self.sync()
+        third = SyncEngine(self.a.data_root.parent / 'c/Workspace', self.a.data_root.parent / 'c')
+        third.configure({'url':self.url, 'mode':'manual', 'scopes':['records']})
+        activity.record('doc_create', root=third.root)
+        self.assertEqual(third.synchronize()['phase'], 'synced')
+        self.sync()
+        for engine in (self.a, self.b, third):
+            self.assertEqual(len(activity.list_events(root=engine.root)), 2)
+
+    def test_activity_cannot_be_overwritten_or_deleted_through_sync(self):
+        activity.record('doc_create', root=self.a.root)
+        row = self.a.manifest(['records'])['resources'][0]
+        self.sync()
+        remote = self.b.refresh()[row['key']]
+        change = self.b._change(remote, remote['version'])
+        change['descriptor'] = {**remote['descriptor'], 'value':{**remote['descriptor']['value'], 'title':'tampered'}}
+        self.assertTrue(self.b.apply_many([change])['failed'])
+        change = self.b._change(remote, remote['version'])
+        change['deleted'] = True
+        self.assertTrue(self.b.apply_many([change])['failed'])
+        self.assertEqual(activity.list_events(root=self.a.root), activity.list_events(root=self.b.root))
+
+    def test_old_sync_protocol_has_actionable_upgrade_error(self):
+        with patch.object(self.a, '_request', return_value={'protocol':1, 'instance':'old-server', 'resources':[]}):
+            with self.assertRaisesRegex(ValueError, '客户端和服务器端'):
+                self.a.test_connection(self.url)
 
     def test_first_sync_preserves_two_different_versions(self):
         self.doc(self.a, 'local')

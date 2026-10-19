@@ -2,7 +2,7 @@
   'use strict';
   const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const prefs=['theme','pageDensity','uiScale','focusMinutes','breakMinutes','sidebarPinned','sidebarOpen','heatmapMonths','heatmapThresholds','heatmapColors'];
-  const scopeLabels={documents:'Markdown 文档',attachments:'PDF、图片与附件',records:'项目、待办、文献与批注',settings:'通用设置与界面偏好',history:'Agent 对话记录'};
+  const scopeLabels={documents:'Markdown 文档',attachments:'PDF、图片与附件',records:'项目、待办、文献、批注与科研热力图',settings:'通用设置与界面偏好',history:'Agent 对话记录'};
   const phases={idle:'待同步',syncing:'正在同步',synced:'已同步',pending:'有待同步变化',conflict:'有冲突待处理',error:'同步未完成'};
   const icon='<svg class="sync-symbol" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 6.5A7 7 0 0 0 4.6 5.3L2.5 7.5m0-4v4h4M3.5 13.5a7 7 0 0 0 11.9 1.2l2.1-2.2m0 4v-4h-4"/></svg>';
   const chevron='<svg class="sync-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.25 3.5 3.5 3.5-3.5"/></svg>';

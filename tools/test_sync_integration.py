@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -94,6 +95,30 @@ class SyncIntegrationTests(unittest.TestCase):
         self.request(a, '/api/sync/config', {'url':b, 'mode':'auto', 'interval':10})
         self.wait_sync()
         self.assertIn('Background saved material', self.request(b, '/api/docs/'+doc['id'])['body'])
+
+    def test_activity_heatmaps_match_after_bidirectional_web_edits_and_repeated_sync(self):
+        a, b = self.urls
+        for url, title in ((a, 'Local work'), (b, 'Remote work')):
+            doc = self.request(url, '/api/docs', {'kind':'note', 'title':title, 'body':'First result'})
+            self.request(url, '/api/docs/'+doc['id'], {'body':'Edited result'})
+        local = self.request(a, '/api/dashboard')['activity']
+        self.assertGreater(local['events_month'], 0)
+        self.request(a, '/api/sync/config', {'url':b, 'mode':'manual'})
+        for _ in range(2):
+            self.request(a, '/api/sync/run', {})
+            self.wait_sync()
+            left = self.request(a, '/api/dashboard')['activity']
+            right = self.request(b, '/api/dashboard')['activity']
+            self.assertEqual(left, right)
+            self.assertEqual(left['events_month'], local['events_month'] * 2)
+
+    def test_billing_first_load_concurrent_endpoints(self):
+        routes = ['/api/billing/summary', '/api/billing/prices', '/api/billing/records'] * 8
+        with ThreadPoolExecutor(12) as pool:
+            results = list(pool.map(lambda route: self.request(self.urls[0], route), routes))
+        self.assertEqual(results[0]['total']['calls'], 0)
+        self.assertEqual(results[1]['currency'], 'USD')
+        self.assertEqual(results[2]['total'], 0)
 
 
 if __name__ == '__main__':

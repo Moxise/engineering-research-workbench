@@ -10,7 +10,7 @@ from typing import Any
 
 from . import workspace
 
-SCHEMA_VERSION=3  # Stable FTS rowids, normalized link lookup and list ordering indexes.
+SCHEMA_VERSION=4  # Deduplicate synchronized activity while retaining legacy repeats.
 WORKSPACE_SCHEMA_VERSION=3
 SYNC_INTERVAL_SECONDS=30.0
 DEFAULT_PAGE_SIZE=50
@@ -230,6 +230,8 @@ def _initialize_schema(conn: sqlite3.Connection) -> bool:
             count INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(date, type)
         );
+        CREATE TABLE IF NOT EXISTS activity_seen (id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS activity_legacy (fingerprint TEXT PRIMARY KEY, count INTEGER NOT NULL);
         """
     )
 

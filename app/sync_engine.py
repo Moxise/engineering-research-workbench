@@ -21,7 +21,9 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
-PROTOCOL = 1
+from . import activity
+
+PROTOCOL = 2  # Both peers must understand append-only research activity events.
 MAX_BLOB = 512 * 1024 * 1024
 CHUNK = 2 * 1024 * 1024
 SCOPES = ("documents", "attachments", "records", "settings", "history")
@@ -327,6 +329,8 @@ class SyncEngine:
                     continue
                 rid = str(value["id"])
                 add("record:" + collection + ":" + rid, {"type": "record", "scope": "records", "collection": collection, "id": rid, "value": value})
+        for event in activity.list_events(root=self.root):
+            add("activity:" + event["id"], {"type": "activity", "scope": "records", "value": event})
         app = read_json(self.data_root / "config/app.json", {})
         def leaves(prefix, value):
             if isinstance(value, dict) and value:
@@ -353,6 +357,9 @@ class SyncEngine:
                 self._record(db, key, desc, digest(desc))
             for row in db.execute("SELECT * FROM resources WHERE hash IS NOT NULL").fetchall():
                 if row["key"] not in current:
+                    if json.loads(row["descriptor"]).get("type") == "activity":
+                        # Activity history is a union, never a propagated deletion.
+                        continue
                     self._record(db, row["key"], json.loads(row["descriptor"]), None)
             return {r["key"]: self._row(r) for r in db.execute("SELECT * FROM resources")}
 
@@ -422,6 +429,10 @@ class SyncEngine:
                     raise ValueError("文档 ID 不匹配")
             elif key != "file:" + desc["path"]:
                 raise ValueError("文件 ID 不匹配")
+        elif kind == "activity":
+            activity.validate_event(desc.get("value"))
+            if key != "activity:" + desc["value"]["id"] or desc.get("scope") != "records":
+                raise ValueError("科研活动 ID 或同步范围不匹配")
         elif kind == "record":
             self._collection_target(desc.get("collection", ""))
             if not isinstance(desc.get("value"), dict) or desc["value"].get("id") != desc.get("id") or key != "record:" + desc["collection"] + ":" + str(desc["id"]) or desc.get("scope") != "records":
@@ -449,7 +460,11 @@ class SyncEngine:
         shutil.move(str(path), str(target))
 
     def _apply_content(self, key, desc, deleted, previous):
-        if desc["type"] == "file":
+        if desc["type"] == "activity":
+            if deleted:
+                raise ValueError("科研活动历史不支持同步删除")
+            activity.merge_events([desc["value"]], root=self.root)
+        elif desc["type"] == "file":
             path = self._path(desc["path"])
             if deleted:
                 self._archive(path)
@@ -555,6 +570,9 @@ class SyncEngine:
     @staticmethod
     def _label(row):
         d = row.get("descriptor", {})
+        if d.get("type") == "activity":
+            value = d.get("value", {})
+            return "科研活动 · " + str(value.get("timestamp", ""))[:10] + " · " + str(value.get("title") or value.get("type", ""))
         if d.get("type") == "file":
             return d.get("path", row["key"])
         if d.get("type") == "record":
@@ -619,7 +637,7 @@ class SyncEngine:
     def _fetch_manifest(self, url, scopes):
         data = self._request(url, "/api/sync/manifest?" + urlencode({"scopes": ",".join(scopes)}))
         if data.get("protocol") != PROTOCOL or not isinstance(data.get("resources"), list) or not isinstance(data.get("instance"), str):
-            raise ValueError("服务器未提供兼容的同步接口，请更新服务器端")
+            raise ValueError("同步版本不兼容，请将客户端和服务器端都更新到支持科研活动同步的版本")
         if data["instance"] == self.instance:
             raise ValueError("此地址指向当前工作台，请填写另一台服务器的地址")
         rows = {}
