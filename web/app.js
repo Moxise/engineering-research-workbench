@@ -29,8 +29,8 @@
     editorMode: 'split', milestoneView: 'timeline', graphView: '2d', graph: null, graphSelected: null, graphPreviewSeq: 0, previewSeq: 0,
     graphKinds: new Set(storedArray('graphKinds', ['idea','journal','note','milestone','summary','literature','project','tag'])),
     graphRelations: new Set(storedArray('graphRelations', ['wikilink','tag','project'])),
-    agentSession: null, agentRefs: [], agentImages: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false,
-    agentPersona:localStorage.getItem('agentPersonaId')||'executor',agentSkill:'',agentSessions:[],
+    agentSession: window.ERWAgentClient?.sessionId()||null, agentRefs: [], agentImages: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false,
+    agentPersona:localStorage.getItem('agentPersonaId')||'executor',agentSessions:[],
     heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapThresholds: savedHeatmapThresholds, heatmapColors: savedHeatmapColors, heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact', /* v260922h · 默认紧凑型（并排一屏收纳） */
     focus: {mode:'专注', focusMinutes:savedFocusMinutes, breakMinutes:savedBreakMinutes, seconds:savedFocusMinutes*60, total:savedFocusMinutes*60, timer:null, running:false,remaining:savedFocusMinutes*60,endsAt:null,busy:false,native:false,completionId:null},
     sidebarPinned: new Set(storedArray('sidebarPinned', ['core'])),
@@ -815,18 +815,17 @@
     const requestPresetHtml=requestPresets.map(x=>`<option value="${esc(x.id||'default')}" ${String(x.id||'')===state.agentPreset?'selected':''}>${esc(x.label||x.id||'默认')}</option>`).join('');
     if(!sessionError&&state.agentSession&&!sessions.some(x=>x.id===state.agentSession))state.agentSession=null;
     if(!state.agentSession&&sessions.length)state.agentSession=sessions[0].id;
+    window.ERWAgentClient?.select(state.agentSession,'main');
     const personas=llmCfg.personas?.length?llmCfg.personas:[{id:'executor',name:'执行助手'}];
     if(!personas.some(persona=>persona.id===state.agentPersona))state.agentPersona=personas[0].id;
-    $('#main').innerHTML=`<div class="agent-layout"><aside class="card agent-sessions"><div class="agent-side-head"><div><h3>Agent 对话</h3></div><button class="primary-btn" id="agent-new">＋</button></div><div class="agent-session-list">${sessions.length?sessions.map(x=>`<button type="button" class="agent-session ${x.id===state.agentSession?'active':''}" data-agent-session="${x.id}"><strong>${esc(x.title)}</strong><small>${esc(fmtTime(x.updated))} · ${x.message_count||0} 条</small></button>`).join(''):'<div class="empty compact">暂无对话</div>'}</div></aside><section class="agent-workspace" id="agent-workspace"><nav class="agent-workspace-tabs" id="agent-workspace-tabs" role="tablist" aria-label="Agent 功能"></nav><section class="card agent-chat" id="agent-chat-panel" role="tabpanel" aria-labelledby="agent-tab-chat"><div class="agent-chat-head"><div><h3 id="agent-chat-title">科研 Agent</h3></div><div class="agent-head-actions"><button class="secondary-btn" id="agent-ref">＋ 引用研究 · 知识</button><button class="ghost-btn danger" id="agent-delete" ${state.agentSession?'':'disabled'}>删除对话</button></div></div><div class="agent-messages" id="agent-messages"><div class="empty">${state.agentSession?'正在载入对话…':'新建一个对话开始'}</div></div><div class="agent-context-strip" id="agent-context-strip"></div><div class="agent-composer"><div class="agent-image-strip" id="agent-image-strip"></div><textarea id="agent-input" placeholder="向科研 Agent 提问。可选择技能、引用研究资料，或粘贴图片…"></textarea><div class="agent-compose-actions"><div class="agent-compose-left"><button class="ghost-btn" id="agent-image">▧ 图片</button><label class="agent-preset-label">助手 <select class="search-input" id="agent-persona">${personas.map(persona=>`<option value="${esc(persona.id)}" ${persona.id===state.agentPersona?'selected':''}>${esc(persona.name)}</option>`).join('')}</select></label><label class="agent-preset-label">技能 <select class="search-input" id="agent-skill"><option value="">自动选用</option></select></label><label class="agent-preset-label">请求模式 <select class="search-input agent-preset-select" id="agent-preset">${requestPresetHtml}</select></label><span class="row-meta">Enter 发送 · Shift+Enter 换行</span></div><button class="primary-btn" id="agent-send">发送</button></div></div></section><section class="card agent-system" id="agent-system-panel" role="tabpanel" hidden><div class="as-content"></div></section></section></div>`;
-    $('#agent-new').onclick=async()=>{const s=await api('/api/agent/sessions',{method:'POST',body:{}});state.agentSession=s.id;state.agentRefs=[];state.agentImages=[];window.ERWAgentSystem?.open('chat');renderAgent()};
-    $$('[data-agent-session]').forEach(b=>b.onclick=()=>{state.agentSession=b.dataset.agentSession;state.agentRefs=[];state.agentImages=[];renderAgent()});
+    $('#main').innerHTML=`<div class="agent-layout"><aside class="card agent-sessions"><div class="agent-side-head"><div><h3>Agent 对话</h3></div><button class="primary-btn" id="agent-new">＋</button></div><div class="agent-session-list">${sessions.length?sessions.map(x=>`<button type="button" class="agent-session ${x.id===state.agentSession?'active':''}" data-agent-session="${x.id}"><strong>${esc(x.title)}</strong><small>${esc(fmtTime(x.updated))} · ${x.message_count||0} 条</small></button>`).join(''):'<div class="empty compact">暂无对话</div>'}</div></aside><section class="agent-workspace" id="agent-workspace"><nav class="agent-workspace-tabs" id="agent-workspace-tabs" role="tablist" aria-label="Agent 功能"></nav><section class="card agent-chat" id="agent-chat-panel" role="tabpanel" aria-labelledby="agent-tab-chat"><div class="agent-chat-head"><div><h3 id="agent-chat-title">科研 Agent</h3></div><div class="agent-head-actions"><button class="secondary-btn" id="agent-ref">＋ 引用研究 · 知识</button><button class="ghost-btn danger" id="agent-delete" ${state.agentSession?'':'disabled'}>删除对话</button></div></div><div class="agent-messages" id="agent-messages"><div class="empty">${state.agentSession?'正在载入对话…':'新建一个对话开始'}</div></div><div class="agent-context-strip" id="agent-context-strip"></div><div class="agent-composer"><div class="agent-image-strip" id="agent-image-strip"></div><textarea id="agent-input" placeholder="向科研 Agent 提问，可引用研究资料或粘贴图片…"></textarea><div class="agent-compose-actions"><div class="agent-compose-left"><button class="ghost-btn" id="agent-image">▧ 图片</button><label class="agent-preset-label">助手 <select class="search-input" id="agent-persona">${personas.map(persona=>`<option value="${esc(persona.id)}" ${persona.id===state.agentPersona?'selected':''}>${esc(persona.name)}</option>`).join('')}</select></label></div><details class="agent-model-options"><summary>模型选项</summary><div><label class="agent-preset-label">请求模式 <select class="search-input agent-preset-select" id="agent-preset">${requestPresetHtml}</select></label><span class="row-meta">Enter 发送 · Shift+Enter 换行</span></div></details><button class="primary-btn" id="agent-send">发送</button></div></div></section><section class="card agent-system" id="agent-system-panel" role="tabpanel" hidden><div class="as-content"></div></section></section></div>`;
+    $('#agent-new').onclick=async()=>{const s=await api('/api/agent/sessions',{method:'POST',body:{}});state.agentSession=s.id;window.ERWAgentClient?.setSession(s,'main');window.ERWAgentClient?.select(s.id,'main');state.agentRefs=[];state.agentImages=[];window.ERWAgentSystem?.open('chat');renderAgent()};
+    $$('[data-agent-session]').forEach(b=>b.onclick=()=>selectAgentSession(b.dataset.agentSession));
     $('#agent-ref').onclick=openAgentReferencePicker;$('#agent-image').onclick=pickAgentImage;$('#agent-delete').onclick=async()=>{if(state.agentSession&&await window.ERWDialog.confirm('将该对话移入 Trash？')){await api('/api/agent/sessions/'+encodeURIComponent(state.agentSession),{method:'DELETE'});state.agentSession=null;renderAgent()}};
     const input=$('#agent-input');input.addEventListener('paste',onAgentPasteImage);input.addEventListener('dragover',e=>e.preventDefault());input.addEventListener('drop',onAgentDropImage);input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();sendAgentMessage()}});$('#agent-send').onclick=sendAgentMessage;const presetSelect=$('#agent-preset');if(presetSelect)presetSelect.onchange=()=>{state.agentPreset=presetSelect.value;localStorage.setItem('agentRequestPreset',state.agentPreset)};
     $('#agent-persona').onchange=event=>{state.agentPersona=event.target.value;localStorage.setItem('agentPersonaId',state.agentPersona)};
-    $('#agent-skill').onchange=event=>{state.agentSkill=event.target.value};
     const sessionStatus=document.createElement('div');sessionStatus.id='agent-sessions-status';$('.agent-sessions').append(sessionStatus);
     if(sessionError)showAgentSessionError(sessionError);
-    loadAgentSkills().catch(error=>toast('技能目录加载失败：'+error.message,true));
     window.ERWAgentSystem?.mount();
     paintAgentContext(); paintAgentImages(); if(state.agentSession)await loadAgentSession(state.agentSession);
   }
@@ -849,28 +848,55 @@
       if(state.agentSession&&!state.agentSending)await loadAgentSession(state.agentSession);
     }catch(error){showAgentSessionError(error)}finally{if(button?.isConnected)button.disabled=false}
   }
-  async function loadAgentSkills(){
-    const select=$('#agent-skill');if(!select)return;
-    const data=await api('/api/agent/skills');if(!select.isConnected)return;
-    const skills=Array.isArray(data.skills)?data.skills:[];
-    if(!skills.some(skill=>skill.name===state.agentSkill))state.agentSkill='';
-    select.innerHTML='<option value="">自动选用</option>'+skills.map(skill=>`<option value="${esc(skill.name)}" ${skill.name===state.agentSkill?'selected':''}>${esc(skill.name)}</option>`).join('');
-  }
-  window.ERWAgentPage={sessionId:()=>state.agentSession,refresh:async()=>{if(state.agentSession&&!state.agentSending&&$('#agent-messages'))await loadAgentSession(state.agentSession)},reloadSkills:loadAgentSkills,useSkill:async name=>{state.agentSkill=name;await loadAgentSkills();$('#agent-input')?.focus()}};
+  window.ERWAgentPage={sessionId:()=>state.agentSession,refresh:async()=>{if(state.agentSession&&!state.agentSending&&$('#agent-messages'))await loadAgentSession(state.agentSession)}};
   function updateAgentSessionSidebar(session){
     const list=$('.agent-session-list');if(!list)return;
     let button=$$('[data-agent-session]',list).find(item=>item.dataset.agentSession===session.id);
     if(!button){
       $('.empty',list)?.remove();button=document.createElement('button');button.type='button';button.className='agent-session';button.dataset.agentSession=session.id;button.innerHTML='<strong></strong><small></small>';list.prepend(button);
-      button.onclick=()=>{state.agentSession=session.id;state.agentRefs=[];state.agentImages=[];renderAgent()};
+      button.onclick=()=>selectAgentSession(session.id);
     }
     button.classList.toggle('active',session.id===state.agentSession);
     $('strong',button).textContent=session.title||'Agent 对话';
     $('small',button).textContent=fmtTime(session.updated)+' · '+(session.messages?.length??session.message_count??0)+' 条';
     if(session.id===state.agentSession&&$('#agent-chat-title'))$('#agent-chat-title').textContent=session.title||'科研 Agent';
   }
-  async function loadAgentSession(id){try{const s=await api('/api/agent/sessions/'+encodeURIComponent(id));if(state.route!=='agent'||state.agentSession!==id)return;$('#agent-chat-title').textContent=s.title||'科研 Agent';const root=$('#agent-messages');root.innerHTML=(s.messages||[]).length?(s.messages||[]).map(agentMessageHtml).join(''):'<div class="empty">暂无消息。你可以直接提问，或先引用研究资料。</div>';for(const el of $$('.agent-message-body,.agent-response-body',root))await renderMarkdownInto(el,el.dataset.raw||'');for(const el of $$('.agent-reasoning-body',root))await renderMarkdownInto(el,el.dataset.raw||'');root.scrollTop=root.scrollHeight}catch(e){toast(e.message,true)}}
-  function agentMessageHtml(m){const refs=(m.refs||[]).map(r=>`<span class="badge">${esc(r.title)}</span>`).join('');const imgs=(m.images||[]).map(p=>`<img src="/workspace-file/${esc(typeof p==='string'?p:(p.path||''))}" alt="对话图片">`).join('');const showReasoning=state.config?.app?.llm?.show_reasoning!==false;const reasoning=showReasoning&&String(m.reasoning||'').trim()?`<details class="agent-reasoning"><summary>模型思考过程</summary><div class="agent-reasoning-body" data-raw="${esc(m.reasoning||'')}"></div></details>`:'';const tlHtml=(m.role==='assistant'&&window.ERWFabTimeline?.html)?window.ERWFabTimeline.html(m):''; /* v261008b · 复用悬浮球的时间条（工具耗时 + 总耗时 + 过程明细） */const metaParts=(window.ERWFabTimeline?.metaParts?window.ERWFabTimeline.metaParts(m):[String(m.model||'').trim(),String(m.request_preset_label||'').trim()].filter(Boolean)); /* v261008b · 元信息去重：标签已含模型名时不再重复显示 model */return `<article class="agent-message ${m.role==='assistant'?'assistant':'user'}"><div class="agent-avatar">${m.role==='assistant'?'AI':'YOU'}</div><div class="agent-bubble">${refs?`<div class="agent-msg-refs">${refs}</div>`:''}${imgs?`<div class="agent-msg-images">${imgs}</div>`:''}${reasoning}${window.ERWFabTimeline?.responses?.(m)||''}${window.ERWFabTimeline?.parts?.(m).length&&m.content?'<div class="agent-response-label">最终回复</div>':''}<div class="agent-message-body" data-raw="${esc(m.content||'')}"></div>${tlHtml}<div class="agent-msg-meta">${[...metaParts.map(esc),esc(fmtTime(m.created))].join(' · ')}</div></div></article>`}
+  function selectAgentSession(id){
+    if(state.agentSession===id&&$('#agent-messages'))return;
+    state.agentSession=id;state.agentRefs=[];state.agentImages=[];
+    window.ERWAgentClient?.select(id,'main');paintAgentContext();paintAgentImages();paintSharedAgent(true);loadAgentSession(id);
+  }
+  async function loadAgentSession(id){
+    try{
+      const client=window.ERWAgentClient;
+      const session=client?.busy(id)?client.snapshot(id).session:await api('/api/agent/sessions/'+encodeURIComponent(id));
+      client?.setSession(session,'main');
+      if(state.route!=='agent'||state.agentSession!==id)return;
+      paintSharedAgent(true);
+      const root=$('#agent-messages');for(const el of $$('.agent-message-body,.agent-response-body,.agent-reasoning-body',root))await renderMarkdownInto(el,el.dataset.raw||'');
+      client?.syncDrafts().catch(()=>{});
+    }catch(error){toast(error.message,true)}
+  }
+  function paintSharedAgent(force=false){
+    const client=window.ERWAgentClient,root=$('#agent-messages');if(!client||!root||state.route!=='agent'||!state.agentSession)return;
+    const e=client.snapshot(state.agentSession),session=e.session;
+    $('#agent-chat-title').textContent=session.title||'科研 Agent';
+    if(force||root._sharedBase!==session.messages){
+      root.innerHTML=session.messages.map(agentMessageHtml).join('')+(e.live?agentMessageHtml(e.live):'')||'<div class="empty">暂无消息。你可以直接提问，或先引用研究资料。</div>';
+      root._sharedBase=session.messages;
+    }else if(e.live){const live=$('#agent-thinking',root);if(live)live.outerHTML=agentMessageHtml(e.live);else root.insertAdjacentHTML('beforeend',agentMessageHtml(e.live))}
+    window.ERWFabTimeline?.bindDrafts?.(root);root.scrollTop=root.scrollHeight;
+    const button=$('#agent-send');if(button&&!state.agentSending){button.disabled=!!e.live;button.textContent=e.live?'任务执行中…':'发送'}
+    $$('[data-agent-session]').forEach(b=>b.classList.toggle('active',b.dataset.agentSession===state.agentSession));
+  }
+  window.ERWAgentClient?.subscribe(event=>{
+    if(event.source==='main')return;
+    if(event.type==='select'){
+      state.agentSession=event.sessionId||null;
+      if(state.route==='agent'&&state.agentSession){paintSharedAgent(true);loadAgentSession(state.agentSession)}
+    }else if(event.sessionId===state.agentSession){paintSharedAgent(event.type!=='live');const e=window.ERWAgentClient.snapshot(state.agentSession);if(event.type==='session')updateAgentSessionSidebar(e.session)}
+  });
+  function agentMessageHtml(m){const refs=(m.refs||[]).map(r=>`<span class="badge">${esc(r.title)}</span>`).join('');const imgs=(m.images||[]).map(p=>`<img src="/workspace-file/${esc(typeof p==='string'?p:(p.path||''))}" alt="对话图片">`).join('');const showReasoning=state.config?.app?.llm?.show_reasoning!==false;const reasoning=showReasoning&&String(m.reasoning||'').trim()?`<details class="agent-reasoning"><summary>模型思考过程</summary><div class="agent-reasoning-body" data-raw="${esc(m.reasoning||'')}"></div></details>`:'';const tlHtml=(m.role==='assistant'&&window.ERWFabTimeline?.html)?window.ERWFabTimeline.html(m):''; /* v261008b · 复用悬浮球的时间条（工具耗时 + 总耗时 + 过程明细） */const metaParts=(window.ERWFabTimeline?.metaParts?window.ERWFabTimeline.metaParts(m):[String(m.model||'').trim(),String(m.request_preset_label||'').trim()].filter(Boolean)); /* v261008b · 元信息去重：标签已含模型名时不再重复显示 model */return `<article class="agent-message ${m.role==='assistant'?'assistant':'user'}" ${m.__streaming?'id="agent-thinking"':''}><div class="agent-avatar">${m.role==='assistant'?'AI':'YOU'}</div><div class="agent-bubble">${refs?`<div class="agent-msg-refs">${refs}</div>`:''}${imgs?`<div class="agent-msg-images">${imgs}</div>`:''}${reasoning}${window.ERWFabTimeline?.responses?.(m)||''}${window.ERWFabTimeline?.parts?.(m).length&&m.content?'<div class="agent-response-label">最终回复</div>':''}<div class="agent-message-body" data-raw="${esc(m.content||'')}">${window.ERWFabTimeline?.render?.(m.content||'')||esc(m.content||'')}</div>${tlHtml}${window.ERWFabTimeline?.drafts?.(m)||''}${window.ERWFabTimeline?.runActions?.(m)||''}<div class="agent-msg-meta">${[...metaParts.map(esc),esc(fmtTime(m.created))].join(' · ')}</div></div></article>`}
   async function renderMarkdownInto(out,raw){const seq=++state.previewSeq;out._markdownSeq=seq;let html='';if(window.marked&&window.DOMPurify){const renderer=new marked.Renderer();renderer.code=(tokenOrCode,info)=>{let code='',lang='';if(tokenOrCode&&typeof tokenOrCode==='object'){code=tokenOrCode.text||'';lang=tokenOrCode.lang||''}else{code=String(tokenOrCode||'');lang=String(info||'')}lang=lang.trim();if(lang==='mermaid')return `<div class="mermaid">${esc(code)}</div>`;return `<pre><code class="language-${esc(lang)}">${esc(code)}</code></pre>`};try{html=marked.parse(raw||'',{gfm:true,renderer})}catch{html=basicMarkdown(raw)}}else html=basicMarkdown(raw);html=normalizePreviewPaths(html);out.innerHTML=window.DOMPurify?DOMPurify.sanitize(html,{ADD_TAGS:['mjx-container']}):html;out.innerHTML=out.innerHTML.replace(/<table[\s\S]*?<\/table>/gi,m=>`<div class="fab-tbl">${m}</div>`); /* v261008b · 宽表格套气泡内滚动层，避免撑破容器 */$$('pre code',out).forEach(el=>{try{window.hljs?.highlightElement(el)}catch{}});await renderMermaidBlocks(out,seq);try{await window.ERWRenderLibraries.renderMath([out])}catch(e){console.warn(e)}}
   function paintAgentContext(){const root=$('#agent-context-strip');if(!root)return;root.innerHTML=state.agentRefs.length?`<span class="row-meta">已引用</span>${state.agentRefs.map((r,i)=>`<button type="button" class="context-chip" data-ref-remove="${i}">${esc(r.title)}</button>`).join('')}`:'<span class="row-meta">未引用本地知识；点击“引用研究 · 知识”可手动选择上下文。</span>';$$('[data-ref-remove]',root).forEach(b=>b.onclick=()=>{state.agentRefs.splice(+b.dataset.refRemove,1);paintAgentContext()})}
   function paintAgentImages(){const root=$('#agent-image-strip');if(!root)return;root.innerHTML=state.agentImages.map((x,i)=>`<div class="agent-image-thumb"><img src="${esc(x.url)}"><button type="button" data-agent-image-remove="${i}">×</button></div>`).join('');$$('[data-agent-image-remove]',root).forEach(b=>b.onclick=()=>{state.agentImages.splice(+b.dataset.agentImageRemove,1);paintAgentImages()})}
@@ -883,50 +909,27 @@
      而 app.js 的 Agent 页仍是旧 JSON 契约（`r.session.id`），对着流式响应必然抛
      「Cannot read properties of undefined (reading 'id')」——这里补上流式消费。
      done 负载自 v260930m 起只回 assistant，会话对象由调用方回读补齐。 */
-  async function streamAgentSend(payload, onDelta, onStatus, onRun){
-    const res=await fetch('/api/agent/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    if(!res.ok||!res.body){let d={};try{d=await res.json()}catch{};throw new Error(d.message||d.error||`HTTP ${res.status}`)}
-    const reader=res.body.getReader(),dec=new TextDecoder('utf-8');
-    let buf='',doneData=null,text='',round=0,responseRound=0,parts=[];
-    for(;;){
-      const {value,done}=await reader.read();
-      if(done)break;
-      buf+=dec.decode(value,{stream:true});
-      let i;
-      while((i=buf.indexOf('\n\n'))>=0){
-        const frame=buf.slice(0,i);buf=buf.slice(i+2);
-        let dataStr='',ev='';
-        for(const line of frame.split('\n')){
-          if(line.startsWith('event:'))ev=line.slice(6).trim();
-          else if(line.startsWith('data:'))dataStr+=line.slice(5).trim();
-        }
-        if(!dataStr)continue;
-        let data={};try{data=JSON.parse(dataStr)}catch{continue}
-        if(ev==='run'){if(onRun)onRun(data)}
-        else if(ev==='delta'){text+=data.text||'';if(onDelta)onDelta(text,parts)}
-        else if(ev==='response'){
-          responseRound=data.round;
-          if(data.intermediate){parts=parts.filter(p=>p.round!==data.round);if(data.content)parts.push({round:data.round,content:data.content});text=''}else text=data.content||'';
-          if(onDelta)onDelta(text,parts);
-        }
-        else if(ev==='round'){if(text&&round&&responseRound!==round)parts.push({round,content:text});text='';round=(data.i|0)+1;if(onStatus)onStatus(`第 ${round} 轮 · 模型思考中…`,text,parts)}
-        else if(ev==='tool'){if(onStatus)onStatus(`工具 ${data.name||''} ${data.ok?'已完成':'失败'}`,text,parts)}
-        else if(ev==='done'){doneData=data;if(!Array.isArray(data.assistant.response_parts))data.assistant.response_parts=data.assistant.evidence?window.ERWFabTimeline?.parts?.(data.assistant)||parts:parts;reader.cancel().catch(()=>{});return doneData.assistant}
-        else if(ev==='error'){throw new Error(data.message||'请求失败')}
-      }
-    }
-    if(!doneData)throw new Error('流式响应中断（未收到 done 事件）');
-    return doneData.assistant;
+  async function streamAgentSend(payload,onDelta,onStatus,onRun){
+    let text='',round=0,responseRound=0,parts=[];
+    const result=await window.ERWAgentClient.send(payload,{source:'main',onEvent:(event,data)=>{
+      if(event==='run')onRun?.(data);
+      else if(event==='reset'){text='';parts=[];round=responseRound=0}
+      else if(event==='delta'){text+=data.text||'';onDelta?.(text,parts)}
+      else if(event==='response'){responseRound=data.round;if(data.intermediate){parts=parts.filter(p=>p.round!==data.round);if(data.content)parts.push({round:data.round,content:data.content});text=''}else text=data.content||'';onDelta?.(text,parts)}
+      else if(event==='round'){if(text&&round&&responseRound!==round)parts.push({round,content:text});text='';round=(data.i|0)+1;onStatus?.(`第 ${round} 轮 · 模型思考中…`,text,parts)}
+      else if(event==='tool')onStatus?.(`工具 ${data.name||''} ${data.ok?'已完成':'失败'}`,text,parts);
+    }});
+    return result.assistant;
   }
 
   async function sendAgentMessage(){
     const input=$('#agent-input');if(!input)return;
-    const raw=input.value.trim();if(state.agentSending||(!raw&&!state.agentImages.length))return;
-    const text=state.agentSkill&&!raw.includes('$'+state.agentSkill)?`$${state.agentSkill}\n${raw}`:raw;
+    const raw=input.value.trim();if(state.agentSending||window.ERWAgentClient?.busy(state.agentSession)||(!raw&&!state.agentImages.length))return;
+    const text=raw;
     const btn=$('#agent-send');state.agentSending=true;btn.disabled=true;btn.textContent='思考中…';
     const refs=state.agentRefs.map(x=>({...x})),images=state.agentImages.map(x=>({...x})),preset=state.agentPreset||'';
     try{
-      if(!state.agentSession){const s=await api('/api/agent/sessions',{method:'POST',body:{}});state.agentSession=s.id}
+      if(!state.agentSession){const s=await api('/api/agent/sessions',{method:'POST',body:{}});state.agentSession=s.id;window.ERWAgentClient?.setSession(s,'main');window.ERWAgentClient?.select(s.id,'main')}
       const sessionId=state.agentSession;
       input.value='';state.agentRefs=[];state.agentImages=[];paintAgentContext();paintAgentImages();
       const root=$('#agent-messages');
@@ -956,11 +959,12 @@
           const rbs=$$('.agent-reasoning-body',mroot),lrb=rbs[rbs.length-1];if(lrb)await renderMarkdownInto(lrb,lrb.dataset.raw||'');
           mroot.scrollTop=mroot.scrollHeight;
           r.session=await api('/api/agent/sessions/'+encodeURIComponent(sessionId));
-          updateAgentSessionSidebar(r.session);
+          updateAgentSessionSidebar(r.session);window.ERWAgentClient?.setSession(r.session,'main');
         }
+        window.ERWFabTimeline?.bindDrafts?.(mroot||document);window.ERWAgentClient?.syncDrafts().catch(()=>{});
         document.dispatchEvent(new CustomEvent('erw-agent-run-updated',{detail:{sessionId,runId:r0.run_id}}));
       }catch(e){clearInterval(timer);if(replyReceived){console.error('Agent reply UI refresh failed',e);toast('回复已保存，界面刷新失败：'+e.message,true)}else{if(root?.isConnected){const thinking=$('#agent-thinking',root);if(partialReply.content||partialReply.response_parts.length){if(thinking)thinking.outerHTML=agentMessageHtml(partialReply);const body=$$('.agent-message-body',root).at(-1);if(body)await renderMarkdownInto(body,body.dataset.raw||'')}else thinking?.remove();root.insertAdjacentHTML('beforeend',`<article class="agent-message assistant"><div class="agent-avatar">AI</div><div class="agent-bubble"><div class="agent-error">请求失败：${esc(e.message)}</div></div></article>`);root.scrollTop=root.scrollHeight}toast(e.message,true)}}
-    }finally{state.agentSending=false;const b=$('#agent-send');if(b){b.disabled=false;b.textContent='发送'}}
+    }finally{state.agentSending=false;const b=$('#agent-send');if(b){const busy=window.ERWAgentClient?.busy(state.agentSession);b.disabled=!!busy;b.textContent=busy?'任务执行中…':'发送'}}
   }
 
   async function renderNews(){
@@ -1758,12 +1762,12 @@
     }catch(error){if(panel.isConnected)panel.textContent='读取窗口设置失败：'+error.message}
   }
   async function renderSettings(){const cfg=await api('/api/config');state.config=cfg;
-    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="weather">天气</button><button data-set-tab="rss">资讯源</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button></aside><section class="card settings-panel" id="settings-panel"></section></div>`;
+    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="weather">天气</button><button data-set-tab="rss">资讯源</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="ai">AI 能力 / RAG</button><button data-set-tab="interface">界面</button></aside><section class="card settings-panel" id="settings-panel"></section></div>`;
     const syncTab=document.createElement('button');syncTab.dataset.setTab='sync';syncTab.textContent='同步';$('.settings-nav').append(syncTab);
     if(window.pywebview?.api?.desktop_set_close_action){const button=document.createElement('button');button.dataset.setTab='desktop';button.textContent='窗口';$('.settings-nav').append(button)}
     $$('[data-set-tab]').forEach(b=>b.onclick=()=>{$$('[data-set-tab]').forEach(x=>x.classList.toggle('active',x===b));renderSettingsTab(b.dataset.setTab,cfg)});renderSettingsTab('general',cfg);
   }
-  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app,rss=cfg.rss;if(tab==='sync'){window.ERWSync?.renderSettings(p);return}if(tab==='general'){
+  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app,rss=cfg.rss;if(tab==='sync'){window.ERWSync?.renderSettings(p);return}if(tab==='ai'){window.ERWAgentSystem?.renderCapabilities(p);return}if(tab==='general'){
       p.innerHTML=`<div class="card-head"><div><h3>基础设置</h3></div></div><div class="form-grid"><div class="field span-2"><label>工作台名称</label><input id="set-app-name" value="${esc(app.app_name)}"></div><div class="field span-2"><label>副标题</label><input id="set-subtitle" value="${esc(app.subtitle)}"></div></div><div class="field-help" style="margin-top:10px">运行端口、监听地址、Workspace 路径和启动行为已移动到“服务与存储”，均可在页面中配置。</div><div style="margin-top:14px"><button class="primary-btn" id="save-settings">保存</button></div>`;$('#save-settings').onclick=async()=>{app.app_name=$('#set-app-name').value.trim()||'科研工作台';app.subtitle=$('#set-subtitle').value.trim();const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;toast('基础设置已保存');await loadBootstrap();};
     }
     else if(tab==='knowledge'){renderKnowledgeTypesSettings(p,app,cfg);}

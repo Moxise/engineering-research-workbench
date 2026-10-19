@@ -15,7 +15,9 @@ _ACTIVE: set[str] = set()
 _SIGNALS: dict[str, str] = {}
 _RECOVERED: set[str] = set()
 TERMINAL = {"completed", "failed", "cancelled", "paused", "interrupted", "waiting_approval"}
-DEFAULTS = {"max_steps": 48, "time_budget_seconds": 900, "context_tokens": 24000, "auto_recall": True, "code_enabled": False, "docker_image": "python:3.12-slim", "web_enabled": True, "mcp_servers": []}
+DEFAULTS = {"max_steps": 48, "time_budget_seconds": 900, "context_tokens": 24000, "auto_recall": True, "code_enabled": False, "docker_image": "python:3.12-slim", "web_enabled": True, "mcp_servers": [], "skills_enabled": True, "disabled_skills": [], "rag_enabled": True, "rag_top_k": 8, "rag_context_chars": 8000}
+_SETTINGS_LOCK = threading.RLock()
+RAG_TOOLS = {"kb_search", "kb_read", "memory_recall"}
 
 
 class Suspended(Exception):
@@ -34,13 +36,24 @@ def settings() -> dict:
 
 
 def save_settings(data: dict) -> dict:
+    with _SETTINGS_LOCK:
+        return _save_settings(data)
+
+
+def _save_settings(data: dict) -> dict:
     result = settings()
-    for key, low, high in (("max_steps", 1, 256), ("time_budget_seconds", 10, 7200), ("context_tokens", 2048, 200000)):
+    for key, low, high in (("max_steps", 1, 256), ("time_budget_seconds", 10, 7200), ("context_tokens", 2048, 200000), ("rag_top_k", 1, 20), ("rag_context_chars", 256, 32000)):
         if key in data:
             result[key] = max(low, min(high, int(data[key])))
-    for key in ("auto_recall", "code_enabled", "web_enabled"):
+    for key in ("auto_recall", "code_enabled", "web_enabled", "skills_enabled", "rag_enabled"):
         if key in data:
             result[key] = data[key] is True
+    if "disabled_skills" in data:
+        import re
+        names = data["disabled_skills"]
+        if not isinstance(names, list) or len(names) > 1000 or any(not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) for name in names):
+            raise ValueError("停用技能须为有效名称数组")
+        result["disabled_skills"] = sorted(set(names))
     if "docker_image" in data:
         image = str(data["docker_image"]).strip()
         if not image or image.startswith("-") or len(image) > 160 or any(ch.isspace() for ch in image):
@@ -185,7 +198,7 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
         system_prompt += agent_skills.catalog_prompt()
         import re
         explicit = list(dict.fromkeys(re.findall(r"\$([a-z0-9]+(?:-[a-z0-9]+)*)", user_text)))
-        available = {item["name"] for item in agent_skills.discover()["skills"]}
+        available = {item["name"] for item in agent_skills.discover()["skills"] if item.get("enabled", True)}
         for name in explicit:
             if name not in available:
                 continue  # Dollar-prefixed math variables are not skill invocations.
@@ -219,6 +232,8 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
                     message["content"] = brain.encode({"draft_id": draft["id"], "status": draft["status"], "result": draft.get("result")})
         state["waiting_drafts"] = []
     allowed = ctx.get("tools") if isinstance(ctx.get("tools"), list) else list(agent_tools.TOOL_NAMES)
+    allowed = [name for name in allowed if (opts["skills_enabled"] or name not in {"skill_read", "skill_run"}) and (opts["rag_enabled"] or name not in RAG_TOOLS)]
+    ctx["tools"] = allowed
     from . import agent_mcp
     if opts["mcp_servers"] and not agent_mcp.specs():
         result = agent_mcp.discover()

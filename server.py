@@ -147,11 +147,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close")  # v260930m · SSE 用短连接：done 后关闭，前端 EOF 立即到达（keep-alive 会让 read() 永久挂起、UI 卡「停止」）
         self.send_header("X-Accel-Buffering", "no")
+        self.send_header("X-Agent-Run-ID", run["id"])
         self.end_headers()
 
-        def emit(event: str, data) -> None:
+        def emit(event: str, data, seq=None) -> None:
             try:
-                self.wfile.write(f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
+                event_id = f"id: {seq}\n" if seq is not None else ""
+                self.wfile.write(f"event: {event}\n{event_id}data: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 raise  # The background job continues after this viewer disconnects.
@@ -159,17 +161,27 @@ class Handler(BaseHTTPRequestHandler):
         try:
             emit("run", {"run_id": run["id"], "session_id": run["session_id"]})
             cursor = 0
+            terminal_sent = False
             heartbeat = time.monotonic()
             while True:
                 batch = agent_memory.events(run["id"], cursor)
                 for item in batch:
                     cursor = item["seq"]
                     if item["event"] in ("round", "delta", "response", "tool", "done", "error", "plan", "status", "compaction"):
-                        emit(item["event"], item["data"])
+                        emit(item["event"], item["data"], item["seq"])
+                        terminal_sent |= item["event"] in ("done", "error")
                 current = agent_memory.get_run(run["id"])
                 if current["status"] in agent_runtime.TERMINAL and not batch:
-                    if current["status"] in ("paused", "cancelled", "interrupted"):
+                    # Status/result can commit between the events query and this
+                    # snapshot, before the worker appends its final event.
+                    if not terminal_sent and (current.get("result") or {}).get("assistant"):
+                        emit("done", current["result"])
+                    elif not terminal_sent and current["status"] == "failed":
+                        emit("error", {"message": current.get("error") or "任务执行失败", "run_id": run["id"]})
+                    elif not terminal_sent and current["status"] in ("paused", "cancelled", "interrupted"):
                         emit("error", {"message": "任务已暂停或停止，可在任务中心查看并继续", "run_id": run["id"]})
+                    elif not terminal_sent:
+                        emit("error", {"message": "任务已结束，但未取得保存的回复，请查看任务记录", "run_id": run["id"]})
                     break
                 if time.monotonic() - heartbeat > 10:
                     self.wfile.write(b": heartbeat\n\n")

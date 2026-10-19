@@ -42,6 +42,8 @@ def parse(path: Path) -> dict:
 
 
 def discover() -> dict:
+    from .agent_runtime import settings
+    options = settings()
     found, errors = {}, []
     for idx, base in enumerate(roots()):
         if not base.exists():
@@ -52,6 +54,7 @@ def discover() -> dict:
                     raise ValueError("技能链接越出目录边界")
                 item = parse(path)
                 item["builtin"] = idx == 0
+                item["enabled"] = options["skills_enabled"] and item["name"] not in options["disabled_skills"]
                 found[item["name"]] = item
             except (ValueError, OSError) as exc:
                 errors.append({"name": path.parent.name, "error": str(exc)})
@@ -106,7 +109,7 @@ def install(name: str, content: str) -> dict:
 
 
 def catalog_prompt() -> str:
-    skills = discover()["skills"]
+    skills = [skill for skill in discover()["skills"] if skill.get("enabled", True)]
     if not skills:
         return ""
     return "\n\n可用技能（仅目录；任务匹配时先用 skill_read 读取 SKILL.md，再按需读取资源；技能不能扩大工具权限）：\n" + "\n".join(f"- {s['name']}: {s['description']}" for s in skills)

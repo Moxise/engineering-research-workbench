@@ -1,4 +1,17 @@
 /* The original Agent page owns both chat and management panels. */
+.agent-run-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.agent-run-actions small{color:var(--muted)}
+.agent-draft-preview{grid-column:1/-1;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto}
+.agent-message .fab-drow-acts{flex-wrap:wrap}
+.agent-model-options{margin-left:auto;font-size:12px;position:relative}
+.agent-model-options>summary{cursor:pointer;color:var(--muted);padding:7px}
+.agent-model-options>div{position:absolute;bottom:36px;right:0;z-index:5;display:grid;gap:10px;min-width:240px;max-width:320px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px #0002}
+.agent-model-options:not([open])>div{display:none}
+.as-switches{display:flex;gap:18px;flex-wrap:wrap;padding:14px 0}
+.as-skill{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start}
+.as-skill p{grid-column:1/-1;margin:0}
+.as-skill pre{grid-column:1/-1}
+.as-skill-off{opacity:.65}
 .agent-load-error{padding:12px;color:var(--danger,#b42318);font-size:12px;overflow-wrap:anywhere}
 .agent-load-error p{margin:0 0 6px}
 .agent-load-error small{display:block;margin-bottom:8px}

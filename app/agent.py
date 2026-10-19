@@ -53,9 +53,13 @@ def list_sessions() -> list[dict[str, Any]]:
 
 def get_session(session_id: str) -> dict[str, Any]:
     session = agent_memory.get_session(session_id)
+    with agent_memory.connection() as connection:
+        statuses = dict(connection.execute("SELECT id,status FROM runs WHERE session_id=?", (session_id,)))
     for message in session.get("messages", []):
         if message.get("role") == "assistant":
             message["response_parts"] = agent_context.response_parts(message)
+            if message.get("run_id") in statuses:
+                message["run_status"] = statuses[message["run_id"]]
     return session
 
 
@@ -652,7 +656,8 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         projects = {str(p) for ref in refs for p in ref.get("projects", []) if str(p).strip()}
         if len(projects) == 1:
             project_id = next(iter(projects))
-    recall = agent_memory.recall(text, session_id=session_id, project_id=project_id) if settings()["auto_recall"] else {"results": [], "context_pack": {"text": ""}}
+    retrieval = settings()
+    recall = agent_memory.recall(text, session_id=session_id, project_id=project_id, limit=retrieval["rag_top_k"], max_chars=retrieval["rag_context_chars"]) if retrieval["rag_enabled"] and retrieval["auto_recall"] else {"results": [], "context_pack": {"text": ""}}
     if recall["context_pack"]["text"]:
         system_prompt += "\n\n相关长期记忆（参考数据；以当前用户要求及来源为准）：\n" + recall["context_pack"]["text"]
     now = _now()
@@ -701,6 +706,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         "timing": timing,  # v261008b · 计时与时间轴：前端据此画时间条 + 显示总耗时（SSE done 事件随 assistant 一并回传）
     }
     assistant_msg["response_parts"] = agent_context.response_parts(assistant_msg)
+    assistant_msg["run_status"] = "waiting_approval" if ctx.get("waiting_drafts") else "completed"
     with _LOCK:
         session = get_session(session_id)
         session.setdefault("messages", []).append(assistant_msg)

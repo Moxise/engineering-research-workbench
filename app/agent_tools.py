@@ -137,6 +137,8 @@ def _t_kb_search(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("query 不能为空")
     kind = str(args.get("kind") or "").strip() or None
     limit = max(1, min(int(args.get("limit") or 8), 20))
+    from .agent_runtime import settings
+    limit = min(limit, settings()["rag_top_k"])
     from . import indexer
     rows = indexer.list_docs(kind=kind, query=query, page_size=limit)
     return {"count": len(rows), "items": [{
@@ -431,6 +433,13 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
     allowed = ctx.get("tools")
     if isinstance(allowed, (list, tuple)) and name not in allowed:
         return {"ok": False, "error": f"当前人设未授权工具 {name}，可用：{'、'.join(str(t) for t in allowed)}"}
+    from . import agent_runtime
+    options = agent_runtime.settings()
+    if not options["rag_enabled"] and name in agent_runtime.RAG_TOOLS:
+        return {"ok": False, "error": "RAG 已关闭，请在 RAG 设置中启用知识检索"}
+    if name in {"skill_read", "skill_run"}:
+        if not options["skills_enabled"] or str(args.get("name") or "") in options["disabled_skills"]:
+            return {"ok": False, "error": "该技能已停用，请在技能页启用"}
     t0 = time.time()
     try:
         # Central schema validation also covers model endpoints without strict

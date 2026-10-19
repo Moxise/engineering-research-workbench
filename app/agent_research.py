@@ -172,7 +172,9 @@ def execute(name: str, args: dict, ctx: dict) -> dict:
         bootstrap = f"import runpy, sys\nsys.path.insert(0, {str(Path(entry).parent).replace(chr(92), '/')!r})\nrunpy.run_path({entry!r}, run_name='__main__')\n"
         return python_run({**args, "skill": skill_name, "code": bootstrap}, ctx)
     if name == "memory_recall":
-        return brain.recall(str(args.get("query") or ""), session_id=ctx.get("session_id", ""), project_id=ctx.get("project_id", ""), limit=args.get("limit", 8))
+        from .agent_runtime import settings
+        options = settings()
+        return brain.recall(str(args.get("query") or ""), session_id=ctx.get("session_id", ""), project_id=ctx.get("project_id", ""), limit=min(int(args.get("limit") or options["rag_top_k"]), options["rag_top_k"]), max_chars=options["rag_context_chars"])
     if name == "memory_remember":
         scope = str(args.get("scope") or "session")
         scope_id = ctx.get("session_id", "") if scope == "session" else ctx.get("project_id", "") if scope == "project" else ""

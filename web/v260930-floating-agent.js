@@ -6,12 +6,13 @@
 const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
+const C=window.ERWAgentClient;
 const S={
-  open:false, session:null, messages:[], sending:false,
+  open:false, session:C?.sessionId()||null, messages:[], sending:false,
   bubbleSel:"",      /* 划词气泡捕获的选中内容（优先于发送时的实时 DOM 选中） */
   writeDirect:false, /* 当前有效写入模式：true=直接落盘；false=草稿确认 */
   writeOverride:null, /* null=跟随人设默认；boolean=用户在本次人设下手动覆盖 */
-  draftState:{},     /* draft_id -> {status, result} 本地面板内状态 */
+  draftState:C?.drafts||{},     /* draft_id -> {status, result} 本地面板内状态 */
   personaId:localStorage.getItem("fabPersona")||(window.__FAB_DEFAULT_PERSONA__||"executor"), /* v260930g · 默认执行助手（含知识库写工具）；老用户尊重已存选择 */
   personas:null,     /* v260930 · M3 人设缓存（首次打开面板时拉取） */
   relatedCache:new Map(), /* v261009p · 按 paper_id:page 缓存关联结果，避免前后翻页重复全库匹配；有界 LRU 控制内存 */
@@ -27,7 +28,7 @@ async function api(url,opts={}){
   const init={...opts,headers:{"Content-Type":"application/json",...(opts.headers||{})}};
   if(init.body&&typeof init.body!=="string")init.body=JSON.stringify(init.body);
   const r=await fetch(url,init);let d={};try{d=await r.json()}catch{}
-  if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));
+  if(!r.ok){const error=new Error(d.message||d.error||("HTTP "+r.status));error.status=r.status;throw error}
   return d;
 }
 
@@ -147,7 +148,7 @@ function mount(){
     if(d){attachImage(d);openPanel();toastInPanel("已附加框选截图")}
     else{openPanel();toastInPanel("框选已取消或未截到区域",true)}
   };
-  q("#fab-new").onclick=async()=>{try{const s=await api("/api/agent/sessions",{method:"POST",body:{}});S.session=s.id;S.messages=[];S.draftState={};S.view="chat";paintView();paintContext();toastInPanel("已新建对话")}catch(e){toastInPanel(e.message,true)}};
+  q("#fab-new").onclick=async()=>{try{const s=await api("/api/agent/sessions",{method:"POST",body:{}});S.session=s.id;C.setSession(s,'floating');C.select(s.id,'floating');S.messages=[];S.view="chat";paintView();paintContext();toastInPanel("已新建对话")}catch(e){toastInPanel(e.message,true)}};
   q("#fab-send").onclick=()=>{ /* v260930l · 发送中再点=停止生成（abort 流式请求，后端随之中止） */
     if(S.sending){if(S.runId){api('/api/agent/runs/'+S.runId+'/cancel',{method:'POST',body:{}}).catch(e=>toastInPanel(e.message,true));S.abortCtl?.abort()}else{S.stopRequested=true}return}
     send();
@@ -402,8 +403,9 @@ async function openPanel(){
   syncDraftStatuses(); /* v260930g9f · 打开面板即校准草稿真实状态（面板外确认的草稿不再误显待确认） */
   await ensurePersonas();
   paintPersonaSelect();
+  S.session=C.sessionId()||S.session;
   if(!S.session){restoreSession().then(()=>{if(!S.messages.length)renderEmpty()})}
-  else if(!S.messages.length)loadSession();
+  else{const e=C.snapshot(S.session);S.messages=[...e.session.messages,...(e.live?[e.live]:[])];paintView();if(!C.busy(S.session))loadSession()}
   setTimeout(()=>q("#fab-input")?.focus(),30);
 }
 function closePanel(){
@@ -543,31 +545,26 @@ async function restoreSession(){
   }catch(e){/* 网络失败静默：面板仍可提问，发送时会自动建会话 */}
 }
 async function loadSession(){
-  if(!S.session)return;
+  const id=S.session;if(!id)return;
   try{
-    const s=await api("/api/agent/sessions/"+encodeURIComponent(S.session));
-    S.messages=Array.isArray(s.messages)?s.messages:[];
-    localStorage.setItem("fabAgentSession",S.session);
-    renderMessages();
-    syncDraftStatuses(); /* v260930g9f · 异步校准草稿真实状态（消息快照可能过期） */
-  }catch(e){S.session=null;S.messages=[];renderEmpty()}
+    if(!C.busy(id)){const session=await api('/api/agent/sessions/'+encodeURIComponent(id));C.setSession(session,'floating')}
+    if(S.session!==id)return;
+    C.select(id,'floating');const e=C.snapshot(id);S.messages=[...e.session.messages,...(e.live?[e.live]:[])];
+    localStorage.setItem('fabAgentSession',id);if(S.open&&S.view==='chat')renderMessages();syncDraftStatuses();
+  }catch(error){if(S.session!==id)return;if(error.status===404){S.session=null;S.messages=[];C.select('','floating');renderEmpty()}else if(S.open)toastInPanel('会话暂时无法刷新：'+error.message,true)}
 }
+C.subscribe(event=>{
+  if(event.source==='floating')return;
+  if(event.type==='select')S.session=event.sessionId||null;
+  if(!S.session||event.sessionId!==S.session)return;
+  const e=C.snapshot(S.session);if(!(S.sending&&e.owner==='floating'&&e.live))S.messages=[...e.session.messages,...(e.live?[e.live]:[])];
+  if(S.open&&S.view==='chat'){renderMessages();paintContext()}
+  const button=q('#fab-send');if(button&&!S.sending){button.disabled=!!e.live;button.textContent=e.live?'任务执行中…':'发送'}
+  if(event.type==='select'&&S.open&&!e.live&&!e.session.messages.length)loadSession();
+});
 /* v260930g9f · 草稿状态校准：拉全量草稿（含已处理），用磁盘真实状态覆盖消息里的 pending 快照——
    草稿在别处（知识库页批量确认/另一会话）被处理后，面板不再误显「待确认」 */
-async function syncDraftStatuses(){
-  try{
-    const list=await api("/api/agent/drafts?status=");
-    if(!Array.isArray(list))return;
-    const ids=new Set(S.messages.flatMap(m=>Array.isArray(m.drafts)?m.drafts.map(d=>d.draft_id):[]));
-    let changed=false;
-    for(const d of list){
-      if(!ids.has(d.id)||d.status==="pending")continue;
-      const cur=S.draftState[d.id];
-      if(!cur||cur.status!==d.status){S.draftState[d.id]={status:d.status,result:d.result||cur?.result};changed=true}
-    }
-    if(changed)renderMessages();
-  }catch{/* 校准失败静默：快照状态兜底 */}
-}
+async function syncDraftStatuses(){try{await C.syncDrafts();updateBallBadge()}catch{/* Retain the last known draft state on network failure. */}}
 
 /* ---------- 消息渲染 ---------- */
 /* v261008b · 把过宽块级元素（表格）包进滚动容器：表格保持自身布局（不逐字换行），
@@ -721,7 +718,7 @@ function toolTraceHtml(m){
 function draftHtml(m,stateMap){
   const drafts=Array.isArray(m.drafts)?m.drafts:[];
   if(!drafts.length)return "";
-  const stOf=(d)=>(stateMap||S.draftState)[d.draft_id]||{status:"pending"};
+  const stOf=(d)=>(stateMap||C.drafts)[d.draft_id]||{status:"pending"};
   const pend=drafts.filter(d=>stOf(d).status==="pending");
   const done=drafts.filter(d=>stOf(d).status!=="pending");
   const okN=done.filter(d=>stOf(d).status==="confirmed").length,noN=done.length-okN;
@@ -735,6 +732,7 @@ function draftHtml(m,stateMap){
         <span class="dt-badge tool">${esc(d.tool)}</span>
         <span class="fab-drow-title" title="${esc(d.summary||d.draft_id)}">${esc(d.summary||d.draft_id)}</span>
         <span class="fab-drow-acts">
+          <button type="button" data-draft-preview="${esc(d.draft_id)}">查看草稿</button>
           <button type="button" class="go" data-draft-confirm="${esc(d.draft_id)}" title="确认并落盘">✓ 确认</button>
           <button type="button" data-draft-reject="${esc(d.draft_id)}" title="拒绝，不写入">✗ 拒绝</button>
         </span>
@@ -766,6 +764,13 @@ function quickActionsHtml(m){
     ${lit?`<button type="button" data-fab-quick="lit" title="把这条回复追加到当前文献笔记">写入文献笔记</button>`:""}
     ${lit?`<button type="button" data-fab-quick="terms" title="从当前页提取专业名词，按 SOP 分族后逐条生成建档草稿（自动切换到术语建档员）">提取本页术语</button>`:""}
   </div>`;
+}
+function runActionsHtml(m){
+  if(!m.run_id||!(m.drafts||[]).length)return '';
+  const status=C.runStates.get(m.run_id);
+  if(status&&!['waiting_approval','paused','interrupted','failed'].includes(status))return '';
+  const pending=m.drafts.some(d=>(C.drafts[d.draft_id]?.status||'pending')==='pending');
+  return `<div class="agent-run-actions"><button type="button" data-agent-resume="${esc(m.run_id)}" ${pending?'disabled':''}>继续任务</button><small>${pending?'请先确认或拒绝全部草稿':'草稿已处理，可以继续任务'}</small></div>`;
 }
 function msgImagesHtml(m){ /* v260930e · 消息附图：user 消息 images 为落盘相对路径；待发消息为本地面板临时 dataURL */
   const imgs=Array.isArray(m.images)?m.images:[];
@@ -815,7 +820,7 @@ function msgHtml(m,idx){
       ${responsePartsHtml(m)}
       ${responseParts(m).length&&m.content?'<div class="agent-response-label">'+(m.__streaming?'当前回答':'最终回复')+'</div>':''}
       ${body}
-      ${m.__thinking?"":toolTraceHtml(m)+draftHtml(m)+quickActionsHtml(m)}
+      ${m.__thinking?"":toolTraceHtml(m)+draftHtml(m)+runActionsHtml(m)+quickActionsHtml(m)}
       <div class="fab-msg-meta">${meta}</div>
     </div>
   </article>`;
@@ -855,7 +860,7 @@ async function paintHistory(){
     const sec=(label,list)=>list.length?`<div class="fab-hist-sec">${label}</div>${list.map(row).join("")}`:""; /* v260930n · 分组标题 */
     root.innerHTML=`<div class="fab-history-list">${sec("对话",active)}${sec("已归档",archived)}</div>`;
     qa("[data-hist]",root).forEach(b=>b.onclick=()=>{
-      S.session=b.dataset.hist;S.messages=[];S.draftState={};S.relatedItems=[];S.view="chat";paintView();
+      S.session=b.dataset.hist;C.select(S.session,'floating');S.messages=[];S.relatedItems=[];S.view="chat";paintView();
       loadSession();paintContext();
       localStorage.setItem("fabAgentSession",S.session);
     });
@@ -875,7 +880,7 @@ async function paintHistory(){
         if(b.dataset.del===S.session){ /* 删除的是当前会话：切到最近活跃会话或空态 */
           const rest=await api("/api/agent/sessions");
           const next=rest.find(s=>!s.archived);
-          S.session=next?next.id:"";S.messages=[];S.draftState={};S.relatedItems=[];
+          S.session=next?next.id:'';C.select(S.session,'floating');S.messages=[];S.relatedItems=[];
           if(S.session){await loadSession();localStorage.setItem("fabAgentSession",S.session)}
           else{localStorage.removeItem("fabAgentSession")}
           paintContext();
@@ -943,54 +948,30 @@ function renderMessages(){
   wireMessageActions(root);
 }
 function wireMessageActions(root){
-  qa("[data-draft-confirm]",root).forEach(b=>b.onclick=()=>resolveDraft(b.dataset.draftConfirm,true));
-  qa("[data-draft-reject]",root).forEach(b=>b.onclick=()=>resolveDraft(b.dataset.draftReject,false));
-  qa("[data-fab-quick]",root).forEach(b=>b.onclick=()=>quickAction(b.dataset.fabQuick));
-  qa("[data-cite]",root).forEach(b=>b.onclick=()=>quoteMessage(+b.dataset.cite)); /* v260930j · 消息级引用 */
-  /* v260930c · M4 批量确认/拒绝：批量条在 draftHtml 内，取同一条消息下所有待确认草稿 id */
-  qa("[data-draft-confirm-all],[data-draft-reject-all]",root).forEach(b=>b.onclick=()=>{
-    const go=b.hasAttribute("data-draft-confirm-all");
-    const msgEl=b.closest(".fab-msg");if(!msgEl)return;
-    const ids=[...msgEl.querySelectorAll("[data-draft-confirm]")].map(x=>x.dataset.draftConfirm).filter(Boolean);
-    if(ids.length)resolveDrafts(ids,go);
-  });
+  wireDrafts(root);
+  qa('[data-fab-quick]',root).forEach(b=>b.onclick=()=>quickAction(b.dataset.fabQuick));
+  qa('[data-cite]',root).forEach(b=>b.onclick=()=>quoteMessage(+b.dataset.cite));
 }
-async function resolveDrafts(ids,go){ /* v260930c · M4 · 批量逐个执行（草稿间无事务，单个失败不影响其余），完成后统一汇报 */
-  if(!ids.length)return;
-  let done=0,failed=0;
-  for(const id of ids){
-    try{
-      const r=await api("/api/agent/drafts/"+encodeURIComponent(id)+(go?"/confirm":"/reject"),{method:"POST",body:{}});
-      S.draftState[id]=go?{status:r.status==="confirmed"?"confirmed":"rejected",result:r.result}:{status:"rejected"};
-      if(go&&r.status!=="confirmed")failed++;else done++;
-    }catch(e){
-      failed++; /* v260930g9g · 「已处理（xxx）」视为已同步状态而非失败 */
-      const m=String(e.message||"").match(/已处理（([a-z]+)）/);
-      S.draftState[id]=m?{status:m[1]}:{status:"rejected"};
-    }
-  }
-  toastInPanel(go?(failed?`批量确认完成：${done} 成功 / ${failed} 失败`:`已确认 ${done} 篇草稿`):`已拒绝 ${ids.length} 篇草稿`);
-  updateBallBadge();
-  renderMessages();
+function draftNotice(text,bad=false){if(S.open)toastInPanel(text,bad);else window.ERWToast?.(text,bad)}
+function wireDrafts(root){
+  qa('[data-draft-confirm],[data-draft-reject]',root).forEach(b=>b.onclick=async()=>{b.disabled=true;try{await resolveDraft(b.dataset.draftConfirm||b.dataset.draftReject,!!b.dataset.draftConfirm)}finally{if(b.isConnected)b.disabled=false}});
+  qa('[data-draft-confirm-all],[data-draft-reject-all]',root).forEach(b=>b.onclick=async()=>{
+    const message=b.closest('.fab-msg,.agent-message');if(!message)return;
+    const ids=qa('[data-draft-confirm]',message).map(button=>button.dataset.draftConfirm);
+    b.disabled=true;for(const id of ids)await resolveDraft(id,b.hasAttribute('data-draft-confirm-all'));
+  });
+  qa('[data-draft-preview]',root).forEach(b=>b.onclick=async()=>{
+    b.disabled=true;try{let draft=C.drafts[b.dataset.draftPreview];if(!draft?.args){const rows=await C.api('drafts?status=');draft=rows.find(d=>d.id===b.dataset.draftPreview);if(draft)C.drafts[draft.id]=draft}if(!draft)throw Error('草稿不存在');
+      const row=b.closest('[data-draft]');let preview=q('pre',row);if(!preview){preview=document.createElement('pre');preview.className='agent-draft-preview';row.append(preview)}preview.textContent=JSON.stringify(draft.args||{},null,2);
+    }catch(error){draftNotice(error.message,true)}finally{if(b.isConnected)b.disabled=false}
+  });
+  qa('[data-agent-resume]',root).forEach(b=>b.onclick=async()=>{b.disabled=true;try{await C.resume(b.dataset.agentResume)}catch(error){draftNotice(error.message,true)}finally{if(b.isConnected)b.disabled=false}});
+}
+async function resolveDraft(id,confirm){
+  try{const result=await C.resolveDraft(id,confirm);if(result.status==='failed')draftNotice(result.result?.error||'草稿执行失败',true);else draftNotice(confirm?'已确认写入':'已拒绝草稿');updateBallBadge()}
+  catch(error){draftNotice(error.message,true)}
 }
 
-/* ---------- 草稿确认 / 快捷动作 ---------- */
-async function resolveDraft(id,go){
-  if(!id)return;
-  try{
-    const r=await api("/api/agent/drafts/"+encodeURIComponent(id)+(go?"/confirm":"/reject"),{method:"POST",body:{}});
-    S.draftState[id]=go?{status:r.status==="confirmed"?"confirmed":"rejected",result:r.result}:{status:"rejected"};
-    if(go&&r.status!=="confirmed")toastInPanel(r.result?.error||"草稿执行失败",true);
-    else toastInPanel(go?"已确认写入":"已拒绝草稿");
-    updateBallBadge();
-    renderMessages();
-  }catch(e){
-    /* v260930g9g · 草稿已被别处处理（知识库页确认/另一面板）：从报错解析真实状态并同步，不再误报错误 */
-    const m=String(e.message||"").match(/已处理（([a-z]+)）/);
-    if(m){S.draftState[id]={status:m[1]};updateBallBadge();renderMessages();toastInPanel("该草稿已处理过，状态已同步");return}
-    toastInPanel(e.message,true);
-  }
-}
 function quickAction(kind){
   const input=q("#fab-input");if(!input)return;
   if(kind==="terms"){ /* v260930c · M4 提取术语：切到术语建档员并预填 SOP 指令，上下文已自动附带当前页正文 */
@@ -1009,32 +990,29 @@ function quickAction(kind){
 
 /* ---------- 发送 ---------- */
 async function send(){
-  const input=q("#fab-input");if(!input||S.sending)return;
+  const input=q("#fab-input");if(!input||S.sending||C.busy(S.session))return;
   const text=input.value.trim();
   if(!text&&!S.images.length)return;
   if(!window.ERWLLMReady?.()){toastInPanel("模型接口未启用：请先在 设置 → Agent / LLM 配置",true);return}
   S.sending=true;const btn=q("#fab-send");btn.textContent="停止";btn.title="停止生成";btn.classList.add("stop"); /* v260930l · 发送中按钮变停止键 */
   S.abortCtl=new AbortController(); /* v260930l */
-  const {ctx}=contextChips();
+  const {ctx}=contextChips();let sendingSession="";
   try{
-    if(!S.session){const s=await api("/api/agent/sessions",{method:"POST",body:{}});S.session=s.id;localStorage.setItem("fabAgentSession",S.session)}
+    if(!S.session){const s=await api("/api/agent/sessions",{method:"POST",body:{}});S.session=s.id;C.setSession(s,'floating');C.select(s.id,'floating');localStorage.setItem('fabAgentSession',S.session)}
+    sendingSession=S.session;
     /* v260930e · 附图上传落盘（dataURL → /api/agent/assets → 相对路径），单张失败不阻塞其余 */
     const imgPaths=[];
     for(const d of S.images){
       try{const r=await api("/api/agent/assets",{method:"POST",body:{data_url:d,name:"fab-shot.png"}});if(r.path)imgPaths.push(r.path)}
       catch(e){toastInPanel("截图上传失败："+e.message,true)}
     }
-    S.messages.push({role:"user",content:text,images:imgPaths,quoteTitle:S.quote?.title||"",created:new Date().toISOString()}); /* v260930j · 本地气泡带引用标记 */
+    const userMessage={role:"user",content:text,images:imgPaths,quoteTitle:S.quote?.title||"",created:new Date().toISOString()}; /* v260930j · 本地气泡带引用标记 */
     S.images=[];paintAttach();
     input.value="";input.style.height="auto";
     /* Keep public answers from every round; only the current delta buffer resets. */
     const streamMsg={role:"assistant",content:"",response_parts:[],__thinking:true,__t0:Date.now(),__tl:[]};
-    S.messages.push(streamMsg);
-    renderMessages();
-    const res=await fetch("/api/agent/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:S.session,message:text,refs:[],images:imgPaths,request_preset:"",context:ctx,persona_id:S.personaId}),signal:S.abortCtl.signal}); /* v260930l · 带 abort 信号 */
-    if(!res.ok||!res.body){let d={};try{d=await res.json()}catch{};throw new Error(d.message||d.error||("HTTP "+res.status))}
-    const reader=res.body.getReader(),dec=new TextDecoder("utf-8");
-    let buf="",doneData=null;
+    if(S.session===sendingSession){S.messages=[...C.snapshot(sendingSession).session.messages,userMessage,streamMsg];renderMessages()}
+    let doneData=null;
     let rafPending=false;
     const paintStream=()=>{ /* 轻量增量渲染：只重绘最后气泡正文，不做全量重渲染/MathJax */
       if(rafPending)return;rafPending=true;
@@ -1051,6 +1029,7 @@ async function send(){
       if(ev==="run"){
         S.runId=data.run_id;localStorage.setItem('agentLastRun',data.run_id);
         if(S.stopRequested){api('/api/agent/runs/'+S.runId+'/cancel',{method:'POST',body:{}}).catch(e=>toastInPanel(e.message,true));S.abortCtl?.abort()}
+      }else if(ev==="reset"){streamMsg.content="";streamMsg.response_parts=[];streamMsg.__tl=[];streamMsg.__round=0;streamMsg.__responseRound=0;renderMessages()
       }else if(ev==="delta"){
         if(streamMsg.__thinking){streamMsg.__thinking=false;streamMsg.__streaming=true;renderMessages()}
         openLlm(); /* v261008b · 首个 delta 前若还没开思考段（极少数时序）也补上 */
@@ -1080,38 +1059,25 @@ async function send(){
       }else if(ev==="error"){throw new Error(data.message||"生成失败")}
       else if(ev==="done"){doneData=data}
     };
-    let chunk;
-    while(true){
-      if(doneData)break; /* v260930m · done 已到立即收尾：不等 EOF（keep-alive 下 EOF 可能永不到达，曾致按钮卡「停止」、草稿卡片不渲染） */
-      const rd=await reader.read();if(rd.done)break;chunk=rd.value;
-      buf+=dec.decode(chunk,{stream:true});
-      let idx;
-      while((idx=buf.indexOf("\n\n"))>=0){
-        const block=buf.slice(0,idx);buf=buf.slice(idx+2);
-        let ev="",dline="";
-        for(const line of block.split("\n")){if(line.startsWith("event:"))ev=line.slice(6).trim();else if(line.startsWith("data:"))dline+=line.slice(5).trim()}
-        if(ev)handle(ev,dline);
-      }
-    }
+    doneData=await C.send({session_id:sendingSession,message:text,refs:[],images:imgPaths,request_preset:'',context:ctx,persona_id:S.personaId},{source:'floating',signal:S.abortCtl.signal,user:userMessage,onEvent:(event,data)=>handle(event,JSON.stringify(data))});
     if(!doneData)throw new Error("连接中断，未收到完整响应");
     if(!Array.isArray(doneData.assistant.response_parts))doneData.assistant.response_parts=doneData.assistant.evidence?responseParts(doneData.assistant):streamMsg.response_parts;
-    S.messages=S.messages.slice(0,-1);
-    S.messages.push(doneData.assistant);
+    if(S.session===sendingSession)S.messages=[...C.snapshot(sendingSession).session.messages];
     S.bubbleSel="";paintContext();updateBallBadge();
     renderMessages();
-    reader.cancel().catch(()=>{}); /* v260930m · 主动释放连接：done 后不再依赖服务器关闭 */
+    C.syncDrafts().catch(()=>{});
   }catch(e){
     const aborted=e&&e.name==="AbortError"; /* v260930l · 用户主动停止 */
-    S.messages=S.messages.filter(m=>{if(!m.__thinking&&!m.__streaming)return true;if(!m.content&&!responseParts(m).length)return false;delete m.__thinking;delete m.__streaming;delete m.__note;m.partial=true;return true});
-    S.messages.push({role:"assistant",content:aborted?"已停止生成。本轮任务可能已部分执行（以知识库草稿与会话记录为准），可继续追问或换个小任务分步做。":"请求失败："+e.message,created:new Date().toISOString()});
+    if(sendingSession&&S.session===sendingSession){const snapshot=C.snapshot(sendingSession);S.messages=[...snapshot.session.messages,...(snapshot.live?[snapshot.live]:[])]}
+    else if(!sendingSession)S.messages.push({role:'assistant',content:'请求失败：'+e.message,created:new Date().toISOString()});
+    if(S.session!==sendingSession)toastInPanel(aborted?'已停止原会话任务':e.message,!aborted);
     renderMessages();
   }finally{
-    S.sending=false;btn.textContent="发送";btn.title="";btn.classList.remove("stop");S.abortCtl=null;S.runId=null;S.stopRequested=false;
-    if(S.messages.at(-1)?.__thinking||S.messages.at(-1)?.__streaming){S.messages=S.messages.filter(m=>!m.__thinking&&!m.__streaming);renderMessages()}
+    S.sending=false;btn.disabled=C.busy(S.session);btn.textContent=btn.disabled?"任务执行中…":"发送";btn.title="";btn.classList.remove("stop");S.abortCtl=null;S.runId=null;S.stopRequested=false;
   }
 }
 
-window.ERWFabTimeline={html:toolTraceHtml,bar:tlBarHtml,fmtDur,live:liveStatusHtml,drafts:draftHtml,metaParts,render:mdRender,responses:responsePartsHtml,parts:responseParts};
+window.ERWFabTimeline={html:toolTraceHtml,bar:tlBarHtml,fmtDur,live:liveStatusHtml,drafts:draftHtml,metaParts,render:mdRender,responses:responsePartsHtml,parts:responseParts,runActions:runActionsHtml,bindDrafts:wireDrafts};
 
 /* ---------- 划词气泡 ---------- */
 function onDocMouseDown(e){

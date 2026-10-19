@@ -8,8 +8,8 @@ const root=path.resolve(__dirname,'..');
 const output=path.join(root,'.scratch','verify','agent-system');fs.mkdirSync(output,{recursive:true});
 const sessions=[{id:'chat-fixture123',title:'科研验收',updated:'2026-10-19',messages:[]},{id:'chat-other123',title:'另一会话',updated:'2026-10-18',messages:[]}];
 const runs=[{id:'run-other',session_id:sessions[1].id,status:'completed',updated:'2026-10-18'}],memories=[],installed=[],requests=[];
-let opts={max_steps:48,time_budget_seconds:900,context_tokens:24000,auto_recall:true,web_enabled:true,code_enabled:false,docker_image:'python:3.12-slim',mcp_servers:[]};
-let mode='normal',failSessionOnce=false,approved=false,sequence=0,delayMemory=false,failListReads=1,failedListReads=0,releaseStream=null;
+let opts={max_steps:48,time_budget_seconds:900,context_tokens:24000,auto_recall:true,web_enabled:true,code_enabled:false,docker_image:'python:3.12-slim',mcp_servers:[],skills_enabled:true,disabled_skills:[],rag_enabled:true,rag_top_k:8,rag_context_chars:8000};
+let mode='normal',failSessionOnce=false,approved=false,sequence=0,delayMemory=false,failListReads=1,failedListReads=0,releaseStream=null,draftId='draft-fixture',confirmFailure=false,draftWrites=0,draftStatus='confirmed',resumeDelayed=false;
 const skill={name:'literature-review',description:'比较文献并保留证据',builtin:true};
 const cfg={app:{app_name:'科研工作台',subtitle:'Engineering Research Workspace',ui:{},academic_profile:{graduation_conditions:[]},llm:{enabled:true,active_profile_id:'fixture',request_presets:[{id:'default',label:'默认',model:'fixture'}],profiles:[{id:'fixture',name:'测试配置',base_url:'https://example.invalid/v1',request_presets:[{id:'default',label:'默认',model:'fixture'}]}],personas:[{id:'executor',name:'执行助手',tools:['kb_read'],write_mode:'confirm'},{id:'reader',name:'阅读助手',tools:['kb_read'],write_mode:'confirm'}]}},rss:{sources:[]},weather:{enabled:false}};
 function answer(content,extra={}){return {id:'msg-'+(++sequence),role:'assistant',content,created:'2026-10-19',model:'fixture',...extra}}
@@ -31,11 +31,24 @@ const server=http.createServer(async(req,res)=>{
       const run={id:'run-'+sequence,session_id:session.id,status:mode==='draft'?'waiting_approval':'completed',updated:'2026-10-19'};
       const parts=[{round:1,content:'## 核心方法\n第一轮分析：低秩适配。'},{round:2,content:'第二轮比较：\n\n| 方法 | 特点 |\n| --- | --- |\n| LoRA | 参数少 |'}];
       const multi=['multi','partial'].includes(mode);
-      const message=answer(mode==='draft'?'请确认草稿后继续。':multi?'任务已完成。':'已完成带来源的研究总结 '+sequence,{run_id:run.id,...(multi?{response_parts:parts}:{}),...(mode==='draft'?{drafts:[{draft_id:'draft-fixture',tool:'kb_create_entry',summary:'知识-方法-测试'}]}:{})});
+      const message=answer(mode==='draft'?'请确认草稿后继续。':multi?'任务已完成。':'已完成带来源的研究总结 '+sequence,{run_id:run.id,...(multi?{response_parts:parts}:{}),...(mode==='draft'?{drafts:[{draft_id:draftId,tool:'kb_create_entry',summary:'知识-方法-测试'}]}:{})});
       if(mode==='error'){res.writeHead(200,{'Content-Type':'text/event-stream'});res.end('event: error\ndata: '+JSON.stringify({message:'模拟模型接口失败'})+'\n\n');return}
       session.messages.push(message);session.title='已更新的研究会话';session.updated='2026-10-19T12:00:00';run.result={assistant:message};runs.unshift(run);
       if(mode==='metadata')failSessionOnce=true;
       const encode=events=>events.map(([event,data])=>'event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n').join('');
+      if(mode==='eof'){
+        res.writeHead(200,{'Content-Type':'text/event-stream','X-Agent-Run-ID':run.id});res.end(encode([['delta',{text:'流已结束，后台结果已保存'}]]));return;
+      }
+      if(mode==='replay'){
+        run.status='running';run.pending=message;run.result=null;run.polls=0;session.messages.pop();
+        res.writeHead(200,{'Content-Type':'text/event-stream','X-Agent-Run-ID':run.id});
+        res.end('event: run\nid: 1\ndata: '+JSON.stringify({run_id:run.id,session_id:session.id})+'\n\nevent: delta\nid: 2\ndata: '+JSON.stringify({text:'恢复前正文。'})+'\n\n');return;
+      }
+      if(mode==='crlf'){
+        const frames=[['run',{run_id:run.id,session_id:session.id}],['delta',{text:message.content}],['done',{ok:true,assistant:message}]];
+        const bytes=Buffer.from(frames.map(([event,data])=>'event: '+event+'\r\n'+JSON.stringify(data,null,2).split('\n').map(line=>'data: '+line).join('\r\n')+'\r\n\r\n').join('').trimEnd());
+        res.writeHead(200,{'Content-Type':'text/event-stream'});const cuts=[7,38,bytes.length-4,bytes.length];let offset=0;for(const cut of cuts){res.write(bytes.subarray(offset,cut));offset=cut;await new Promise(resolve=>setTimeout(resolve,4))}res.end();return;
+      }
       if(multi){
         res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8'});
         res.write(encode([['run',{run_id:run.id,session_id:session.id}],['round',{i:0}],['delta',{text:parts[0].content}],['response',{...parts[0],intermediate:true}],['tool',{name:'kb_search',ok:true,ms:5}],['round',{i:1}],['delta',{text:parts[1].content}],['response',{...parts[1],intermediate:true}],['round',{i:2}]]));
@@ -50,16 +63,20 @@ const server=http.createServer(async(req,res)=>{
     else if(p==='/api/agent/sessions'){if(failListReads>0){failListReads--;failedListReads++;res.destroy();return}data=sessions.map(s=>({...s,message_count:s.messages.length}))}
     else if(p.startsWith('/api/agent/sessions/')){if(failSessionOnce){failSessionOnce=false;res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'模拟会话列表刷新失败'}));return}data=sessions.find(s=>s.id===p.split('/').at(-1))}
     else if(p==='/api/agent/runs')data=runs.filter(r=>!url.searchParams.get('session_id')||r.session_id===url.searchParams.get('session_id'));
-    else if(p.endsWith('/events'))data=[{seq:1,event:'plan',data:{steps:[{step:'核对来源',status:'completed'}]}},{seq:2,event:'tool_result',data:{tool:'kb_read',result:{body:'可核对的证据'}}}].filter(e=>e.seq>Number(url.searchParams.get('after')||0));
-    else if(p.endsWith('/resume')){const run=runs.find(r=>r.id===p.split('/').at(-2));run.status='completed';const message=answer('确认后已在同一会话完成',{run_id:run.id});sessions.find(s=>s.id===run.session_id).messages.push(message);run.result={assistant:message};data=run}
+    else if(p.endsWith('/events')){
+      const run=runs.find(r=>r.id===p.split('/').at(-2));
+      if(run?.pending){run.polls++;if(run.polls===1)data=[{seq:3,event:'delta',data:{text:'恢复后续正文。'}}];else{run.status='completed';run.result={assistant:run.pending};sessions.find(s=>s.id===run.session_id).messages.push(run.pending);delete run.pending;data=[{seq:4,event:'done',data:run.result}]}}
+      else data=[{seq:1,event:'plan',data:{steps:[{step:'核对来源',status:'completed'}]}},{seq:2,event:'tool_result',data:{tool:'kb_read',result:{body:'可核对的证据'}}}].filter(e=>e.seq>Number(url.searchParams.get('after')||0));
+    }
+    else if(p.endsWith('/resume')){const run=runs.find(r=>r.id===p.split('/').at(-2));const message=answer('确认后已在同一会话完成',{run_id:run.id});if(resumeDelayed){run.status='running';run.result=null;run.pending=message;run.polls=0}else{run.status='completed';sessions.find(s=>s.id===run.session_id).messages.push(message);run.result={assistant:message}}data=run}
     else if(p.includes('/agent/runs/'))data=runs.find(r=>r.id===p.split('/').at(-1));
-    else if(p.endsWith('/drafts'))data=approved?[]:[{id:'draft-fixture',tool:'kb_create_entry',status:'pending',context:{run_id:runs.find(r=>r.status==='waiting_approval')?.id},args:{title:'知识-方法-测试',body:'先检查草稿正文'}}];
-    else if(p.includes('/drafts/')){approved=true;data={status:'confirmed'}}
+    else if(p.endsWith('/drafts'))data=[{id:draftId,tool:'kb_create_entry',status:approved?draftStatus:'pending',context:{run_id:runs.find(r=>r.status==='waiting_approval')?.id},args:{title:'知识-方法-测试',body:'先检查草稿正文'}}];
+    else if(p.includes('/drafts/')){if(confirmFailure){confirmFailure=false;res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'模拟确认失败，草稿仍待处理'}));return}approved=true;draftStatus=p.endsWith('/confirm')?'confirmed':'rejected';if(draftStatus==='confirmed')draftWrites++;data={status:draftStatus}}
     else if(p.endsWith('/skills/install')){installed.push({name:body.name,description:'用户技能',builtin:false});data={ok:true}}
     else if(p.endsWith('/skills/read'))data={content:'---\nname: literature-review\n---\n核对来源与页码'};
     else if(p.endsWith('/skills'))data={skills:[skill,...installed],errors:[]};
     else if(p.endsWith('/system'))data={settings:opts,brain:{counts:{memories:memories.length,runs:runs.length,events:2}}};
-    else if(p.endsWith('/settings')){opts=body;data=body}
+    else if(p.endsWith('/settings')){opts={...opts,...body};data=opts}
     else if(p.endsWith('/mcp/refresh'))data={tools:[],errors:[]};
     else if(p.endsWith('/memory/remember')){data={...body,id:'mem-fixture',source:{type:'user'}};memories.push(data)}
     else if(p.endsWith('/memory/recall'))data={results:memories};
@@ -83,17 +100,19 @@ const server=http.createServer(async(req,res)=>{
     lastPage=page;page.setDefaultTimeout(10000);
     await page.goto('http://127.0.0.1:'+server.address().port+'/#agent');
     await page.getByRole('tab',{name:'对话',exact:true}).waitFor();
-    await page.locator('#agent-skill option[value="literature-review"]').waitFor({state:'attached'});
-    await page.locator('#agent-profile-select').waitFor();
+    await page.locator('#agent-profile-select').waitFor({state:'attached'});
+    await page.getByText('模型选项',{exact:true}).click();await page.locator('#agent-profile-select').waitFor();await page.getByText('模型选项',{exact:true}).click();
     assert.equal(failedListReads,1,'transient connection failure retries safely without a model call');
     assert.equal(await page.getByRole('button',{name:'Agent 系统',exact:true}).count(),0);
     assert.equal(await page.locator('.agent-system-overlay').count(),0);
     await page.locator('#agent-input').fill('保留这段输入');
     await page.getByRole('tab',{name:'技能',exact:true}).click();
-    await page.getByRole('button',{name:'在当前对话使用',exact:true}).click();
+    await page.getByRole('checkbox',{name:'启用 literature-review',exact:true}).uncheck();
+    await page.getByRole('checkbox',{name:'启用 literature-review',exact:true}).check();
+    await page.getByRole('tab',{name:'对话',exact:true}).click();
     await page.locator('#agent-input').waitFor({state:'visible'});
     assert.equal(await page.locator('#agent-input').inputValue(),'保留这段输入');
-    assert.equal(await page.locator('#agent-skill').inputValue(),'literature-review');
+    assert.equal(await page.locator('#agent-skill').count(),0,'skills are managed outside the composer');
     await page.locator('#agent-input').fill('核对论文');await page.locator('#agent-send').click();
     await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
     assert.equal(await page.locator('#agent-messages .agent-error').count(),0);
@@ -101,7 +120,7 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('[data-agent-session="chat-fixture123"] strong').textContent(),'已更新的研究会话');
     assert.equal(requests.filter(r=>r.path==='/api/agent/send').length,1);
     assert.equal(await page.locator('#agent-profile-select').count(),1,'concurrent enhancement must not duplicate API selectors');
-    const sent=requests.find(r=>r.path==='/api/agent/send').body;assert.equal(sent.persona_id,'executor');assert.match(sent.message,/^\$literature-review\n/);
+    const sent=requests.find(r=>r.path==='/api/agent/send').body;assert.equal(sent.persona_id,'executor');assert.equal(sent.message,'核对论文');
     await page.screenshot({path:path.join(output,'integrated-chat.png')});
     mode='metadata';await page.locator('#agent-input').fill('测试回复后的列表刷新失败');await page.locator('#agent-send').click();
     await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
@@ -129,12 +148,12 @@ const server=http.createServer(async(req,res)=>{
     await page.getByRole('tab',{name:'技能',exact:true}).click();await page.getByRole('button',{name:'查看指令',exact:true}).click();
     await page.getByText('核对来源与页码',{exact:false}).waitFor();await page.getByText('安装文本技能',{exact:true}).click();
     await page.locator('#as-skill-install input').fill('custom-flow');await page.locator('#as-skill-install textarea').fill('---\nname: custom-flow\ndescription: test\n---\n检查输入');
-    await page.getByRole('button',{name:'安装技能',exact:true}).click();await page.locator('.as-skill strong').getByText('custom-flow',{exact:true}).waitFor();
-    await page.locator('#agent-skill option[value="custom-flow"]').waitFor({state:'attached'});
+    await page.getByRole('button',{name:'安装技能',exact:true}).click();await page.locator('[data-enable-skill="custom-flow"]').waitFor();
+    assert.equal(await page.locator('#agent-skill').count(),0);
     delayMemory=true;await page.getByRole('tab',{name:'记忆',exact:true}).click();await page.locator('#as-memory-session').waitFor();
     const lateMemory=page.waitForResponse(r=>r.url().includes('/api/agent/memories'));await page.getByRole('tab',{name:'技能',exact:true}).click();await lateMemory;
     await page.locator('.as-skill').filter({hasText:'custom-flow'}).waitFor();assert.equal(await page.locator('#as-memory-results').count(),0);delayMemory=false;
-    await page.getByRole('tab',{name:'运行设置',exact:true}).click();await page.locator('input[name=max_steps]').fill('64');
+    await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByText('高级运行设置',{exact:true}).click();await page.locator('input[name=max_steps]').fill('64');
     await page.getByRole('button',{name:'保存设置',exact:true}).click();await page.getByText('设置已保存',{exact:true}).waitFor();assert.equal(opts.max_steps,64);
     await page.getByRole('button',{name:'刷新 MCP 连接',exact:true}).click();await page.getByRole('button',{name:'备份记忆库',exact:true}).click();await page.getByRole('link',{name:'下载一致性备份'}).waitFor();
     await page.screenshot({path:path.join(output,'integrated-settings.png')});
@@ -151,6 +170,11 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#agent-thinking .agent-response-part').count(),2);
     assert.match(await page.locator('#agent-thinking').innerText(),/第一轮分析/);
     assert.equal(await page.locator('#agent-thinking table').count(),1);
+    const beforeOpenReads=requests.filter(r=>r.path==='/api/agent/sessions/chat-other123').length;
+    await page.locator('#erw-fab-ball').click();await page.locator('#fab-messages .fab-msg:last-child .agent-response-part').nth(1).waitFor();
+    assert.match(await page.locator('#fab-messages .fab-msg:last-child').innerText(),/第一轮分析/);
+    assert.equal(requests.filter(r=>r.path==='/api/agent/sessions/chat-other123').length,beforeOpenReads,'opening the second view while streaming uses live shared state');
+    await page.locator('#fab-close').click();
     releaseStream();await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
     assert.equal(await page.locator('#agent-messages .agent-response-part').count(),2);
     assert.match(await page.locator('#agent-messages').innerText(),/任务已完成/);
@@ -166,16 +190,17 @@ const server=http.createServer(async(req,res)=>{
     await page.locator('#fab-input').fill('悬浮助手保留过程');await page.locator('#fab-send').click();
     await page.locator('#fab-messages .fab-msg:last-child .agent-response-part').nth(1).waitFor();
     assert.match(await page.locator('#fab-messages .fab-msg:last-child').innerText(),/第一轮分析/);
+    await page.locator('#agent-thinking .agent-response-part').nth(1).waitFor();assert.match(await page.locator('#agent-thinking').innerText(),/第二轮比较/);
     releaseStream();await page.waitForFunction(()=>document.querySelector('#fab-send').textContent==='发送');
     assert.equal(await page.locator('#fab-messages .fab-msg:last-child .agent-response-part').count(),2);
     await page.screenshot({path:path.join(output,'intermediate-floating.png')});
     mode='partial';await page.locator('#fab-input').fill('中途失败保留结果');await page.locator('#fab-send').click();
     await page.locator('#fab-messages').getByText('请求失败：模拟中途连接失败',{exact:true}).waitFor();
-    assert.equal(await page.locator('#fab-messages .agent-response-part').count(),4,'partial failure retains the prior public answers');
+    assert.equal(await page.locator('#fab-messages .agent-response-part').count(),6,'shared history and partial answers are retained');
     await page.locator('#fab-close').click();
     await page.locator('#agent-input').fill('主页面中断保留结果');await page.locator('#agent-send').click();
     await page.locator('#agent-messages .agent-error').getByText('请求失败：模拟中途连接失败',{exact:true}).waitFor();
-    assert.equal(await page.locator('#agent-messages .agent-response-part').count(),4);
+    assert.equal(await page.locator('#agent-messages .agent-response-part').count(),8);
     const offline=await browser.newPage({viewport:{width:1440,height:1000}});offline.setDefaultTimeout(10000);let offlineReads=3;
     await offline.route('**/api/agent/sessions',route=>offlineReads-->0?route.abort('failed'):route.continue());
     await offline.goto('http://127.0.0.1:'+server.address().port+'/#agent');
@@ -183,9 +208,53 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await offline.locator('#agent-sessions-status').innerText(),/无法连接本地 Agent 服务/);
     await offline.locator('#agent-sessions-retry').click();await offline.locator('[data-agent-session="chat-fixture123"]').waitFor();
     assert.equal(await offline.locator('#agent-input').inputValue(),'连接恢复时保留草稿');assert.equal(await offline.locator('#agent-sessions-retry').count(),0);await offline.close();
+    for(const recoveryMode of ['eof','replay','crlf']){
+      mode=recoveryMode;const before=requests.filter(r=>r.path==='/api/agent/send').length;
+      await page.locator('#agent-input').fill('传输恢复 '+recoveryMode);await page.locator('#agent-send').click();
+      await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
+      assert.match(await page.locator('#agent-messages .agent-message:last-child').innerText(),/已完成带来源的研究总结/);
+      assert.equal(requests.filter(r=>r.path==='/api/agent/send').length,before+1,'transport recovery must not resubmit the task');
+      assert.equal(await page.locator('#agent-messages .agent-message:last-child .agent-error').count(),0);
+    }
+    mode='draft';approved=false;draftId='draft-main-inline';confirmFailure=true;
+    await page.locator('#agent-input').fill('主聊天直接确认草稿');await page.locator('#agent-send').click();await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
+    await page.locator('#agent-messages [data-draft-preview="'+draftId+'"]').click();await page.locator('#agent-messages .agent-draft-preview').getByText(/先检查草稿正文/).waitFor();
+    const writesBefore=draftWrites;await page.locator('#agent-messages [data-draft-confirm="'+draftId+'"]').click();
+    await page.getByText('模拟确认失败，草稿仍待处理',{exact:true}).waitFor();assert.equal(draftWrites,writesBefore);
+    await page.locator('#agent-messages [data-draft-confirm="'+draftId+'"]').click();
+    assert.equal(draftWrites,writesBefore+1);await page.locator('#erw-fab-ball').click();
+    assert.equal(await page.locator('#fab-messages [data-draft-confirm="'+draftId+'"]').count(),0,'approval is shared with the floating view');await page.locator('#fab-close').click();
+    resumeDelayed=true;await page.locator('#agent-messages [data-agent-resume]').last().click();
+    await page.locator('#agent-messages .agent-message:last-child').getByText('确认后已在同一会话完成',{exact:true}).waitFor();
+    await page.locator('#erw-fab-ball').click();await page.locator('#fab-messages').getByText('确认后已在同一会话完成',{exact:true}).waitFor();
+    mode='eof';await page.locator('#fab-input').fill('悬浮助手断线恢复');await page.locator('#fab-send').click();await page.waitForFunction(()=>document.querySelector('#fab-send').textContent==='发送');
+    assert.match(await page.locator('#fab-messages .fab-msg:last-child').innerText(),/已完成带来源的研究总结/);
+    assert.match(await page.locator('#agent-messages .agent-message:last-child').innerText(),/已完成带来源的研究总结/);
+    await page.locator('#agent-input').fill('切换会话仍保留输入');await page.locator('#fab-history').click();await page.locator('[data-hist="chat-fixture123"]').click();
+    await page.locator('[data-agent-session="chat-fixture123"].active').waitFor();assert.equal(await page.locator('#agent-input').inputValue(),'切换会话仍保留输入');
+    await page.locator('#fab-close').click();
+    mode='multi';await page.locator('#erw-fab-ball').click();await page.locator('#fab-input').fill('后台原会话的任务');await page.locator('#fab-send').click();
+    await page.locator('#fab-messages .fab-msg:last-child .agent-response-part').nth(1).waitFor();await page.locator('#fab-close').click();
+    await page.locator('[data-agent-session="chat-other123"]').click();await page.locator('[data-agent-session="chat-other123"].active').waitFor();
+    releaseStream();await page.waitForFunction(()=>!window.ERWAgentClient.busy('chat-fixture123'));
+    assert.equal(await page.locator('#agent-messages').getByText('后台原会话的任务',{exact:true}).count(),0,'late completion cannot move an answer to a different session');
+    await page.locator('#erw-fab-ball').click();assert.equal(await page.locator('#fab-messages').getByText('后台原会话的任务',{exact:true}).count(),0);await page.locator('#fab-close').click();
+    await page.getByRole('tab',{name:'RAG',exact:true}).click();await page.locator('#as-rag-settings').waitFor();
+    await page.locator('#as-rag-settings input[name=rag_enabled]').uncheck();await page.locator('#as-rag-settings input[name=rag_top_k]').fill('4');
+    await page.getByRole('button',{name:'保存 RAG 设置',exact:true}).click();await page.getByText('RAG 设置已保存',{exact:true}).waitFor();assert.equal(opts.rag_enabled,false);assert.equal(opts.rag_top_k,4);
+    await page.getByRole('tab',{name:'技能',exact:true}).click();await page.locator('#as-skills-enabled').uncheck();await page.locator('[data-enable-skill="literature-review"]').waitFor();
+    await page.waitForFunction(()=>document.querySelector('[data-enable-skill="literature-review"]')?.disabled===true);
+    assert.equal(await page.locator('[data-enable-skill="literature-review"]').isDisabled(),true);assert.equal(opts.skills_enabled,false);
+    await page.screenshot({path:path.join(output,'skills-managed.png')});
+    await page.locator('[data-route="settings"]').click();await page.locator('[data-set-tab="ai"]').click();await page.locator('[data-capability="skills_enabled"]').waitFor();
+    assert.equal(await page.locator('[data-capability="skills_enabled"]').isChecked(),false);assert.equal(await page.locator('[data-capability="rag_enabled"]').isChecked(),false);
+    await page.locator('[data-capability="skills_enabled"]').check();await page.locator('[data-capability="rag_enabled"]').check();
+    await page.getByText('已保存，后续工具调用立即生效',{exact:true}).waitFor();assert.equal(opts.skills_enabled,true);assert.equal(opts.rag_enabled,true);
+    await page.getByRole('button',{name:'配置 RAG',exact:true}).click();await page.locator('#as-rag-settings').waitFor();assert.equal(await page.locator('#as-rag-settings input[name=rag_top_k]').inputValue(),'4');
+    await page.screenshot({path:path.join(output,'rag-settings.png')});
     await page.setViewportSize({width:390,height:844});await page.getByRole('tab',{name:'技能',exact:true}).click();await page.locator('.as-skill').filter({hasText:'custom-flow'}).waitFor();
     assert.ok(await page.locator('#agent-system-panel').evaluate(e=>e.scrollWidth<=e.clientWidth+1));await page.screenshot({path:path.join(output,'integrated-mobile.png'),fullPage:true});
-    assert.deepEqual(errors,[]);console.log('Integrated Agent UI passed: chat and floating multi-round answers during streaming/completion/reload, partial failures, network retry and recovery without lost drafts, shared tasks/approvals/memory/skills/settings, themes and mobile. No model API calls.');
+    assert.deepEqual(errors,[]);console.log('Integrated Agent UI passed: EOF/result recovery, event replay, CRLF/multiline/final frames, inline draft preview/confirm/retry/resume, two-way live/session sync, late-result isolation, Skill/RAG switches and simplified composer, themes/mobile. No model API calls.');
   }catch(error){if(lastPage){console.error('UI failure state:',(await lastPage.locator('#fab-messages').innerText()).slice(-1500));await lastPage.screenshot({path:path.join(output,'failure.png')})}throw error}
   finally{releaseStream?.();await browser.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}
 })().catch(e=>{console.error(e);process.exitCode=1;server.close()});

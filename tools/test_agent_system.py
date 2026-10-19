@@ -136,6 +136,45 @@ class AgentSystemTests(unittest.TestCase):
             self.assertIn("已激活技能 literature-review", post.call_args.args[1][0]["content"])
             self.assertTrue(any(e["event"] == "skill" for e in brain.events(run["id"])))
 
+    def test_skill_switches_filter_catalog_and_deny_disabled_execution(self):
+        runtime.save_settings({"disabled_skills": ["literature-review"]})
+        self.assertFalse(next(item for item in skills.discover()["skills"] if item["name"] == "literature-review")["enabled"])
+        self.assertNotIn("literature-review", skills.catalog_prompt())
+        self.assertFalse(tools.execute("skill_read", {"name": "literature-review"})["ok"])
+        self.assertTrue(skills.read("literature-review")["content"], "Disabled instructions remain viewable in skill management")
+        runtime.save_settings({"skills_enabled": False})
+        with patch.object(agent, "_post_chat", return_value={"content": "普通回答"}) as post:
+            self.wait(self.submit("$knowledge-curation 整理资料")["id"], "completed")
+        self.assertNotIn("已激活技能", post.call_args.args[1][0]["content"])
+        exposed = {item["function"]["name"] for item in post.call_args.kwargs["tools"]}
+        self.assertNotIn("skill_read", exposed)
+        self.assertNotIn("skill_run", exposed)
+
+    def test_rag_switch_stops_recall_and_tools_but_preserves_explicit_references(self):
+        runtime.save_settings({"rag_enabled": False})
+        doc = {"id": "doc", "title": "用户引用", "kind": "note", "body": "主动提供的实验依据"}
+        with patch.object(brain, "recall") as recall, patch.object(indexer, "get_doc", return_value=doc), patch.object(agent, "_post_chat", return_value={"content": "基于引用回答"}) as post:
+            self.wait(self.submit(refs=["doc"])["id"], "completed")
+            recall.assert_not_called()
+        self.assertIn("主动提供的实验依据", post.call_args.args[1][0]["content"])
+        names = {item["function"]["name"] for item in post.call_args.kwargs["tools"]}
+        self.assertTrue(runtime.RAG_TOOLS.isdisjoint(names))
+        self.assertIn("pdf_read", names)
+        self.assertFalse(tools.execute("kb_search", {"query": "实验"})["ok"])
+        self.assertFalse(tools.execute("memory_recall", {"query": "实验"})["ok"])
+
+    def test_feature_settings_merge_concurrently_and_validate_limits(self):
+        with ThreadPoolExecutor(2) as pool:
+            list(pool.map(runtime.save_settings, [{"skills_enabled": False}, {"rag_enabled": False}]))
+        options = runtime.settings()
+        self.assertFalse(options["skills_enabled"])
+        self.assertFalse(options["rag_enabled"])
+        updated = runtime.save_settings({"rag_top_k": 1000, "rag_context_chars": 1000000})
+        self.assertEqual(updated["rag_top_k"], 20)
+        self.assertEqual(updated["rag_context_chars"], 32000)
+        with self.assertRaises(ValueError):
+            runtime.save_settings({"disabled_skills": "literature-review"})
+
     def test_math_dollar_notation_does_not_activate_unknown_skill(self):
         with patch.object(agent, "_post_chat", return_value={"content": "数学说明"}):
             self.wait(self.submit("解释 $x$ 和 $y$ 的关系")["id"], "completed")
@@ -209,6 +248,7 @@ class AgentSystemTests(unittest.TestCase):
             self.assertEqual(len(brain.list_memories()), 1)
             messages = agent.get_session(self.session["id"])["messages"]
             self.assertEqual(sum(m["role"] == "user" for m in messages), 1)
+            self.assertTrue(all(m["run_status"] == "completed" for m in messages if m.get("run_id") == rid and m["role"] == "assistant"))
             self.assertEqual(final["state"]["waiting_drafts"], [])
             tool_messages = [m for m in post.call_args.args[1] if m["role"] == "tool"]
             self.assertEqual(json.loads(tool_messages[-1]["content"])["status"], "confirmed")
@@ -467,6 +507,31 @@ class AgentSystemTests(unittest.TestCase):
             runtime.control(run["id"], "retry")
             self.wait(run["id"], "completed")
             self.assertEqual(sum(m["role"] == "user" for m in agent.get_session(self.session["id"])["messages"]), 1)
+
+    def test_sse_terminal_snapshot_cannot_close_without_done_or_error(self):
+        from server import WorkbenchHTTPServer, Handler
+        server = WorkbenchHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for status in ("completed", "waiting_approval", "failed", "missing"):
+                run = brain.create_run(self.session["id"], {"message": "race"})
+                result = {"ok": True, "assistant": {"role": "assistant", "content": "已持久化的结果"}}
+                valid = status in ("completed", "waiting_approval")
+                brain.update_run(run["id"], status="completed" if status == "missing" else status, result=result if valid else None, error="真实模型错误" if status == "failed" else "")
+                # Reproduce a terminal snapshot observed before its event is appended.
+                with patch.object(runtime, "submit", return_value=runtime.public_run(brain.get_run(run["id"]))):
+                    req = Request(f"http://127.0.0.1:{server.server_port}/api/agent/send", data=b'{}', headers={"Content-Type": "application/json"})
+                    with urlopen(req, timeout=5) as response:
+                        self.assertEqual(response.headers["X-Agent-Run-ID"], run["id"])
+                        body = response.read().decode()
+                self.assertEqual(body.count("event: done"), int(valid))
+                self.assertEqual(body.count("event: error"), int(not valid))
+                self.assertIn("真实模型错误" if status == "failed" else "未取得保存的回复" if status == "missing" else "已持久化的结果", body)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(2)
 
     def test_http_background_jobs_events_and_sse_disconnect(self):
         from server import WorkbenchHTTPServer, Handler
