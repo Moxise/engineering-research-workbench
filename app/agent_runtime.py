@@ -15,9 +15,10 @@ _ACTIVE: set[str] = set()
 _SIGNALS: dict[str, str] = {}
 _RECOVERED: set[str] = set()
 TERMINAL = {"completed", "failed", "cancelled", "paused", "interrupted", "waiting_approval"}
-DEFAULTS = {"max_steps": 48, "time_budget_seconds": 900, "context_tokens": 24000, "auto_recall": True, "code_enabled": False, "docker_image": "python:3.12-slim", "web_enabled": True, "mcp_servers": [], "skills_enabled": True, "disabled_skills": [], "rag_enabled": True, "rag_top_k": 8, "rag_context_chars": 8000}
+DEFAULTS = {"max_steps": 48, "time_budget_seconds": 900, "context_tokens": 24000, "auto_recall": True, "code_enabled": False, "docker_image": "python:3.12-slim", "web_enabled": True, "mcp_servers": [], "skills_enabled": True, "disabled_skills": [], "rag_enabled": True, "memory_enabled": True, "rag_top_k": 8, "rag_context_chars": 8000}
 _SETTINGS_LOCK = threading.RLock()
-RAG_TOOLS = {"kb_search", "kb_read", "memory_recall"}
+RAG_TOOLS = {"kb_search", "kb_read"}
+MEMORY_TOOLS = {"memory_recall", "memory_remember"}
 
 
 class Suspended(Exception):
@@ -45,7 +46,7 @@ def _save_settings(data: dict) -> dict:
     for key, low, high in (("max_steps", 1, 256), ("time_budget_seconds", 10, 7200), ("context_tokens", 2048, 200000), ("rag_top_k", 1, 20), ("rag_context_chars", 256, 32000)):
         if key in data:
             result[key] = max(low, min(high, int(data[key])))
-    for key in ("auto_recall", "code_enabled", "web_enabled", "skills_enabled", "rag_enabled"):
+    for key in ("auto_recall", "code_enabled", "web_enabled", "skills_enabled", "rag_enabled", "memory_enabled"):
         if key in data:
             result[key] = data[key] is True
     if "disabled_skills" in data:
@@ -232,7 +233,7 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
                     message["content"] = brain.encode({"draft_id": draft["id"], "status": draft["status"], "result": draft.get("result")})
         state["waiting_drafts"] = []
     allowed = ctx.get("tools") if isinstance(ctx.get("tools"), list) else list(agent_tools.TOOL_NAMES)
-    allowed = [name for name in allowed if (opts["skills_enabled"] or name not in {"skill_read", "skill_run"}) and (opts["rag_enabled"] or name not in RAG_TOOLS)]
+    allowed = [name for name in allowed if (opts["skills_enabled"] or name not in {"skill_read", "skill_run"}) and (opts["rag_enabled"] or name not in RAG_TOOLS) and (opts["memory_enabled"] or name not in MEMORY_TOOLS)]
     ctx["tools"] = allowed
     from . import agent_mcp
     if opts["mcp_servers"] and not agent_mcp.specs():

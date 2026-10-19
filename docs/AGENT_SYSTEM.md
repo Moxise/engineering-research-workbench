@@ -55,11 +55,25 @@ allowed-tools: kb_search kb_read
 
 ## RAG 开关与检索设置
 
-入口为 Agent 的“RAG”，系统设置的“AI 能力 / RAG”也提供 Skill 和 RAG 独立总开关。`rag_enabled=false` 会停止自动记忆召回，并从模型工具列表及执行入口禁用 `kb_search/kb_read/memory_recall`；主动引用文档、当前页及指定 PDF 仍可作为用户提供的上下文读取。开关在主页面和悬浮助手使用同一份设置，持久化保存在本地 runtime.json。
+主对话和悬浮助手的输入框下方，与发送按钮同一行放置 **RAG / 记忆 / Skill** 三个独立总开关。开关同步保存到 `System/Agent/runtime.json`，局部更新不会清空其他设置。
 
-`rag_top_k`（1–20）限制每次知识/记忆召回条数；`rag_context_chars`（256–32000）限制记忆 ContextPack 的字符预算；`auto_recall` 单独控制对话前的记忆召回。设置保存使用锁和原子替换，局部保存不会清空其他能力配置。
+- RAG 关闭：禁止助手调用 `kb_search/kb_read`；不影响记忆。
+- 记忆关闭：停止对话前自动召回，禁止助手调用 `memory_recall/memory_remember`；不影响资料检索。已有记忆保留，记忆管理页仍可手动查看和修改。
+- Skill 关闭：不加载技能目录，禁止 `skill_read/skill_run`；具体技能仍在“技能”页按项启用。
 
-当前 RAG 为关键词全文检索和记忆实体关联，不需要 Embedding 模型。没有加入伪装可用的向量开关：自动文档分块、嵌入模型接入、批量向量入库与索引尚未实现；底层手动传入记忆向量的能力不等于对话已获得完整语义 RAG。语义检索还需要单独配置嵌入模型并构建资料向量索引，聊天模型配置不能替代这些步骤。
+主动引用的资料、回复选段及当前页是用户提供的上下文，仍可使用。`rag_top_k`（1–20）限制每次资料/记忆召回条数；`rag_context_chars`（256–32000）限制记忆 ContextPack 字符预算；高级设置的 `auto_recall` 控制对话前自动召回。
+
+**配置入口：设置 → RAG / 嵌入模型，或 Agent → RAG，或输入框旁齿轮。** 填写支持 `/embeddings` 的 Base URL、模型 ID、API Key；维数 0 表示模型默认（部分模型不支持自定义维数，应保留 0）。Base URL 可包含 `/v1`，也支持填写完整 `/embeddings` 地址；本地无鉴权服务可不填 Key。选择关键词、语义或混合模式后保存。
+
+“保存并测试连接”仅嵌入一段短测试文本。“保存并更新索引”明确触发资料分块和嵌入调用；未修改分块复用已有向量。不会打开设置就发送整个资料库。保存密钥后输入框留空表示保留；清除必须勾选清除选项。Embedding 配置及凭据在本机 `config/agent-rag.json`，公开接口只返回 `has_api_key`，不进入对话、Agent 备份或工作区同步。
+
+资料向量索引为 `Workspace/System/Agent/rag.sqlite`，与长期记忆库独立，可重新构建。默认索引所有知识条目 Markdown 正文，按字符分块、段落边界与重叠切分，嵌入标题及分块文本。可选索引文献 PDF 全文，保留 paper_id、页码和字符位置；扫描件需先 OCR，空正文在进度中计数。源文档保留原路径，向量索引不替代 Markdown/PDF。
+
+构建在后台执行，显示来源、分块、新嵌入和复用计数，支持取消；完整新索引成功后原子切换，失败或取消保留旧索引。中途停止进程后再次更新会清理未发布的分块。修改模型、接口、维数或分块配置会使原索引失效，需重建。资料修改后手动点击更新；检索会过滤已经修改或删除的来源，防止引用旧正文。
+
+`kb_search` 使用所选模式：关键词模式不调用 Embedding；语义模式嵌入问题并以归一化向量做精确余弦排序；混合模式将文档关键词命中和语义分块按文档 ID 做 RRF 融合。返回实际命中分块、路径、版本、字符区间及 PDF 页码。没有可用索引或接口失败时，语义模式报清晰错误，混合模式返回关键词结果并附 `warning`。相同问题的查询向量缓存最多 128 项、5 分钟。当前为 SQLite 中最多 100,000 分块的精确扫描，无 HNSW/ANN；大型资料库不宜视为专用向量服务的等价替代。
+
+检索试用或对话示例：“有哪些减少微调参数的方法？请先检索知识库，给出命中的依据，再读取相关正文进行比较。”模型可调用 `kb_search`，依据命中来源继续 `kb_read` 或 `pdf_read`，再生成有出处的回答。长期记忆仍使用独立的词法/实体召回，不会因配置文档 Embedding 自动为记忆批量生成向量。
 
 `allowed-tools` 是技能的说明性元数据，不是授权来源。实际执行始终受人设工具白名单、运行设置和写入审批限制。Frontmatter 支持字符串字段及缩进的描述块；复杂 YAML 对象不是运行配置。界面可安装文本技能，带资源的完整技能目录可由用户复制到上述目录。安装不会执行脚本。
 
@@ -118,6 +132,7 @@ PDF 工具需要 `pip install -r requirements.txt`。桌面构建会包含 pypdf
 
 | 操作 | 接口 |
 | --- | --- |
+| Embedding 与向量索引 | `GET /api/agent/rag`，`POST /api/agent/rag/settings`、`/test`、`/index`、`/cancel`、`/search` |
 | 系统与设置 | `GET /api/agent/system`，`POST /api/agent/settings` |
 | 后台任务 | `POST /api/agent/runs`，`GET /api/agent/runs?session_id=...` |
 | 任务详情/游标事件 | `GET /api/agent/runs/<id>`，`GET /api/agent/runs/<id>/events?after=<seq>` |
@@ -134,9 +149,13 @@ PDF 工具需要 `pip install -r requirements.txt`。桌面构建会包含 pypdf
 
 多轮执行中的公开回答随 `response` SSE 事件按轮展示，并作为 `assistant.response_parts` 随最终结果和历史会话返回。`content` 仍保留最终回复，完整工具证据仍用于下一轮上下文。旧会话会从已存证据恢复中间回答，不需要调用模型；这些正文不包含 `reasoning_content` 或文本工具协议控制块。中途失败保留浏览器已收到的正文。
 
+主 Agent 回复选中文字后，“问 AI”保留当前对话；“引用”可以多次添加选段，支持预览、移除及发送后查看，合计最多 4000 字。发送时作为 `context.quote_text` 提供参考数据，随消息和历史上下文保存。选区工具不会覆盖已经输入的问题。
+
 Agent 会话列表读取对临时网络/服务错误重试；连续失败在会话侧栏显示接口与连接说明并提供“重试加载”，不再用全屏 `Failed to fetch` 替换 Agent 页面，重试时保留输入草稿。持续连接失败仍需检查本地服务是否运行。
 
 `python -m unittest discover -s tools -p test_agent_system.py -v` 在一次性工作区使用脚本化模型验证：迁移、作用域隔离、中文/关系/向量检索、替代与 TTL、Skill 加载、真实工具证据跨轮回放、审批后续跑、文本协议、轮数暂停、重启恢复、停止信号、写入防重复、冲突和修订回退、MCP 白名单、HTTP 后台任务及 SSE 断线继续。
+
+`python -m unittest tools.test_agent_rag -v` 以本机 HTTP 模拟嵌入接口验证配置与密钥脱敏、向量响应校验、连接测试、增量分块与来源、删除/修改过滤、失败/取消回退、PDF 页码、工具调用和真实 HTTP 路由，不请求付费模型。
 
 `node tools/agent_system_ui_check.js` 加载完整原始应用页面，以本地 API fixture 验证多轮正文实时展示/完成/重载、双向流式同步、切换会话后的结果归属、草稿预览/确认失败重试/后台续跑、断流状态恢复与游标回放、CRLF/多行 data/末帧无空行、输入保留、刷新异常不误报模型失败、Skill 按项启停与总开关、RAG 配置和全局设置入口、记忆增删、技能安装、MCP、备份及桌面/移动布局。恢复只读取原任务，测试检查没有重复 POST 或多次写入。需让 NODE_PATH 指向可用 Playwright 安装。测试不请求真实模型 API。
 

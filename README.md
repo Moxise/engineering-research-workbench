@@ -306,7 +306,7 @@ Workspace/Knowledge/Exports/KnowledgeBundles/
 
 Agent 通过本地持久化任务运行器，把外部 LLM、研究资料、Skill 和长期记忆连接起来。
 
-原 Agent 页面直接提供 **对话 / 任务 / 记忆 / 技能 / RAG / 设置**。主页面和悬浮助手共享当前会话、实时回答及草稿状态，可在任一处确认草稿后继续任务；流中断会按任务编号恢复结果，不重复提交。技能在“技能”页按项启用，Skill / RAG 总开关也可在系统设置的“AI 能力 / RAG”中管理；聊天区的模型选项默认折叠。当前 RAG 使用关键词检索，无需嵌入模型；自动分块与嵌入入库尚未接入。数据层参考 [CortexDB](https://github.com/liliang-cn/cortexdb) 的 scoped memory、来源关系和 ContextPack 设计，用 Python + SQLite 实现。使用说明、依赖、数据迁移和能力边界见 [Agent 系统文档](docs/AGENT_SYSTEM.md)。
+原 Agent 页面直接提供 **对话 / 任务 / 记忆 / 技能 / RAG / 设置**。主页面和悬浮助手共享当前会话、实时回答及草稿状态，可在任一处确认草稿后继续任务；流中断会按任务编号恢复结果，不重复提交。技能在“技能”页按项启用，RAG / 记忆 / Skill 三个独立总开关位于输入框下方，与发送按钮同一行；聊天区的模型选项默认折叠。“设置 → RAG / 嵌入模型”、Agent 的 RAG 页或输入框旁的齿轮可配置 Embedding 接口、测试连接、增量构建向量索引和试用检索。支持关键词、语义和混合检索，默认关键词模式不消耗嵌入额度。AI 回复选区提供“引用”和“问 AI”，在当前 Agent 对话继续追问。数据层参考 [CortexDB](https://github.com/liliang-cn/cortexdb) 的 scoped memory、来源关系和 ContextPack 设计，用 Python + SQLite 实现。使用说明、依赖、数据迁移和能力边界见 [Agent 系统文档](docs/AGENT_SYSTEM.md)。
 
 ### Agent 能做什么
 

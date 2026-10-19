@@ -22,7 +22,7 @@ from app import weather
 from app import workspace
 from app import agent
 from app import agent_tools  # v260930 · M1 Agent 工具调用层
-from app import agent_memory, agent_runtime, agent_skills, agent_mcp
+from app import agent_memory, agent_runtime, agent_skills, agent_mcp, agent_rag
 from app import projects
 from app import indexer
 from app.paths import ASSET_ROOT, DATA_ROOT
@@ -427,6 +427,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/agent/system":
             agent_runtime.recover()
             return self.send_json({"settings": agent_runtime.settings(), "brain": agent_memory.statistics(), "skills": agent_skills.discover()})
+        if path == "/api/agent/rag":
+            return self.send_json(agent_rag.status())
         if path == "/api/agent/skills":
             return self.send_json(agent_skills.discover())
         if path == "/api/agent/memories":
@@ -601,6 +603,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(literature.update_item(paper_id, payload))
         if path == "/api/agent/settings":
             return self.send_json(agent_runtime.save_settings(payload))
+        if path == "/api/agent/rag/settings":
+            return self.send_json(agent_rag.save_settings(payload))
+        if path == "/api/agent/rag/test":
+            return self.send_json(agent_rag.test_connection())
+        if path == "/api/agent/rag/index":
+            return self.send_json(agent_rag.build_index(), 202)
+        if path == "/api/agent/rag/cancel":
+            return self.send_json(agent_rag.cancel_build())
+        if path == "/api/agent/rag/search":
+            return self.send_json(agent_rag.search(payload.get("query", ""), kind=payload.get("kind"), limit=payload.get("limit", 8)))
         if path == "/api/agent/skills/install":
             return self.send_json(agent_skills.install(str(payload.get("name") or ""), str(payload.get("content") or "")), 201)
         if path == "/api/agent/skills/read":

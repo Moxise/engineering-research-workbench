@@ -8,6 +8,38 @@
     const response=await fetch('/api/agent/'+path,{...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),signal});
     const data=await response.json();if(!response.ok)throw Error(data.message||data.error||`HTTP ${response.status}`);return data;
   }
+  let capabilities=null,capabilityLoad=null,settingsQueue=Promise.resolve(),savingSettings=0;
+  const capabilityNames={rag_enabled:'RAG',memory_enabled:'记忆',skills_enabled:'Skill'};
+  function capabilityControls(){
+    return `<div class="agent-capability-controls" aria-label="AI 能力开关">${Object.entries(capabilityNames).map(([key,label])=>`<button type="button" data-agent-capability="${key}" aria-pressed="false" disabled><span aria-hidden="true">●</span> ${label}</button>`).join('')}<button type="button" data-agent-rag-config title="配置 Embedding 接口与向量索引" aria-label="配置 RAG">⚙</button></div>`;
+  }
+  function paintCapabilities(){
+    document.querySelectorAll('[data-agent-capability]').forEach(button=>{
+      const enabled=capabilities?.[button.dataset.agentCapability]!==false;
+      button.setAttribute('aria-pressed',String(!!capabilities&&enabled));button.disabled=!capabilities||savingSettings>0;
+      button.title=capabilities?`${capabilityNames[button.dataset.agentCapability]} ${enabled?'已开启，点击关闭':'已关闭，点击开启'}`:'正在加载能力设置';
+    });
+    document.querySelectorAll('[data-capability]').forEach(input=>{if(capabilities&&!input.disabled)input.checked=capabilities[input.dataset.capability]!==false});
+  }
+  function adoptCapabilities(options){capabilities={...options};paintCapabilities();notify('capabilities',selected);return {...capabilities}}
+  async function getCapabilities(){
+    if(capabilities)return {...capabilities};
+    if(!capabilityLoad)capabilityLoad=api('system').then(data=>adoptCapabilities(data.settings||{})).finally(()=>{capabilityLoad=null});
+    return capabilityLoad;
+  }
+  function saveSettings(patch){
+    savingSettings++;paintCapabilities();
+    const work=settingsQueue.catch(()=>{}).then(async()=>{await getCapabilities();return adoptCapabilities(await api('settings',patch))});
+    settingsQueue=work;
+    return work.finally(()=>{savingSettings--;paintCapabilities()});
+  }
+  function mountCapabilities(root=document){
+    root.querySelectorAll('[data-agent-capability]').forEach(button=>button.onclick=async()=>{
+      try{const options=await getCapabilities();await saveSettings({[button.dataset.agentCapability]:options[button.dataset.agentCapability]===false})}catch(error){window.ERWToast?.('能力设置未保存：'+error.message,true)}
+    });
+    root.querySelectorAll('[data-agent-rag-config]').forEach(button=>button.onclick=()=>window.ERWAgentSystem?.open('rag'));
+    paintCapabilities();getCapabilities().catch(error=>{window.ERWToast?.('能力设置加载失败：'+error.message,true);root.querySelectorAll('[data-agent-capability]').forEach(button=>{button.disabled=false;button.title='加载失败，点击重试'})});
+  }
   function entry(id){if(!sessions.has(id))sessions.set(id,{session:{id,title:'新对话',messages:[]},live:null,owner:'',runId:''});return sessions.get(id)}
   function notify(type,id,source='shared'){
     const dispatch=()=>{for(const listener of listeners){try{listener({type,sessionId:id,source})}catch(error){console.error('Agent view update',error)}}};
@@ -86,7 +118,7 @@
     }
   }
   async function send(payload,{source='shared',signal,onEvent=()=>{},user}={}){
-    const id=payload.session_id,e=start(id,user||{role:'user',content:payload.message,images:payload.images||[],created:new Date().toISOString()},source);
+    const id=payload.session_id,e=start(id,user||{role:'user',content:payload.message,quote_text:payload.context?.quote_text||'',images:payload.images||[],created:new Date().toISOString()},source);
     let cursor=0,done=null,received=false,reader;
     const emit=(event,data)=>{apply(e,event,data,source);onEvent(event,data);if(event==='done')done=data};
     try{
@@ -121,7 +153,7 @@
       return done;
     }catch(error){fail(e,error,source);throw error}
   }
-  async function syncDrafts(){const rows=await api('drafts?status=');for(const draft of rows)drafts[draft.id]=draft;notify('drafts',selected);return rows}
+  async function syncDrafts(){const rows=await api('drafts?status=');let changed=false;for(const draft of rows){if(JSON.stringify(drafts[draft.id])!==JSON.stringify(draft)){drafts[draft.id]=draft;changed=true}}if(changed)notify('drafts',selected);return rows}
   async function resolveDraft(id,confirm){
     if(resolutions.has(id))return resolutions.get(id);
     const promise=(async()=>{try{const result=await api('drafts/'+encodeURIComponent(id)+(confirm?'/confirm':'/reject'),{});drafts[id]={...drafts[id],...result};notify('drafts',selected);return result}catch(error){await syncDrafts().catch(()=>{});throw error}finally{resolutions.delete(id)}})();
@@ -141,5 +173,5 @@
       catch(error){fail(e,error,source);throw error}
     })().finally(()=>monitors.delete(runId));monitors.set(runId,promise);return promise;
   }
-  window.ERWAgentClient={api,send,select,setSession,refresh,syncDrafts,resolveDraft,resume,drafts,runStates,sessionId:()=>selected,snapshot:id=>entry(id),busy:id=>!!sessions.get(id)?.live,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)}};
+  window.ERWAgentClient={api,send,select,setSession,refresh,syncDrafts,resolveDraft,resume,drafts,runStates,capabilityControls,mountCapabilities,getCapabilities,saveSettings,adoptCapabilities,sessionId:()=>selected,snapshot:id=>entry(id),busy:id=>!!sessions.get(id)?.live,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)}};
 })();

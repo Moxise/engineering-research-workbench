@@ -8,8 +8,9 @@ const root=path.resolve(__dirname,'..');
 const output=path.join(root,'.scratch','verify','agent-system');fs.mkdirSync(output,{recursive:true});
 const sessions=[{id:'chat-fixture123',title:'科研验收',updated:'2026-10-19',messages:[]},{id:'chat-other123',title:'另一会话',updated:'2026-10-18',messages:[]}];
 const runs=[{id:'run-other',session_id:sessions[1].id,status:'completed',updated:'2026-10-18'}],memories=[],installed=[],requests=[];
-let opts={max_steps:48,time_budget_seconds:900,context_tokens:24000,auto_recall:true,web_enabled:true,code_enabled:false,docker_image:'python:3.12-slim',mcp_servers:[],skills_enabled:true,disabled_skills:[],rag_enabled:true,rag_top_k:8,rag_context_chars:8000};
+let opts={max_steps:48,time_budget_seconds:900,context_tokens:24000,auto_recall:true,web_enabled:true,code_enabled:false,docker_image:'python:3.12-slim',mcp_servers:[],skills_enabled:true,disabled_skills:[],rag_enabled:true,memory_enabled:true,rag_top_k:8,rag_context_chars:8000};
 let mode='normal',failSessionOnce=false,approved=false,sequence=0,delayMemory=false,failListReads=1,failedListReads=0,releaseStream=null,draftId='draft-fixture',confirmFailure=false,draftWrites=0,draftStatus='confirmed',resumeDelayed=false;
+let ragOptions={mode:'keyword',base_url:'',model:'',dimensions:0,chunk_chars:1600,overlap_chars:200,batch_size:16,include_pdf:false,has_api_key:false},ragIndex={},ragJob={},settingsFailure=false;
 const skill={name:'literature-review',description:'比较文献并保留证据',builtin:true};
 const cfg={app:{app_name:'科研工作台',subtitle:'Engineering Research Workspace',ui:{},academic_profile:{graduation_conditions:[]},llm:{enabled:true,active_profile_id:'fixture',request_presets:[{id:'default',label:'默认',model:'fixture'}],profiles:[{id:'fixture',name:'测试配置',base_url:'https://example.invalid/v1',request_presets:[{id:'default',label:'默认',model:'fixture'}]}],personas:[{id:'executor',name:'执行助手',tools:['kb_read'],write_mode:'confirm'},{id:'reader',name:'阅读助手',tools:['kb_read'],write_mode:'confirm'}]}},rss:{sources:[]},weather:{enabled:false}};
 function answer(content,extra={}){return {id:'msg-'+(++sequence),role:'assistant',content,created:'2026-10-19',model:'fixture',...extra}}
@@ -27,7 +28,7 @@ const server=http.createServer(async(req,res)=>{
     else if(p.startsWith('/api/weather'))data={enabled:false};
     else if(p==='/api/agent/send'){
       const session=sessions.find(s=>s.id===body.session_id);assert(session);
-      session.messages.push({id:'msg-'+(++sequence),role:'user',content:body.message,created:'2026-10-19'});
+      session.messages.push({id:'msg-'+(++sequence),role:'user',content:body.message,quote_text:body.context?.quote_text||'',created:'2026-10-19'});
       const run={id:'run-'+sequence,session_id:session.id,status:mode==='draft'?'waiting_approval':'completed',updated:'2026-10-19'};
       const parts=[{round:1,content:'## 核心方法\n第一轮分析：低秩适配。'},{round:2,content:'第二轮比较：\n\n| 方法 | 特点 |\n| --- | --- |\n| LoRA | 参数少 |'}];
       const multi=['multi','partial'].includes(mode);
@@ -75,8 +76,13 @@ const server=http.createServer(async(req,res)=>{
     else if(p.endsWith('/skills/install')){installed.push({name:body.name,description:'用户技能',builtin:false});data={ok:true}}
     else if(p.endsWith('/skills/read'))data={content:'---\nname: literature-review\n---\n核对来源与页码'};
     else if(p.endsWith('/skills'))data={skills:[skill,...installed],errors:[]};
+    else if(p==='/api/agent/rag')data={settings:ragOptions,index:ragIndex,job:ragJob};
+    else if(p==='/api/agent/rag/settings'){const {api_key,clear_api_key,...safe}=body;ragOptions={...ragOptions,...safe,has_api_key:clear_api_key?false:!!api_key||ragOptions.has_api_key};data=ragOptions}
+    else if(p==='/api/agent/rag/test')data={ok:true,dimensions:3,model:ragOptions.model};
+    else if(p==='/api/agent/rag/index'){ragIndex={generation:'fake-index',chunks:6,sources:2,dimensions:3,model:ragOptions.model,ready:true};ragJob={state:'completed',sources:2,chunks:6,embedded:6,reused:0};data={settings:ragOptions,index:ragIndex,job:ragJob}}
+    else if(p==='/api/agent/rag/search')data={mode:ragOptions.mode,count:1,items:[{id:'adapter',title:'Low rank adaptation',excerpt:'Tune an adapter instead of all parameters.',source:{path:'Knowledge/Notes/adapter.md'}}]};
     else if(p.endsWith('/system'))data={settings:opts,brain:{counts:{memories:memories.length,runs:runs.length,events:2}}};
-    else if(p.endsWith('/settings')){opts={...opts,...body};data=opts}
+    else if(p.endsWith('/settings')){if(settingsFailure){settingsFailure=false;res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'模拟设置保存失败'}));return}opts={...opts,...body};data=opts}
     else if(p.endsWith('/mcp/refresh'))data={tools:[],errors:[]};
     else if(p.endsWith('/memory/remember')){data={...body,id:'mem-fixture',source:{type:'user'}};memories.push(data)}
     else if(p.endsWith('/memory/recall'))data={results:memories};
@@ -103,6 +109,16 @@ const server=http.createServer(async(req,res)=>{
     await page.locator('#agent-profile-select').waitFor({state:'attached'});
     await page.getByText('模型选项',{exact:true}).click();await page.locator('#agent-profile-select').waitFor();await page.getByText('模型选项',{exact:true}).click();
     assert.equal(failedListReads,1,'transient connection failure retries safely without a model call');
+    await page.locator('#agent-chat-panel [data-agent-capability="rag_enabled"]:enabled').waitFor();
+    const mainCaps=page.locator('#agent-chat-panel .agent-capability-controls');assert.equal(await mainCaps.locator('[data-agent-capability]').count(),3);
+    const sendBox=await page.locator('#agent-send').boundingBox(),capsBox=await mainCaps.boundingBox();assert.ok(Math.abs((sendBox.y+sendBox.height/2)-(capsBox.y+capsBox.height/2))<4,'capability switches share the send row');
+    await mainCaps.locator('[data-agent-capability="memory_enabled"]').click();await page.waitForFunction(()=>document.querySelector('#agent-chat-panel [data-agent-capability="memory_enabled"]').getAttribute('aria-pressed')==='false');assert.equal(opts.memory_enabled,false);assert.equal(opts.rag_enabled,true);
+    await page.locator('#erw-fab-ball').click();await page.locator('#fab-input').waitFor();
+    assert.equal(await page.locator('#erw-fab-panel [data-agent-capability="memory_enabled"]').getAttribute('aria-pressed'),'false');
+    const fabSend=await page.locator('#fab-send').boundingBox(),fabCaps=await page.locator('#erw-fab-panel .agent-capability-controls').boundingBox();assert.ok(Math.abs((fabSend.y+fabSend.height/2)-(fabCaps.y+fabCaps.height/2))<4);
+    await page.locator('#erw-fab-panel [data-agent-capability="memory_enabled"]').click();await page.waitForFunction(()=>document.querySelector('#agent-chat-panel [data-agent-capability="memory_enabled"]').getAttribute('aria-pressed')==='true');
+    settingsFailure=true;await mainCaps.locator('[data-agent-capability="rag_enabled"]').click();await page.getByText('能力设置未保存：模拟设置保存失败',{exact:true}).waitFor();assert.equal(opts.rag_enabled,true);assert.equal(await mainCaps.locator('[data-agent-capability="rag_enabled"]').getAttribute('aria-pressed'),'true');
+    await page.locator('#fab-close').click();
     assert.equal(await page.getByRole('button',{name:'Agent 系统',exact:true}).count(),0);
     assert.equal(await page.locator('.agent-system-overlay').count(),0);
     await page.locator('#agent-input').fill('保留这段输入');
@@ -239,6 +255,19 @@ const server=http.createServer(async(req,res)=>{
     releaseStream();await page.waitForFunction(()=>!window.ERWAgentClient.busy('chat-fixture123'));
     assert.equal(await page.locator('#agent-messages').getByText('后台原会话的任务',{exact:true}).count(),0,'late completion cannot move an answer to a different session');
     await page.locator('#erw-fab-ball').click();assert.equal(await page.locator('#fab-messages').getByText('后台原会话的任务',{exact:true}).count(),0);await page.locator('#fab-close').click();
+    // Dragging across reply paragraphs offers quote and stays in the main conversation.
+    async function selectReply(view){
+      if(view==='#fab-messages')await page.waitForFunction(()=>document.activeElement===document.querySelector('#fab-input'));
+      const reply=page.locator(view+' .agent-response-body').first();await reply.scrollIntoViewIfNeeded();
+      await reply.evaluate(el=>{const article=el.closest('article'),parts=article.querySelectorAll('.agent-response-body'),range=document.createRange();range.setStart(parts[0],0);range.setEnd(parts[parts.length-1],parts[parts.length-1].childNodes.length);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))});
+      await page.locator('#erw-sel-bubble.show').waitFor();
+    }
+    await page.locator('#agent-input').fill('针对引用继续追问');await selectReply('#agent-messages');
+    await page.locator('[data-fab-act="quote"]').click();assert.equal(await page.locator('#agent-context-strip .agent-quote-chip').count(),1);assert.equal(await page.locator('#agent-input').inputValue(),'针对引用继续追问');assert.equal(await page.locator('#erw-fab-panel').isVisible(),false);
+    await selectReply('#agent-messages');await page.locator('[data-fab-act="ask"]').click();assert.equal(await page.locator('#agent-context-strip .agent-quote-chip').count(),2);assert.equal(await page.locator('#erw-fab-panel').isVisible(),false);
+    mode='normal';await page.locator('#agent-send').click();await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
+    assert.match(requests.filter(r=>r.path==='/api/agent/send').at(-1).body.context.quote_text,/第一轮分析/);assert.match(requests.filter(r=>r.path==='/api/agent/send').at(-1).body.context.quote_text,/第二轮比较/);assert.equal(await page.locator('#agent-context-strip .agent-quote-chip').count(),0);assert.ok(await page.locator('#agent-messages .agent-sent-quote').count()>0);
+    await page.locator('#erw-fab-ball').click();await selectReply('#fab-messages');await page.locator('[data-fab-act="quote"]').click();assert.match(await page.locator('#fab-quote').innerText(),/回复选段/);await page.locator('#fab-quote-x').click();await page.locator('#fab-close').click();
     await page.getByRole('tab',{name:'RAG',exact:true}).click();await page.locator('#as-rag-settings').waitFor();
     await page.locator('#as-rag-settings input[name=rag_enabled]').uncheck();await page.locator('#as-rag-settings input[name=rag_top_k]').fill('4');
     await page.getByRole('button',{name:'保存 RAG 设置',exact:true}).click();await page.getByText('RAG 设置已保存',{exact:true}).waitFor();assert.equal(opts.rag_enabled,false);assert.equal(opts.rag_top_k,4);
@@ -251,10 +280,16 @@ const server=http.createServer(async(req,res)=>{
     await page.locator('[data-capability="skills_enabled"]').check();await page.locator('[data-capability="rag_enabled"]').check();
     await page.getByText('已保存，后续工具调用立即生效',{exact:true}).waitFor();assert.equal(opts.skills_enabled,true);assert.equal(opts.rag_enabled,true);
     await page.getByRole('button',{name:'配置 RAG',exact:true}).click();await page.locator('#as-rag-settings').waitFor();assert.equal(await page.locator('#as-rag-settings input[name=rag_top_k]').inputValue(),'4');
+    await page.locator('#as-rag-settings [name=mode]').selectOption('hybrid');await page.locator('#as-rag-settings [name=base_url]').fill('http://127.0.0.1:12345/v1');await page.locator('#as-rag-settings [name=model]').fill('fake-embedding');await page.locator('#as-rag-settings [name=api_key]').fill('fake-private-key');
+    await page.locator('#as-rag-test').click();await page.getByText('连接成功 · fake-embedding · 3 维',{exact:true}).waitFor();assert.equal(await page.locator('#as-rag-settings [name=api_key]').inputValue(),'');assert.equal(ragOptions.has_api_key,true);
+    await page.locator('#as-rag-build').click();await page.locator('#as-rag-index').getByText(/资料向量索引：6 个分块/).waitFor();assert.equal(await page.locator('#as-rag-cancel').isVisible(),false);await page.locator('#as-rag-search [name=query]').fill('省参数的方法');await page.getByRole('button',{name:'检索资料',exact:true}).click();await page.locator('#as-rag-results').getByText('Low rank adaptation',{exact:true}).waitFor();
+    await page.locator('[data-route="settings"]').click();await page.locator('[data-set-tab="rag"]').click();await page.locator('#as-rag-settings [name=model]').waitFor();assert.equal(await page.locator('#as-rag-settings [name=model]').inputValue(),'fake-embedding');await page.getByRole('button',{name:'保存 RAG 设置',exact:true}).click();await page.getByText('RAG 设置已保存',{exact:true}).waitFor();assert.equal(ragOptions.has_api_key,true,'blank password preserves the saved key');
+    await page.locator('[data-route="agent"]').click();await page.getByRole('tab',{name:'对话',exact:true}).click();await page.locator('#agent-chat-panel [data-agent-rag-config]').click();await page.locator('#as-rag-settings').waitFor();
     await page.screenshot({path:path.join(output,'rag-settings.png')});
     await page.setViewportSize({width:390,height:844});await page.getByRole('tab',{name:'技能',exact:true}).click();await page.locator('.as-skill').filter({hasText:'custom-flow'}).waitFor();
     assert.ok(await page.locator('#agent-system-panel').evaluate(e=>e.scrollWidth<=e.clientWidth+1));await page.screenshot({path:path.join(output,'integrated-mobile.png'),fullPage:true});
-    assert.deepEqual(errors,[]);console.log('Integrated Agent UI passed: EOF/result recovery, event replay, CRLF/multiline/final frames, inline draft preview/confirm/retry/resume, two-way live/session sync, late-result isolation, Skill/RAG switches and simplified composer, themes/mobile. No model API calls.');
-  }catch(error){if(lastPage){console.error('UI failure state:',(await lastPage.locator('#fab-messages').innerText()).slice(-1500));await lastPage.screenshot({path:path.join(output,'failure.png')})}throw error}
+    await page.getByRole('tab',{name:'对话',exact:true}).click();await page.locator('#agent-input').waitFor();const mobileSend=await page.locator('#agent-send').boundingBox(),mobileCaps=await page.locator('#agent-chat-panel .agent-capability-controls').boundingBox();assert.ok(Math.abs((mobileSend.y+mobileSend.height/2)-(mobileCaps.y+mobileCaps.height/2))<4);assert.ok(await page.locator('#agent-chat-panel').evaluate(el=>el.scrollWidth<=el.clientWidth+1));await page.screenshot({path:path.join(output,'mobile-composer.png'),fullPage:true});
+    assert.deepEqual(errors,[]);console.log('Integrated Agent UI passed: EOF/result recovery, event replay, CRLF/multiline/final frames, inline draft preview/confirm/retry/resume, two-way live/session sync, late-result isolation, independent Skill/RAG/memory switches, Embedding configuration/index/search, same-row controls, main/floating reply selection quotes, themes/mobile. No model API calls.');
+  }catch(error){if(lastPage){console.error('Selection state:',await lastPage.evaluate(()=>({selection:getSelection()?.toString(),anchor:getSelection()?.anchorNode?.parentElement?.outerHTML?.slice(0,300),bubble:document.querySelector('#erw-sel-bubble')?.outerHTML?.slice(0,300)})));console.error('UI failure state:',(await lastPage.locator('#fab-messages').innerText()).slice(-1500));await lastPage.screenshot({path:path.join(output,'failure.png')})}throw error}
   finally{releaseStream?.();await browser.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}
 })().catch(e=>{console.error(e);process.exitCode=1;server.close()});

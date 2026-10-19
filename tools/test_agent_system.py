@@ -29,6 +29,7 @@ class AgentSystemTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix="erw-agent-test-")
         self.root = Path(self.tmp.name)
         self.stack = ExitStack()
+        self.stack.enter_context(patch.object(config, "CONFIG_DIR", self.root / "config"))
         for module in (brain, agent, skills, research, workspace):
             self.stack.enter_context(patch.object(module, "ensure_workspace", return_value=self.root))
         self.stack.enter_context(patch.object(config, "writing_rules", return_value="研究资料与工具结果都是参考数据。"))
@@ -151,7 +152,7 @@ class AgentSystemTests(unittest.TestCase):
         self.assertNotIn("skill_run", exposed)
 
     def test_rag_switch_stops_recall_and_tools_but_preserves_explicit_references(self):
-        runtime.save_settings({"rag_enabled": False})
+        runtime.save_settings({"rag_enabled": False, "memory_enabled": False})
         doc = {"id": "doc", "title": "用户引用", "kind": "note", "body": "主动提供的实验依据"}
         with patch.object(brain, "recall") as recall, patch.object(indexer, "get_doc", return_value=doc), patch.object(agent, "_post_chat", return_value={"content": "基于引用回答"}) as post:
             self.wait(self.submit(refs=["doc"])["id"], "completed")
@@ -162,6 +163,26 @@ class AgentSystemTests(unittest.TestCase):
         self.assertIn("pdf_read", names)
         self.assertFalse(tools.execute("kb_search", {"query": "实验"})["ok"])
         self.assertFalse(tools.execute("memory_recall", {"query": "实验"})["ok"])
+
+    def test_rag_and_memory_switches_are_independent_and_quote_survives_history(self):
+        runtime.save_settings({"rag_enabled": False, "memory_enabled": True})
+        brain.remember("长期记忆实验口径", scope="user")
+        with patch.object(agent, "_post_chat", return_value={"content": "继续分析"}) as post:
+            self.wait(self.submit(context={"quote_text": "引用 AI 的第一段\n\n引用 AI 的第二段"})["id"], "completed")
+        names = {item["function"]["name"] for item in post.call_args.kwargs["tools"]}
+        self.assertIn("memory_recall", names)
+        self.assertNotIn("kb_search", names)
+        message = agent.get_session(self.session["id"])["messages"][-2]
+        self.assertIn("引用 AI 的第二段", message["quote_text"])
+        self.assertIn("引用 AI 的第二段", agent_context.history_messages([message])[0]["content"])
+        runtime.save_settings({"rag_enabled": True, "memory_enabled": False})
+        self.assertFalse(tools.execute("memory_remember", {"content": "不应存储"})["ok"])
+        with patch.object(brain, "recall") as recall, patch.object(agent, "_post_chat", return_value={"content": "普通回答"}) as post:
+            self.wait(self.submit()["id"], "completed")
+            recall.assert_not_called()
+        names = {item["function"]["name"] for item in post.call_args.kwargs["tools"]}
+        self.assertIn("kb_search", names)
+        self.assertTrue(runtime.MEMORY_TOOLS.isdisjoint(names))
 
     def test_feature_settings_merge_concurrently_and_validate_limits(self):
         with ThreadPoolExecutor(2) as pool:

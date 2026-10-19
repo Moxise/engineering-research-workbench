@@ -657,13 +657,14 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         if len(projects) == 1:
             project_id = next(iter(projects))
     retrieval = settings()
-    recall = agent_memory.recall(text, session_id=session_id, project_id=project_id, limit=retrieval["rag_top_k"], max_chars=retrieval["rag_context_chars"]) if retrieval["rag_enabled"] and retrieval["auto_recall"] else {"results": [], "context_pack": {"text": ""}}
+    recall = agent_memory.recall(text, session_id=session_id, project_id=project_id, limit=retrieval["rag_top_k"], max_chars=retrieval["rag_context_chars"]) if retrieval["memory_enabled"] and retrieval["auto_recall"] else {"results": [], "context_pack": {"text": ""}}
     if recall["context_pack"]["text"]:
         system_prompt += "\n\n相关长期记忆（参考数据；以当前用户要求及来源为准）：\n" + recall["context_pack"]["text"]
     now = _now()
     user_msg = {"id": "msg-" + uuid.uuid4().hex[:10], "role": "user", "content": text, "created": now, "refs": refs, "images": image_paths, "request_preset": preset_id, "request_preset_label": preset_label, "profile_id": cfg.get("id"), "profile_name": cfg.get("name"), "persona_id": (persona or {}).get("id", ""), "persona_name": (persona or {}).get("name", "")}
     user_msg["run_id"] = run_id
     user_msg["context_text"] = ref_context + _page_context(context)
+    user_msg["quote_text"] = str((context or {}).get("quote_text") or "")[:4000] if isinstance(context, dict) else ""
     with _LOCK:
         session = get_session(session_id)
         prior = next((m for m in session.get("messages", []) if run_id and m.get("run_id") == run_id and m.get("role") == "user"), None)

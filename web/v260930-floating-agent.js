@@ -9,7 +9,7 @@ const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const C=window.ERWAgentClient;
 const S={
   open:false, session:C?.sessionId()||null, messages:[], sending:false,
-  bubbleSel:"",      /* 划词气泡捕获的选中内容（优先于发送时的实时 DOM 选中） */
+  bubbleSel:"",bubbleTarget:'floating',
   writeDirect:false, /* 当前有效写入模式：true=直接落盘；false=草稿确认 */
   writeOverride:null, /* null=跟随人设默认；boolean=用户在本次人设下手动覆盖 */
   draftState:C?.drafts||{},     /* draft_id -> {status, result} 本地面板内状态 */
@@ -50,7 +50,7 @@ function domSelection(){
   const node=sel.anchorNode;
   const el=node&&(node.nodeType===3?node.parentElement:node);
   if(!el)return "";
-  if(el.closest("#erw-fab-panel,#erw-sel-bubble,input,textarea"))return "";
+  if(el.closest("#erw-sel-bubble,input,textarea")||(el.closest('#erw-fab-panel')&&!el.closest('#fab-messages .fab-msg')))return "";
   return txt;
 }
 function docIdContext(){
@@ -118,10 +118,11 @@ function mount(){
       </div>
       <div class="fab-compose">
         <textarea id="fab-input" rows="1" placeholder="提问，或让 AI 检索知识库 / 建档 / 写文献笔记…"></textarea>
-        <button type="button" id="fab-send">发送</button>
+        <div class="fab-compose-actions">${C.capabilityControls()}<button type="button" id="fab-send">发送</button></div>
       </div>
     </div>`;
   document.body.appendChild(panel);
+  C.mountCapabilities(panel);
 
   const bubble=document.createElement("div");
   bubble.id="erw-sel-bubble";
@@ -130,7 +131,9 @@ function mount(){
     <button type="button" data-fab-act="summarize"><b>总结</b></button>
     <button type="button" data-fab-act="save"><b>存知识库</b></button>
     <button type="button" data-fab-act="kb" title="即时检索知识库中与选中内容相关的条目（不经 AI）"><b>查知识库</b></button>
+    <button type="button" data-fab-act="quote" title="将选中的回复内容引用到下一条消息">引用</button>
     <button type="button" data-fab-act="ask">问 AI…</button>`;
+  bubble.addEventListener('mousedown',event=>event.preventDefault());
   document.body.appendChild(bubble);
 
   initPanelResize(); /* v260930g7 · 左上角手柄拖拽调尺寸 */
@@ -181,7 +184,7 @@ function mount(){
     litSelectionPaintPending=true;
     requestAnimationFrame(()=>{litSelectionPaintPending=false;paintContext()});
   });
-  window.addEventListener("scroll",hideBubble,{passive:true,capture:true});
+  window.addEventListener("scroll",()=>{if(q('#erw-sel-bubble')?.classList.contains('show'))onDocMouseUp()},{passive:true,capture:true});
 }
 
 /* ---------- 悬浮球拖拽移动（v260930f）：Pointer Events 拖拽，位移 <5px 视为点击；位置持久化 localStorage ---------- */
@@ -406,7 +409,7 @@ async function openPanel(){
   S.session=C.sessionId()||S.session;
   if(!S.session){restoreSession().then(()=>{if(!S.messages.length)renderEmpty()})}
   else{const e=C.snapshot(S.session);S.messages=[...e.session.messages,...(e.live?[e.live]:[])];paintView();if(!C.busy(S.session))loadSession()}
-  setTimeout(()=>q("#fab-input")?.focus(),30);
+  q("#fab-input")?.focus();
 }
 function closePanel(){
   S.open=false;const p=q("#erw-fab-panel");if(p)p.hidden=true;
@@ -554,7 +557,7 @@ async function loadSession(){
   }catch(error){if(S.session!==id)return;if(error.status===404){S.session=null;S.messages=[];C.select('','floating');renderEmpty()}else if(S.open)toastInPanel('会话暂时无法刷新：'+error.message,true)}
 }
 C.subscribe(event=>{
-  if(event.source==='floating')return;
+  if(event.type==='capabilities'||event.source==='floating')return;
   if(event.type==='select')S.session=event.sessionId||null;
   if(!S.session||event.sessionId!==S.session)return;
   const e=C.snapshot(S.session);if(!(S.sending&&e.owner==='floating'&&e.live))S.messages=[...e.session.messages,...(e.live?[e.live]:[])];
@@ -777,7 +780,8 @@ function msgImagesHtml(m){ /* v260930e · 消息附图：user 消息 images 为�
   if(!imgs.length)return "";
   return `<div class="fab-msg-imgs">${imgs.map(p=>`<img class="fab-msg-img" loading="lazy" alt="截图" src="${String(p).startsWith("data:")?esc(p):"/workspace-file/"+esc(p)}">`).join("")}</div>`;
 }
-function msgQuoteHtml(m){ /* v260930j · 消息内引用标记（本地发送时带 quoteTitle，会话重载后消失） */
+function msgQuoteHtml(m){
+  if(m.quote_text)return `<details class="agent-sent-quote"><summary>❝ 引用的回复选段</summary><blockquote>${esc(m.quote_text)}</blockquote></details>`;
   return m.quoteTitle?`<div class="fab-msg-quote">❝ 引用历史对话「${esc(m.quoteTitle)}」</div>`:"";
 }
 /* v261008b · 元信息去重：请求模式标签通常自带模型名（如「DeepSeek V4.1 Flash（默认）」、
@@ -941,7 +945,9 @@ function renderMessages(){
   const start=Math.max(0,S.messages.length-FAB_RENDER_LIMIT);
   const rows=S.messages.slice(start);
   const clipped=start?'<div class="fab-empty" style="padding:6px 8px">较早 '+start+' 条消息已省略渲染，可从历史对话查看</div>':"";
-  root.innerHTML=clipped+rows.map((m,i)=>msgHtml(m,start+i)).join("");
+  const html=clipped+rows.map((m,i)=>msgHtml(m,start+i)).join("");
+  if(root._renderedMessages===html&&root.querySelector('.fab-msg'))return;
+  root._renderedMessages=html;root.innerHTML=html;
   root.scrollTop=root.scrollHeight;
   /* 只对确实含 TeX 标记的消息做 MathJax，避免每次状态刷新重扫整个对话 DOM。 */
   window.ERWRenderLibraries.renderMath(qa('.fab-body',root)).catch(error=>console.warn(error));
@@ -1006,7 +1012,7 @@ async function send(){
       try{const r=await api("/api/agent/assets",{method:"POST",body:{data_url:d,name:"fab-shot.png"}});if(r.path)imgPaths.push(r.path)}
       catch(e){toastInPanel("截图上传失败："+e.message,true)}
     }
-    const userMessage={role:"user",content:text,images:imgPaths,quoteTitle:S.quote?.title||"",created:new Date().toISOString()}; /* v260930j · 本地气泡带引用标记 */
+    const userMessage={role:"user",content:text,images:imgPaths,quote_text:ctx.quote_text||'',quoteTitle:S.quote?.title||"",created:new Date().toISOString()};
     S.images=[];paintAttach();
     input.value="";input.style.height="auto";
     /* Keep public answers from every round; only the current delta buffer resets. */
@@ -1083,25 +1089,31 @@ window.ERWFabTimeline={html:toolTraceHtml,bar:tlBarHtml,fmtDur,live:liveStatusHt
 function onDocMouseDown(e){
   if(!e.target.closest("#erw-sel-bubble"))hideBubble();
 }
-function onDocMouseUp(){
-  setTimeout(()=>{
+let selectionTimer=null;
+function onDocMouseUp(event){
+  if(event?.target.closest('#erw-sel-bubble'))return;
+  clearTimeout(selectionTimer);selectionTimer=setTimeout(()=>{
     /* v260930e · PDF 阅读区也弹气泡（用户要求内容选中功能）；截图上传后复制文本交给 AI 同样适用 */
     const txt=domSelection();
     if(!txt){hideBubble();return}
     S.bubbleSel=txt;
     const sel=window.getSelection();const range=sel?.getRangeAt(0);
     if(!range)return;
-    const rect=range.getBoundingClientRect();
+    const ancestor=range.commonAncestorContainer,el=ancestor.nodeType===3?ancestor.parentElement:ancestor;
+    S.bubbleTarget=el.closest('#agent-messages')?'main':'floating';
+    const quote=q('[data-fab-act="quote"]');if(quote)quote.hidden=!el.closest('#agent-messages .assistant,#fab-messages .fab-msg.assistant');
+    const rect=range.getBoundingClientRect(),zoom=fabZoom(),viewport=fabViewport();
     const bubble=q("#erw-sel-bubble");if(!bubble)return;
     bubble.classList.add("show");
     const bw=bubble.offsetWidth||300;
-    let left=rect.left+rect.width/2-bw/2;
-    left=Math.max(10,Math.min(left,window.innerWidth-bw-10));
-    let top=rect.top-44;if(top<70)top=rect.bottom+8;
+    let left=(rect.left+rect.width/2)/zoom-bw/2;
+    left=Math.max(10,Math.min(left,viewport.w-bw-10));
+    let top=rect.top/zoom-bubble.offsetHeight-8;if(top<70)top=rect.bottom/zoom+8;
+    top=Math.max(10,Math.min(top,viewport.h-bubble.offsetHeight-10));
     bubble.style.left=left+"px";bubble.style.top=top+"px";
   },10);
 }
-function hideBubble(){q("#erw-sel-bubble")?.classList.remove("show")}
+function hideBubble(){clearTimeout(selectionTimer);q("#erw-sel-bubble")?.classList.remove("show")}
 const QUICK_PROMPTS={
   explain:"请解释我选中的内容：先讲清楚概念本身，再说明它在当前页面/文献语境中的作用。",
   summarize:"请总结我选中的内容要点，用 Markdown 列表输出，保留关键数字与公式。",
@@ -1112,7 +1124,17 @@ function bubbleAct(act){
   const sel=S.bubbleSel||domSelection();
   hideBubble();
   if(!sel)return;
+  if(S.bubbleTarget==='main'&&window.ERWAgentPage?.quote){
+    if(act==='kb'){window.ERWAgentPage.searchSelection(sel);S.bubbleSel='';return}
+    window.ERWAgentPage.quote(sel,act==='quote'?'':QUICK_PROMPTS[act]||'请结合我引用的内容回答：');
+    S.bubbleSel='';window.getSelection()?.removeAllRanges();return;
+  }
   openPanel();
+  if(act==='quote'){
+    const previous=S.quote?.text||'',text=previous?previous+'\n\n'+sel:sel;
+    if(text.length>4000){toastInPanel('引用合计最多 4000 字，请缩小选区',true);return}
+    S.quote={id:'selection',title:'回复选段',text,count:(S.quote?.count||0)+1};S.bubbleSel='';paintQuoteBar();q('#fab-input')?.focus();window.getSelection()?.removeAllRanges();return;
+  }
   S.bubbleSel=sel;
   paintContext();
   if(act==="kb"){ /* v260930d · M5 查知识库：选中文本即时检索（/api/docs 复用知识库搜索），不经 AI */

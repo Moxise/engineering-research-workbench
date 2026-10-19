@@ -139,13 +139,8 @@ def _t_kb_search(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     limit = max(1, min(int(args.get("limit") or 8), 20))
     from .agent_runtime import settings
     limit = min(limit, settings()["rag_top_k"])
-    from . import indexer
-    rows = indexer.list_docs(kind=kind, query=query, page_size=limit)
-    return {"count": len(rows), "items": [{
-        "id": r.get("id"), "title": r.get("title"), "kind": r.get("kind"),
-        "project": ", ".join(r.get("projects") or ([r.get("project")] if r.get("project") else [])),
-        "excerpt": r.get("excerpt", ""),
-    } for r in rows]}
+    from . import agent_rag
+    return agent_rag.search(query, kind=kind, limit=limit)
 
 
 def _t_kb_read(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
@@ -437,6 +432,8 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
     options = agent_runtime.settings()
     if not options["rag_enabled"] and name in agent_runtime.RAG_TOOLS:
         return {"ok": False, "error": "RAG 已关闭，请在 RAG 设置中启用知识检索"}
+    if not options["memory_enabled"] and name in agent_runtime.MEMORY_TOOLS:
+        return {"ok": False, "error": "记忆已关闭，请在输入框下方开启记忆"}
     if name in {"skill_read", "skill_run"}:
         if not options["skills_enabled"] or str(args.get("name") or "") in options["disabled_skills"]:
             return {"ok": False, "error": "该技能已停用，请在技能页启用"}
