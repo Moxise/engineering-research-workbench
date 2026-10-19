@@ -105,7 +105,7 @@ def ensure_project(name: str) -> Path | None:
     if not name:
         return None
     # Prevent path traversal and accidental nested project creation via metadata.
-    safe = name.replace("\\", "-").replace("/", "-").replace("..", "-").strip(" .")[:100]
+    safe = name.replace("\\", "-").replace("/", "-").replace("..", "-").strip(" .")[:128]
     if not safe:
         return None
     root = ensure_workspace() / "Projects" / safe

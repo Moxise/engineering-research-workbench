@@ -55,7 +55,7 @@ def _new_id() -> str:
 
 def _safe_name(name: str) -> str:
     value = str(name or "").strip()
-    value = value.replace("\\", "-").replace("/", "-").replace("..", "-").strip(" .")[:100]
+    value = value.replace("\\", "-").replace("/", "-").replace("..", "-").strip(" .")[:128]
     if not value:
         raise ValueError("项目名称不能为空")
     return value

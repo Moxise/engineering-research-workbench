@@ -285,6 +285,19 @@ class IndexArchitectureTests(unittest.TestCase):
         self.assertEqual(updated["projects"], ["First"])
         self.assertIn((doc["id"], "project:" + first["id"], "project"), self.edges())
 
+    def test_paper_title_project_keeps_full_name_and_single_association(self):
+        from app import projects
+        name = "Two-stage fine-tuning of large language models for distribution network service restoration via CoT reasoning"
+        project = projects.create_project(name)
+        doc = self.doc(projects=[name])
+        projects.ensure_registry()
+        self.assertEqual(project["name"], name)
+        self.assertEqual(indexer.get_doc(doc["id"])["projects"], [name])
+        self.assertEqual(indexer.get_doc(doc["id"])["project_ids"], [project["id"]])
+        self.assertEqual([p["name"] for p in indexer.project_records()], [name])
+        self.assertTrue((self.root / "Projects" / name).is_dir())
+        self.assertFalse((self.root / "Projects" / name[:100]).exists())
+
     def test_file_is_reconciled_after_failed_index_write(self):
         doc = self.doc(body="beforefailure")
         with patch.object(core, "_index_path_conn", side_effect=sqlite3.OperationalError("simulated write failure")):
