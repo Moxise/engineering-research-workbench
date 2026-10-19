@@ -151,6 +151,49 @@ class AgentSystemTests(unittest.TestCase):
             evidence = research.execute("evidence_read", {"run_id": first["id"], "call_id": "call-1"}, {"session_id": self.session["id"]})
             self.assertIn("0.12345", evidence["content"])
 
+    def test_intermediate_answers_survive_completion_history_and_public_run(self):
+        first = {**call("memory_recall", {"query": "方法"}), "content": "## 核心方法\n先训练适配器。", "reasoning_content": "private-thought"}
+        second = {**call("plan_update", {"steps": [{"step": "完成比较", "status": "completed"}]}, "call-2"), "content": "| 方法 | 差异 |\n| --- | --- |\n| LoRA | 低秩适配 |"}
+        def scripted(*args, on_delta=None, **kwargs):
+            message = responses.pop(0)
+            if on_delta:
+                on_delta(message["content"])
+            return message
+        responses = [first, second, {"content": "任务已完成。"}]
+        with patch.object(agent, "_post_chat", side_effect=scripted):
+            run = self.wait(self.submit()["id"], "completed")
+        expected = [{"round": 1, "content": first["content"]}, {"round": 2, "content": second["content"]}]
+        for message in (run["result"]["assistant"], agent.get_session(self.session["id"])["messages"][-1], runtime.public_run(run)["result"]["assistant"]):
+            self.assertEqual(message["content"], "任务已完成。")
+            self.assertEqual(message["response_parts"], expected)
+            self.assertNotIn("private-thought", json.dumps(message["response_parts"]))
+        events = [e["data"] for e in brain.events(run["id"]) if e["event"] == "response"]
+        self.assertEqual([e["content"] for e in events], [first["content"], second["content"], "任务已完成。"])
+        self.assertEqual([e["intermediate"] for e in events], [True, True, False])
+
+    def test_old_chat_recovers_public_answers_without_reexecuting_model(self):
+        message = {"role": "assistant", "content": "完成", "evidence": [
+            {"role": "assistant", "content": "", "reasoning_content": "hidden"},
+            {"role": "tool", "content": "raw evidence"},
+            {"role": "assistant", "content": '公开分析\n```json\n{"tool":"plan_update","args":{}}\n```'},
+            {"role": "assistant", "content": '```json\n{"tool":"kb_read","args":{}}\n```'},
+        ]}
+        brain.append_message(self.session["id"], message)
+        with patch.object(agent, "_post_chat") as post:
+            restored = agent.get_session(self.session["id"])["messages"][-1]
+            self.assertEqual(restored["response_parts"], [{"round": 2, "content": "公开分析"}])
+            post.assert_not_called()
+        self.assertEqual(agent_context.public_text('```json\n{"result":42}\n```'), '```json\n{"result":42}\n```')
+
+    def test_public_answers_preserved_across_budget_resume_without_duplication(self):
+        runtime.save_settings({"max_steps": 1})
+        first = {**call("memory_recall", {"query": "研究"}), "content": "阶段结论"}
+        with patch.object(agent, "_post_chat", side_effect=[first, {"content": "完成"}]):
+            run = self.wait(self.submit()["id"], "paused")
+            runtime.control(run["id"], "resume")
+            final = self.wait(run["id"], "completed")
+        self.assertEqual(final["result"]["assistant"]["response_parts"], [{"round": 1, "content": "阶段结论"}])
+
     def test_draft_checkpoint_approve_resume_does_not_duplicate_user_or_write(self):
         with patch.object(agent, "_post_chat", side_effect=[call("memory_remember", {"content": "研究指标使用 SCR", "source": "用户要求", "scope": "user"}), {"content": "已完成记忆写入"}]) as post:
             run = self.wait(self.submit()["id"], "waiting_approval")
@@ -444,6 +487,14 @@ class AgentSystemTests(unittest.TestCase):
                 self.assertTrue(any(e["event"] == "done" for e in events))
                 _, replay = request(f"/api/agent/runs/{run['id']}/events?after={events[-1]['seq']}")
                 self.assertEqual(replay, [])
+            first = {**call("memory_recall", {"query": "HTTP"}), "content": "中途的完整分析"}
+            with patch.object(agent, "_post_chat", side_effect=[first, {"content": "任务已完成"}]):
+                req = Request(base + "/api/agent/send", data=json.dumps({"session_id": self.session["id"], "message": "多轮 SSE"}).encode(), headers={"Content-Type": "application/json"})
+                with urlopen(req, timeout=5) as response:
+                    frames = response.read().decode()
+                self.assertIn("event: response\n", frames)
+                self.assertIn('"intermediate": true', frames)
+                self.assertIn('"response_parts": [{"round": 1, "content": "中途的完整分析"}]', frames)
             release, started = threading.Event(), threading.Event()
             def blocked(*args, **kwargs):
                 started.set()
@@ -455,6 +506,9 @@ class AgentSystemTests(unittest.TestCase):
                     self.assertEqual(response.readline().strip(), b"event: run")
                     info = json.loads(response.readline()[6:])
                 self.assertTrue(started.wait(2))
+                with ThreadPoolExecutor(6) as reads:
+                    snapshots = list(reads.map(lambda _: request("/api/agent/sessions")[1], range(12)))
+                self.assertTrue(all(any(s["id"] == self.session["id"] for s in rows) for rows in snapshots))
                 release.set()
                 self.wait(info["run_id"], "completed")
                 self.assertEqual(agent.get_session(self.session["id"])["messages"][-1]["content"], "断线仍完成")

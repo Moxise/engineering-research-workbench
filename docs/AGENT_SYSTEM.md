@@ -120,8 +120,12 @@ PDF 工具需要 `pip install -r requirements.txt`。桌面构建会包含 pypdf
 
 ## 验证
 
+多轮执行中的公开回答随 `response` SSE 事件按轮展示，并作为 `assistant.response_parts` 随最终结果和历史会话返回。`content` 仍保留最终回复，完整工具证据仍用于下一轮上下文。旧会话会从已存证据恢复中间回答，不需要调用模型；这些正文不包含 `reasoning_content` 或文本工具协议控制块。中途失败保留浏览器已收到的正文。
+
+Agent 会话列表读取对临时网络/服务错误重试；连续失败在会话侧栏显示接口与连接说明并提供“重试加载”，不再用全屏 `Failed to fetch` 替换 Agent 页面，重试时保留输入草稿。持续连接失败仍需检查本地服务是否运行。
+
 `python -m unittest discover -s tools -p test_agent_system.py -v` 在一次性工作区使用脚本化模型验证：迁移、作用域隔离、中文/关系/向量检索、替代与 TTL、Skill 加载、真实工具证据跨轮回放、审批后续跑、文本协议、轮数暂停、重启恢复、停止信号、写入防重复、冲突和修订回退、MCP 白名单、HTTP 后台任务及 SSE 断线继续。
 
-`node tools/agent_system_ui_check.js` 加载完整原始应用页面，以本地 API fixture 验证聊天成功后会话更新、刷新异常不误报模型失败、共享会话的任务审批续跑、技能直接选用、记忆增删、技能安装、设置、MCP 诊断、备份、异步切换竞争及桌面/移动布局。需让 NODE_PATH 指向可用 Playwright 安装。
+`node tools/agent_system_ui_check.js` 加载完整原始应用页面，以本地 API fixture 验证多轮正文实时展示/完成/重载、中途失败保留结果、网络故障重试和输入保留、聊天成功后会话更新、刷新异常不误报模型失败、共享会话的任务审批续跑、技能直接选用、记忆增删、技能安装、设置、MCP 诊断、备份、异步切换竞争及桌面/移动布局。需让 NODE_PATH 指向可用 Playwright 安装。测试不请求真实模型 API。
 
 这些测试验证执行与数据契约，不代表任意模型的科研结论正确率；真实模型任务质量需要使用具体研究数据和验收标准评估。

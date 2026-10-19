@@ -30,7 +30,7 @@
     graphKinds: new Set(storedArray('graphKinds', ['idea','journal','note','milestone','summary','literature','project','tag'])),
     graphRelations: new Set(storedArray('graphRelations', ['wikilink','tag','project'])),
     agentSession: null, agentRefs: [], agentImages: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false,
-    agentPersona:localStorage.getItem('agentPersonaId')||'executor',agentSkill:'',
+    agentPersona:localStorage.getItem('agentPersonaId')||'executor',agentSkill:'',agentSessions:[],
     heatmapMonths: storedInt('heatmapMonths', 12, 1, 12), heatmapThresholds: savedHeatmapThresholds, heatmapColors: savedHeatmapColors, heatmapObserver: null, uiScale: storedInt('uiScale', 100, 80, 125), density: localStorage.getItem('pageDensity')==='cozy'?'cozy':'compact', /* v260922h · 默认紧凑型（并排一屏收纳） */
     focus: {mode:'专注', focusMinutes:savedFocusMinutes, breakMinutes:savedBreakMinutes, seconds:savedFocusMinutes*60, total:savedFocusMinutes*60, timer:null, running:false,remaining:savedFocusMinutes*60,endsAt:null,busy:false,native:false,completionId:null},
     sidebarPinned: new Set(storedArray('sidebarPinned', ['core'])),
@@ -806,12 +806,14 @@
   async function openSearchResult(r){closeModal();if(!r)return;if(r.source==='chat'){state.agentSession=r.id;await navigate('agent');return}if(r.source==='todo'){await navigate('todos');return}await openDocRoute(routeForKind(r.kind),r.id)}
 
   async function renderAgent(){
-    const sessions=await api('/api/agent/sessions');
+    let sessions=state.agentSessions,sessionError=null;
+    try{sessions=await bootstrapRead('/api/agent/sessions');if(!Array.isArray(sessions))throw new Error('会话接口返回格式无效');state.agentSessions=sessions}catch(error){sessionError=error}
+    if(state.route!=='agent')return;
     const llmCfg=state.config?.app?.llm||{};
     const requestPresets=Array.isArray(llmCfg.request_presets)&&llmCfg.request_presets.length?llmCfg.request_presets:[{id:'default',label:'默认（不附加参数）',params:{}},{id:'qwen-low',label:'Qwen · 低思考',params:{enable_thinking:true,thinking_budget:1024}},{id:'qwen-off',label:'Qwen · 无思考',params:{enable_thinking:false}}];
     if(!requestPresets.some(x=>String(x.id||'')===state.agentPreset)) state.agentPreset=String(llmCfg.default_request_preset||requestPresets[0].id||'default');
     const requestPresetHtml=requestPresets.map(x=>`<option value="${esc(x.id||'default')}" ${String(x.id||'')===state.agentPreset?'selected':''}>${esc(x.label||x.id||'默认')}</option>`).join('');
-    if(state.agentSession&&!sessions.some(x=>x.id===state.agentSession))state.agentSession=null;
+    if(!sessionError&&state.agentSession&&!sessions.some(x=>x.id===state.agentSession))state.agentSession=null;
     if(!state.agentSession&&sessions.length)state.agentSession=sessions[0].id;
     const personas=llmCfg.personas?.length?llmCfg.personas:[{id:'executor',name:'执行助手'}];
     if(!personas.some(persona=>persona.id===state.agentPersona))state.agentPersona=personas[0].id;
@@ -822,9 +824,30 @@
     const input=$('#agent-input');input.addEventListener('paste',onAgentPasteImage);input.addEventListener('dragover',e=>e.preventDefault());input.addEventListener('drop',onAgentDropImage);input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();sendAgentMessage()}});$('#agent-send').onclick=sendAgentMessage;const presetSelect=$('#agent-preset');if(presetSelect)presetSelect.onchange=()=>{state.agentPreset=presetSelect.value;localStorage.setItem('agentRequestPreset',state.agentPreset)};
     $('#agent-persona').onchange=event=>{state.agentPersona=event.target.value;localStorage.setItem('agentPersonaId',state.agentPersona)};
     $('#agent-skill').onchange=event=>{state.agentSkill=event.target.value};
+    const sessionStatus=document.createElement('div');sessionStatus.id='agent-sessions-status';$('.agent-sessions').append(sessionStatus);
+    if(sessionError)showAgentSessionError(sessionError);
     loadAgentSkills().catch(error=>toast('技能目录加载失败：'+error.message,true));
     window.ERWAgentSystem?.mount();
     paintAgentContext(); paintAgentImages(); if(state.agentSession)await loadAgentSession(state.agentSession);
+  }
+  function showAgentSessionError(error){
+    const status=$('#agent-sessions-status');if(!status)return;
+    const disconnected=!error.status||error.name==='AbortError';
+    status.innerHTML=`<div class="agent-load-error" role="alert"><p>${disconnected?'无法连接本地 Agent 服务，请确认工作台服务仍在运行。':'Agent 会话列表加载失败：'+esc(error.message)}</p><small>GET /api/agent/sessions${error.status?' · HTTP '+error.status:''}</small><button type="button" class="secondary-btn" id="agent-sessions-retry">重试加载</button></div>`;
+    $('#agent-sessions-retry').onclick=refreshAgentSessions;
+  }
+  async function refreshAgentSessions(){
+    const button=$('#agent-sessions-retry');if(button)button.disabled=true;
+    try{
+      const sessions=await bootstrapRead('/api/agent/sessions');if(!Array.isArray(sessions))throw new Error('会话接口返回格式无效');state.agentSessions=sessions;
+      if(state.route!=='agent'||!$('#agent-sessions-status'))return;
+      $('#agent-sessions-status').replaceChildren();
+      const list=$('.agent-session-list');list.replaceChildren();
+      if(!state.agentSession&&sessions.length)state.agentSession=sessions[0].id;
+      for(const session of [...sessions].reverse())updateAgentSessionSidebar(session);
+      if(!sessions.length)list.innerHTML='<div class="empty compact">暂无对话</div>';
+      if(state.agentSession&&!state.agentSending)await loadAgentSession(state.agentSession);
+    }catch(error){showAgentSessionError(error)}finally{if(button?.isConnected)button.disabled=false}
   }
   async function loadAgentSkills(){
     const select=$('#agent-skill');if(!select)return;
@@ -846,8 +869,8 @@
     $('small',button).textContent=fmtTime(session.updated)+' · '+(session.messages?.length??session.message_count??0)+' 条';
     if(session.id===state.agentSession&&$('#agent-chat-title'))$('#agent-chat-title').textContent=session.title||'科研 Agent';
   }
-  async function loadAgentSession(id){try{const s=await api('/api/agent/sessions/'+encodeURIComponent(id));if(state.route!=='agent'||state.agentSession!==id)return;$('#agent-chat-title').textContent=s.title||'科研 Agent';const root=$('#agent-messages');root.innerHTML=(s.messages||[]).length?(s.messages||[]).map(agentMessageHtml).join(''):'<div class="empty">暂无消息。你可以直接提问，或先引用研究资料。</div>';for(const el of $$('.agent-message-body',root))await renderMarkdownInto(el,el.dataset.raw||'');for(const el of $$('.agent-reasoning-body',root))await renderMarkdownInto(el,el.dataset.raw||'');root.scrollTop=root.scrollHeight}catch(e){toast(e.message,true)}}
-  function agentMessageHtml(m){const refs=(m.refs||[]).map(r=>`<span class="badge">${esc(r.title)}</span>`).join('');const imgs=(m.images||[]).map(p=>`<img src="/workspace-file/${esc(typeof p==='string'?p:(p.path||''))}" alt="对话图片">`).join('');const showReasoning=state.config?.app?.llm?.show_reasoning!==false;const reasoning=showReasoning&&String(m.reasoning||'').trim()?`<details class="agent-reasoning"><summary>模型思考过程</summary><div class="agent-reasoning-body" data-raw="${esc(m.reasoning||'')}"></div></details>`:'';const tlHtml=(m.role==='assistant'&&window.ERWFabTimeline?.html)?window.ERWFabTimeline.html(m):''; /* v261008b · 复用悬浮球的时间条（工具耗时 + 总耗时 + 过程明细） */const metaParts=(window.ERWFabTimeline?.metaParts?window.ERWFabTimeline.metaParts(m):[String(m.model||'').trim(),String(m.request_preset_label||'').trim()].filter(Boolean)); /* v261008b · 元信息去重：标签已含模型名时不再重复显示 model */return `<article class="agent-message ${m.role==='assistant'?'assistant':'user'}"><div class="agent-avatar">${m.role==='assistant'?'AI':'YOU'}</div><div class="agent-bubble">${refs?`<div class="agent-msg-refs">${refs}</div>`:''}${imgs?`<div class="agent-msg-images">${imgs}</div>`:''}${reasoning}<div class="agent-message-body" data-raw="${esc(m.content||'')}"></div>${tlHtml}<div class="agent-msg-meta">${[...metaParts.map(esc),esc(fmtTime(m.created))].join(' · ')}</div></div></article>`}
+  async function loadAgentSession(id){try{const s=await api('/api/agent/sessions/'+encodeURIComponent(id));if(state.route!=='agent'||state.agentSession!==id)return;$('#agent-chat-title').textContent=s.title||'科研 Agent';const root=$('#agent-messages');root.innerHTML=(s.messages||[]).length?(s.messages||[]).map(agentMessageHtml).join(''):'<div class="empty">暂无消息。你可以直接提问，或先引用研究资料。</div>';for(const el of $$('.agent-message-body,.agent-response-body',root))await renderMarkdownInto(el,el.dataset.raw||'');for(const el of $$('.agent-reasoning-body',root))await renderMarkdownInto(el,el.dataset.raw||'');root.scrollTop=root.scrollHeight}catch(e){toast(e.message,true)}}
+  function agentMessageHtml(m){const refs=(m.refs||[]).map(r=>`<span class="badge">${esc(r.title)}</span>`).join('');const imgs=(m.images||[]).map(p=>`<img src="/workspace-file/${esc(typeof p==='string'?p:(p.path||''))}" alt="对话图片">`).join('');const showReasoning=state.config?.app?.llm?.show_reasoning!==false;const reasoning=showReasoning&&String(m.reasoning||'').trim()?`<details class="agent-reasoning"><summary>模型思考过程</summary><div class="agent-reasoning-body" data-raw="${esc(m.reasoning||'')}"></div></details>`:'';const tlHtml=(m.role==='assistant'&&window.ERWFabTimeline?.html)?window.ERWFabTimeline.html(m):''; /* v261008b · 复用悬浮球的时间条（工具耗时 + 总耗时 + 过程明细） */const metaParts=(window.ERWFabTimeline?.metaParts?window.ERWFabTimeline.metaParts(m):[String(m.model||'').trim(),String(m.request_preset_label||'').trim()].filter(Boolean)); /* v261008b · 元信息去重：标签已含模型名时不再重复显示 model */return `<article class="agent-message ${m.role==='assistant'?'assistant':'user'}"><div class="agent-avatar">${m.role==='assistant'?'AI':'YOU'}</div><div class="agent-bubble">${refs?`<div class="agent-msg-refs">${refs}</div>`:''}${imgs?`<div class="agent-msg-images">${imgs}</div>`:''}${reasoning}${window.ERWFabTimeline?.responses?.(m)||''}${window.ERWFabTimeline?.parts?.(m).length&&m.content?'<div class="agent-response-label">最终回复</div>':''}<div class="agent-message-body" data-raw="${esc(m.content||'')}"></div>${tlHtml}<div class="agent-msg-meta">${[...metaParts.map(esc),esc(fmtTime(m.created))].join(' · ')}</div></div></article>`}
   async function renderMarkdownInto(out,raw){const seq=++state.previewSeq;out._markdownSeq=seq;let html='';if(window.marked&&window.DOMPurify){const renderer=new marked.Renderer();renderer.code=(tokenOrCode,info)=>{let code='',lang='';if(tokenOrCode&&typeof tokenOrCode==='object'){code=tokenOrCode.text||'';lang=tokenOrCode.lang||''}else{code=String(tokenOrCode||'');lang=String(info||'')}lang=lang.trim();if(lang==='mermaid')return `<div class="mermaid">${esc(code)}</div>`;return `<pre><code class="language-${esc(lang)}">${esc(code)}</code></pre>`};try{html=marked.parse(raw||'',{gfm:true,renderer})}catch{html=basicMarkdown(raw)}}else html=basicMarkdown(raw);html=normalizePreviewPaths(html);out.innerHTML=window.DOMPurify?DOMPurify.sanitize(html,{ADD_TAGS:['mjx-container']}):html;out.innerHTML=out.innerHTML.replace(/<table[\s\S]*?<\/table>/gi,m=>`<div class="fab-tbl">${m}</div>`); /* v261008b · 宽表格套气泡内滚动层，避免撑破容器 */$$('pre code',out).forEach(el=>{try{window.hljs?.highlightElement(el)}catch{}});await renderMermaidBlocks(out,seq);try{await window.ERWRenderLibraries.renderMath([out])}catch(e){console.warn(e)}}
   function paintAgentContext(){const root=$('#agent-context-strip');if(!root)return;root.innerHTML=state.agentRefs.length?`<span class="row-meta">已引用</span>${state.agentRefs.map((r,i)=>`<button type="button" class="context-chip" data-ref-remove="${i}">${esc(r.title)}</button>`).join('')}`:'<span class="row-meta">未引用本地知识；点击“引用研究 · 知识”可手动选择上下文。</span>';$$('[data-ref-remove]',root).forEach(b=>b.onclick=()=>{state.agentRefs.splice(+b.dataset.refRemove,1);paintAgentContext()})}
   function paintAgentImages(){const root=$('#agent-image-strip');if(!root)return;root.innerHTML=state.agentImages.map((x,i)=>`<div class="agent-image-thumb"><img src="${esc(x.url)}"><button type="button" data-agent-image-remove="${i}">×</button></div>`).join('');$$('[data-agent-image-remove]',root).forEach(b=>b.onclick=()=>{state.agentImages.splice(+b.dataset.agentImageRemove,1);paintAgentImages()})}
@@ -864,7 +887,7 @@
     const res=await fetch('/api/agent/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!res.ok||!res.body){let d={};try{d=await res.json()}catch{};throw new Error(d.message||d.error||`HTTP ${res.status}`)}
     const reader=res.body.getReader(),dec=new TextDecoder('utf-8');
-    let buf='',doneData=null,text='';
+    let buf='',doneData=null,text='',round=0,responseRound=0,parts=[];
     for(;;){
       const {value,done}=await reader.read();
       if(done)break;
@@ -880,10 +903,15 @@
         if(!dataStr)continue;
         let data={};try{data=JSON.parse(dataStr)}catch{continue}
         if(ev==='run'){if(onRun)onRun(data)}
-        else if(ev==='delta'){text+=data.text||'';if(onDelta)onDelta(text)}
-        else if(ev==='round'){text='';if(onStatus)onStatus(`第 ${(data.i|0)+1} 轮 · 模型思考中…`)}
-        else if(ev==='tool'){if(onStatus)onStatus(`工具 ${data.name||''} ${data.ok?'已完成':'失败'}`)}
-        else if(ev==='done'){doneData=data;reader.cancel().catch(()=>{});return doneData.assistant}
+        else if(ev==='delta'){text+=data.text||'';if(onDelta)onDelta(text,parts)}
+        else if(ev==='response'){
+          responseRound=data.round;
+          if(data.intermediate){parts=parts.filter(p=>p.round!==data.round);if(data.content)parts.push({round:data.round,content:data.content});text=''}else text=data.content||'';
+          if(onDelta)onDelta(text,parts);
+        }
+        else if(ev==='round'){if(text&&round&&responseRound!==round)parts.push({round,content:text});text='';round=(data.i|0)+1;if(onStatus)onStatus(`第 ${round} 轮 · 模型思考中…`,text,parts)}
+        else if(ev==='tool'){if(onStatus)onStatus(`工具 ${data.name||''} ${data.ok?'已完成':'失败'}`,text,parts)}
+        else if(ev==='done'){doneData=data;if(!Array.isArray(data.assistant.response_parts))data.assistant.response_parts=data.assistant.evidence?window.ERWFabTimeline?.parts?.(data.assistant)||parts:parts;reader.cancel().catch(()=>{});return doneData.assistant}
         else if(ev==='error'){throw new Error(data.message||'请求失败')}
       }
     }
@@ -904,11 +932,18 @@
       const root=$('#agent-messages');
       if(root){$('.empty',root)?.remove();root.insertAdjacentHTML('beforeend',agentMessageHtml({role:'user',content:text,created:new Date().toISOString(),refs,images:images.map(x=>x.path),request_preset_label:($('#agent-preset')?.selectedOptions?.[0]?.textContent||'')}));for(const el of $$('.agent-message-body',root).slice(-1))await renderMarkdownInto(el,el.dataset.raw||'');const showReasoning=state.config?.app?.llm?.show_reasoning!==false;root.insertAdjacentHTML('beforeend',`<article class="agent-message assistant agent-thinking" id="agent-thinking"><div class="agent-avatar">AI</div><div class="agent-bubble"><div class="agent-thinking-line"><span class="thinking-dots"><i></i><i></i><i></i></span><strong>${showReasoning?'模型正在思考':'模型正在生成回复'}</strong><span class="row-meta" id="agent-thinking-time">0.0 s</span></div>${showReasoning?'<div class="agent-thinking-hint">若接口返回 reasoning / reasoning_content，将在最终回复中以可折叠区域显示。</div>':''}</div></article>`);root.scrollTop=root.scrollHeight}
       const started=performance.now();const timer=setInterval(()=>{const el=$('#agent-thinking-time');if(el)el.textContent=((performance.now()-started)/1000).toFixed(1)+' s'},100);
-      let replyReceived=false;
+      let replyReceived=false,partialReply={role:'assistant',content:'',response_parts:[]};
+      const paintLive=(text,parts,note='')=>{
+        partialReply={role:'assistant',content:text,response_parts:parts};
+        const el=root?.isConnected?$('#agent-thinking',root):null;if(!el)return;
+        const bubble=el.querySelector('.agent-bubble');if(!bubble)return;
+        bubble.innerHTML=(window.ERWFabTimeline?.responses?.({response_parts:parts})||'')+(text?`<div class="agent-message-body">${window.ERWFabTimeline?.render?.(text)||esc(text)}</div>`:'')+`<div class="agent-thinking-line agent-live-note"><span class="thinking-dots"><i></i><i></i><i></i></span><strong>${esc(note||'正在生成…')}</strong></div>`;
+        root.scrollTop=root.scrollHeight;
+      };
       try{ /* v261008 · 走 SSE 流式（原 `api(...)` 读 JSON 的写法对流式响应会返回 {}，随后 r.session.id 抛错） */
         const r0=await streamAgentSend({session_id:sessionId,message:text,refs:refs.map(x=>x.id),images:images.map(x=>x.path),request_preset:preset,persona_id:state.agentPersona},
-          (streamText)=>{const el=root?.isConnected?$('#agent-thinking',root):null;if(el){const b=el.querySelector('.agent-bubble');if(b)b.innerHTML=`<div class="agent-bubble-body" style="white-space:pre-wrap">${esc(streamText)}</div>`}},
-          (note)=>{const el=root?.isConnected?$('#agent-thinking',root):null;if(el){const b=el.querySelector('.agent-bubble');if(b)b.innerHTML=`<div class="agent-thinking-line"><span class="thinking-dots"><i></i><i></i><i></i></span><strong>${esc(note)}</strong></div>`}},
+          (streamText,parts)=>paintLive(streamText,parts),
+          (note,streamText,parts)=>paintLive(streamText,parts,note),
           run=>document.dispatchEvent(new CustomEvent('erw-agent-run-updated',{detail:{sessionId,runId:run.run_id}})));
         replyReceived=true;
         clearInterval(timer);
@@ -917,14 +952,14 @@
         const mroot=root?.isConnected&&state.agentSession===sessionId?root:null,think=mroot?$('#agent-thinking',mroot):null;
         if(think)think.outerHTML=agentMessageHtml(r.assistant);else if(mroot)mroot.insertAdjacentHTML('beforeend',agentMessageHtml(r.assistant));
         if(mroot&&state.route==='agent'){
-          const bs=$$('.agent-message-body',mroot),lb=bs[bs.length-1];if(lb)await renderMarkdownInto(lb,lb.dataset.raw||'');
+          const article=$$('.agent-message',mroot).at(-1);for(const body of $$('.agent-message-body,.agent-response-body',article||mroot))await renderMarkdownInto(body,body.dataset.raw||'');
           const rbs=$$('.agent-reasoning-body',mroot),lrb=rbs[rbs.length-1];if(lrb)await renderMarkdownInto(lrb,lrb.dataset.raw||'');
           mroot.scrollTop=mroot.scrollHeight;
           r.session=await api('/api/agent/sessions/'+encodeURIComponent(sessionId));
           updateAgentSessionSidebar(r.session);
         }
         document.dispatchEvent(new CustomEvent('erw-agent-run-updated',{detail:{sessionId,runId:r0.run_id}}));
-      }catch(e){clearInterval(timer);if(replyReceived){console.error('Agent reply UI refresh failed',e);toast('回复已保存，界面刷新失败：'+e.message,true)}else{if(root?.isConnected){$('#agent-thinking',root)?.remove();root.insertAdjacentHTML('beforeend',`<article class="agent-message assistant"><div class="agent-avatar">AI</div><div class="agent-bubble"><div class="agent-error">请求失败：${esc(e.message)}</div></div></article>`);root.scrollTop=root.scrollHeight}toast(e.message,true)}}
+      }catch(e){clearInterval(timer);if(replyReceived){console.error('Agent reply UI refresh failed',e);toast('回复已保存，界面刷新失败：'+e.message,true)}else{if(root?.isConnected){const thinking=$('#agent-thinking',root);if(partialReply.content||partialReply.response_parts.length){if(thinking)thinking.outerHTML=agentMessageHtml(partialReply);const body=$$('.agent-message-body',root).at(-1);if(body)await renderMarkdownInto(body,body.dataset.raw||'')}else thinking?.remove();root.insertAdjacentHTML('beforeend',`<article class="agent-message assistant"><div class="agent-avatar">AI</div><div class="agent-bubble"><div class="agent-error">请求失败：${esc(e.message)}</div></div></article>`);root.scrollTop=root.scrollHeight}toast(e.message,true)}}
     }finally{state.agentSending=false;const b=$('#agent-send');if(b){b.disabled=false;b.textContent='发送'}}
   }
 

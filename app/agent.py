@@ -18,7 +18,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from . import config, store, activity, agent_tools, billing, agent_memory
+from . import config, store, activity, agent_tools, billing, agent_memory, agent_context
 from .workspace import ensure_workspace
 
 _LOCK = threading.RLock()
@@ -52,7 +52,11 @@ def list_sessions() -> list[dict[str, Any]]:
 
 
 def get_session(session_id: str) -> dict[str, Any]:
-    return agent_memory.get_session(session_id)
+    session = agent_memory.get_session(session_id)
+    for message in session.get("messages", []):
+        if message.get("role") == "assistant":
+            message["response_parts"] = agent_context.response_parts(message)
+    return session
 
 
 def create_session(title: str = "") -> dict[str, Any]:
@@ -696,6 +700,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         "tool_trace": tool_trace, "drafts": drafts,  # v260930 · M1 工具轨迹与本轮待确认草稿（前端可展示）
         "timing": timing,  # v261008b · 计时与时间轴：前端据此画时间条 + 显示总耗时（SSE done 事件随 assistant 一并回传）
     }
+    assistant_msg["response_parts"] = agent_context.response_parts(assistant_msg)
     with _LOCK:
         session = get_session(session_id)
         session.setdefault("messages", []).append(assistant_msg)

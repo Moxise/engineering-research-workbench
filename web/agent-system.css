@@ -1,4 +1,7 @@
 /* The original Agent page owns both chat and management panels. */
+.agent-load-error{padding:12px;color:var(--danger,#b42318);font-size:12px;overflow-wrap:anywhere}
+.agent-load-error p{margin:0 0 6px}
+.agent-load-error small{display:block;margin-bottom:8px}
 .agent-workspace{display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px;min-width:0;min-height:0}
 .agent-workspace-tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:5px;border:1px solid var(--line,#d3dbe1);border-radius:10px;background:var(--surface,#fff)}
 .agent-workspace-tabs button{border:0;border-radius:7px;padding:8px 16px;font:inherit;font-size:12px;cursor:pointer;color:var(--muted,#637382);background:transparent}

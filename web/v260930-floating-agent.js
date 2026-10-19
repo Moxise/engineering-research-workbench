@@ -786,6 +786,17 @@ function metaParts(m){
   const modelShown=!!model&&!(mode&&norm(mode).includes(norm(model)));
   return [persona,modelShown?model:"",mode].filter(Boolean);
 }
+function publicText(text){
+  return String(text||"").replace(/```json\s*(\{[\s\S]*?\})\s*```/g,(block,json)=>{try{const d=JSON.parse(json);return d&&typeof d==='object'&&'tool' in d&&'args' in d?'':block}catch{return block}}).trim();
+}
+function responseParts(m){
+  if(Array.isArray(m.response_parts))return m.response_parts;
+  let round=0;
+  return (m.evidence||[]).filter(e=>e.role==='assistant').flatMap(e=>{round++;const content=publicText(e.content);return content?[{round,content}]:[]});
+}
+function responsePartsHtml(m){
+  return responseParts(m).map(part=>`<section class="agent-response-part"><div class="agent-response-label">第 ${esc(part.round)} 轮 · 中间回答</div><div class="fab-body agent-response-body" data-raw="${esc(part.content||'')}">${mdRender(part.content||"")}</div></section>`).join('');
+}
 function msgHtml(m,idx){
   const who=m.role==="assistant"?"AI":"YOU";
   const meta=[...metaParts(m).map(esc),esc(fmtTime(m.created))].filter(Boolean).join(" · ");
@@ -801,6 +812,8 @@ function msgHtml(m,idx){
       ${msgQuoteHtml(m)}
       ${msgImagesHtml(m)}
       ${live}
+      ${responsePartsHtml(m)}
+      ${responseParts(m).length&&m.content?'<div class="agent-response-label">'+(m.__streaming?'当前回答':'最终回复')+'</div>':''}
       ${body}
       ${m.__thinking?"":toolTraceHtml(m)+draftHtml(m)+quickActionsHtml(m)}
       <div class="fab-msg-meta">${meta}</div>
@@ -1014,8 +1027,8 @@ async function send(){
     S.messages.push({role:"user",content:text,images:imgPaths,quoteTitle:S.quote?.title||"",created:new Date().toISOString()}); /* v260930j · 本地气泡带引用标记 */
     S.images=[];paintAttach();
     input.value="";input.style.height="auto";
-    /* v260930k · 方案 A 流式：SSE 逐字渲染。round=新一轮 LLM 请求（清缓冲），delta=文本片段，done=完整响应（与旧 JSON 同构），error=失败 */
-    const streamMsg={role:"assistant",content:"",__thinking:true,__t0:Date.now(),__tl:[]}; /* v261008b · 实时时间条状态 */
+    /* Keep public answers from every round; only the current delta buffer resets. */
+    const streamMsg={role:"assistant",content:"",response_parts:[],__thinking:true,__t0:Date.now(),__tl:[]};
     S.messages.push(streamMsg);
     renderMessages();
     const res=await fetch("/api/agent/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:S.session,message:text,refs:[],images:imgPaths,request_preset:"",context:ctx,persona_id:S.personaId}),signal:S.abortCtl.signal}); /* v260930l · 带 abort 信号 */
@@ -1025,7 +1038,7 @@ async function send(){
     let rafPending=false;
     const paintStream=()=>{ /* 轻量增量渲染：只重绘最后气泡正文，不做全量重渲染/MathJax */
       if(rafPending)return;rafPending=true;
-      requestAnimationFrame(()=>{rafPending=false;const root=q("#fab-messages");const body=root?.querySelector(".fab-msg:last-child .fab-body");if(body&&root){body.innerHTML=mdRender(streamMsg.content);root.scrollTop=root.scrollHeight}});
+      requestAnimationFrame(()=>{rafPending=false;if(!S.messages.includes(streamMsg)||!streamMsg.__streaming)return;const root=q("#fab-messages");const body=root?.querySelector(".fab-msg:last-child .fab-bubble > .fab-body");if(body&&root){body.innerHTML=mdRender(streamMsg.content);root.scrollTop=root.scrollHeight}});
     };
     const nowMs=()=>Date.now()-streamMsg.__t0;
     const closeSeg=(seg)=>{if(seg&&seg.t1==null)seg.t1=nowMs()};
@@ -1043,7 +1056,16 @@ async function send(){
         openLlm(); /* v261008b · 首个 delta 前若还没开思考段（极少数时序）也补上 */
         streamMsg.content+=data.text||"";
         paintStream();
-      }else if(ev==="round"){ /* v260930k · 工具循环新一轮：中途文本废弃，缓冲清零 */
+      }else if(ev==="response"){
+        streamMsg.__responseRound=data.round;
+        if(data.intermediate){
+          streamMsg.response_parts=streamMsg.response_parts.filter(p=>p.round!==data.round);
+          if(data.content)streamMsg.response_parts.push({round:data.round,content:data.content});
+          streamMsg.content="";
+        }else streamMsg.content=data.content||"";
+        streamMsg.__thinking=false;streamMsg.__streaming=true;renderMessages();
+      }else if(ev==="round"){
+        if(streamMsg.content&&streamMsg.__round&&streamMsg.__responseRound!==streamMsg.__round){const content=publicText(streamMsg.content);if(content)streamMsg.response_parts.push({round:streamMsg.__round,content})}
         streamMsg.content="";streamMsg.__streaming=true;streamMsg.__round=(data.i|0)+1;
         closeSeg((streamMsg.__tl||[])[(streamMsg.__tl||[]).length-1]); /* v261008b · 收上一段 */
         openLlm();
@@ -1072,6 +1094,7 @@ async function send(){
       }
     }
     if(!doneData)throw new Error("连接中断，未收到完整响应");
+    if(!Array.isArray(doneData.assistant.response_parts))doneData.assistant.response_parts=doneData.assistant.evidence?responseParts(doneData.assistant):streamMsg.response_parts;
     S.messages=S.messages.slice(0,-1);
     S.messages.push(doneData.assistant);
     S.bubbleSel="";paintContext();updateBallBadge();
@@ -1079,7 +1102,7 @@ async function send(){
     reader.cancel().catch(()=>{}); /* v260930m · 主动释放连接：done 后不再依赖服务器关闭 */
   }catch(e){
     const aborted=e&&e.name==="AbortError"; /* v260930l · 用户主动停止 */
-    S.messages=S.messages.filter(m=>!m.__thinking&&!m.__streaming); /* v260930k · 同时清理思考中/流式未定稿消息 */
+    S.messages=S.messages.filter(m=>{if(!m.__thinking&&!m.__streaming)return true;if(!m.content&&!responseParts(m).length)return false;delete m.__thinking;delete m.__streaming;delete m.__note;m.partial=true;return true});
     S.messages.push({role:"assistant",content:aborted?"已停止生成。本轮任务可能已部分执行（以知识库草稿与会话记录为准），可继续追问或换个小任务分步做。":"请求失败："+e.message,created:new Date().toISOString()});
     renderMessages();
   }finally{
@@ -1088,7 +1111,7 @@ async function send(){
   }
 }
 
-window.ERWFabTimeline={html:toolTraceHtml,bar:tlBarHtml,fmtDur,live:liveStatusHtml,drafts:draftHtml,metaParts:metaParts,render:mdRender}; /* v261008b · 供 Agent 页（app.js）复用同一套渲染，避免两处实现漂移 */
+window.ERWFabTimeline={html:toolTraceHtml,bar:tlBarHtml,fmtDur,live:liveStatusHtml,drafts:draftHtml,metaParts,render:mdRender,responses:responsePartsHtml,parts:responseParts};
 
 /* ---------- 划词气泡 ---------- */
 function onDocMouseDown(e){

@@ -9,7 +9,7 @@ const output=path.join(root,'.scratch','verify','agent-system');fs.mkdirSync(out
 const sessions=[{id:'chat-fixture123',title:'科研验收',updated:'2026-10-19',messages:[]},{id:'chat-other123',title:'另一会话',updated:'2026-10-18',messages:[]}];
 const runs=[{id:'run-other',session_id:sessions[1].id,status:'completed',updated:'2026-10-18'}],memories=[],installed=[],requests=[];
 let opts={max_steps:48,time_budget_seconds:900,context_tokens:24000,auto_recall:true,web_enabled:true,code_enabled:false,docker_image:'python:3.12-slim',mcp_servers:[]};
-let mode='normal',failSessionOnce=false,approved=false,sequence=0,delayMemory=false;
+let mode='normal',failSessionOnce=false,approved=false,sequence=0,delayMemory=false,failListReads=1,failedListReads=0,releaseStream=null;
 const skill={name:'literature-review',description:'比较文献并保留证据',builtin:true};
 const cfg={app:{app_name:'科研工作台',subtitle:'Engineering Research Workspace',ui:{},academic_profile:{graduation_conditions:[]},llm:{enabled:true,active_profile_id:'fixture',request_presets:[{id:'default',label:'默认',model:'fixture'}],profiles:[{id:'fixture',name:'测试配置',base_url:'https://example.invalid/v1',request_presets:[{id:'default',label:'默认',model:'fixture'}]}],personas:[{id:'executor',name:'执行助手',tools:['kb_read'],write_mode:'confirm'},{id:'reader',name:'阅读助手',tools:['kb_read'],write_mode:'confirm'}]}},rss:{sources:[]},weather:{enabled:false}};
 function answer(content,extra={}){return {id:'msg-'+(++sequence),role:'assistant',content,created:'2026-10-19',model:'fixture',...extra}}
@@ -29,15 +29,25 @@ const server=http.createServer(async(req,res)=>{
       const session=sessions.find(s=>s.id===body.session_id);assert(session);
       session.messages.push({id:'msg-'+(++sequence),role:'user',content:body.message,created:'2026-10-19'});
       const run={id:'run-'+sequence,session_id:session.id,status:mode==='draft'?'waiting_approval':'completed',updated:'2026-10-19'};
-      const message=answer(mode==='draft'?'请确认草稿后继续。':'已完成带来源的研究总结 '+sequence,{run_id:run.id,...(mode==='draft'?{drafts:[{draft_id:'draft-fixture',tool:'kb_create_entry',summary:'知识-方法-测试'}]}:{})});
+      const parts=[{round:1,content:'## 核心方法\n第一轮分析：低秩适配。'},{round:2,content:'第二轮比较：\n\n| 方法 | 特点 |\n| --- | --- |\n| LoRA | 参数少 |'}];
+      const multi=['multi','partial'].includes(mode);
+      const message=answer(mode==='draft'?'请确认草稿后继续。':multi?'任务已完成。':'已完成带来源的研究总结 '+sequence,{run_id:run.id,...(multi?{response_parts:parts}:{}),...(mode==='draft'?{drafts:[{draft_id:'draft-fixture',tool:'kb_create_entry',summary:'知识-方法-测试'}]}:{})});
       if(mode==='error'){res.writeHead(200,{'Content-Type':'text/event-stream'});res.end('event: error\ndata: '+JSON.stringify({message:'模拟模型接口失败'})+'\n\n');return}
       session.messages.push(message);session.title='已更新的研究会话';session.updated='2026-10-19T12:00:00';run.result={assistant:message};runs.unshift(run);
       if(mode==='metadata')failSessionOnce=true;
+      const encode=events=>events.map(([event,data])=>'event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n').join('');
+      if(multi){
+        res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8'});
+        res.write(encode([['run',{run_id:run.id,session_id:session.id}],['round',{i:0}],['delta',{text:parts[0].content}],['response',{...parts[0],intermediate:true}],['tool',{name:'kb_search',ok:true,ms:5}],['round',{i:1}],['delta',{text:parts[1].content}],['response',{...parts[1],intermediate:true}],['round',{i:2}]]));
+        if(mode==='partial'){res.end(encode([['error',{message:'模拟中途连接失败'}]]));return}
+        await new Promise(resolve=>{releaseStream=resolve});releaseStream=null;
+        res.end(encode([['delta',{text:message.content}],['response',{round:3,content:message.content,intermediate:false}],['done',{ok:true,assistant:message}]]));return;
+      }
       const events=[['run',{run_id:run.id,session_id:session.id}],['round',{i:0}],['delta',{text:message.content}],['done',{ok:true,assistant:message}]];
       res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8'});res.end(events.map(([event,data])=>'event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n').join(''));return;
     }
     else if(p==='/api/agent/sessions'&&req.method==='POST'){data={id:'chat-new123',title:'新对话',messages:[]};sessions.unshift(data)}
-    else if(p==='/api/agent/sessions')data=sessions.map(s=>({...s,message_count:s.messages.length}));
+    else if(p==='/api/agent/sessions'){if(failListReads>0){failListReads--;failedListReads++;res.destroy();return}data=sessions.map(s=>({...s,message_count:s.messages.length}))}
     else if(p.startsWith('/api/agent/sessions/')){if(failSessionOnce){failSessionOnce=false;res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'模拟会话列表刷新失败'}));return}data=sessions.find(s=>s.id===p.split('/').at(-1))}
     else if(p==='/api/agent/runs')data=runs.filter(r=>!url.searchParams.get('session_id')||r.session_id===url.searchParams.get('session_id'));
     else if(p.endsWith('/events'))data=[{seq:1,event:'plan',data:{steps:[{step:'核对来源',status:'completed'}]}},{seq:2,event:'tool_result',data:{tool:'kb_read',result:{body:'可核对的证据'}}}].filter(e=>e.seq>Number(url.searchParams.get('after')||0));
@@ -67,12 +77,15 @@ const server=http.createServer(async(req,res)=>{
 (async()=>{
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const browser=await chromium.launch({headless:true,channel:process.env.UI_BROWSER||'msedge'});
+  let lastPage;
   try{
     const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'}),errors=[];page.on('pageerror',e=>errors.push(String(e)));
+    lastPage=page;page.setDefaultTimeout(10000);
     await page.goto('http://127.0.0.1:'+server.address().port+'/#agent');
     await page.getByRole('tab',{name:'对话',exact:true}).waitFor();
     await page.locator('#agent-skill option[value="literature-review"]').waitFor({state:'attached'});
     await page.locator('#agent-profile-select').waitFor();
+    assert.equal(failedListReads,1,'transient connection failure retries safely without a model call');
     assert.equal(await page.getByRole('button',{name:'Agent 系统',exact:true}).count(),0);
     assert.equal(await page.locator('.agent-system-overlay').count(),0);
     await page.locator('#agent-input').fill('保留这段输入');
@@ -132,8 +145,47 @@ const server=http.createServer(async(req,res)=>{
     mode='error';await page.locator('#agent-input').fill('验证真实模型失败');await page.locator('#agent-send').click();await page.locator('.agent-error').getByText('请求失败：模拟模型接口失败',{exact:true}).waitFor();
     await page.locator('[data-agent-session="chat-other123"]').click();await page.getByRole('tab',{name:'任务',exact:true}).click();await page.getByText('run-other',{exact:true}).waitFor();
     assert.equal(await page.locator('.as-run').count(),1);
+    await page.getByRole('tab',{name:'对话',exact:true}).click();mode='multi';
+    await page.locator('#agent-input').fill('展示全部分析过程');await page.locator('#agent-send').click();
+    await page.locator('#agent-thinking .agent-response-part').filter({hasText:'第二轮比较'}).waitFor();
+    assert.equal(await page.locator('#agent-thinking .agent-response-part').count(),2);
+    assert.match(await page.locator('#agent-thinking').innerText(),/第一轮分析/);
+    assert.equal(await page.locator('#agent-thinking table').count(),1);
+    releaseStream();await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
+    assert.equal(await page.locator('#agent-messages .agent-response-part').count(),2);
+    assert.match(await page.locator('#agent-messages').innerText(),/任务已完成/);
+    await page.getByRole('tab',{name:'任务',exact:true}).click();await page.locator('[data-as-run="'+runs[0].id+'"]').click();
+    await page.locator('.as-answer .agent-response-part').nth(1).waitFor();assert.match(await page.locator('.as-answer').innerText(),/第一轮分析/);
+    await page.getByRole('tab',{name:'对话',exact:true}).click();
+    await page.reload();await page.locator('#agent-input').waitFor();
+    await page.locator('[data-agent-session="chat-other123"]').click();
+    await page.locator('#agent-messages .agent-response-part').nth(1).waitFor();
+    assert.match(await page.locator('#agent-messages').innerText(),/第一轮分析/);
+    await page.screenshot({path:path.join(output,'intermediate-main.png')});
+    await page.locator('#erw-fab-ball').click();await page.locator('#fab-input').waitFor();
+    await page.locator('#fab-input').fill('悬浮助手保留过程');await page.locator('#fab-send').click();
+    await page.locator('#fab-messages .fab-msg:last-child .agent-response-part').nth(1).waitFor();
+    assert.match(await page.locator('#fab-messages .fab-msg:last-child').innerText(),/第一轮分析/);
+    releaseStream();await page.waitForFunction(()=>document.querySelector('#fab-send').textContent==='发送');
+    assert.equal(await page.locator('#fab-messages .fab-msg:last-child .agent-response-part').count(),2);
+    await page.screenshot({path:path.join(output,'intermediate-floating.png')});
+    mode='partial';await page.locator('#fab-input').fill('中途失败保留结果');await page.locator('#fab-send').click();
+    await page.locator('#fab-messages').getByText('请求失败：模拟中途连接失败',{exact:true}).waitFor();
+    assert.equal(await page.locator('#fab-messages .agent-response-part').count(),4,'partial failure retains the prior public answers');
+    await page.locator('#fab-close').click();
+    await page.locator('#agent-input').fill('主页面中断保留结果');await page.locator('#agent-send').click();
+    await page.locator('#agent-messages .agent-error').getByText('请求失败：模拟中途连接失败',{exact:true}).waitFor();
+    assert.equal(await page.locator('#agent-messages .agent-response-part').count(),4);
+    const offline=await browser.newPage({viewport:{width:1440,height:1000}});offline.setDefaultTimeout(10000);let offlineReads=3;
+    await offline.route('**/api/agent/sessions',route=>offlineReads-->0?route.abort('failed'):route.continue());
+    await offline.goto('http://127.0.0.1:'+server.address().port+'/#agent');
+    await offline.locator('#agent-sessions-retry').waitFor();await offline.locator('#agent-input').fill('连接恢复时保留草稿');
+    assert.match(await offline.locator('#agent-sessions-status').innerText(),/无法连接本地 Agent 服务/);
+    await offline.locator('#agent-sessions-retry').click();await offline.locator('[data-agent-session="chat-fixture123"]').waitFor();
+    assert.equal(await offline.locator('#agent-input').inputValue(),'连接恢复时保留草稿');assert.equal(await offline.locator('#agent-sessions-retry').count(),0);await offline.close();
     await page.setViewportSize({width:390,height:844});await page.getByRole('tab',{name:'技能',exact:true}).click();await page.locator('.as-skill').filter({hasText:'custom-flow'}).waitFor();
     assert.ok(await page.locator('#agent-system-panel').evaluate(e=>e.scrollWidth<=e.clientWidth+1));await page.screenshot({path:path.join(output,'integrated-mobile.png'),fullPage:true});
-    assert.deepEqual(errors,[]);console.log('Integrated Agent UI passed: actual app chat success, sidebar refresh, no false request failure, shared session/tasks/memory/skills/settings, approval/resume, tab races, themes, mobile.');
-  }finally{await browser.close();await new Promise(resolve=>server.close(resolve))}
+    assert.deepEqual(errors,[]);console.log('Integrated Agent UI passed: chat and floating multi-round answers during streaming/completion/reload, partial failures, network retry and recovery without lost drafts, shared tasks/approvals/memory/skills/settings, themes and mobile. No model API calls.');
+  }catch(error){if(lastPage){console.error('UI failure state:',(await lastPage.locator('#fab-messages').innerText()).slice(-1500));await lastPage.screenshot({path:path.join(output,'failure.png')})}throw error}
+  finally{releaseStream?.();await browser.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}
 })().catch(e=>{console.error(e);process.exitCode=1;server.close()});

@@ -86,6 +86,7 @@ def submit(payload: dict) -> dict:
 def public_run(run: dict) -> dict:
     result = copy.deepcopy({k: v for k, v in run.items() if k not in ("state", "request")})
     if isinstance(result.get("result"), dict) and isinstance(result["result"].get("assistant"), dict):
+        result["result"]["assistant"]["response_parts"] = agent_context.response_parts(result["result"]["assistant"])
         result["result"]["assistant"].pop("evidence", None)
     return result
 
@@ -346,6 +347,8 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
                     checkpoint()
                     continue
         if not calls:
+            if run_id:
+                brain.event(run_id, "response", {"round": state["step"], "content": answer, "intermediate": False})
             state["final_answer"] = answer
             state["final_reasoning"] = reasoning
             checkpoint()
@@ -358,6 +361,8 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
         messages.append(item)
         state["evidence"].append(item)
         checkpoint()
+        if run_id:
+            brain.event(run_id, "response", {"round": state["step"], "content": agent_context.public_text(answer), "intermediate": True})
         execute_calls(calls)
     else:
         checkpoint()

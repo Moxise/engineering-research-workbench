@@ -7,6 +7,31 @@ import math
 import re
 
 
+def public_text(text: str) -> str:
+    """Hide text-protocol control blocks; expose ordinary answers, never reasoning."""
+    def strip_control(match):
+        try:
+            data = json.loads(match.group(1))
+        except (ValueError, TypeError):
+            return match.group(0)
+        return "" if isinstance(data, dict) and "tool" in data and "args" in data else match.group(0)
+    return re.sub(r"```json\s*(\{.*?\})\s*```", strip_control, str(text or ""), flags=re.S).strip()
+
+
+def response_parts(message: dict) -> list[dict]:
+    """Recover public intermediate answers from canonical evidence, including old chats."""
+    parts, round_number = [], 0
+    for item in message.get("evidence") or []:
+        if item.get("role") != "assistant":
+            continue
+        round_number += 1
+        content = public_text(item.get("content"))
+        if content:
+            parts.append({"round": round_number, "content": content})
+    # Public API snapshots may already have dropped the private tool evidence.
+    return parts if message.get("evidence") else list(message.get("response_parts") or [])
+
+
 def estimate_tokens(value) -> int:
     text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     cjk = len(re.findall(r"[\u3400-\u9fff]", text))
