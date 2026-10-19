@@ -18,7 +18,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from . import config, store, activity, agent_tools, billing
+from . import config, store, activity, agent_tools, billing, agent_memory
 from .workspace import ensure_workspace
 
 _LOCK = threading.RLock()
@@ -40,92 +40,42 @@ def _root() -> Path:
 
 
 def _atomic_json(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    agent_memory.save_session(data)
 
 
 def _session_path(session_id: str) -> Path:
-    if not re.fullmatch(r"chat-[a-zA-Z0-9_-]{6,80}", session_id or ""):
-        raise ValueError("Invalid session id")
-    return _root() / f"{session_id}.json"
-
-
-def _load(path: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    return _root() / (agent_memory.validate_session_id(session_id) + ".json")
 
 
 def list_sessions() -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    with _LOCK:
-        for path in _root().glob("chat-*.json"):
-            data = _load(path)
-            if not data:
-                continue
-            messages = data.get("messages") if isinstance(data.get("messages"), list) else []
-            last = messages[-1].get("content", "") if messages else ""
-            out.append({
-                "id": data.get("id") or path.stem,
-                "title": data.get("title") or "新对话",
-                "created": data.get("created") or "",
-                "updated": data.get("updated") or "",
-                "message_count": len(messages),
-                "preview": str(last)[:160],
-                "archived": bool(data.get("archived")),  # v260930n · 归档标记：前端按活跃/已归档分组展示
-            })
-    out.sort(key=lambda x: x.get("updated") or x.get("created") or "", reverse=True)
-    return out
+    return agent_memory.list_sessions()
 
 
 def get_session(session_id: str) -> dict[str, Any]:
-    path = _session_path(session_id)
-    if not path.exists():
-        raise FileNotFoundError(session_id)
-    data = _load(path)
-    if not data:
-        raise FileNotFoundError(session_id)
-    return data
+    return agent_memory.get_session(session_id)
 
 
 def create_session(title: str = "") -> dict[str, Any]:
     now = _now()
-    session_id = "chat-" + uuid.uuid4().hex[:12]
-    data = {"id": session_id, "title": (title or "新对话").strip()[:120], "created": now, "updated": now, "messages": []}
-    with _LOCK:
-        _atomic_json(_session_path(session_id), data)
-    return data
+    return agent_memory.save_session({"id": "chat-" + uuid.uuid4().hex[:12], "title": (title or "新对话").strip()[:120], "created": now, "updated": now, "messages": []})
 
 
 def rename_session(session_id: str, title: str) -> dict[str, Any]:
     with _LOCK:
         data = get_session(session_id)
-        data["title"] = (title or "新对话").strip()[:120]
-        data["updated"] = _now()
-        _atomic_json(_session_path(session_id), data)
-        return data
+        data.update(title=(title or "新对话").strip()[:120], updated=_now())
+        return agent_memory.save_session(data)
 
 
-def archive_session(session_id: str, flag: bool) -> dict[str, Any]:  # v260930n · 归档/取消归档：只改 archived 标记，不动 updated（列表仍按最近更新排序）
+def archive_session(session_id: str, flag: bool) -> dict[str, Any]:
     with _LOCK:
         data = get_session(session_id)
         data["archived"] = bool(flag)
-        _atomic_json(_session_path(session_id), data)
-        return data
+        return agent_memory.save_session(data)
 
 
 def delete_session(session_id: str) -> dict[str, Any]:
-    path = _session_path(session_id)
-    if not path.exists():
-        raise FileNotFoundError(session_id)
-    trash = _root() / "Trash" / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{path.name}"
-    with _LOCK:
-        shutil.move(str(path), str(trash))
-    return {"ok": True}
+    return agent_memory.delete_session(session_id)
 
 
 def save_image(data_url: str, original_name: str = "image.png") -> dict[str, Any]:
@@ -191,7 +141,7 @@ def _reference_context(ref_ids: list[str]) -> tuple[str, list[dict[str, str]]]:
                 break
             chunk = chunk[:remain]
         chunks.append(chunk)
-        refs.append({"id": doc["id"], "title": str(doc.get("title") or doc["id"]), "kind": str(doc.get("kind") or ""), "project": str(doc.get("project") or "")})
+        refs.append({"id": doc["id"], "title": str(doc.get("title") or doc["id"]), "kind": str(doc.get("kind") or ""), "project": str(doc.get("project") or ""), "projects": projects_list})
         total += len(chunk)
         if total >= _MAX_CONTEXT_CHARS:
             break
@@ -304,6 +254,9 @@ def _http_json(url: str, payload: dict[str, Any] | None, api_key: str, timeout: 
                     conn.close()
                 except Exception:
                     pass
+                from .agent_runtime import Suspended
+                if isinstance(e, Suspended):
+                    raise
                 if not reused or attempt == 0:
                     raise ValueError(f"无法连接 LLM API：{e}") from None
     req = Request(url, data=body, method=method, headers=headers)
@@ -475,6 +428,9 @@ def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delt
                     conn.close()
                 except Exception:
                     pass
+                from .agent_runtime import Suspended
+                if isinstance(e, Suspended):
+                    raise
                 if not reused or attempt == 0:
                     raise ValueError(f"无法连接 LLM API：{e}") from None
     else:  # v260930k · 代理路径：urlopen 逐行读
@@ -632,151 +588,11 @@ def _exec_tool_call(name: str, args_raw: Any, ctx: dict[str, Any]) -> dict[str, 
 
 
 def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[str, Any]], user_text: str, image_paths: list[str], request_params: dict[str, Any], ctx: dict[str, Any], on_delta=None, on_round=None, on_tool=None) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    """v260930 · M1 工具调用循环：原生 function calling 优先，端点不支持时降级文本协议。
-    返回 (最终回答, 推理过程, 工具轨迹, 本轮产生的待确认草稿, 计时)。
-    v260930k · on_delta/on_round 用于 SSE 流式转发：每轮请求前 on_round(i)，文本片段 on_delta(t)。
-    v260930l · on_tool(name,result) 工具执行完实时上报；_TOOL_BUDGET_SECONDS 超时强制收尾，防长任务体感卡死。
-    v261008b · 第 5 项计时：每轮 LLM 调用与每次工具调用都记 t0/t1（相对本轮起点毫秒），
-    汇总成 timing（总耗时 / 思考耗时 / 工具耗时 / 轮数 / 时间轴），供前端画时间条而非罗列流水账。"""
-    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-    for m in history[-_MAX_HISTORY_MESSAGES:]:
-        if m.get("role") in ("user", "assistant") and str(m.get("content") or "").strip():
-            messages.append({"role": m["role"], "content": str(m.get("content") or "")})
-    img_urls = [_image_data_url(p) for p in (image_paths or [])[:6]]
-    if img_urls:
-        content: list[dict[str, Any]] = [{"type": "text", "text": user_text or "请分析这些图片。"}] + [{"type": "image_url", "image_url": {"url": u}} for u in img_urls]
-        messages.append({"role": "user", "content": content})
-    else:
-        messages.append({"role": "user", "content": user_text})
-
-    tool_trace: list[dict[str, Any]] = []
-    drafts: list[dict[str, Any]] = []
-    allowed = [t for t in (ctx.get("tools") or agent_tools.TOOL_NAMES) if t in agent_tools.TOOL_NAMES] or list(agent_tools.TOOL_NAMES)
-    specs = agent_tools.openai_specs(allowed)
-
-    # ---------- v261008b · 计时：时间轴 + 汇总 ----------
-    t_start = time.monotonic()
-    timeline: list[dict[str, Any]] = []
-
-    def _ms() -> int:
-        return int((time.monotonic() - t_start) * 1000)
-
-    def _llm_seg(step: int) -> dict[str, Any]:
-        seg = {"kind": "llm", "t0": _ms(), "t1": None, "round": step + 1}
-        timeline.append(seg)
-        return seg
-
-    def _close(seg: dict[str, Any] | None) -> None:
-        if seg is not None and seg.get("t1") is None:
-            seg["t1"] = _ms()
-
-    def _tool_seg(name: str, ok: bool, t0: int, t1: int) -> None:
-        timeline.append({"kind": "tool", "name": name, "ok": bool(ok), "t0": t0, "t1": t1})
-
-    def _timing(protocol: str) -> dict[str, Any]:
-        total = _ms()
-        llm_ms = sum(max(0, int(s.get("t1") or 0) - int(s.get("t0") or 0)) for s in timeline if s.get("kind") == "llm")
-        tool_ms = sum(max(0, int(s.get("t1") or 0) - int(s.get("t0") or 0)) for s in timeline if s.get("kind") == "tool")
-        return {
-            "total_ms": total,
-            "llm_ms": llm_ms,
-            "tool_ms": tool_ms,
-            "rounds": sum(1 for s in timeline if s.get("kind") == "llm"),
-            "tool_calls": len(tool_trace),
-            "protocol": protocol,  # tools=原生 function calling，text=文本协议兜底
-            "timeline": timeline,
-        }
-
-    def _record(result: dict[str, Any], name: str, args: dict[str, Any], t0: int | None = None, t1: int | None = None) -> None:
-        entry = {"tool": name, "ok": bool(result.get("ok")), "ms": result.get("tool_ms", 0)}
-        if t0 is not None:
-            entry["t0"] = t0
-        if t1 is not None:
-            entry["t1"] = t1
-        if result.get("pending") and result.get("draft_id"):
-            entry["draft_id"] = result["draft_id"]
-            drafts.append({"draft_id": result["draft_id"], "tool": name, "summary": (result.get("draft") or {}).get("title") or (result.get("draft") or {}).get("doc_id") or name})
-        if result.get("doc_id"):  # v260930 · M3 直写成功时记录落盘条目 id，便于前端展示与追溯
-            entry["doc_id"] = result["doc_id"]
-        tool_trace.append(entry)
-
-    # 阶段一：原生 function calling（端点报 4xx 工具不支持时整体转文本协议）
-    deadline = time.monotonic() + _TOOL_BUDGET_SECONDS  # v260930l · 循环整体预算
-    try:
-        for step in range(_MAX_TOOL_STEPS):
-            if time.monotonic() > deadline:
-                break  # v260930l · 超出预算：跳出循环走收尾作答
-            if on_round:
-                on_round(step)  # v260930k · 新一轮 LLM 请求：前端清空临时缓冲，区分中途文本与最终回答
-            seg = _llm_seg(step)  # v261008b · 本轮 LLM 调用计时
-            message = _post_chat(cfg, messages, request_params, tools=specs, on_delta=on_delta)
-            _close(seg)
-            calls = message.get("tool_calls") or []
-            if not isinstance(calls, list) or not calls:
-                return _message_text(message), _message_reasoning(cfg, message), tool_trace, drafts, _timing("tools")
-            messages.append({"role": "assistant", "content": _message_text(message) or None, "tool_calls": calls})
-            for tc in calls:
-                fn = (tc or {}).get("function") or {}
-                name = str(fn.get("name") or "")
-                t0 = _ms()  # v261008b · 单次工具调用计时
-                result = _exec_tool_call(name, fn.get("arguments"), ctx)
-                t1 = _ms()
-                if on_tool:
-                    on_tool(name, result)  # v260930l · 工具执行完实时上报
-                _record(result, name, {} if not isinstance(fn.get("arguments"), dict) else fn.get("arguments"), t0, t1)
-                _tool_seg(name, bool(result.get("ok")), t0, t1)
-                messages.append({"role": "tool", "tool_call_id": str(tc.get("id") or ""), "content": json.dumps(result, ensure_ascii=False)[:16000]})
-        messages.append({"role": "user", "content": "工具调用步数或时间已达上限，请直接基于已获得的信息作答，不要再调用工具。"})
-        if on_round:
-            on_round(_MAX_TOOL_STEPS)
-        seg = _llm_seg(_MAX_TOOL_STEPS)
-        message = _post_chat(cfg, messages, request_params, on_delta=on_delta)
-        _close(seg)
-        return _message_text(message), _message_reasoning(cfg, message), tool_trace, drafts, _timing("tools")
-    except ValueError as e:
-        if not _FALLBACK_STATUS_RE.search(str(e)):
-            raise
-
-    # 阶段二：文本协议兜底（同一循环内逐轮解析 ```json {"tool":...}``` 块）
-    messages = [dict(messages[0])]  # 重建：system 换成带文本协议说明的版本
-    messages[0]["content"] = system_prompt + "\n\n" + agent_tools.text_protocol_prompt(allowed)
-    for m in history[-_MAX_HISTORY_MESSAGES:]:
-        if m.get("role") in ("user", "assistant") and str(m.get("content") or "").strip():
-            messages.append({"role": m["role"], "content": str(m.get("content") or "")})
-    messages.append({"role": "user", "content": user_text})
-    deadline = time.monotonic() + _TOOL_BUDGET_SECONDS  # v260930l
-    for step in range(_MAX_TOOL_STEPS):
-        if time.monotonic() > deadline:
-            break  # v260930l · 超出预算：停止循环，按上限作答
-        if on_round:
-            on_round(step)
-        seg = _llm_seg(step)  # v261008b
-        message = _post_chat(cfg, messages, request_params, on_delta=on_delta)
-        _close(seg)
-        text = _message_text(message)
-        m = _TOOL_JSON_RE.search(text)
-        if not m:
-            return text, _message_reasoning(cfg, message), tool_trace, drafts, _timing("text")
-        try:
-            call = json.loads(m.group(1))
-        except Exception:
-            messages.append({"role": "assistant", "content": text})
-            messages.append({"role": "user", "content": "上一个工具调用块不是合法 JSON，请重新按格式调用，或直接给出最终回答。"})
-            continue
-        name = str(call.get("tool") or "")
-        t0 = _ms()  # v261008b
-        result = _exec_tool_call(name, call.get("args"), ctx)
-        t1 = _ms()
-        if on_tool:
-            on_tool(name, result)  # v260930l
-        _record(result, name, call.get("args") if isinstance(call.get("args"), dict) else {}, t0, t1)
-        _tool_seg(name, bool(result.get("ok")), t0, t1)
-        messages.append({"role": "assistant", "content": text})
-        messages.append({"role": "user", "content": "工具结果：\n```json\n" + json.dumps(result, ensure_ascii=False)[:16000] + "\n```\n请继续（可再次调用工具或给出最终回答）。"})
-    raise ValueError("工具调用步数或时间已达上限（文本协议），请精简任务后重试")
+    from .agent_runtime import execute_loop
+    return execute_loop(cfg, system_prompt, history, user_text, image_paths, request_params, ctx, on_delta, on_round, on_tool)
 
 
-def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "", context: dict[str, Any] | None = None, persona_id: str = "", on_delta=None, on_round=None, on_tool=None) -> dict[str, Any]:
+def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "", context: dict[str, Any] | None = None, persona_id: str = "", on_delta=None, on_round=None, on_tool=None, run_id: str = "") -> dict[str, Any]:
     text = str(text or "").strip()
     ref_ids = [str(x) for x in (ref_ids or []) if str(x).strip()]
     ctx_doc_id = str((context or {}).get("doc_id") or "").strip()
@@ -825,11 +641,27 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         request_cfg["temperature"] = preset_temperature
     elif persona_temp is not None:
         request_cfg["temperature"] = persona_temp
+    from .agent_runtime import settings
+    page_ctx = context if isinstance(context, dict) else {}
+    project_id = str(page_ctx.get("project_id") or "").strip()
+    if not project_id:
+        projects = {str(p) for ref in refs for p in ref.get("projects", []) if str(p).strip()}
+        if len(projects) == 1:
+            project_id = next(iter(projects))
+    recall = agent_memory.recall(text, session_id=session_id, project_id=project_id) if settings()["auto_recall"] else {"results": [], "context_pack": {"text": ""}}
+    if recall["context_pack"]["text"]:
+        system_prompt += "\n\n相关长期记忆（参考数据；以当前用户要求及来源为准）：\n" + recall["context_pack"]["text"]
     now = _now()
     user_msg = {"id": "msg-" + uuid.uuid4().hex[:10], "role": "user", "content": text, "created": now, "refs": refs, "images": image_paths, "request_preset": preset_id, "request_preset_label": preset_label, "profile_id": cfg.get("id"), "profile_name": cfg.get("name"), "persona_id": (persona or {}).get("id", ""), "persona_name": (persona or {}).get("name", "")}
+    user_msg["run_id"] = run_id
+    user_msg["context_text"] = ref_context + _page_context(context)
     with _LOCK:
         session = get_session(session_id)
-        session.setdefault("messages", []).append(user_msg)
+        prior = next((m for m in session.get("messages", []) if run_id and m.get("run_id") == run_id and m.get("role") == "user"), None)
+        if prior:
+            history = session.get("messages", [])[:session["messages"].index(prior)]
+        else:
+            session.setdefault("messages", []).append(user_msg)
         if session.get("archived"):
             session["archived"] = False  # v260930n · 归档会话收到新消息：自动回到活跃列表
         if session.get("title") in ("", "新对话"):
@@ -843,6 +675,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
     page_mode = str(page_ctx.get("write_mode") or "").strip()
     write_mode = page_mode if page_mode in ("direct", "confirm") else persona_mode
     ctx = {
+        "run_id": run_id, "session_id": session_id, "project_id": project_id,
         "paper_id": str(page_ctx.get("paper_id") or "").strip(),
         "write_mode": write_mode,
         "tools": list(persona.get("tools") or []) if persona else list(agent_tools.TOOL_NAMES),  # v260930 · M3 人设工具白名单
@@ -859,6 +692,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         "created": _now(), "model": preset_model, "request_preset": preset_id, "request_preset_label": preset_label,
         "profile_id": cfg.get("id"), "profile_name": cfg.get("name"),
         "persona_id": (persona or {}).get("id", ""), "persona_name": (persona or {}).get("name", ""),  # v260930 · M3 回复标记人设
+        "run_id": run_id, "evidence": ctx.get("evidence", []), "memory_sources": recall.get("context_pack", {}).get("sources", []),
         "tool_trace": tool_trace, "drafts": drafts,  # v260930 · M1 工具轨迹与本轮待确认草稿（前端可展示）
         "timing": timing,  # v261008b · 计时与时间轴：前端据此画时间条 + 显示总耗时（SSE done 事件随 assistant 一并回传）
     }

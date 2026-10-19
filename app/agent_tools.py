@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import threading
 import time
@@ -48,7 +49,7 @@ def _draft_path(draft_id: str) -> Path:
     return _drafts_root() / f"{draft_id}.json"
 
 
-def save_draft(tool: str, args: dict[str, Any]) -> dict[str, Any]:
+def save_draft(tool: str, args: dict[str, Any], ctx: dict | None = None) -> dict[str, Any]:
     draft = {
         "id": "draft-" + uuid.uuid4().hex[:10],
         "tool": tool,
@@ -56,10 +57,13 @@ def save_draft(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         "status": "pending",
         "created": datetime.now().isoformat(timespec="seconds"),
         "result": None,
+        "context": {k: v for k, v in (ctx or {}).items() if k in ("session_id", "project_id", "run_id", "tools")},
     }
     with _LOCK:
         path = _draft_path(draft["id"])
-        path.write_text(json.dumps(draft, ensure_ascii=False, indent=2), encoding="utf-8")
+        from . import agent_memory
+        agent_memory.atomic_json(path, draft)
+        agent_memory.save_draft(draft)
     return draft
 
 
@@ -95,18 +99,30 @@ def _finish_draft(draft_id: str, status: str, result: Any) -> dict[str, Any]:
         d["status"] = status
         d["result"] = result
         d["updated"] = datetime.now().isoformat(timespec="seconds")
-        _draft_path(draft_id).write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+        from . import agent_memory
+        agent_memory.atomic_json(_draft_path(draft_id), d)
+        agent_memory.save_draft(d)
         return d
 
 
 def confirm_draft(draft_id: str) -> dict[str, Any]:
     """用户确认草稿 → 以 direct 模式真正执行写操作。"""
-    with _LOCK:
+    from .sync_engine import mutation_lock
+    with mutation_lock, _LOCK:
         d = _load_draft(draft_id)
-    if d.get("status") != "pending":
-        raise ValueError(f"草稿 {draft_id} 已处理（{d.get('status')}）")
-    result = execute(str(d.get("tool")), d.get("args") or {}, {"write_mode": "direct"})
-    return _finish_draft(draft_id, "confirmed" if result.get("ok") else "failed", result)
+        if d.get("status") != "pending":
+            raise ValueError(f"草稿 {draft_id} 已处理（{d.get('status')}）")
+        # Persist reservation before side effects; a crash leaves an explicit
+        # uncertain state rather than permitting an automatic duplicate write.
+        from . import agent_memory
+        d["status"] = "executing"
+        agent_memory.atomic_json(_draft_path(draft_id), d)
+        agent_memory.save_draft(d)
+        result = execute(str(d.get("tool")), d.get("args") or {}, {**d.get("context", {}), "write_mode": "direct", "confirmed": True})
+        d.update(status="confirmed" if result.get("ok") else "failed", result=result, updated=datetime.now().isoformat(timespec="seconds"))
+        agent_memory.atomic_json(_draft_path(draft_id), d)
+        agent_memory.save_draft(d)
+        return d
 
 
 def reject_draft(draft_id: str) -> dict[str, Any]:
@@ -136,8 +152,13 @@ def _t_kb_read(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("doc_id 不能为空")
     from . import indexer
     doc = indexer.get_doc(doc_id)
+    body = str(doc.get("body") or "")
+    offset = max(0, int(args.get("offset") or 0))
+    limit = max(1, min(int(args.get("limit") or _MAX_BODY_CHARS), 24000))
     return {"id": doc["id"], "title": doc.get("title"), "kind": doc.get("kind"),
-            "projects": doc.get("projects") or [], "body": _clip(doc.get("body"), _MAX_BODY_CHARS)}
+            "projects": doc.get("projects") or [], "body": body[offset:offset + limit],
+            "version": hashlib.sha256(body.encode()).hexdigest(), "total_chars": len(body),
+            "next_offset": offset + limit if offset + limit < len(body) else None}
 
 
 def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
@@ -168,7 +189,7 @@ def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
     if ctx.get("write_mode") == "direct":
         doc = indexer.create_doc(kind, payload)
         return {"ok": True, "doc_id": doc["id"], "title": doc.get("title"), "validation": validation}
-    draft = save_draft("kb_create_entry", {"kind": kind, **payload})
+    draft = save_draft("kb_create_entry", {"kind": kind, **payload}, ctx)
     return {"pending": True, "draft_id": draft["id"], "message": "建档草稿已生成，等待用户确认后写入知识库",
             "draft": {"tool": "kb_create_entry", "kind": kind, "title": title}, "validation": validation}
 
@@ -179,17 +200,28 @@ def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
         raise ValueError("doc_id 不能为空")
     from . import indexer
     doc = indexer.get_doc(doc_id)
+    original = str(doc.get("body") or "")
+    version = hashlib.sha256(original.encode()).hexdigest()
+    expected = str(args.get("expected_version") or "")
+    if expected and expected != version:
+        return {"ok": False, "conflict": True, "error": "条目已变化，请重新 kb_read 后生成更新", "version": version}
     body = str(args.get("body") or "")
     append = bool(args.get("append"))
+    if ctx.get("write_mode") == "direct" and not append and not expected:
+        return {"ok": False, "error": "整体覆盖需要 kb_read 返回的 expected_version；也可使用 append=true"}
     if append:
         body = str(doc.get("body") or "").rstrip() + "\n\n" + body.strip() + "\n"
         args = {**args, "body": body, "append": False}
-    if not body.strip():
+    if not body.strip() and not ctx.get("allow_empty_restore"):
         raise ValueError("body 不能为空（注意：更新为整体覆盖，须发送全文）")
     if ctx.get("write_mode") == "direct":
+        from . import agent_memory
+        revision_id = "rev-" + uuid.uuid4().hex
+        revision = {"id": revision_id, "doc_id": doc_id, "before": original, "after_version": hashlib.sha256(body.encode()).hexdigest(), "created": agent_memory.now()}
+        agent_memory.atomic_json(agent_memory.root() / "Revisions" / (revision_id + ".json"), revision)
         updated = indexer.update_doc(doc_id, {"body": body})
-        return {"ok": True, "doc_id": doc_id, "title": updated.get("title"), "updated": updated.get("updated")}
-    draft = save_draft("kb_update_entry", args)
+        return {"ok": True, "doc_id": doc_id, "title": updated.get("title"), "updated": updated.get("updated"), "revision_id": revision_id}
+    draft = save_draft("kb_update_entry", {**args, "expected_version": version}, ctx)
     return {"pending": True, "draft_id": draft["id"], "message": "更新草稿已生成，等待用户确认后写入（覆盖正文）",
             "draft": {"tool": "kb_update_entry", "doc_id": doc_id, "title": doc.get("title"), "append": append}}
 
@@ -201,12 +233,15 @@ def _t_lit_context(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("paper_id 不能为空（未提供且当前上下文无文献）")
     item = literature.get_item(paper_id)
     try:
-        note = _clip(literature.get_note(paper_id), _MAX_BODY_CHARS)
+        full_note = str(literature.get_note(paper_id) or "")
     except Exception:
-        note = ""
+        full_note = ""
+    offset = max(0, int(args.get("note_offset") or 0))
+    note = full_note[offset:offset + _MAX_BODY_CHARS]
     anns = literature.get_annotations(paper_id)
     return {"paper": {k: item.get(k) for k in ("id", "title", "authors", "year", "venue", "doi", "reading_status", "tags")},
-            "annotation_count": len(anns), "note": note}
+            "annotation_count": len(anns), "note": note, "note_version": hashlib.sha256(full_note.encode()).hexdigest(),
+            "note_total_chars": len(full_note), "note_next_offset": offset + _MAX_BODY_CHARS if offset + _MAX_BODY_CHARS < len(full_note) else None}
 
 
 def _t_lit_note_write(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
@@ -221,14 +256,44 @@ def _t_lit_note_write(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, An
     if mode not in ("append", "replace"):
         raise ValueError("mode 须为 append 或 replace")
     item = literature.get_item(paper_id)  # 校验条目存在（含 doc_id 关联）
+    cur = str(literature.get_note(paper_id) or "")
+    version = hashlib.sha256(cur.encode()).hexdigest()
+    expected = str(args.get("expected_version") or "")
+    if mode == "replace" and expected and expected != version:
+        return {"ok": False, "conflict": True, "error": "文献笔记已变化，请重新 lit_context 后更新", "version": version}
     if ctx.get("write_mode") == "direct":
-        cur = str(literature.get_note(paper_id) or "")
+        if mode == "replace" and not expected:
+            return {"ok": False, "error": "替换笔记需要 lit_context 返回的 expected_version"}
         next_body = content if mode == "replace" else (cur.rstrip() + "\n\n" + content + "\n" if cur.strip() else content + "\n")
+        from . import agent_memory
+        rid = "rev-" + uuid.uuid4().hex
+        agent_memory.atomic_json(agent_memory.root() / "Revisions" / (rid + ".json"), {"id": rid, "type": "literature", "paper_id": paper_id, "before": cur, "after_version": hashlib.sha256(next_body.encode()).hexdigest(), "created": agent_memory.now()})
         literature.save_note(paper_id, next_body)
-        return {"ok": True, "paper_id": paper_id, "title": item.get("title"), "mode": mode}
-    draft = save_draft("lit_note_write", {"paper_id": paper_id, "content": content, "mode": mode})
+        return {"ok": True, "paper_id": paper_id, "title": item.get("title"), "mode": mode, "revision_id": rid}
+    draft = save_draft("lit_note_write", {"paper_id": paper_id, "content": content, "mode": mode, "expected_version": version}, ctx)
     return {"pending": True, "draft_id": draft["id"], "message": "文献笔记写入草稿已生成，等待用户确认",
             "draft": {"tool": "lit_note_write", "paper_id": paper_id, "title": item.get("title"), "mode": mode}}
+
+
+def _t_rollback(args, ctx):
+    from . import agent_memory, indexer
+    rid = str(args.get("revision_id") or "")
+    if not re.fullmatch(r"rev-[a-f0-9]{32}", rid):
+        raise ValueError("无效修订 id")
+    item = json.loads((agent_memory.root() / "Revisions" / (rid + ".json")).read_text(encoding="utf-8"))
+    if item.get("type") == "literature":
+        if not str(item["before"]).strip():
+            from . import literature
+            current = str(literature.get_note(item["paper_id"]) or "")
+            if hashlib.sha256(current.encode()).hexdigest() != item["after_version"]:
+                return {"ok": False, "conflict": True, "error": "文献笔记已变化，无法恢复"}
+            if ctx.get("write_mode") != "direct":
+                draft = save_draft("kb_rollback", args, ctx)
+                return {"pending": True, "draft_id": draft["id"]}
+            literature.save_note(item["paper_id"], "")
+            return {"ok": True, "paper_id": item["paper_id"]}
+        return _t_lit_note_write({"paper_id": item["paper_id"], "content": item["before"], "mode": "replace", "expected_version": item["after_version"]}, ctx)
+    return _t_kb_update_entry({"doc_id": item["doc_id"], "body": item["before"], "expected_version": item["after_version"]}, {**ctx, "allow_empty_restore": True})
 
 
 _TOOL_IMPL: dict[str, Callable[[dict, dict], dict]] = {
@@ -240,6 +305,11 @@ _TOOL_IMPL: dict[str, Callable[[dict, dict], dict]] = {
     "lit_note_write": _t_lit_note_write,
 }
 
+# Research module only imports workspace/memory lazily, preserving config's
+# initialization order (config -> agent_tools -> store).
+from . import agent_research
+_TOOL_IMPL.update({name: (lambda args, ctx, n=name: agent_research.execute(n, args, ctx)) for name in agent_research.META})
+_TOOL_IMPL["kb_rollback"] = _t_rollback
 TOOL_NAMES = tuple(_TOOL_IMPL)
 
 # ---------- 工具规格（OpenAI function calling） ----------
@@ -262,6 +332,8 @@ _TOOL_META: dict[str, dict[str, Any]] = {
         "description": "按 doc_id 读取一个知识库条目的完整正文。",
         "params": {"type": "object", "properties": {
             "doc_id": {"type": "string", "description": "条目 id，如 note-20260924162227-5c3cbd"},
+            "offset": {"type": "integer", "description": "正文字符偏移，用于完整分页读取"},
+            "limit": {"type": "integer", "description": "每页字符数，最大 24000"},
         }, "required": ["doc_id"]},
         "write": False,
     },
@@ -283,6 +355,7 @@ _TOOL_META: dict[str, dict[str, Any]] = {
             "doc_id": {"type": "string"},
             "body": {"type": "string", "description": "append=false 时为覆盖全文；append=true 时为要追加的片段"},
             "append": {"type": "boolean", "description": "true=在原正文末尾追加，默认 false 覆盖"},
+            "expected_version": {"type": "string", "description": "kb_read 的 version；整体覆盖时必须提供，防止覆盖并发修改"},
         }, "required": ["doc_id", "body"]},
         "write": True,
     },
@@ -290,6 +363,7 @@ _TOOL_META: dict[str, dict[str, Any]] = {
         "description": "读取一篇文献的上下文：元数据（题名/作者/年份/DOI/状态）、现有笔记全文、批注数量。阅读中问答与写笔记前应先调用。",
         "params": {"type": "object", "properties": {
             "paper_id": {"type": "string", "description": "文献 id；当前上下文有文献时可省略"},
+            "note_offset": {"type": "integer", "description": "笔记正文字符偏移，用于完整分页读取"},
         }},
         "write": False,
     },
@@ -299,20 +373,26 @@ _TOOL_META: dict[str, dict[str, Any]] = {
             "paper_id": {"type": "string", "description": "文献 id；当前上下文有文献时可省略"},
             "content": {"type": "string", "description": "Markdown 内容"},
             "mode": {"type": "string", "enum": ["append", "replace"]},
+            "expected_version": {"type": "string", "description": "替换笔记时必须提供 lit_context 返回的 note_version"},
         }, "required": ["content"]},
         "write": True,
     },
 }
 
+_TOOL_META.update(agent_research.META)
+_TOOL_META["kb_rollback"] = agent_research.meta("恢复一次知识条目更新前的内容；有版本冲突时拒绝，支持草稿确认。", {"revision_id": {"type": "string"}}, ["revision_id"], True)
+
 
 def openai_specs(allowed: list[str] | tuple[str, ...] | None = None) -> list[dict[str, Any]]:
-    names = [n for n in (allowed or TOOL_NAMES) if n in _TOOL_META]
-    return [{"type": "function", "function": {"name": n, "description": _TOOL_META[n]["description"], "parameters": _TOOL_META[n]["params"]}} for n in names]
+    from . import agent_mcp
+    names = [n for n in (TOOL_NAMES if allowed is None else allowed) if n in _TOOL_META]
+    specs = [{"type": "function", "function": {"name": n, "description": _TOOL_META[n]["description"], "parameters": _TOOL_META[n]["params"]}} for n in names]
+    return specs + [s for s in agent_mcp.specs() if allowed is None or s["function"]["name"] in allowed]
 
 
 def text_protocol_prompt(allowed: list[str] | tuple[str, ...] | None = None) -> str:
     """文本协议兜底：端点不支持 function calling 时，让模型用固定 JSON 块调用工具。"""
-    names = [n for n in (allowed or TOOL_NAMES) if n in _TOOL_META]
+    names = [n for n in (TOOL_NAMES if allowed is None else allowed) if n in _TOOL_META]
     lines = ["你可以调用以下工具（当接口不支持原生函数调用时使用文本协议）："]
     for n in names:
         lines.append(f"- {n}: {_TOOL_META[n]['description']}")
@@ -330,7 +410,8 @@ def is_write_tool(name: str) -> bool:
 
 def list_tool_meta() -> list[dict[str, Any]]:
     """GET /api/agent/tools · 工具元信息清单（供前端展示与人设白名单编辑）。"""
-    return [{"name": n, "description": m["description"], "params": m["params"], "write": m["write"]} for n, m in _TOOL_META.items()]
+    from . import agent_mcp
+    return [{"name": n, "description": m["description"], "params": m["params"], "write": m["write"]} for n, m in _TOOL_META.items()] + [{"name": s["function"]["name"], "description": s["function"]["description"], "params": s["function"]["parameters"], "write": agent_mcp.is_write(s["function"]["name"])} for s in agent_mcp.specs()]
 
 
 def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -342,14 +423,41 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
     if ctx["write_mode"] not in WRITE_MODES:
         ctx["write_mode"] = "confirm"
     impl = _TOOL_IMPL.get(name)
+    if name.startswith("mcp_"):
+        from . import agent_mcp
+        impl = lambda a, c: agent_mcp.execute(name, a)
     if impl is None:
         return {"ok": False, "error": f"未知工具 {name}，可用：{'、'.join(TOOL_NAMES)}"}
     allowed = ctx.get("tools")
-    if isinstance(allowed, (list, tuple)) and allowed and name not in allowed:  # v260930 · M3 人设白名单：不在名单内直接拒绝
+    if isinstance(allowed, (list, tuple)) and name not in allowed:
         return {"ok": False, "error": f"当前人设未授权工具 {name}，可用：{'、'.join(str(t) for t in allowed)}"}
     t0 = time.time()
     try:
-        result = impl(args, ctx) or {}
+        # Central schema validation also covers model endpoints without strict
+        # function calling; type errors become repairable tool results.
+        meta = _TOOL_META.get(name)
+        if meta:
+            for key in meta["params"].get("required", []):
+                if key not in args:
+                    raise ValueError(f"缺少必填参数 {key}")
+            for key, value in args.items():
+                rule = meta["params"].get("properties", {}).get(key, {})
+                expected = rule.get("type")
+                types = {"string": str, "integer": int, "number": (int, float), "array": list, "object": dict, "boolean": bool}
+                if expected in types and (not isinstance(value, types[expected]) or (expected in ("integer", "number") and isinstance(value, bool))):
+                    raise ValueError(f"参数 {key} 需要 {expected}")
+                if "enum" in rule and value not in rule["enum"]:
+                    raise ValueError(f"参数 {key} 不在允许值中")
+        write = is_write_tool(name) if meta else agent_mcp.is_write(name)
+        if write and ctx["write_mode"] != "direct" and (name in agent_research.META or name.startswith("mcp_") or name == "kb_rollback"):
+            draft = save_draft(name, args, ctx)
+            return {"ok": True, "pending": True, "draft_id": draft["id"], "draft": {"title": str(args.get("content") or name)[:80]}, "message": "等待确认后执行"}
+        if write:
+            from .sync_engine import mutation_lock
+            with mutation_lock:
+                result = impl(args, ctx) or {}
+        else:
+            result = impl(args, ctx) or {}
     except FileNotFoundError as e:
         return {"ok": False, "error": f"目标不存在：{e}"}
     except Exception as e:

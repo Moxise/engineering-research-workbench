@@ -22,6 +22,7 @@ from app import weather
 from app import workspace
 from app import agent
 from app import agent_tools  # v260930 · M1 Agent 工具调用层
+from app import agent_memory, agent_runtime, agent_skills, agent_mcp
 from app import projects
 from app import indexer
 from app.paths import ASSET_ROOT, DATA_ROOT
@@ -137,8 +138,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_agent_stream(self, payload):  # v260930k · 方案 A：Agent 对话 SSE 流式端点。
-        """事件序列：round(新一轮 LLM 请求) → delta*(文本片段) → ... → done(完整响应,与旧 JSON 同构) / error。
-        长回答的等待被拆成「相邻片段之间 ≤timeout」，不再出现整段 120s 超时。"""
+        """Replay durable background events using the existing chat SSE contract.
+        A disconnected viewer leaves the job running; cancellation is explicit.
+        """
+        run = agent_runtime.submit(payload)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -151,19 +154,28 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-                raise  # v260930k · 客户端断开：让 send_message 中止写出（会话已落盘部分不受影响）
+                raise  # The background job continues after this viewer disconnects.
 
         try:
-            result = agent.send_message(
-                str(payload.get("session_id") or ""), str(payload.get("message") or ""),
-                payload.get("refs") or [], payload.get("images") or [], str(payload.get("request_preset") or ""),
-                payload.get("context") if isinstance(payload.get("context"), dict) else None,
-                str(payload.get("persona_id") or ""),
-                on_delta=lambda t: emit("delta", {"text": t}),
-                on_round=lambda i: emit("round", {"i": i}),
-                on_tool=lambda name, r: emit("tool", {"name": name, "ok": bool(r.get("ok")), "ms": r.get("tool_ms", 0), "pending": bool(r.get("pending")), "doc_id": r.get("doc_id") or ""}),  # v260930l · 工具进度实时可见
-            )
-            emit("done", {"ok": True, "assistant": result.get("assistant")})  # v260930m · 负载瘦身：只回 assistant，不再附带全量 session（前端未用，300KB+ 单行 JSON）
+            emit("run", {"run_id": run["id"], "session_id": run["session_id"]})
+            cursor = 0
+            heartbeat = time.monotonic()
+            while True:
+                batch = agent_memory.events(run["id"], cursor)
+                for item in batch:
+                    cursor = item["seq"]
+                    if item["event"] in ("round", "delta", "tool", "done", "error", "plan", "status", "compaction"):
+                        emit(item["event"], item["data"])
+                current = agent_memory.get_run(run["id"])
+                if current["status"] in agent_runtime.TERMINAL and not batch:
+                    if current["status"] in ("paused", "cancelled", "interrupted"):
+                        emit("error", {"message": "任务已暂停或停止，可在任务中心查看并继续", "run_id": run["id"]})
+                    break
+                if time.monotonic() - heartbeat > 10:
+                    self.wfile.write(b": heartbeat\n\n")
+                    self.wfile.flush()
+                    heartbeat = time.monotonic()
+                time.sleep(.1)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass  # 客户端已断开：无需再写
         except Exception as e:
@@ -400,6 +412,23 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/literature/"):
             paper_id = unquote(path.split("/api/literature/",1)[1])
             return self.send_json(literature.get_item(paper_id))
+        if path == "/api/agent/system":
+            agent_runtime.recover()
+            return self.send_json({"settings": agent_runtime.settings(), "brain": agent_memory.statistics(), "skills": agent_skills.discover()})
+        if path == "/api/agent/skills":
+            return self.send_json(agent_skills.discover())
+        if path == "/api/agent/memories":
+            return self.send_json(agent_memory.list_memories(session_id=str((q.get("session_id") or [""])[0]), project_id=str((q.get("project_id") or [""])[0]), include_inactive=str((q.get("all") or [""])[0]) == "1"))
+        if path == "/api/agent/memory/graph":
+            return self.send_json(agent_memory.graph_data(session_id=str((q.get("session_id") or [""])[0]), project_id=str((q.get("project_id") or [""])[0])))
+        if path == "/api/agent/runs":
+            agent_runtime.recover()
+            return self.send_json([agent_runtime.public_run(r) for r in agent_memory.list_runs(str((q.get("session_id") or [""])[0]))])
+        if path.startswith("/api/agent/runs/"):
+            tail = path.split("/api/agent/runs/", 1)[1]
+            if tail.endswith("/events"):
+                return self.send_json(agent_memory.events(tail[:-len("/events")], _q_int(q, "after", 0, 0, 1000000000)))
+            return self.send_json(agent_runtime.public_run(agent_memory.get_run(tail)))
         if path == "/api/agent/sessions":
             return self.send_json(agent.list_sessions())
         if path.startswith("/api/agent/sessions/"):
@@ -558,6 +587,33 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/literature/"):
             paper_id = unquote(path.split("/api/literature/",1)[1])
             return self.send_json(literature.update_item(paper_id, payload))
+        if path == "/api/agent/settings":
+            return self.send_json(agent_runtime.save_settings(payload))
+        if path == "/api/agent/skills/install":
+            return self.send_json(agent_skills.install(str(payload.get("name") or ""), str(payload.get("content") or "")), 201)
+        if path == "/api/agent/skills/read":
+            return self.send_json(agent_skills.read(str(payload.get("name") or ""), str(payload.get("path") or "SKILL.md")))
+        if path == "/api/agent/mcp/refresh":
+            return self.send_json(agent_mcp.discover())
+        if path == "/api/agent/memory/remember":
+            allowed = {k: payload[k] for k in ("scope", "scope_id", "namespace", "kind", "importance", "ttl_seconds", "memory_key", "supersedes", "entities", "relations", "embedding") if k in payload}
+            return self.send_json(agent_memory.remember(str(payload.get("content") or ""), source=payload.get("source") or {"type": "user"}, **allowed), 201)
+        if path == "/api/agent/memory/recall":
+            allowed = {k: payload[k] for k in ("namespace", "session_id", "project_id", "limit", "max_chars", "query_embedding", "graph") if k in payload}
+            return self.send_json(agent_memory.recall(str(payload.get("query") or ""), **allowed))
+        if path == "/api/agent/memory/forget":
+            return self.send_json(agent_memory.forget(str(payload.get("id") or "")))
+        if path == "/api/agent/backup":
+            destination = agent_memory.root() / "Backups" / ("brain-" + time.strftime("%Y%m%d-%H%M%S") + ".sqlite")
+            agent_memory.backup(destination)
+            relative = destination.relative_to(workspace.ensure_workspace()).as_posix()
+            return self.send_json({"ok": True, "path": relative, "url": "/workspace-file/" + relative})
+        if path == "/api/agent/runs":
+            return self.send_json(agent_runtime.submit(payload), 202)
+        if path.startswith("/api/agent/runs/"):
+            tail = path.split("/api/agent/runs/", 1)[1]
+            run_id, _, action = tail.partition("/")
+            return self.send_json(agent_runtime.control(run_id, action))
         if path == "/api/agent/sessions":
             return self.send_json(agent.create_session(str(payload.get("title") or "")), 201)
         if path == "/api/agent/session/rename":

@@ -191,7 +191,9 @@ class IndexArchitectureTests(unittest.TestCase):
         result = agent_tools._t_kb_create_entry({"kind": "note", "title": "知识-方法-稀疏重构", "body": "agentunique"}, {"write_mode": "direct"})
         self.assertTrue(result["ok"], result)
         self.assertEqual(indexer.search_docs("agentunique")[0]["id"], result["doc_id"])
-        agent_tools._t_kb_update_entry({"doc_id": result["doc_id"], "body": "agentupdated"}, {"write_mode": "direct"})
+        read = agent_tools._t_kb_read({"doc_id": result["doc_id"]}, {})
+        update = agent_tools._t_kb_update_entry({"doc_id": result["doc_id"], "body": "agentupdated", "expected_version": read["version"]}, {"write_mode": "direct"})
+        self.assertTrue(update["ok"], update)
         self.assertTrue(indexer.search_docs("agentupdated"))
 
     def test_literature_batch_uses_index_metadata_without_reading_bodies(self):

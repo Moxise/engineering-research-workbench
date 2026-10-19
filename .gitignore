@@ -31,6 +31,7 @@
 # ==========================================================
 
 !app/**/*.py
+!app/skills/**/*.md
 !tools/**/*.py
 
 # 清理入口的一键包装（双击即用），其余 .bat 仍不发布
@@ -42,6 +43,7 @@
 !web/favicon.png
 !web/workbench-mark.svg
 !tools/ui_usability_check.js
+!tools/agent_system_ui_check.js
 
 # ==========================================================
 # 文档

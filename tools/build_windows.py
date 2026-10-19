@@ -32,6 +32,7 @@ def main() -> None:
         "--name", args.name, "--distpath", str(ROOT), "--specpath", str(build),
         "--workpath", str(build / "pyinstaller"), "--icon", str(icon),
         "--add-data", f"{ROOT / 'web'};web", "--add-data", f"{ROOT / 'VERSION'};.",
+        "--add-data", f"{ROOT / 'app' / 'skills'};app/skills", "--hidden-import", "pypdf",
         "--add-data", f"{icon};.", str(ROOT / "client.py"),
     ], cwd=ROOT, check=True)
     executable = ROOT / (args.name + ".exe")

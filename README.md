@@ -304,7 +304,9 @@ Workspace/Knowledge/Exports/KnowledgeBundles/
 
 ## 🤖 科研 Agent
 
-Agent 是工作台中的本地会话层，用于把外部 LLM 与本地研究资料连接起来。
+Agent 通过本地持久化任务运行器，把外部 LLM、研究资料、Skill 和长期记忆连接起来。
+
+Agent 页面与悬浮助手中的 **Agent 系统** 提供任务启动、暂停、恢复、草稿审批、记忆管理、技能安装、MCP 连接及一致性备份。数据层参考 [CortexDB](https://github.com/liliang-cn/cortexdb) 的 scoped memory、来源关系和 ContextPack 设计，用 Python + SQLite 实现；旧会话会自动迁移，研究 Markdown 和 PDF 保留原有存储方式。使用说明、依赖、数据迁移和能力边界见 [Agent 系统文档](docs/AGENT_SYSTEM.md)。
 
 ### Agent 能做什么
 
@@ -317,7 +319,12 @@ Agent 是工作台中的本地会话层，用于把外部 LLM 与本地研究资
 - Markdown / LaTeX / Mermaid 回复渲染；
 - 手动引用研究资料；
 - OpenAI-compatible Chat Completions；
-- OpenAI Responses API；
+- 原生工具调用及文本协议回退；
+- 标准 `SKILL.md` 发现、显式激活与资源按需加载；
+- 带来源的长期记忆、中文全文检索与关系扩展；
+- 后台任务检查点、断线继续、审批后续跑；
+- 按页读取 PDF、Crossref 文献检索与公开网页读取；
+- 可选的 Docker 隔离 Python 执行与 Streamable HTTP MCP；
 - 每轮动态选择请求模式；
 - 显示模型请求等待状态与耗时；
 - 可选显示兼容接口返回的 reasoning 内容。
@@ -354,13 +361,13 @@ Agent 不会默认把整个 Workspace 发给模型。
 - 工作总结；
 - 文献。
 
-只有：
+本轮会先加入：
 
 1. 当前用户消息；
 2. 当前附加图片；
 3. 用户本轮明确选择的 Markdown；
 
-会作为额外上下文发送给配置的 LLM 服务。
+作为额外上下文发送给配置的 LLM 服务。启用相应工具的人设还可以主动检索、读取研究资料，并自动召回当前作用域中的长期记忆；调用轨迹和来源可在 Agent 系统中查看。
 
 这使 Agent 更接近：
 

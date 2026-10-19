@@ -149,7 +149,7 @@ function mount(){
   };
   q("#fab-new").onclick=async()=>{try{const s=await api("/api/agent/sessions",{method:"POST",body:{}});S.session=s.id;S.messages=[];S.draftState={};S.view="chat";paintView();paintContext();toastInPanel("已新建对话")}catch(e){toastInPanel(e.message,true)}};
   q("#fab-send").onclick=()=>{ /* v260930l · 发送中再点=停止生成（abort 流式请求，后端随之中止） */
-    if(S.sending){S.abortCtl?.abort();return}
+    if(S.sending){if(S.runId){api('/api/agent/runs/'+S.runId+'/cancel',{method:'POST',body:{}}).catch(e=>toastInPanel(e.message,true));S.abortCtl?.abort()}else{S.stopRequested=true}return}
     send();
   };
   const input=q("#fab-input");
@@ -1035,7 +1035,10 @@ async function send(){
     };
     const handle=(ev,dataStr)=>{
       let data={};try{data=JSON.parse(dataStr)}catch{}
-      if(ev==="delta"){
+      if(ev==="run"){
+        S.runId=data.run_id;localStorage.setItem('agentLastRun',data.run_id);
+        if(S.stopRequested){api('/api/agent/runs/'+S.runId+'/cancel',{method:'POST',body:{}}).catch(e=>toastInPanel(e.message,true));S.abortCtl?.abort()}
+      }else if(ev==="delta"){
         if(streamMsg.__thinking){streamMsg.__thinking=false;streamMsg.__streaming=true;renderMessages()}
         openLlm(); /* v261008b · 首个 delta 前若还没开思考段（极少数时序）也补上 */
         streamMsg.content+=data.text||"";
@@ -1080,7 +1083,7 @@ async function send(){
     S.messages.push({role:"assistant",content:aborted?"已停止生成。本轮任务可能已部分执行（以知识库草稿与会话记录为准），可继续追问或换个小任务分步做。":"请求失败："+e.message,created:new Date().toISOString()});
     renderMessages();
   }finally{
-    S.sending=false;btn.textContent="发送";btn.title="";btn.classList.remove("stop");S.abortCtl=null; /* v260930l · 按钮恢复 */
+    S.sending=false;btn.textContent="发送";btn.title="";btn.classList.remove("stop");S.abortCtl=null;S.runId=null;S.stopRequested=false;
     if(S.messages.at(-1)?.__thinking||S.messages.at(-1)?.__streaming){S.messages=S.messages.filter(m=>!m.__thinking&&!m.__streaming);renderMessages()}
   }
 }
