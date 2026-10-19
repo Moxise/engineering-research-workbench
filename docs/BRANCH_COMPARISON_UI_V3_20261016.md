@@ -153,3 +153,63 @@
 - **发现一处窄屏样式回归**：`web/styles.css:264` 的媒体查询将远端 `.agent-compose-actions` 写成 `agent-compose-actions`，使宽度不超过 820px 时该规则无法匹配 class。影响的是 Agent 操作栏 `align-items:flex-end` 规则，不能据此推断发送或其他业务功能失效。本轮只记录，未修改应用代码。
 - 远端当前版本同样已将旧研究总览书签重定向到概览，里程碑也只暴露时间轴/列表/文档；不能把旧 3D/鱼骨入口计为本次相对远端的损失。
 - 原生 WebView/托盘/通知、独立 EXE 及合并后万篇性能仍属未验收项目，不能把保留代码等同于运行保证，也没有证据将它们判为已经丢失。
+
+## 9. 相对 V3 的新增功能与合并内容总表（2026-10-19 复核）
+
+本轮按代码事实重新核对 `97932f3..2245726`（104 个提交、442 个文件，其中 187 个为 `web/vendor/pdfjs` 资源），把前文分散在各节的结论整理成"我们新增了什么"与"从 V3 合进来了什么"两张表。复核方式为 `git diff` / `git cat-file` 逐项确认，未重新跑回归。
+
+### 9.1 基线关系
+
+| 项 | 值 |
+| --- | --- |
+| 当前 HEAD | `2245726`（`feature/slim-workbench-v261009`，v261016.9） |
+| V3 分支 | `feature/ui-redesign-v3` = `97932f3`，**是 HEAD 的祖先**（HEAD 已完整包含它） |
+| 共同祖先 | `320c8f0`；V3 独有 1 个提交（35 文件 +3012/−300） |
+| 我方独有 | 104 个提交、255 个文件（不含 vendor）+34107/−1734 |
+| 结论 | 不是"待合并"状态，而是**已合并完成**；V3 之后没有再前进 |
+
+### 9.2 我们相对 V3 新增的功能（V3 没有）
+
+| 能力 | 落点 | 说明 |
+| --- | --- | --- |
+| 内核契约单源化 | `core/contracts/{kinds,naming,validate}.py` | 七类条目（实验独立成类）、标记表、字段契约、关系矩阵、命名校验集中一处；写入期硬校验 |
+| 插件平台 | `core/plugins/*`、`core_api.py`、`plugins/.template/`、`tools/new_plugin.py` | 清单契约、只读发现、依赖解析、`ctx` 执行层、后台任务、ZIP 单文件包解包、脚手架 |
+| 12 个插件 | `plugins/`（58 个新文件） | 随包 8 个默认启用（billing/floating-assist/focus/knowledge-graph/literature-reader/rss/weather/version-manager），可选 4 个（backup-snapshot/metrics-table/milestone-calendar/report-export） |
+| 既有功能插件化 | 删 `web/literature.js`、`web/v260930-floating-agent.js`、`web/v261008-billing.js`、`web/v260922-projects.js`、`app/rss.py`、`app/weather.py`、`app/kb_naming.py` | 四者均为**迁移**而非删除，替代实现分别在 literature-reader / floating-assist / billing 插件、`ERWPanels` 项目页与 `core/contracts/naming.py` |
+| 前端装配与接缝 | `web/manifest.json`、`web/plugin-host.js`、`web/plugin-manager.js`、`web/dom-seam.js`、`web/vendor-lazy.js`、`web/research-pages.js`、`web/manual.js` | `index.html` 由清单生成；`ERWPanels` 自登记；`erwFetch`/`ERWDom`/`ERWToast` 显式接缝；重型库按需加载 |
+| 来源与版本追踪 | `app/versions.py` + `plugins/version-manager` | 四条来源（ui/agent/mcp/plugin）、版本族、逐节对照与合并、整版采用、归档取回、自动快照节流；版本条目不进列表与索引 |
+| 外部接入授权 | `app/external_access.py`、`web/external-access.js` | MCP 写知识库默认拒绝，插件写默认开启，设置页可改 |
+| 外部改动巡检 | `app/external_edits.py` | 用 mtime 与事件时间差识别绕过收口点的直写，可记为活动事件 |
+| MCP 服务 | `mcp/`（10 个新文件） | 30 个内核工具 + 插件工具按启用状态暴露，10 资源、2 prompts |
+| 诊断与验证设施 | `core/doctor.py`、`core/index/{migrate,maintain}.py`、`tools/{web_check,web_manifest,ui_smoke,plugin_check,kb_smoke,run_tests,doc_check}.py`、`tests/`（43 个新文件）、`.github/workflows` CI | 只读体检、索引迁移框架、静态闸门、真浏览器路由走查、42 个常驻测试（27 个需浏览器） |
+| 内置使用手册 | `docs/manual/`、`web/manual.js`、`/api/manual` | 带截图分章教程，工作台内可读 |
+| 桌面运行时增强 | `app/windows_runtime.py`、`app/windows_tray.py` | 在 V3 的 `windows_frame.py` 之上补运行时与托盘层 |
+
+### 9.3 从 V3 合进来的内容（合并后存活状态）
+
+V3 的 35 个文件，HEAD 中**全部存在**，其中 15 个与 V3 逐字节一致、16 个有改动、4 个被迁移删除：
+
+| 类别 | 文件 | 状态 |
+| --- | --- | --- |
+| 桌面层 | `app/windows_frame.py`、`app/desktop_notification.py`、`app/desktop_smoke.py`、`app/focus_timer.py`、`web/desktop.css`、`web/theme-dark.css`、`web/ui-dialogs.js`、`build_client.bat`、`run_client.bat`、`requirements.txt`、`tools/test_focus_timer.py`、`tools/ui_usability_check.js` | **原样保留** |
+| 三份主样式 | `web/v261014-linear-luxe.css`、`web/v261015-usability.css`、`web/workbench-ui.css` | **原样保留** |
+| 需适配 | `app/desktop.py`、`app/store.py`、`client.py`、`server.py`、`web/app.js`、`web/desktop.js`、`web/index.html`、`docs/WINDOWS.md`、`tools/build_windows.py`、`tools/test_desktop.py`、`requirements-desktop.txt` | 已改（接入插件/契约/装配清单） |
+| 迁移删除 | `web/literature.js`→literature-reader、`web/v260930-floating-agent.js`→floating-assist、`web/v261008-billing.js`→billing、`web/v260922-projects.js`→`ERWPanels` 项目页 | 功能等价迁移 |
+
+关键交互已确认落地：`/api/docs/draft`（`server.py:301` + `web/app.js:1147`）、统一未保存保护 `guardEditor`（`web/app.js:277` 定义，11 处导航/刷新/退出路径调用）、原生后台计时桥接（`desktop_focus_{state,start,pause,reset}` ↔ `plugins/focus/web/panel.js`，含 `pywebviewready` 与 `workbench:window-state` 事件）。
+
+### 9.4 差异点清单（相对 V3 的真实行为变化）
+
+| 项 | V3 | 当前 HEAD | 影响 |
+| --- | --- | --- | --- |
+| 计费接口 | `/api/billing/{summary,records,prices}` | `/api/plugins/billing/{...}` | 外部脚本需迁移 |
+| 资讯/天气接口 | `/api/rss`、`/api/config/rss`、`/api/weather`、`/api/weather/geocode` | `/api/plugins/rss/*`、`/api/plugins/weather/*` | 外部脚本需迁移 |
+| 新增接口 | — | `/api/plugins`、`/api/plugin-manager/*`、`/api/manual`、`/api/external-access` | 新增能力 |
+| 功能可用性 | 内置 | 依赖对应插件启用 | 停用插件则入口消失 |
+| 条目类型 | 六类 | 七类（实验独立） | 旧实验数据迁移需 dry-run |
+| 前端装配 | 手写 `index.html` 引用 | `web/manifest.json` 生成 | 加模块必须改清单 |
+| 已知回归 | — | `web/styles.css:264` 窄屏 `.agent-compose-actions` 选择器缺前导点（未修） | 仅影响 ≤820px 时 Agent 操作栏对齐 |
+
+### 9.5 未验收边界
+
+原生 WebView/托盘/通知的真实运行、干净目录 EXE、合并后万篇性能基准仍未验收；上述"原样保留"只代表代码一致，不等于运行保证。
