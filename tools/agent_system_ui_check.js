@@ -349,6 +349,17 @@ const server=http.createServer(async(req,res)=>{
     await page.reload();await page.locator('#agent-messages .user').filter({hasText:'修订后的检索问题'}).waitFor();
     assert.equal(await page.locator(`[data-message-id="${originalId}"] .agent-message-body`).innerText(),originalQuestion);
     await page.locator('#agent-messages .assistant').last().getByText('已停止生成，已生成内容和原有提问已保留。',{exact:true}).waitFor();
+    const originalSession=await page.evaluate(()=>window.ERWAgentClient.sessionId());
+    const otherSession=sessions.find(session=>session.id!==originalSession).id;
+    mode='hold';await page.locator('#erw-fab-ball').click();await page.locator('#fab-input').fill('旧会话的并行任务');await page.locator('#fab-send').click();
+    await page.locator('#fab-messages .fab-msg').last().getByText('已生成的部分回答',{exact:true}).waitFor();await page.locator('#fab-close').click();
+    await page.locator(`[data-agent-session="${otherSession}"]`).click();await page.locator('#agent-input').fill('当前会话的并行任务');await page.locator('#agent-send').click();
+    await page.locator('#agent-thinking').getByText('已生成的部分回答',{exact:true}).waitFor();
+    await page.evaluate(id=>window.ERWAgentClient.stop(id),originalSession);
+    await page.waitForFunction(id=>!window.ERWAgentClient.busy(id),originalSession);
+    await page.locator('#erw-fab-ball').click();assert.equal(await page.locator('#fab-send').textContent(),'停止');assert.equal(await page.locator('#fab-send').isEnabled(),true,'finishing another session must not disable cancellation of the current run');
+    await page.locator('#fab-send').click();await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');await page.locator('#fab-close').click();
+    await page.locator(`[data-agent-session="${originalSession}"]`).click();
     await page.screenshot({path:path.join(output,'citations-edit-stop-desktop.png')});
     await page.setViewportSize({width:390,height:844});assert.ok(await page.locator('#agent-chat-panel').evaluate(el=>el.scrollWidth<=el.clientWidth+1));
     await page.screenshot({path:path.join(output,'citations-edit-stop-mobile.png'),fullPage:true});

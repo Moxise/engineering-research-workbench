@@ -1080,7 +1080,7 @@ async function send(){
     if(S.session!==sendingSession)toastInPanel(aborted?'已停止原会话任务':e.message,!aborted);
     renderMessages();
   }finally{
-    S.sending=false;btn.disabled=C.busy(S.session);btn.textContent=btn.disabled?"任务执行中…":"发送";btn.title="";btn.classList.remove("stop");S.abortCtl=null;S.runId=null;S.stopRequested=false;
+    S.sending=false;const current=C.snapshot(S.session);btn.disabled=!!current.stopping;btn.textContent=current.live?(current.stopping?'正在停止…':'停止'):'发送';btn.title=current.live?'停止生成':'';btn.classList.toggle('stop',!!current.live);S.abortCtl=null;S.runId=null;S.stopRequested=false;
   }
 }
 
