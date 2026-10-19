@@ -306,7 +306,7 @@ Workspace/Knowledge/Exports/KnowledgeBundles/
 
 Agent 通过本地持久化任务运行器，把外部 LLM、研究资料、Skill 和长期记忆连接起来。
 
-Agent 页面与悬浮助手中的 **Agent 系统** 提供任务启动、暂停、恢复、草稿审批、记忆管理、技能安装、MCP 连接及一致性备份。数据层参考 [CortexDB](https://github.com/liliang-cn/cortexdb) 的 scoped memory、来源关系和 ContextPack 设计，用 Python + SQLite 实现；旧会话会自动迁移，研究 Markdown 和 PDF 保留原有存储方式。使用说明、依赖、数据迁移和能力边界见 [Agent 系统文档](docs/AGENT_SYSTEM.md)。
+原 Agent 页面直接提供 **对话 / 任务 / 记忆 / 技能 / 运行设置**，共用当前会话与输入框，支持暂停恢复、草稿审批、技能选用、MCP 连接及一致性备份。数据层参考 [CortexDB](https://github.com/liliang-cn/cortexdb) 的 scoped memory、来源关系和 ContextPack 设计，用 Python + SQLite 实现；旧会话会自动迁移，研究 Markdown 和 PDF 保留原有存储方式。使用说明、依赖、数据迁移和能力边界见 [Agent 系统文档](docs/AGENT_SYSTEM.md)。
 
 ### Agent 能做什么
 

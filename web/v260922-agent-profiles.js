@@ -72,8 +72,14 @@
     try{captureEditor();const s=managerState;s.app.llm={...s.app.llm,enabled:$('#agent-enabled')?.checked===true,vision_enabled:$('#llm-vision-global')?.checked===true,system_prompt:$('#global-system-prompt')?.value||'',active_profile_id:s.activeId,profiles:s.profiles};const saved=await api('/api/config/app',{method:'POST',body:s.app});window.ERWConfigSync?.(saved); /* v260929d · 回写主应用 state.config，多模态开关等免刷新生效 */s.cfg.app=saved;s.app=saved;s.llm=saved.llm||{};s.profiles=JSON.parse(JSON.stringify(s.llm.profiles||[]));s.activeId=s.llm.active_profile_id||s.profiles[0]?.id;s.selectedId=s.activeId;paintManagerShell($('#settings-panel'));paintProfileEditor();if(notify)toast('Agent 配置已保存')}catch(e){toast(e.message,true);throw e}
   }
 
+  const enhancingPresets=new WeakSet();
   async function enhanceAgentPage(){
-    if(route()!=='agent')return;const preset=$('#agent-preset');if(!preset||$('#agent-profile-select'))return;const cfg=await api('/api/config');const llm=cfg.app?.llm||{},profiles=llm.profiles||[];if(!profiles.length)return;
+    if(route()!=='agent')return;const preset=$('#agent-preset');if(!preset||$('#agent-profile-select')||enhancingPresets.has(preset))return;
+    enhancingPresets.add(preset);
+    try{
+    const cfg=await api('/api/config');
+    if(!preset.isConnected||$('#agent-preset')!==preset||$('#agent-profile-select')||route()!=='agent')return;
+    const llm=cfg.app?.llm||{},profiles=llm.profiles||[];if(!profiles.length)return;
     /* v261008c · 徽标改为显示「接口地址主机」而不是把选中项名字重复一遍：
        select 里已经有配置名，这里给的是 直连(域名) / 本地反代理(127.0.0.1:9355) / 方舟 这类一眼可辨的信息 */
     const hostOf=p=>{try{return new URL(p?.base_url||'').host||'—'}catch{return String(p?.base_url||'').replace(/^https?:\/\//,'').split('/')[0]||'—'}};
@@ -81,6 +87,7 @@
     const wrap=document.createElement('div');wrap.className='agent-runtime-selects';wrap.innerHTML=`<label>API 配置 <select class="search-input" id="agent-profile-select">${profiles.map(p=>`<option value="${esc(p.id)}" ${p.id===llm.active_profile_id?'selected':''}>${esc(p.name||'未命名配置')}</option>`).join('')}</select></label><span class="agent-profile-badge" id="agent-profile-badge" title="接口地址：${esc(active0?.base_url||'')}">${esc(hostOf(active0))}</span>`;
     preset.closest('.agent-preset-label')?.parentElement?.insertBefore(wrap,preset.closest('.agent-preset-label'));
     $('#agent-profile-select').onchange=async()=>{const fresh=await api('/api/config');fresh.app.llm.active_profile_id=$('#agent-profile-select').value;const saved=await api('/api/config/app',{method:'POST',body:fresh.app});const active=saved.llm?.profiles?.find(p=>p.id===saved.llm.active_profile_id);const badge=$('#agent-profile-badge');if(badge){badge.textContent=hostOf(active);badge.title='接口地址：'+(active?.base_url||'')}const modes=active?.request_presets||[];preset.innerHTML=modes.map((m,i)=>`<option value="${esc(m.id)}" ${m.id===active?.default_request_preset||(!active?.default_request_preset&&i===0)?'selected':''}>${esc(m.label||m.id)}</option>`).join('');preset.dispatchEvent(new Event('change',{bubbles:true}));toast('已切换 Agent API 配置')};
+    }finally{enhancingPresets.delete(preset)}
   }
 
   function onSettingsClick(e){const btn=e.target.closest('[data-set-tab="llm"]');if(!btn)return;setTimeout(()=>renderProfileManager().catch(err=>toast(err.message,true)),0)}

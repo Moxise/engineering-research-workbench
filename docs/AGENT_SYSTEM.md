@@ -1,6 +1,6 @@
 # Agent 系统：技能、持久化任务与科研记忆
 
-本分支在原有科研聊天工具循环上增加完整的本地 Agent 运行层。入口是 Agent 页面、悬浮助手里的 **Agent 系统**，以及设置页中的 **任务、记忆、技能与执行设置**。
+本分支在原有科研聊天工具循环上增加完整的本地 Agent 运行层。直接打开原来的 **Agent** 页面，即可使用 **对话 / 任务 / 记忆 / 技能 / 运行设置**。这些面板共用当前会话；输入框可以直接选择助手人设与技能。任务自动来自普通对话，不另设任务输入框或“Agent 系统”弹窗入口。
 
 ## 数据设计与 CortexDB 的对应关系
 
@@ -122,6 +122,6 @@ PDF 工具需要 `pip install -r requirements.txt`。桌面构建会包含 pypdf
 
 `python -m unittest discover -s tools -p test_agent_system.py -v` 在一次性工作区使用脚本化模型验证：迁移、作用域隔离、中文/关系/向量检索、替代与 TTL、Skill 加载、真实工具证据跨轮回放、审批后续跑、文本协议、轮数暂停、重启恢复、停止信号、写入防重复、冲突和修订回退、MCP 白名单、HTTP 后台任务及 SSE 断线继续。
 
-`node tools/agent_system_ui_check.js` 使用 Playwright 和本地 API fixture 验证桌面/移动界面、任务审批续跑、记忆增删、技能安装、设置、MCP 诊断、备份和键盘关闭。需让 NODE_PATH 指向可用 Playwright 安装。
+`node tools/agent_system_ui_check.js` 加载完整原始应用页面，以本地 API fixture 验证聊天成功后会话更新、刷新异常不误报模型失败、共享会话的任务审批续跑、技能直接选用、记忆增删、技能安装、设置、MCP 诊断、备份、异步切换竞争及桌面/移动布局。需让 NODE_PATH 指向可用 Playwright 安装。
 
 这些测试验证执行与数据契约，不代表任意模型的科研结论正确率；真实模型任务质量需要使用具体研究数据和验收标准评估。
