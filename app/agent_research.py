@@ -210,10 +210,13 @@ def execute(name: str, args: dict, ctx: dict) -> dict:
         if not path.is_dir():
             raise ValueError("路径不是目录")
         rows = []
-        for item in sorted(path.iterdir(), key=lambda p: p.name)[:200]:
+        children = sorted(path.iterdir(), key=lambda p: p.name)
+        for item in children[:200]:
             if path.resolve() in item.resolve().parents:
-                rows.append({"name": item.name, "directory": item.is_dir(), "bytes": item.stat().st_size if item.is_file() else 0})
-        return {"path": relative, "items": rows}
+                rows.append({"name": item.name, "directory": item.is_dir(), "bytes": item.stat().st_size if item.is_file() else None,
+                             "child_count": sum(1 for _ in item.iterdir()) if item.is_dir() else None})
+        return {"path": relative, "items": rows, "total": len(children), "truncated": len(children) > 200,
+                "scope": "direct_children", "note": "仅列出当前层级；目录 bytes=null，是否为空见 child_count，未递归读取文件正文。"}
     if name == "workspace_read":
         path = workspace_path(str(args.get("path") or ""))
         if not path.is_file() or path.stat().st_size > 4 * 1024 * 1024:

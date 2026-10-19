@@ -366,6 +366,8 @@ def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delt
     usage_holder: dict[str, Any] = {}  # v261008 · 计费：捕获末帧 usage
 
     def _feed(line: str) -> None:
+        if cfg.get("_check_cancel"):
+            cfg["_check_cancel"]()
         if not line.startswith("data:"):
             return
         data = line[5:].strip()
@@ -397,6 +399,34 @@ def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delt
                 if fn.get("arguments"):
                     slot["function"]["arguments"] += str(fn["arguments"])
 
+    interrupt_socket = None
+    def response_lines(response, connection=None):
+        while line := response.readline():
+            yield line
+
+    def bind_interrupt(connection, response=None):
+        nonlocal interrupt_socket
+        if not cfg.get("_register_interrupt"):
+            return
+        import socket
+        candidate = getattr(connection, "sock", None) or getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+        if candidate and interrupt_socket is None:
+            try:
+                # HTTP/1.0 may close the socket object while its response file
+                # still owns the handle. Keep a separate handle for shutdown;
+                # a plain socket also supports cancelling SSL connections.
+                interrupt_socket = socket.socket(candidate.family, candidate.type, candidate.proto, fileno=socket.dup(candidate.fileno()))
+            except OSError:
+                pass
+        def interrupt():
+            sock = interrupt_socket
+            if sock:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+        cfg["_register_interrupt"](interrupt)
+
     endpoint = _endpoint(str(cfg["base_url"]), "/chat/completions")
     # v260930k · 直连池路径：与 _http_json 相同的 Keep-Alive 复用，但逐行读响应
     if not urllib.request.getproxies().get("https"):
@@ -409,7 +439,9 @@ def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delt
             conn, reused = _pool_get(key, tmo)
             try:
                 conn.request("POST", path, body=body, headers=headers)
+                bind_interrupt(conn)
                 resp = conn.getresponse()
+                bind_interrupt(conn, resp)
                 if resp.status >= 400:
                     raw = resp.read().decode("utf-8", errors="replace")
                     if resp.will_close:
@@ -417,36 +449,53 @@ def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delt
                     else:
                         _pool_put(key, conn)
                     raise ValueError(_http_error_message(resp.status, raw))
-                while True:
-                    line = resp.readline()
-                    if not line:
-                        break
+                for line in response_lines(resp, conn):
                     _feed(line.decode("utf-8", errors="replace").rstrip("\r\n"))
+                if cfg.get("_check_cancel"):
+                    cfg["_check_cancel"]()
                 if resp.will_close:
                     conn.close()
                 else:
                     _pool_put(key, conn)
                 break
             except ValueError:
+                if cfg.get("_check_cancel"):
+                    cfg["_check_cancel"]()
                 raise
             except TimeoutError:
+                if cfg.get("_check_cancel"):
+                    cfg["_check_cancel"]()
                 raise ValueError(f"LLM 流式响应中断（>{tmo}s 无新内容）") from None
             except Exception as e:
                 try:
                     conn.close()
                 except Exception:
                     pass
+                if cfg.get("_check_cancel"):
+                    cfg["_check_cancel"]()
                 from .agent_runtime import Suspended
                 if isinstance(e, Suspended):
                     raise
                 if not reused or attempt == 0:
                     raise ValueError(f"无法连接 LLM API：{e}") from None
+            finally:
+                if cfg.get("_register_interrupt"):
+                    cfg["_register_interrupt"](None)
+                if interrupt_socket:
+                    interrupt_socket.close()
+                    interrupt_socket = None
     else:  # v260930k · 代理路径：urlopen 逐行读
         req = Request(endpoint, data=body, method="POST", headers=headers)
         try:
-            with urlopen(req, timeout=tmo) as resp:
-                for raw_line in resp:
+            resp = urlopen(req, timeout=tmo)
+            try:
+                bind_interrupt(None, resp)
+                for raw_line in response_lines(resp):
                     _feed(raw_line.decode("utf-8", errors="replace").rstrip("\r\n"))
+                if cfg.get("_check_cancel"):
+                    cfg["_check_cancel"]()
+            finally:
+                resp.close()
         except HTTPError as e:
             detail = e.read().decode("utf-8", errors="replace")[:2000]
             try:
@@ -455,7 +504,18 @@ def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delt
                 msg = detail
             raise ValueError(f"LLM API HTTP {e.code}: {msg}") from None
         except TimeoutError:
+            if cfg.get("_check_cancel"):
+                cfg["_check_cancel"]()
             raise ValueError(f"LLM 流式响应中断（>{tmo}s 无新内容）") from None
+        except Exception:
+            if cfg.get("_check_cancel"):
+                cfg["_check_cancel"]()
+            raise
+        finally:
+            if cfg.get("_register_interrupt"):
+                cfg["_register_interrupt"](None)
+            if interrupt_socket:
+                interrupt_socket.close()
 
     message: dict[str, Any] = {"content": "".join(content_parts)}
     if reasoning_parts:
@@ -470,6 +530,43 @@ def _stream_chat(cfg: dict[str, Any], payload: dict[str, Any], tmo: int, on_delt
 def _post_chat(cfg: dict[str, Any], messages: list[dict[str, Any]], request_params: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None, on_delta=None) -> dict[str, Any]:
     """v260930 · M1 底层补全请求：发送完整 messages，返回原始 assistant message（含 tool_calls）。
     tools 传入时走原生 function calling；端点不支持时由调用方降级文本协议。"""
+    if cfg.get("_check_cancel"):
+        cfg["_check_cancel"]()
+        if not cfg.get("_background_request"):
+            # Header waits and Windows socket reads must not block cancellation.
+            # Only the run worker delivers deltas and consumes the final result.
+            import queue
+            pending = queue.Queue(maxsize=32)
+            stopped = threading.Event()
+            def deliver(kind, value):
+                while not stopped.is_set():
+                    try:
+                        pending.put((kind, value), timeout=.1)
+                        return
+                    except queue.Full:
+                        continue
+            def request():
+                try:
+                    result = _post_chat({**cfg, "_background_request": True}, messages, request_params, tools, on_delta=(lambda text: deliver("delta", text)) if on_delta else None)
+                    deliver("result", result)
+                except Exception as exc:
+                    deliver("error", exc)
+            threading.Thread(target=request, name="agent-provider-request", daemon=True).start()
+            try:
+                while True:
+                    cfg["_check_cancel"]()
+                    try:
+                        kind, value = pending.get(timeout=.1)
+                    except queue.Empty:
+                        continue
+                    if kind == "delta":
+                        on_delta(value)
+                    elif kind == "error":
+                        raise value
+                    else:
+                        return value
+            finally:
+                stopped.set()
     payload: dict[str, Any] = {"model": cfg["model"], "messages": messages, "stream": False}
     if cfg.get("temperature") is not None:
         payload["temperature"] = float(cfg.get("temperature"))
@@ -600,6 +697,23 @@ def _run_with_tools(cfg: dict[str, Any], system_prompt: str, history: list[dict[
     return execute_loop(cfg, system_prompt, history, user_text, image_paths, request_params, ctx, on_delta, on_round, on_tool)
 
 
+def persist_interrupted_reply(run_id: str, status: str) -> dict:
+    """Keep public partial output in the canonical chat, including after reload."""
+    run = agent_memory.get_run(run_id)
+    state = run["state"]
+    session = get_session(run["session_id"])
+    user = next((m for m in session["messages"] if m.get("run_id") == run_id and m.get("role") == "user"), {})
+    message = {k: user[k] for k in ("model", "profile_id", "profile_name", "persona_id", "persona_name", "request_preset", "request_preset_label") if k in user}
+    message.update(id="msg-" + uuid.uuid4().hex[:10], role="assistant", run_id=run_id, run_status=status, created=_now(),
+                   content=agent_context.public_text(state.get("partial_answer") or ""), evidence=state.get("evidence", []),
+                   tool_trace=state.get("trace", []), drafts=state.get("drafts", []))
+    message["response_parts"] = agent_context.response_parts(message)
+    message["interruption"] = "已停止生成，已生成内容和原有提问已保留。" if status == "cancelled" else "任务已暂停，已生成内容已保留，可继续执行。"
+    message["timing"] = {"total_ms": state.get("elapsed_ms", 0), "rounds": state.get("step", 0), "tool_calls": len(state.get("trace", [])), "timeline": state.get("timeline", [])}
+    agent_memory.append_message(run["session_id"], message)
+    return message
+
+
 def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, image_paths: list[str] | None = None, request_preset: str = "", context: dict[str, Any] | None = None, persona_id: str = "", on_delta=None, on_round=None, on_tool=None, run_id: str = "") -> dict[str, Any]:
     text = str(text or "").strip()
     ref_ids = [str(x) for x in (ref_ids or []) if str(x).strip()]
@@ -665,8 +779,15 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
     user_msg["run_id"] = run_id
     user_msg["context_text"] = ref_context + _page_context(context)
     user_msg["quote_text"] = str((context or {}).get("quote_text") or "")[:4000] if isinstance(context, dict) else ""
+    edited_from = str(page_ctx.get("edited_from") or "")
     with _LOCK:
         session = get_session(session_id)
+        if edited_from:
+            original = next((m for m in session.get("messages", []) if m.get("id") == edited_from and m.get("role") == "user"), None)
+            if not original:
+                raise ValueError("只能编辑当前会话中已有的用户提问")
+            user_msg["edited_from"] = edited_from
+            system_prompt += "\n\n用户本轮编辑重发了历史提问，以本轮修订后的问题为准；历史提问及回答作为原始记录保留。"
         prior = next((m for m in session.get("messages", []) if run_id and m.get("run_id") == run_id and m.get("role") == "user"), None)
         if prior:
             history = session.get("messages", [])[:session["messages"].index(prior)]

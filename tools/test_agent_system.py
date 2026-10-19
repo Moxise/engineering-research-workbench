@@ -25,6 +25,90 @@ def call(name, args, cid="call-1"):
 
 
 class AgentSystemTests(unittest.TestCase):
+    def test_edit_resends_as_new_message_and_preserves_original_exchange(self):
+        captured = []
+        def model(cfg, messages, *args, **kwargs):
+            captured.append(messages)
+            return {"content": "修订回答" if len(captured) > 1 else "原回答"}
+        with patch.object(agent, "_post_chat", side_effect=model):
+            self.wait(self.submit("原问题")["id"], "completed")
+            original = agent.get_session(self.session["id"])["messages"][0]
+            self.wait(self.submit("修订问题", context={"edited_from": original["id"]})["id"], "completed")
+        messages = agent.get_session(self.session["id"])["messages"]
+        self.assertEqual([m["content"] for m in messages], ["原问题", "原回答", "修订问题", "修订回答"])
+        self.assertEqual(messages[0]["id"], original["id"])
+        self.assertEqual(messages[2]["edited_from"], original["id"])
+        self.assertIn("以本轮修订后的问题为准", captured[1][0]["content"])
+        self.wait(self.submit("非法修订", context={"edited_from": "missing"})["id"], "failed")
+        self.assertEqual(len(agent.get_session(self.session["id"])["messages"]), 4)
+
+    def test_cancel_persists_partial_answer_and_stops_idle_provider_connection(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        release = threading.Event()
+        class Provider(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                chunk = {"choices": [{"delta": {"content": "已生成的部分内容"}}]}
+                self.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
+                self.wfile.flush()
+                release.wait(3)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            cfg = {"model": "local-fixture", "api_key": "fake", "base_url": f"http://127.0.0.1:{server.server_port}/v1"}
+            with patch.object(agent, "_llm_cfg", return_value=cfg), patch.object(agent.urllib.request, "getproxies", return_value={}):
+                run = self.submit()
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline and not any(e["event"] == "delta" for e in brain.events(run["id"])):
+                    time.sleep(.01)
+                self.assertTrue(any(e["event"] == "delta" for e in brain.events(run["id"])))
+                started = time.monotonic()
+                runtime.control(run["id"], "cancel")
+                final = self.wait(run["id"], "cancelled")
+                self.assertLess(time.monotonic() - started, 1)
+                self.assertEqual(final["result"]["assistant"]["content"], "已生成的部分内容")
+                saved = agent.get_session(self.session["id"])["messages"]
+                self.assertEqual(saved[-1]["run_status"], "cancelled")
+                self.assertEqual(saved[-1]["content"], "已生成的部分内容")
+                self.assertTrue(any(e["event"] == "done" for e in brain.events(run["id"])))
+        finally:
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(2)
+
+    def test_directory_listing_is_shallow_and_never_calls_directories_zero_bytes(self):
+        folder = self.root / "Knowledge" / "Notes"
+        folder.mkdir(parents=True)
+        (folder / "source.md").write_text("source", encoding="utf-8")
+        result = tools.execute("workspace_list", {"path": "Knowledge"}, {"tools": ["workspace_list"]})
+        self.assertTrue(result["ok"])
+        notes = next(row for row in result["items"] if row["name"] == "Notes")
+        self.assertIsNone(notes["bytes"])
+        self.assertEqual(notes["child_count"], 1)
+        self.assertEqual(result["scope"], "direct_children")
+
+    def test_execution_stats_and_linked_sources_are_grounded_in_tool_records(self):
+        source = {"id": "paper", "title": "文献-组会原文", "kind": "literature", "body": "原始内容"}
+        note = {"id": "note", "title": "知识-方法-分工", "kind": "note", "body": "参考 [[文献-组会原文]]"}
+        with patch.object(indexer, "get_doc", return_value=note), patch.object(indexer, "resolve_doc", return_value=source), patch('app.literature._load_registry', return_value={"items": [{"id": "pdf-id", "doc_id": "paper"}]}):
+            result = tools.execute("kb_read", {"doc_id": "note"})
+        self.assertEqual(result["links"][0]["doc_id"], "paper")
+        self.assertEqual(result["links"][0]["paper_id"], "pdf-id")
+        trace = [{"tool": "kb_search"}] * 11 + [{"tool": "kb_read"}]
+        evidence = [{"role": "tool", "content": json.dumps(result)}]
+        stats = json.loads(agent_context.execution_summary(trace, evidence))
+        self.assertEqual(stats["tool_counts"]["kb_search"], 11)
+        self.assertEqual(stats["read_documents"][0]["read_scope"], "full_body")
+        history = agent_context.history_messages([{"role": "assistant", "content": "错报9次", "tool_trace": trace, "evidence": evidence}])
+        self.assertIn('"kb_search": 11', history[-1]["content"])
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="erw-agent-test-")
         self.root = Path(self.tmp.name)
@@ -286,6 +370,7 @@ class AgentSystemTests(unittest.TestCase):
         def scripted(cfg, messages, params, tools=None, on_delta=None):
             if tools:
                 raise ValueError("LLM API HTTP 400: unsupported tools")
+            self.assertIn("当接口不支持原生函数调用时使用文本协议", messages[0]["content"])
             if not any(m.get("content", "").startswith("工具结果：") for m in messages if isinstance(m.get("content"), str)):
                 return {"content": '```json\n{"tool":"memory_recall","args":{"query":"科研"}}\n```'}
             self.assertFalse(any(m.get("role") == "tool" for m in messages))

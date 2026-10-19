@@ -153,7 +153,7 @@ function mount(){
   };
   q("#fab-new").onclick=async()=>{try{const s=await api("/api/agent/sessions",{method:"POST",body:{}});S.session=s.id;C.setSession(s,'floating');C.select(s.id,'floating');S.messages=[];S.view="chat";paintView();paintContext();toastInPanel("已新建对话")}catch(e){toastInPanel(e.message,true)}};
   q("#fab-send").onclick=()=>{ /* v260930l · 发送中再点=停止生成（abort 流式请求，后端随之中止） */
-    if(S.sending){if(S.runId){api('/api/agent/runs/'+S.runId+'/cancel',{method:'POST',body:{}}).catch(e=>toastInPanel(e.message,true));S.abortCtl?.abort()}else{S.stopRequested=true}return}
+    if(C.busy(S.session)||S.sending){C.stop(S.session).catch(e=>toastInPanel(e.message,true));return}
     send();
   };
   const input=q("#fab-input");
@@ -562,7 +562,7 @@ C.subscribe(event=>{
   if(!S.session||event.sessionId!==S.session)return;
   const e=C.snapshot(S.session);if(!(S.sending&&e.owner==='floating'&&e.live))S.messages=[...e.session.messages,...(e.live?[e.live]:[])];
   if(S.open&&S.view==='chat'){renderMessages();paintContext()}
-  const button=q('#fab-send');if(button&&!S.sending){button.disabled=!!e.live;button.textContent=e.live?'任务执行中…':'发送'}
+  const button=q('#fab-send');if(button){button.disabled=!!e.stopping;button.textContent=e.live?(e.stopping?'正在停止…':'停止'):'发送';button.classList.toggle('stop',!!e.live)}
   if(event.type==='select'&&S.open&&!e.live&&!e.session.messages.length)loadSession();
 });
 /* v260930g9f · 草稿状态校准：拉全量草稿（含已处理），用磁盘真实状态覆盖消息里的 pending 快照——
@@ -580,7 +580,7 @@ function mdRender(raw){
   if(window.marked&&window.DOMPurify){
     try{
       const html=window.marked.parse(String(raw||""),{gfm:true});
-      return wrapWideBlocks(window.DOMPurify.sanitize(html,{ADD_TAGS:["mjx-container"]})); /* v261008b · 表格套气泡内滚动容器 */
+      return C.linkify(wrapWideBlocks(window.DOMPurify.sanitize(html,{ADD_TAGS:["mjx-container"]})));
     }catch{/* 落回轻量渲染 */}
   }
   const lines=String(raw||"").split(/\r?\n/);let out="",inList=false,inCode=false;
@@ -598,7 +598,7 @@ function mdRender(raw){
     out+="<p>"+inline(esc(t))+"</p>";
   }
   if(inList)out+="</ul>";if(inCode)out+="</code></pre>";
-  return out;
+  return C.linkify(out);
 }
 /* ---------- v261008b · 工具时间条：把「逐条 chip 流水账」换成与真实耗时成比例的堆叠条 ---------- */
 function fmtDur(ms){
@@ -824,6 +824,7 @@ function msgHtml(m,idx){
       ${responsePartsHtml(m)}
       ${responseParts(m).length&&m.content?'<div class="agent-response-label">'+(m.__streaming?'当前回答':'最终回复')+'</div>':''}
       ${body}
+      ${m.interruption?`<div class="agent-interruption" role="status">${esc(m.interruption)}</div>`:''}
       ${m.__thinking?"":toolTraceHtml(m)+draftHtml(m)+runActionsHtml(m)+quickActionsHtml(m)}
       <div class="fab-msg-meta">${meta}</div>
     </div>
@@ -1034,7 +1035,7 @@ async function send(){
       let data={};try{data=JSON.parse(dataStr)}catch{}
       if(ev==="run"){
         S.runId=data.run_id;localStorage.setItem('agentLastRun',data.run_id);
-        if(S.stopRequested){api('/api/agent/runs/'+S.runId+'/cancel',{method:'POST',body:{}}).catch(e=>toastInPanel(e.message,true));S.abortCtl?.abort()}
+    if(S.stopRequested)C.stop(sendingSession).catch(e=>toastInPanel(e.message,true));
       }else if(ev==="reset"){streamMsg.content="";streamMsg.response_parts=[];streamMsg.__tl=[];streamMsg.__round=0;streamMsg.__responseRound=0;renderMessages()
       }else if(ev==="delta"){
         if(streamMsg.__thinking){streamMsg.__thinking=false;streamMsg.__streaming=true;renderMessages()}

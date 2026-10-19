@@ -36,7 +36,8 @@ class RagTests(unittest.TestCase):
             return copy.deepcopy(self.docs[key])
         self.stack.enter_context(patch.object(indexer, "get_doc", side_effect=get_doc))
         self.stack.enter_context(patch.object(indexer, "document_metadata", side_effect=lambda: list(self.docs.values())))
-        self.stack.enter_context(patch.object(indexer, "list_docs", side_effect=lambda kind=None, query="", page_size=8: [d for d in self.docs.values() if (not kind or d["kind"] == kind) and query.lower() in (d["title"] + d["body"]).lower()][:page_size]))
+        self.stack.enter_context(patch.object(indexer, "retrieve_docs", side_effect=lambda query, kind=None, limit=8: {"items": [d for d in self.docs.values() if (not kind or d["kind"] == kind) and query.lower() in (d["title"] + d["body"]).lower()][:limit]}))
+        self.stack.enter_context(patch.object(literature, "ensure_workspace", return_value=self.root))
         self.calls = []
         self.response_mode = "valid"
         test = self

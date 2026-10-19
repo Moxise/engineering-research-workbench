@@ -1,4 +1,17 @@
 /* The original Agent page owns both chat and management panels. */
+.agent-message.user{grid-template-columns:minmax(0,1fr) var(--agent-gutter,32px)}
+.agent-message.user .agent-avatar{grid-column:2;grid-row:1}
+.agent-message.user .agent-bubble{grid-column:1;grid-row:1;justify-self:end;width:fit-content;max-width:85%}
+.agent-message.user .agent-msg-meta{display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap}
+.agent-edit-question,.agent-edited-label,.agent-edit-banner button{border:0;background:transparent;color:var(--accent);font:inherit;font-size:11px;cursor:pointer;padding:3px}
+.agent-edited-label{display:block;margin-bottom:6px;color:var(--muted)}
+.agent-edit-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:7px;color:var(--accent);font-size:12px}
+.agent-interruption{color:var(--muted);font-size:12px;margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.agent-citation{color:var(--accent);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.agent-citation[aria-busy=true]{opacity:.6;cursor:wait}
+.agent-stop{background:var(--danger,#b42318)!important}
+.agent-message:focus{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:700px){.agent-message.user .agent-bubble{max-width:95%}}
 .agent-run-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
 .agent-run-actions small{color:var(--muted)}
 .agent-draft-preview{grid-column:1/-1;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto}

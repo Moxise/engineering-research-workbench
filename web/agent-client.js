@@ -65,7 +65,7 @@
   function liveMessage(parts=[]){return {role:'assistant',content:'',response_parts:[...parts],__thinking:true,__streaming:true,__t0:Date.now(),__tl:[]}}
   function start(id,user,source,parts=[]){
     const e=entry(id);if(e.live)throw Error('当前会话已有任务执行中');
-    e.owner=source;e.live=liveMessage(parts);e.runId='';
+    e.owner=source;e.live=liveMessage(parts);e.runId='';e.stopping=false;e.stopSent=false;
     if(user)e.session={...e.session,messages:[...e.session.messages,user]};
     notify('session',id,source);notify('live',id,source);return e;
   }
@@ -73,7 +73,7 @@
     const m=e.live,id=e.session.id;if(!m)return;
     const stamp=()=>Date.now()-m.__t0;
     const close=()=>{const last=m.__tl.at(-1);if(last&&last.t1==null)last.t1=stamp()};
-    if(event==='run'){e.runId=data.run_id;m.run_id=data.run_id;runStates.set(e.runId,'running')}
+    if(event==='run'){e.runId=data.run_id;m.run_id=data.run_id;runStates.set(e.runId,'running');if(e.stopping)cancelRun(e).catch(error=>window.ERWToast?.(error.message,true))}
     else if(event==='round'){
       if(m.content&&m.__round&&m.__responseRound!==m.__round)m.response_parts.push({round:m.__round,content:m.content});
       close();m.content='';m.__round=(data.i|0)+1;m.__tl.push({kind:'llm',round:m.__round,t0:stamp(),t1:null});m.__note=`第 ${m.__round} 轮 · 正在生成…`;
@@ -85,7 +85,7 @@
     else if(event==='done'){
       if(!data.assistant)throw Error('任务结果缺少回复');
       if(!Array.isArray(data.assistant.response_parts))data.assistant.response_parts=data.assistant.evidence?window.ERWFabTimeline?.parts?.(data.assistant)||m.response_parts:m.response_parts;
-      e.session={...e.session,updated:new Date().toISOString(),messages:[...e.session.messages,data.assistant]};e.live=null;
+      e.session={...e.session,updated:new Date().toISOString(),messages:[...e.session.messages,data.assistant]};e.live=null;e.stopping=false;
       if(e.runId)runStates.set(e.runId,data.assistant.run_status||((data.assistant.drafts||[]).some(d=>(drafts[d.draft_id]?.status||'pending')==='pending')?'waiting_approval':'completed'));
       notify('session',id,source);document.dispatchEvent(new CustomEvent('erw-agent-run-updated',{detail:{sessionId:id,runId:e.runId}}));return;
     }else if(event==='error'){const error=Error(data.message||'任务执行失败');error.agentError=true;throw error}
@@ -96,7 +96,7 @@
     const m=e.live,partial=m.content||m.response_parts.length;
     if(partial){delete m.__streaming;delete m.__thinking;delete m.__note}
     const note=error.name==='AbortError'?'已停止生成。已完成的操作以会话和草稿记录为准。':'请求失败：'+error.message;
-    e.session={...e.session,messages:[...e.session.messages,...(partial?[m]:[]),{role:'assistant',content:note,created:new Date().toISOString()}]};e.live=null;
+    e.session={...e.session,messages:[...e.session.messages,...(partial?[m]:[]),{role:'assistant',content:note,error:error.name!=='AbortError',created:new Date().toISOString()}]};e.live=null;
     notify('session',e.session.id,source);
   }
   async function follow(runId,cursor,signal,emit){
@@ -107,7 +107,7 @@
         const events=await api('runs/'+encodeURIComponent(runId)+'/events?after='+cursor,undefined,signal);
         for(const item of events){cursor=Math.max(cursor,item.seq);if(item.event==='done'){emit('done',item.data);return item.data}emit(item.event,item.data)}
         const run=await api('runs/'+encodeURIComponent(runId),undefined,signal);runStates.set(runId,run.status);
-        if(['completed','waiting_approval'].includes(run.status)&&run.result?.assistant){emit('done',run.result);return run.result}
+        if(['completed','waiting_approval','cancelled','paused','interrupted'].includes(run.status)&&run.result?.assistant){emit('done',run.result);return run.result}
         if(['completed','waiting_approval'].includes(run.status)){const error=Error('任务已结束，但未取得保存的回复，请查看任务记录');error.agentError=true;throw error}
         if(['failed','cancelled','paused','interrupted'].includes(run.status)){
           const error=Error(run.error||({cancelled:'任务已停止',paused:'任务已暂停，可继续执行',interrupted:'任务执行中断，可继续执行'}[run.status])||'任务执行失败');error.agentError=true;throw error;
@@ -118,13 +118,14 @@
     }
   }
   async function send(payload,{source='shared',signal,onEvent=()=>{},user}={}){
-    const id=payload.session_id,e=start(id,user||{role:'user',content:payload.message,quote_text:payload.context?.quote_text||'',images:payload.images||[],created:new Date().toISOString()},source);
+    const id=payload.session_id,e=start(id,user||{role:'user',content:payload.message,quote_text:payload.context?.quote_text||'',edited_from:payload.context?.edited_from||'',images:payload.images||[],created:new Date().toISOString()},source);
     let cursor=0,done=null,received=false,reader;
     const emit=(event,data)=>{apply(e,event,data,source);onEvent(event,data);if(event==='done')done=data};
     try{
       const response=await fetch('/api/agent/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal});
       if(!response.ok||!response.body){let data={};try{data=await response.json()}catch{}throw Error(data.message||data.error||`HTTP ${response.status}`)}
       e.runId=response.headers.get('X-Agent-Run-ID')||'';
+      if(e.stopping&&e.runId)await cancelRun(e);
       reader=response.body.getReader();const decoder=new TextDecoder();let buffer='';
       function frame(block){
         let event='',seq=0;const lines=[];
@@ -144,7 +145,7 @@
         e.live.__note='连接中断，正在恢复任务结果…';notify('live',id,source);
         // Older streams without event IDs can first use the authoritative result.
         let run;try{run=await api('runs/'+encodeURIComponent(e.runId),undefined,signal)}catch(error){if(error.name==='AbortError')throw error}
-        if(run&&['completed','waiting_approval'].includes(run.status)&&run.result?.assistant)emit('done',run.result);
+        if(run&&['completed','waiting_approval','cancelled','paused','interrupted'].includes(run.status)&&run.result?.assistant)emit('done',run.result);
         else{
           if(!cursor&&received){e.live=liveMessage();emit('reset',{})}
           await follow(e.runId,cursor,signal,emit);
@@ -153,6 +154,41 @@
       return done;
     }catch(error){fail(e,error,source);throw error}
   }
+  async function cancelRun(e){
+    if(!e.live||!e.runId||e.stopSent)return;
+    e.stopSent=true;
+    try{await api('runs/'+encodeURIComponent(e.runId)+'/cancel',{})}
+    catch(error){e.stopSent=false;e.stopping=false;notify('live',e.session.id);throw error}
+  }
+  async function stop(id=selected){
+    const e=entry(id);if(!e.live)return;
+    e.stopping=true;e.live.__note='正在停止，保留已生成内容…';notify('live',id);
+    await cancelRun(e);
+  }
+  function linkify(html){
+    const holder=document.createElement('div');holder.innerHTML=html;
+    const walker=document.createTreeWalker(holder,NodeFilter.SHOW_TEXT),nodes=[];
+    while(walker.nextNode())if(!walker.currentNode.parentElement.closest('a,pre,code,script,style'))nodes.push(walker.currentNode);
+    for(const node of nodes){
+      const text=node.nodeValue,pattern=/\[\[([^\]\n]+)\]\]/g;let match,offset=0,fragment=document.createDocumentFragment();
+      while((match=pattern.exec(text))){
+        fragment.append(document.createTextNode(text.slice(offset,match.index)));
+        const [target,...alias]=match[1].split('|'),anchor=document.createElement('a');
+        anchor.href='#';anchor.dataset.agentReference=target.trim();anchor.className='agent-citation';anchor.textContent=alias.join('|')||target;anchor.title='打开引用：'+target;
+        fragment.append(anchor);offset=pattern.lastIndex;
+      }
+      if(offset){fragment.append(document.createTextNode(text.slice(offset)));node.replaceWith(fragment)}
+    }
+    holder.querySelectorAll('a[href^="/api/docs/"]').forEach(anchor=>{const id=anchor.getAttribute('href').slice('/api/docs/'.length);if(id&&!id.includes('/')){try{anchor.dataset.agentReference=decodeURIComponent(id)}catch{return}anchor.href='#';anchor.classList.add('agent-citation')}});
+    return holder.innerHTML;
+  }
+  document.addEventListener('click',async event=>{
+    const anchor=event.target.closest?.('[data-agent-reference]');if(!anchor)return;
+    event.preventDefault();if(anchor.getAttribute('aria-busy')==='true')return;
+    anchor.setAttribute('aria-busy','true');
+    try{const response=await fetch('/api/docs/resolve?target='+encodeURIComponent(anchor.dataset.agentReference));const doc=await response.json();if(!response.ok)throw Error(doc.message||'未找到引用条目');await window.ERWNav.open(doc.kind,doc.id)}
+    catch(error){window.ERWToast?.('引用无法打开：'+error.message,true)}finally{anchor.removeAttribute('aria-busy')}
+  });
   async function syncDrafts(){const rows=await api('drafts?status=');let changed=false;for(const draft of rows){if(JSON.stringify(drafts[draft.id])!==JSON.stringify(draft)){drafts[draft.id]=draft;changed=true}}if(changed)notify('drafts',selected);return rows}
   async function resolveDraft(id,confirm){
     if(resolutions.has(id))return resolutions.get(id);
@@ -173,5 +209,5 @@
       catch(error){fail(e,error,source);throw error}
     })().finally(()=>monitors.delete(runId));monitors.set(runId,promise);return promise;
   }
-  window.ERWAgentClient={api,send,select,setSession,refresh,syncDrafts,resolveDraft,resume,drafts,runStates,capabilityControls,mountCapabilities,getCapabilities,saveSettings,adoptCapabilities,sessionId:()=>selected,snapshot:id=>entry(id),busy:id=>!!sessions.get(id)?.live,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)}};
+  window.ERWAgentClient={api,send,stop,linkify,select,setSession,refresh,syncDrafts,resolveDraft,resume,drafts,runStates,capabilityControls,mountCapabilities,getCapabilities,saveSettings,adoptCapabilities,sessionId:()=>selected,snapshot:id=>entry(id),busy:id=>!!sessions.get(id)?.live,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)}};
 })();

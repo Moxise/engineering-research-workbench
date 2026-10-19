@@ -320,9 +320,9 @@ def _build(opts, root, job):
 
 
 def _keyword(query, kind, limit):
-    rows = indexer.list_docs(kind=kind or None, query=query, page_size=limit)
+    rows = indexer.retrieve_docs(query, kind=kind or None, limit=limit)["items"]
     return [{"id": r["id"], "title": r.get("title", ""), "kind": r.get("kind", ""), "project": ", ".join(r.get("projects") or []),
-             "excerpt": r.get("excerpt", ""), "retrieval": "keyword"} for r in rows]
+             "excerpt": r.get("excerpt", ""), "source": {"doc_id": r["id"], "path": r.get("path", ""), "type": "markdown"}, "retrieval": "keyword"} for r in rows]
 
 
 def search(query, kind=None, limit=8):

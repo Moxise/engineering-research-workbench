@@ -20,6 +20,32 @@ from app import activity
 
 
 class IndexArchitectureTests(unittest.TestCase):
+    def test_retrieval_prioritizes_exact_source_over_newer_project_matches(self):
+        title = "物理信息引导思维树搜索的大模型负荷转供方法"
+        source = indexer.create_doc("literature", {"title": "文献-" + title, "body": "世界模型使用确定性物理求解器更新状态。", "projects": [title]})
+        indexer.update_doc(source["id"], {"updated": "2000-01-01"})
+        for i in range(12):
+            indexer.create_doc("literature", {"title": f"文献-同项目其他资料{i}", "body": "其他研究内容", "projects": [title]})
+        result = indexer.retrieve_docs(title, kind="literature", limit=8)
+        self.assertEqual(result["total"], 13)
+        self.assertEqual(result["items"][0]["id"], source["id"])
+        self.assertEqual(indexer.resolve_doc("[[文献-" + title + "|组会原文]]")["id"], source["id"])
+        self.assertEqual(indexer.resolve_doc(title)["id"], source["id"])
+        self.assertEqual(indexer.resolve_doc(source["id"])["id"], source["id"])
+        self.assertEqual(indexer.retrieve_docs(source["id"])["items"][0]["id"], source["id"])
+        self.assertEqual(agent_tools.execute("kb_read", {"title": "文献-" + title})["id"], source["id"])
+        with self.assertRaises(FileNotFoundError):
+            indexer.resolve_doc("不存在的引用")
+
+    def test_retrieval_splits_concepts_and_prefers_content_over_project_only(self):
+        self.doc("项目导航", projects=["世界模型 world model"])
+        wanted = self.doc("世界模型", body="world model 用于规划；确定性求解器负责状态计算。")
+        result = indexer.retrieve_docs("世界模型 world model", limit=8)
+        self.assertEqual(result["items"][0]["id"], wanted["id"])
+        self.assertIn("world", result["terms"])
+        self.assertEqual(indexer.retrieve_docs("职责 求解器")["items"][0]["id"], wanted["id"])
+        self.assertTrue(indexer.retrieve_docs("\"world\" OR 'model' OR")['items'])
+
     def test_activity_index_deduplicates_imports_and_preserves_legacy_multiplicity(self):
         path = self.root / 'System/activity.jsonl'
         event = {'timestamp':'2026-10-01T09:00:00', 'type':'doc_update', 'ref':'old', 'weight':3}

@@ -348,6 +348,8 @@ class Handler(BaseHTTPRequestHandler):
                 kind, query, status, project, mark,
                 page=page, page_size=page_size, paged=paged,
             ))
+        if path == "/api/docs/resolve":
+            return self.send_json(indexer.resolve_doc((q.get("target") or [""])[0]))
         if path == "/api/docs/draft":
             return self.send_json(store.prepare_doc((q.get("kind") or ["note"])[0], {}))
         # v260923 · 文献 PDF 附件下载：/api/docs/<id>/attachment，路径须置于 /api/docs/ 泛匹配之前

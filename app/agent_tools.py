@@ -140,21 +140,41 @@ def _t_kb_search(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     from .agent_runtime import settings
     limit = min(limit, settings()["rag_top_k"])
     from . import agent_rag
-    return agent_rag.search(query, kind=kind, limit=limit)
+    result = agent_rag.search(query, kind=kind, limit=limit)
+    from . import literature
+    papers = {p.get("doc_id"): p for p in literature._load_registry().get("items", []) if p.get("doc_id")}
+    for item in result.get("items", []):
+        paper = papers.get(item["id"])
+        if paper:
+            item["paper_id"] = paper["id"]
+        item["citation"] = f"[[{item['id']}|{item.get('title', item['id'])}]]"
+    result["scope"] = "ranked_top_k"
+    result["limit"] = limit
+    result["note"] = "返回相关候选节选，不等于已读全文；未进入前列不代表资料不存在。可用 kb_read 的 doc_id 或 title 直接打开引用来源。"
+    return result
 
 
 def _t_kb_read(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     doc_id = str(args.get("doc_id") or "").strip()
-    if not doc_id:
-        raise ValueError("doc_id 不能为空")
     from . import indexer
-    doc = indexer.get_doc(doc_id)
+    if not doc_id and not str(args.get("title") or "").strip():
+        raise ValueError("请提供 doc_id 或准确的条目 title")
+    doc = indexer.get_doc(doc_id) if doc_id else indexer.resolve_doc(args["title"])
     body = str(doc.get("body") or "")
     offset = max(0, int(args.get("offset") or 0))
     limit = max(1, min(int(args.get("limit") or _MAX_BODY_CHARS), 24000))
-    return {"id": doc["id"], "title": doc.get("title"), "kind": doc.get("kind"),
+    from . import literature
+    papers = {p.get("doc_id"): p for p in literature._load_registry().get("items", []) if p.get("doc_id")}
+    links = []
+    for target in list(dict.fromkeys(re.findall(r"\[\[([^\]\n]+)\]\]", body[offset:offset + limit])))[:24]:
+        try:
+            linked = indexer.resolve_doc(target)
+            links.append({"title": linked["title"], "doc_id": linked["id"], "kind": linked["kind"], "paper_id": papers.get(linked["id"], {}).get("id")})
+        except (FileNotFoundError, ValueError):
+            links.append({"title": target, "resolved": False})
+    return {"id": doc["id"], "title": doc.get("title"), "kind": doc.get("kind"), "paper_id": papers.get(doc["id"], {}).get("id"), "links": links,
             "projects": doc.get("projects") or [], "body": body[offset:offset + limit],
-            "version": hashlib.sha256(body.encode()).hexdigest(), "total_chars": len(body),
+            "version": hashlib.sha256(body.encode()).hexdigest(), "total_chars": len(body), "read_scope": "full_body" if offset == 0 and len(body) <= limit else "body_slice",
             "next_offset": offset + limit if offset + limit < len(body) else None}
 
 
@@ -326,12 +346,13 @@ _TOOL_META: dict[str, dict[str, Any]] = {
         "write": False,
     },
     "kb_read": {
-        "description": "按 doc_id 读取一个知识库条目的完整正文。",
+        "description": "按 doc_id 或准确 title 读取知识库正文，支持分页。返回来源 links 的 doc_id/paper_id，可继续读取原文；当前页面没有挂载文献不影响读取库内资料。",
         "params": {"type": "object", "properties": {
             "doc_id": {"type": "string", "description": "条目 id，如 note-20260924162227-5c3cbd"},
+            "title": {"type": "string", "description": "准确的条目标题；已知引用标题但没有 ID 时使用"},
             "offset": {"type": "integer", "description": "正文字符偏移，用于完整分页读取"},
             "limit": {"type": "integer", "description": "每页字符数，最大 24000"},
-        }, "required": ["doc_id"]},
+        }},
         "write": False,
     },
     "kb_create_entry": {

@@ -12,6 +12,8 @@ let opts={max_steps:48,time_budget_seconds:900,context_tokens:24000,auto_recall:
 let mode='normal',failSessionOnce=false,approved=false,sequence=0,delayMemory=false,failListReads=1,failedListReads=0,releaseStream=null,draftId='draft-fixture',confirmFailure=false,draftWrites=0,draftStatus='confirmed',resumeDelayed=false;
 let ragOptions={mode:'keyword',base_url:'',model:'',dimensions:0,chunk_chars:1600,overlap_chars:200,batch_size:16,include_pdf:false,has_api_key:false},ragIndex={},ragJob={},settingsFailure=false;
 const skill={name:'literature-review',description:'比较文献并保留证据',builtin:true};
+const citationNote={id:'note-citation',kind:'note',title:'知识-原理-辐射状约束与供电连通性',body:'## 原理\n无环还需要结合连通性。',projects:[],tags:[],kind_marks:[],status:'记录'};
+const citationPaper={...citationNote,id:'literature-citation',kind:'literature',title:'文献-组会原文',attachment:'Knowledge/Literature/PDF/fixture.pdf',body:'## 原始文献\n程序组织物理依据，模型选择动作。'};
 const cfg={app:{app_name:'科研工作台',subtitle:'Engineering Research Workspace',ui:{},academic_profile:{graduation_conditions:[]},llm:{enabled:true,active_profile_id:'fixture',request_presets:[{id:'default',label:'默认',model:'fixture'}],profiles:[{id:'fixture',name:'测试配置',base_url:'https://example.invalid/v1',request_presets:[{id:'default',label:'默认',model:'fixture'}]}],personas:[{id:'executor',name:'执行助手',tools:['kb_read'],write_mode:'confirm'},{id:'reader',name:'阅读助手',tools:['kb_read'],write_mode:'confirm'}]}},rss:{sources:[]},weather:{enabled:false}};
 function answer(content,extra={}){return {id:'msg-'+(++sequence),role:'assistant',content,created:'2026-10-19',model:'fixture',...extra}}
 const server=http.createServer(async(req,res)=>{
@@ -28,7 +30,7 @@ const server=http.createServer(async(req,res)=>{
     else if(p.startsWith('/api/weather'))data={enabled:false};
     else if(p==='/api/agent/send'){
       const session=sessions.find(s=>s.id===body.session_id);assert(session);
-      session.messages.push({id:'msg-'+(++sequence),role:'user',content:body.message,quote_text:body.context?.quote_text||'',created:'2026-10-19'});
+      session.messages.push({id:'msg-'+(++sequence),role:'user',content:body.message,quote_text:body.context?.quote_text||'',edited_from:body.context?.edited_from||'',created:'2026-10-19'});
       const run={id:'run-'+sequence,session_id:session.id,status:mode==='draft'?'waiting_approval':'completed',updated:'2026-10-19'};
       const parts=[{round:1,content:'## 核心方法\n第一轮分析：低秩适配。'},{round:2,content:'第二轮比较：\n\n| 方法 | 特点 |\n| --- | --- |\n| LoRA | 参数少 |'}];
       const multi=['multi','partial'].includes(mode);
@@ -37,6 +39,13 @@ const server=http.createServer(async(req,res)=>{
       session.messages.push(message);session.title='已更新的研究会话';session.updated='2026-10-19T12:00:00';run.result={assistant:message};runs.unshift(run);
       if(mode==='metadata')failSessionOnce=true;
       const encode=events=>events.map(([event,data])=>'event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n').join('');
+      if(mode==='citation')message.content='参见 [[知识-原理-辐射状约束与供电连通性]] 和 [[literature-citation|组会原文]]。\n\n`[[代码中的引用不应变成链接]]`';
+      if(['hold','delayed-hold'].includes(mode)){
+        session.messages.pop();run.status='running';run.result=null;
+        run.stop=()=>{const partial=answer('已生成的部分回答',{run_id:run.id,run_status:'cancelled',interruption:'已停止生成，已生成内容和原有提问已保留。'});session.messages.push(partial);run.status='cancelled';run.result={assistant:partial};delete run.stop;res.end(encode([['done',run.result]]))};
+        const begin=()=>{res.writeHead(200,{'Content-Type':'text/event-stream','X-Agent-Run-ID':run.id});res.write(encode([['run',{run_id:run.id,session_id:session.id}],['round',{i:0}],['delta',{text:'已生成的部分回答'}]]))};
+        if(mode==='delayed-hold'){await new Promise(resolve=>{releaseStream=resolve});releaseStream=null}begin();return;
+      }
       if(mode==='eof'){
         res.writeHead(200,{'Content-Type':'text/event-stream','X-Agent-Run-ID':run.id});res.end(encode([['delta',{text:'流已结束，后台结果已保存'}]]));return;
       }
@@ -64,6 +73,7 @@ const server=http.createServer(async(req,res)=>{
     else if(p==='/api/agent/sessions'){if(failListReads>0){failListReads--;failedListReads++;res.destroy();return}data=sessions.map(s=>({...s,message_count:s.messages.length}))}
     else if(p.startsWith('/api/agent/sessions/')){if(failSessionOnce){failSessionOnce=false;res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'模拟会话列表刷新失败'}));return}data=sessions.find(s=>s.id===p.split('/').at(-1))}
     else if(p==='/api/agent/runs')data=runs.filter(r=>!url.searchParams.get('session_id')||r.session_id===url.searchParams.get('session_id'));
+    else if(p.endsWith('/cancel')){const run=runs.find(r=>r.id===p.split('/').at(-2));run.stop?.();data=run}
     else if(p.endsWith('/events')){
       const run=runs.find(r=>r.id===p.split('/').at(-2));
       if(run?.pending){run.polls++;if(run.polls===1)data=[{seq:3,event:'delta',data:{text:'恢复后续正文。'}}];else{run.status='completed';run.result={assistant:run.pending};sessions.find(s=>s.id===run.session_id).messages.push(run.pending);delete run.pending;data=[{seq:4,event:'done',data:run.result}]}}
@@ -89,6 +99,8 @@ const server=http.createServer(async(req,res)=>{
     else if(p.endsWith('/memories')){if(delayMemory)await new Promise(resolve=>setTimeout(resolve,200));data=memories}
     else if(p.endsWith('/memory/forget')){memories.length=0;data={ok:true}}
     else if(p.endsWith('/backup'))data={url:'/backup.sqlite',path:'System/Agent/Backups/brain.sqlite'};
+    else if(p==='/api/docs/resolve')data=[citationNote,citationPaper].find(d=>[d.id,d.title].includes(url.searchParams.get('target')));
+    else if(p.startsWith('/api/docs/'))data=[citationNote,citationPaper].find(d=>d.id===p.split('/').at(-1));
     res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(data));return;
   }
   const file=path.resolve(root,'web','.'+(p==='/'?'/index.html':p));
@@ -215,7 +227,7 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#fab-messages .agent-response-part').count(),6,'shared history and partial answers are retained');
     await page.locator('#fab-close').click();
     await page.locator('#agent-input').fill('主页面中断保留结果');await page.locator('#agent-send').click();
-    await page.locator('#agent-messages .agent-error').getByText('请求失败：模拟中途连接失败',{exact:true}).waitFor();
+    await page.locator('#agent-messages .agent-error').last().getByText('请求失败：模拟中途连接失败',{exact:true}).waitFor();
     assert.equal(await page.locator('#agent-messages .agent-response-part').count(),8);
     const offline=await browser.newPage({viewport:{width:1440,height:1000}});offline.setDefaultTimeout(10000);let offlineReads=3;
     await offline.route('**/api/agent/sessions',route=>offlineReads-->0?route.abort('failed'):route.continue());
@@ -289,7 +301,58 @@ const server=http.createServer(async(req,res)=>{
     await page.setViewportSize({width:390,height:844});await page.getByRole('tab',{name:'技能',exact:true}).click();await page.locator('.as-skill').filter({hasText:'custom-flow'}).waitFor();
     assert.ok(await page.locator('#agent-system-panel').evaluate(e=>e.scrollWidth<=e.clientWidth+1));await page.screenshot({path:path.join(output,'integrated-mobile.png'),fullPage:true});
     await page.getByRole('tab',{name:'对话',exact:true}).click();await page.locator('#agent-input').waitFor();const mobileSend=await page.locator('#agent-send').boundingBox(),mobileCaps=await page.locator('#agent-chat-panel .agent-capability-controls').boundingBox();assert.ok(Math.abs((mobileSend.y+mobileSend.height/2)-(mobileCaps.y+mobileCaps.height/2))<4);assert.ok(await page.locator('#agent-chat-panel').evaluate(el=>el.scrollWidth<=el.clientWidth+1));await page.screenshot({path:path.join(output,'mobile-composer.png'),fullPage:true});
-    assert.deepEqual(errors,[]);console.log('Integrated Agent UI passed: EOF/result recovery, event replay, CRLF/multiline/final frames, inline draft preview/confirm/retry/resume, two-way live/session sync, late-result isolation, independent Skill/RAG/memory switches, Embedding configuration/index/search, same-row controls, main/floating reply selection quotes, themes/mobile. No model API calls.');
+    await page.setViewportSize({width:1440,height:1000});
+    if(await page.locator('#fab-close').isVisible())await page.locator('#fab-close').click();
+    mode='citation';await page.locator('#agent-input').fill('验证引用跳转');await page.locator('#agent-send').click();
+    await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
+    let reply=page.locator('#agent-messages .assistant').last();
+    assert.equal(await reply.locator('[data-agent-reference]').count(),2,'wiki links become clickable, inline code stays literal');
+    await reply.getByRole('link',{name:citationNote.title,exact:true}).click();
+    await page.waitForFunction(()=>window.ERWCurrentDoc==='note-citation');
+    await page.locator('#md-input').waitFor();assert.match(await page.locator('#md-input').inputValue(),/无环还需要结合连通性/);
+    await page.locator('[data-route="agent"]').click();await page.locator('#agent-input').waitFor();
+    await page.evaluate(()=>{window.__openedCitationPdf='';window.ERWLiterature.openByAttachment=async attachment=>{window.__openedCitationPdf=attachment}});
+    await page.locator('#agent-messages .assistant').last().getByRole('link',{name:'组会原文',exact:true}).click();
+    await page.waitForFunction(()=>window.__openedCitationPdf==='Knowledge/Literature/PDF/fixture.pdf');
+    assert.equal(await page.locator('#doc-list [data-doc-id="literature-citation"]').count(),0,'citation opens a PDF even when absent from the filtered list page');
+    await page.locator('[data-route="agent"]').click();await page.locator('#agent-input').waitFor();
+    const originalId=await page.locator('#agent-messages .user').last().getAttribute('data-message-id');
+    const originalQuestion=await page.locator('#agent-messages .user').last().locator('.agent-message-body').innerText();
+    const userBox=await page.locator('#agent-messages .user').last().locator('.agent-bubble').boundingBox(),aiBox=await page.locator('#agent-messages .assistant').last().locator('.agent-bubble').boundingBox();
+    assert.ok(userBox.x>aiBox.x+100,'user question on right, assistant answer on left');
+    await page.locator('#agent-input').fill('尚未发送的草稿');await page.locator('#agent-messages .user').last().getByRole('button',{name:'编辑重发',exact:true}).click();
+    assert.equal(await page.locator('#agent-input').inputValue(),originalQuestion);
+    await page.getByRole('button',{name:'取消编辑',exact:true}).click();assert.equal(await page.locator('#agent-input').inputValue(),'尚未发送的草稿');
+    await page.locator('#agent-messages .user').last().getByRole('button',{name:'编辑重发',exact:true}).click();
+    await page.locator('#agent-input').fill('修订后的检索问题');mode='normal';await page.getByRole('button',{name:'重新发送',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
+    const resent=requests.filter(r=>r.path==='/api/agent/send').at(-1).body;
+    assert.equal(resent.context.edited_from,originalId);
+    assert.equal(await page.locator(`[data-message-id="${originalId}"] .agent-message-body`).innerText(),originalQuestion);
+    assert.equal(await page.locator('#agent-messages .user').last().locator('.agent-message-body').innerText(),'修订后的检索问题');
+    await page.locator('#agent-messages .user').last().getByRole('button',{name:'由历史提问编辑重发 · 查看原提问',exact:true}).click();
+    assert.equal(await page.evaluate(()=>document.activeElement.dataset.messageId),originalId);
+    const beforeStops=requests.filter(r=>r.path.endsWith('/cancel')).length;
+    mode='hold';await page.locator('#agent-input').fill('生成中从另一界面停止');await page.locator('#agent-send').click();
+    await page.locator('#agent-thinking').getByText('已生成的部分回答',{exact:true}).waitFor();
+    await page.locator('#erw-fab-ball').click();await page.locator('#fab-send').getByText('停止',{exact:true}).waitFor();await page.locator('#fab-send').click();
+    await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
+    await page.locator('#agent-messages .assistant').last().getByText('已停止生成，已生成内容和原有提问已保留。',{exact:true}).waitFor();
+    await page.locator('#fab-messages').getByText('已停止生成，已生成内容和原有提问已保留。',{exact:true}).waitFor();
+    assert.equal(requests.filter(r=>r.path.endsWith('/cancel')).length,beforeStops+1);
+    await page.locator('#fab-close').click();
+    mode='delayed-hold';await page.locator('#agent-input').fill('收到任务编号前也可以停止');await page.locator('#agent-send').click();
+    await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='停止');await page.locator('#agent-send').click();
+    while(!releaseStream)await new Promise(resolve=>setTimeout(resolve,10));releaseStream();
+    await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
+    assert.equal(requests.filter(r=>r.path.endsWith('/cancel')).length,beforeStops+2,'early stop waits for run ID then cancels exactly once');
+    await page.reload();await page.locator('#agent-messages .user').filter({hasText:'修订后的检索问题'}).waitFor();
+    assert.equal(await page.locator(`[data-message-id="${originalId}"] .agent-message-body`).innerText(),originalQuestion);
+    await page.locator('#agent-messages .assistant').last().getByText('已停止生成，已生成内容和原有提问已保留。',{exact:true}).waitFor();
+    await page.screenshot({path:path.join(output,'citations-edit-stop-desktop.png')});
+    await page.setViewportSize({width:390,height:844});assert.ok(await page.locator('#agent-chat-panel').evaluate(el=>el.scrollWidth<=el.clientWidth+1));
+    await page.screenshot({path:path.join(output,'citations-edit-stop-mobile.png'),fullPage:true});
+    assert.deepEqual(errors,[]);console.log('Integrated Agent UI passed: citation links/PDF outside list page, left/right messages, edit resend preserving originals, cancel from either view/before run ID, partial output after reload; EOF recovery, drafts, sync, capabilities, Embedding settings, selection quotes, themes/mobile. No model API calls.');
   }catch(error){if(lastPage){console.error('Selection state:',await lastPage.evaluate(()=>({selection:getSelection()?.toString(),anchor:getSelection()?.anchorNode?.parentElement?.outerHTML?.slice(0,300),bubble:document.querySelector('#erw-sel-bubble')?.outerHTML?.slice(0,300)})));console.error('UI failure state:',(await lastPage.locator('#fab-messages').innerText()).slice(-1500));await lastPage.screenshot({path:path.join(output,'failure.png')})}throw error}
   finally{releaseStream?.();await browser.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}
 })().catch(e=>{console.error(e);process.exitCode=1;server.close()});
