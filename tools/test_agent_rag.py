@@ -16,7 +16,7 @@ from unittest.mock import patch
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import agent_rag as rag, agent_memory as brain, agent_runtime as runtime, agent_tools, config, indexer, literature
+from app import agent_rag as rag, agent_rag_updates as updates, agent_memory as brain, agent_runtime as runtime, agent_tools, config, indexer, literature
 
 
 class RagTests(unittest.TestCase):
@@ -36,6 +36,8 @@ class RagTests(unittest.TestCase):
             return copy.deepcopy(self.docs[key])
         self.stack.enter_context(patch.object(indexer, "get_doc", side_effect=get_doc))
         self.stack.enter_context(patch.object(indexer, "document_metadata", side_effect=lambda: list(self.docs.values())))
+        self.stack.enter_context(patch.object(indexer, "sync"))
+        self.stack.enter_context(patch.object(updates, "source_stamp", side_effect=lambda opts: rag._version({"body": json.dumps(self.docs, sort_keys=True)})))
         self.stack.enter_context(patch.object(indexer, "retrieve_docs", side_effect=lambda query, kind=None, limit=8: {"items": [d for d in self.docs.values() if (not kind or d["kind"] == kind) and query.lower() in (d["title"] + d["body"]).lower()][:limit]}))
         self.stack.enter_context(patch.object(literature, "ensure_workspace", return_value=self.root))
         self.calls = []
@@ -115,6 +117,70 @@ class RagTests(unittest.TestCase):
             self.assertNotIn("fake-private-key", str(error.exception))
         self.assertFalse(any(path == "/leaked-credentials" for path, _, _ in self.calls))
 
+    def test_clear_vectors_preserves_documents_memory_and_disables_auto_updates(self):
+        self.build()
+        memory = brain.remember("稳定的科研偏好", scope="user", source={"type": "user"})
+        rag.save_settings({"realtime_updates": True, "scheduled_updates": True})
+        calls = len(self.calls)
+        result = rag.clear_index()
+        self.assertFalse(result["index"]["ready"])
+        self.assertFalse(result["settings"]["realtime_updates"])
+        self.assertFalse(result["settings"]["scheduled_updates"])
+        self.assertTrue(result["settings"]["has_api_key"])
+        self.assertEqual(len(self.calls), calls)
+        self.assertEqual(len(self.docs), 2)
+        self.assertIn(memory["id"], [m["id"] for m in brain.recall("科研偏好")["results"]])
+        with rag._connection() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0], 0)
+        self.assertEqual(updates.tick(now=1000, background=False), "disabled")
+        self.assertGreater(self.build()["index"]["chunks"], 0)
+
+    def test_live_updates_debounce_coalesce_and_reuse_without_retry_loop(self):
+        rag.save_settings({"realtime_updates": True, "update_debounce_seconds": 15})
+        self.assertEqual(updates.tick(now=1000, background=False), "waiting")
+        self.docs["adapter"]["body"] += " changed once"
+        self.assertEqual(updates.tick(now=1005, background=False), "waiting")
+        self.docs["adapter"]["body"] += " changed twice"
+        self.assertEqual(updates.tick(now=1010, background=False), "waiting")
+        self.assertFalse(self.calls)
+        self.assertEqual(updates.tick(now=1025, background=False), "realtime")
+        count = len(self.calls)
+        self.assertEqual(updates.tick(now=1050, background=False), "waiting")
+        self.assertEqual(len(self.calls), count)
+        self.docs["adapter"]["body"] += " update"
+        updates.tick(now=1060, background=False)
+        self.assertEqual(updates.tick(now=1075, background=False), "realtime")
+        self.assertGreater(rag.status()["job"]["reused"], 0)
+        self.response_mode = "http"
+        self.docs["adapter"]["body"] += " failure"
+        updates.tick(now=1080, background=False); updates.tick(now=1095, background=False)
+        count = len(self.calls)
+        self.assertEqual(rag.status()["job"]["state"], "failed")
+        self.assertEqual(updates.tick(now=10000, background=False), "waiting")
+        self.assertEqual(len(self.calls), count)
+
+    def test_scheduled_updates_persist_due_time_skip_busy_and_respect_switches(self):
+        rag.save_settings({"scheduled_updates": True, "update_interval_minutes": 5})
+        self.assertEqual(updates.tick(now=1000, background=False), "waiting")
+        self.assertEqual(updates.status()["next_scheduled_at"], 1300)
+        self.assertEqual(updates.tick(now=1299, background=False), "waiting")
+        self.assertEqual(updates.tick(now=1300, background=False), "scheduled")
+        count = len(self.calls)
+        self.assertEqual(updates.tick(now=1600, background=False), "scheduled")
+        self.assertEqual(len(self.calls), count, "Unchanged scheduled runs spend no embedding calls")
+        runtime.save_settings({"rag_enabled": False})
+        self.assertEqual(updates.tick(now=2000, background=False), "inactive")
+        runtime.save_settings({"rag_enabled": True})
+        rag.save_settings({"mode": "keyword"})
+        self.assertEqual(updates.tick(now=2000, background=False), "inactive")
+        rag.save_settings({"mode": "hybrid"})
+        with rag._LOCK:
+            rag._JOBS[str(brain.root())] = {"state": "running"}
+        self.assertEqual(updates.tick(now=2000, background=False), "busy")
+        with self.assertRaises(ValueError):
+            rag.clear_index()
+        rag._JOBS.pop(str(brain.root()), None)
+
     def test_build_semantic_lookup_provenance_kind_filter_and_tool_integration(self):
         result = self.build()
         self.assertGreater(result["index"]["chunks"], 2)
@@ -133,6 +199,34 @@ class RagTests(unittest.TestCase):
         self.assertEqual(len(self.calls), calls, "Repeated queries reuse a bounded query cache")
         runtime.save_settings({"rag_top_k": 1})
         self.assertLessEqual(rag.search("省参数的方法")["count"], 1)
+
+    def test_configured_recall_count_drives_defaults_across_all_modes_and_tools(self):
+        self.docs = {f"doc-{i}": {"id": f"doc-{i}", "kind": "note", "title": f"adapter 方法 {i}", "body": "An adapter uses fewer parameters."} for i in range(15)}
+        runtime.save_settings({"rag_top_k": 12})
+        rag.save_settings({"mode": "keyword"})
+        self.assertEqual(rag.search("adapter")["count"], 12)
+        result = agent_tools.execute("kb_search", {"query": "adapter"})
+        self.assertEqual(result["count"], 12)
+        self.assertEqual(result["limit"], 12)
+        self.assertIsNone(result["requested_limit"])
+        self.assertEqual(agent_tools.execute("kb_search", {"query": "adapter", "limit": 5})["count"], 5)
+        self.assertEqual(agent_tools.execute("kb_search", {"query": "adapter", "limit": 99})["count"], 12)
+        specs = agent_tools.openai_specs(["kb_search", "memory_recall"])
+        for spec in specs:
+            self.assertEqual(spec["function"]["parameters"]["properties"]["limit"]["default"], 12)
+        self.assertNotIn("默认 8", agent_tools.text_protocol_prompt(["kb_search"]))
+        for i in range(15):
+            brain.remember(f"adapter 实验方法 {i}", scope="user")
+        self.assertEqual(len(brain.recall("adapter")["results"]), 12)
+        self.assertEqual(len(agent_tools.execute("memory_recall", {"query": "adapter"})["results"]), 12)
+        self.build()
+        for mode in ("semantic", "hybrid"):
+            rag.save_settings({"mode": mode})
+            self.assertEqual(rag.search("adapter")["count"], 12)
+            self.assertEqual(agent_tools.execute("kb_search", {"query": "adapter"})["count"], 12)
+        runtime.save_settings({"rag_top_k": 3})
+        self.assertEqual(rag.search("adapter")["count"], 3)
+        self.assertEqual(agent_tools.openai_specs(["kb_search"])[0]["function"]["parameters"]["properties"]["limit"]["default"], 3)
 
     def test_incremental_build_reuses_vectors_and_removes_deleted_sources(self):
         first = self.build()
@@ -208,6 +302,8 @@ class RagTests(unittest.TestCase):
             self.assertEqual(rag.search("省参数的方法", kind="literature")["items"], [])
 
     def test_real_http_routes_and_background_index_lifecycle(self):
+        runtime.save_settings({"rag_top_k": 12})
+        self.docs.update({f"http-{i}": {"id": f"http-{i}", "kind": "note", "title": f"adapter 方法 {i}", "body": "An adapter uses fewer parameters."} for i in range(14)})
         from server import Handler
         app_server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         thread = threading.Thread(target=app_server.serve_forever, daemon=True)
@@ -229,6 +325,8 @@ class RagTests(unittest.TestCase):
                 time.sleep(.01)
             self.assertEqual(status["job"]["state"], "completed")
             self.assertEqual(request("/search", {"query": "省参数的方法"})["items"][0]["id"], "adapter")
+            self.assertEqual(request("/search", {"query": "省参数的方法"})["count"], 12, "HTTP omitted limit must use configured recall size")
+            self.assertFalse(request("/clear", {})["index"]["ready"])
         finally:
             app_server.shutdown()
             app_server.server_close()

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import base64
+import io
+import zipfile
 import sqlite3
 import sys
 import tempfile
@@ -218,8 +221,174 @@ class AgentSystemTests(unittest.TestCase):
     def test_explicit_skill_activation_reaches_model(self):
         with patch.object(agent, "_post_chat", return_value={"content": "完成"}) as post:
             run = self.wait(self.submit("使用 $literature-review 对比方法")["id"], "completed")
-            self.assertIn("已激活技能 literature-review", post.call_args.args[1][0]["content"])
+            self.assertTrue(any("已激活技能 literature-review" in str(m.get("content")) for m in post.call_args.args[1]))
             self.assertTrue(any(e["event"] == "skill" for e in brain.events(run["id"])))
+
+    def test_skill_bundle_yaml_resources_and_atomic_import_validation(self):
+        content = '---\nname: bundled-flow\ndescription: >\n  比较数据并验证\n  科研结论\nallowed-tools: [kb_read, skill_run]\nmetadata:\n  version: "2.1"\n---\n先读 references/check.md，再执行脚本。'
+        files = [{"path": "references/check.md", "content": "核查原始数据"}, {"path": "scripts/run.py", "content": "print('checked')"}, {"path": "agents/openai.yaml", "content": 'interface:\n  display_name: 数据核查\npolicy:\n  allow_implicit_invocation: false\n'}]
+        skills.install("bundled-flow", content, files)
+        meta = next(s for s in skills.discover()["skills"] if s["name"] == "bundled-flow")
+        self.assertEqual(meta["version"], "2.1")
+        self.assertEqual(meta["display_name"], "数据核查")
+        self.assertFalse(meta["allow_implicit_invocation"])
+        self.assertEqual(meta["allowed_tools"], ["kb_read", "skill_run"])
+        self.assertNotIn("bundled-flow", skills.catalog_prompt())
+        self.assertNotIn("instructions", meta)
+        self.assertEqual(len(skills.read("bundled-flow")["resources"]), 4)
+        for name, bad in (("bad-traversal", [{"path": "../escape", "content": "x"}]), ("bad-ads", [{"path": "assets/x:stream", "content": "x"}]), ("bad-case", [{"path": "skill.MD", "content": "x"}])):
+            with self.assertRaises(ValueError):
+                skills.install(name, content.replace("bundled-flow", name), bad)
+            self.assertFalse((skills.roots()[-1] / name).exists())
+        for yaml in ('name: duplicate\nname: duplicate\ndescription: x', 'name: alias\ndescription: &a [*a]'):
+            with self.assertRaises(ValueError):
+                skills._yaml(yaml)
+
+    def test_zip_skill_import_and_rejected_links_and_duplicate_paths(self):
+        def zipped(entries):
+            data = io.BytesIO()
+            with zipfile.ZipFile(data, "w") as archive:
+                for name, content in entries:
+                    archive.writestr(name, content)
+            return base64.b64encode(data.getvalue()).decode()
+        content = "---\nname: zipped-flow\ndescription: ZIP 导入\n---\n核对来源"
+        package = [("zipped-flow/SKILL.md", content), ("zipped-flow/assets/template.md", "# 标题")]
+        self.assertEqual(skills.install_zip(zipped(package))["file_count"], 2)
+        self.assertEqual(skills.read("zipped-flow", "assets/template.md")["content"], "# 标题")
+        for entry in ("../escape", "zipped-flow/../../escape", "C:/escape", "zipped-flow/assets/CON.txt", "another/SKILL.md"):
+            with self.assertRaises(ValueError):
+                skills.install_zip(zipped([*package, (entry, "x")]))
+        with self.assertRaises(ValueError):
+            skills.install_zip(zipped([("SKILL.md", content.replace("zipped-flow", "case-flow")), ("skill.MD", "duplicate")]))
+
+    def test_explicit_only_skill_runtime_and_implicit_negative_controls(self):
+        content = "---\nname: manual-flow\ndescription: 仅明确调用\n---\n按来源解释"
+        skills.install("manual-flow", content, [{"path": "agents/openai.yaml", "content": "policy:\n  allow_implicit_invocation: false\n"}])
+        self.assertFalse(tools.execute("skill_read", {"name": "manual-flow"}, {})["ok"])
+        with patch.object(agent, "_post_chat", return_value={"content": "直接回答"}):
+            run = self.wait(self.submit("今天你好")["id"], "completed")
+        self.assertFalse(brain.get_run(run["id"])["state"].get("active_skills"))
+        with patch.object(agent, "_post_chat", return_value={"content": "按工作流程回答"}):
+            self.wait(self.submit("使用 $manual-flow 核查")["id"], "completed")
+        used = agent.get_session(self.session["id"])["messages"][-1]["skills_used"]
+        self.assertEqual(used[0]["reason"], "explicit")
+        self.assertNotIn("instructions", used[0])
+        with patch.object(agent, "_post_chat", side_effect=[call("skill_read", {"name": "evidence-audit"}), {"content": "核查完成"}]):
+            self.wait(self.submit("核查笔记是否符合原文")["id"], "completed")
+        used = agent.get_session(self.session["id"])["messages"][-1]["skills_used"]
+        self.assertEqual(used[0]["name"], "evidence-audit")
+        self.assertEqual(used[0]["reason"], "implicit")
+        self.assertIn("SKILL.md", used[0]["resources"])
+
+    def test_skill_scripts_activation_args_and_pinned_version(self):
+        skills.install("script-flow", "---\nname: script-flow\ndescription: 计算核对\n---\n执行 scripts/run.py", [{"path": "scripts/run.py", "content": "print('checked')"}])
+        ctx = {"tools": list(tools.TOOL_NAMES)}
+        self.assertFalse(tools.execute("skill_run", {"name": "script-flow", "path": "scripts/run.py"}, ctx)["ok"])
+        self.assertTrue(tools.execute("skill_read", {"name": "script-flow"}, ctx)["ok"])
+        with patch.object(research, "python_run", return_value={"ok": True, "stdout": "checked"}) as execute:
+            result = tools.execute("skill_run", {"name": "script-flow", "path": "scripts/run.py", "args": ["--input", "/input/example.csv"]}, ctx)
+        self.assertTrue(result["ok"])
+        self.assertIn("sys.argv", execute.call_args.args[0]["code"])
+        self.assertIn("/input/example.csv", execute.call_args.args[0]["code"])
+        self.assertEqual(ctx["active_skills"]["script-flow"]["script_runs"], 1)
+        (skills.roots()[-1] / "script-flow/scripts/run.py").write_text("changed", encoding="utf-8")
+        self.assertIn("已变化", tools.execute("skill_run", {"name": "script-flow", "path": "scripts/run.py"}, ctx)["error"])
+
+    def test_repeating_identical_tools_pauses_without_extra_calls(self):
+        with patch.object(agent, "_post_chat", side_effect=lambda *a, **kw: call("workspace_list", {}, "repeat-" + str(time.monotonic_ns()))), patch.object(research, "workspace_path", return_value=self.root):
+            run = self.wait(self.submit("检查文件")["id"], "paused")
+        trace = run["state"]["trace"]
+        self.assertEqual(len(trace), 5)
+        self.assertEqual(sum(t["ok"] for t in trace), 3)
+        self.assertIn("节省模型消耗", agent.get_session(self.session["id"])["messages"][-1]["interruption"])
+
+    def test_active_skill_context_survives_compaction_as_reference_message(self):
+        workflow = {"role": "user", "content": agent_context.SKILL_CONTEXT_PREFIX + "\n核对原文后再作答"}
+        messages = [{"role": "system", "content": "用户要求优先"}, workflow]
+        for i in range(12):
+            messages += [{"role": "user", "content": str(i) + "历史资料" * 200}, {"role": "assistant", "content": "历史答复" * 200}]
+        messages.append({"role": "user", "content": "请核查结论"})
+        compacted, info = agent_context.compact(messages, 4000)
+        self.assertTrue(info)
+        self.assertEqual(compacted[1], workflow)
+        self.assertEqual(compacted[-1]["content"], "请核查结论")
+        self.assertNotIn("核对原文", compacted[0]["content"])
+
+    def test_skill_http_package_install_resources_and_pagination(self):
+        from http.server import ThreadingHTTPServer
+        from server import Handler
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        def request(path, body):
+            with urlopen(Request(f"http://127.0.0.1:{server.server_port}/api/agent/skills/{path}", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}), timeout=5) as response:
+                return json.load(response)
+        try:
+            content = "---\nname: http-skill\ndescription: API 技能\n---\n按需读取参考"
+            request("install", {"content": content, "files": [{"path": "references/test.md", "content": "abcdefghij"}]})
+            self.assertEqual(len(request("resources", {"name": "http-skill"})["files"]), 2)
+            page = request("read", {"name": "http-skill", "path": "references/test.md", "offset": 3, "limit": 4})
+            self.assertEqual(page["content"], "defg")
+            self.assertEqual(page["next_offset"], 7)
+        finally:
+            server.shutdown(); server.server_close(); thread.join(2)
+
+    def test_default_executor_gains_skill_authoring_but_custom_allowlist_survives(self):
+        old_default = [name for name in tools.TOOL_NAMES if name != "skill_install"]
+        cleaned = config._clean_personas([{"id": "executor", "tools": old_default}])
+        self.assertIn("skill_install", next(p for p in cleaned if p["id"] == "executor")["tools"])
+        cleaned = config._clean_personas([{"id": "executor", "tools": ["kb_read", "skill_read"]}])
+        self.assertEqual(next(p for p in cleaned if p["id"] == "executor")["tools"], ["kb_read", "skill_read"])
+
+    def test_readable_titles_preserve_canonical_tool_identifiers(self):
+        identifier, revision = "note-5bda17e4f5bdec7d44", "rev-07c435d9788f4602836ec4b331f07865"
+        value = {"id": identifier, "title": "物理状态计算与模型决策", "revision_id": revision, "stored_filename": ""}
+        names = agent_context.reference_names(value)
+        self.assertNotIn("", names)
+        answer = f"已更新 {identifier}；撤销见 {revision}。示例：{{\"results\":[3,5]}}"
+        expected = agent_context.display_text(answer, names)
+        self.assertNotIn(identifier, expected)
+        self.assertNotIn(revision, expected)
+        self.assertIn('{"results":[3,5]}', expected)
+        for split in range(len(answer) + 1):
+            chunks = []
+            stream = agent_context.TitleStream(names, chunks.append)
+            stream.feed(answer[:split]); stream.feed(answer[split:]); stream.flush()
+            self.assertEqual("".join(chunks), expected)
+            self.assertNotIn("note-", "".join(chunks))
+        chunks = []
+        stream = agent_context.TitleStream(names, chunks.append)
+        for char in answer:
+            stream.feed(char)
+        stream.flush()
+        self.assertEqual("".join(chunks), expected)
+        evidence = [{"role": "tool", "content": json.dumps(value)}, {"role": "assistant", "content": answer}]
+        self.assertEqual(agent_context.response_parts({"evidence": evidence})[0]["content"], expected)
+        self.assertIn(identifier, evidence[0]["content"])
+        self.assertTrue(agent_context.requests_internal_ids("请给出内部编号和 revision_id"))
+        self.assertFalse(agent_context.requests_internal_ids("不要显示内部编号"))
+
+    def test_streaming_and_reload_show_titles_but_evidence_keeps_ids(self):
+        identifier = "note-5bda17e4f5bdec7d44"
+        doc = {"id": identifier, "title": "物理状态计算与模型决策", "kind": "note", "body": "来源正文"}
+        replies = iter([call("kb_read", {"doc_id": identifier}, "read-title"), {"content": f"已核对 {identifier}。"}])
+        def scripted(*args, **kwargs):
+            reply = next(replies)
+            if reply.get("content") and kwargs.get("on_delta"):
+                for char in reply["content"]:
+                    kwargs["on_delta"](char)
+            return reply
+        with patch.object(indexer, "get_doc", return_value=doc), patch.object(agent, "_post_chat", side_effect=scripted):
+            run = self.wait(self.submit("核对来源")["id"], "completed")
+        message = agent.get_session(self.session["id"])["messages"][-1]
+        self.assertIn(doc["title"], message["content"])
+        self.assertNotIn(identifier, message["content"])
+        raw = brain.get_session(self.session["id"])["messages"][-1]
+        self.assertIn(identifier, json.dumps(raw["evidence"]))
+        result = json.loads(raw["evidence"][1]["content"])
+        self.assertEqual(result["citation"], f"[[{doc['title']}]]")
+        events = brain.events(run["id"])
+        self.assertNotIn(identifier, "".join(e["data"].get("text", "") for e in events if e["event"] == "delta"))
 
     def test_skill_switches_filter_catalog_and_deny_disabled_execution(self):
         runtime.save_settings({"disabled_skills": ["literature-review"]})

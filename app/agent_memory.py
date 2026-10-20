@@ -393,7 +393,10 @@ def forget(memory_id: str) -> dict:
     return {"ok": True, "id": memory_id}
 
 
-def recall(query: str, *, namespace="research", session_id="", project_id="", limit=8, max_chars=8000, query_embedding=None, graph=True) -> dict:
+def recall(query: str, *, namespace="research", session_id="", project_id="", limit=None, max_chars=8000, query_embedding=None, graph=True) -> dict:
+    from .agent_runtime import settings
+    maximum = settings()["rag_top_k"]
+    limit = max(1, min(int(limit) if limit is not None else maximum, maximum))
     tokens = terms(query)[:48]
     vector = _vector(query_embedding)
     max_chars = max(256, min(int(max_chars), 32000))
@@ -441,7 +444,7 @@ def recall(query: str, *, namespace="research", session_id="", project_id="", li
         chunks.append(text)
         size += len(text) + 2
         hits.append({**item, "rank": len(hits) + 1, "score": round(scores[mid], 8)})
-    return {"query": query, "mode": "hybrid" if vector else "lexical_graph", "results": hits, "context_pack": {"text": "\n\n".join(chunks), "sources": [{"id": h["id"], "source": h["source"]} for h in hits], "chars": min(size, max_chars)}}
+    return {"query": query, "mode": "hybrid" if vector else "lexical_graph", "limit": limit, "count": len(hits), "results": hits, "context_pack": {"text": "\n\n".join(chunks), "sources": [{"id": h["id"], "source": h["source"]} for h in hits], "chars": min(size, max_chars)}}
 
 
 def graph_data(**filters) -> dict:

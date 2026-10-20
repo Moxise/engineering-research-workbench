@@ -29,7 +29,7 @@
 
 ## Skill
 
-内置技能：`literature-review`、`knowledge-curation`、`research-analysis`。
+内置技能：`literature-review`、`knowledge-curation`、`research-analysis`、`evidence-audit`、`skill-authoring`。完整升级设计、执行契约与边界见 [Agent 升级设计](AGENT_UPGRADE_DESIGN.md)。
 
 用户技能目录：
 
@@ -63,6 +63,8 @@ allowed-tools: kb_search kb_read
 
 主动引用的资料、回复选段及当前页是用户提供的上下文，仍可使用。`rag_top_k`（1–20）限制每次资料/记忆召回条数；`rag_context_chars`（256–32000）限制记忆 ContextPack 字符预算；高级设置的 `auto_recall` 控制对话前自动召回。
 
+未指定 limit 时，资料检索、检索试用和记忆召回均以 `rag_top_k` 为默认数量，模型工具参数同步显示当前上限，不再写死为 8。模型仅在确需更少结果时指定 limit；显式更大的值仍被用户上限限制。检索试用分别显示实际数量和上限。上限不保证一定命中该数量：匹配不足、去重、类型条件、来源失效或记忆字符预算都可能使结果更少。
+
 **配置入口：设置 → RAG / 嵌入模型，或 Agent → RAG，或输入框旁齿轮。** 填写支持 `/embeddings` 的 Base URL、模型 ID、API Key；维数 0 表示模型默认（部分模型不支持自定义维数，应保留 0）。Base URL 可包含 `/v1`，也支持填写完整 `/embeddings` 地址；本地无鉴权服务可不填 Key。选择关键词、语义或混合模式后保存。
 
 “保存并测试连接”仅嵌入一段短测试文本。“保存并更新索引”明确触发资料分块和嵌入调用；未修改分块复用已有向量。不会打开设置就发送整个资料库。保存密钥后输入框留空表示保留；清除必须勾选清除选项。Embedding 配置及凭据在本机 `config/agent-rag.json`，公开接口只返回 `has_api_key`，不进入对话、Agent 备份或工作区同步。
@@ -75,7 +77,9 @@ allowed-tools: kb_search kb_read
 
 检索试用或对话示例：“有哪些减少微调参数的方法？请先检索知识库，给出命中的依据，再读取相关正文进行比较。”模型可调用 `kb_search`，依据命中来源继续 `kb_read` 或 `pdf_read`，再生成有出处的回答。长期记忆仍使用独立的词法/实体召回，不会因配置文档 Embedding 自动为记忆批量生成向量。
 
-`allowed-tools` 是技能的说明性元数据，不是授权来源。实际执行始终受人设工具白名单、运行设置和写入审批限制。Frontmatter 支持字符串字段及缩进的描述块；复杂 YAML 对象不是运行配置。界面可安装文本技能，带资源的完整技能目录可由用户复制到上述目录。安装不会执行脚本。
+`allowed-tools` 是技能的说明性元数据，不是授权来源。实际执行始终受人设工具白名单、运行设置和写入审批限制。Frontmatter 使用 PyYAML 安全解析，支持多行描述、工具数组与版本元数据。技能页支持 ZIP、文件夹和文本导入、资源浏览、环境诊断；工作区 `.agents/skills`、`.codex/skills` 也可自动发现。`agents/openai.yaml` 可控制展示名称和是否允许自动选用。运行时记录使用原因、包版本、资源和脚本次数；安装不会执行脚本。
+
+RAG 页新增“自动更新”设置，可分别开启资料变化后更新和定期更新。默认均关闭，仅在 RAG 开启、语义/混合模式、服务运行时生效。实时检查每 5 秒一次，合并连续编辑（默认 15 秒）；定期默认 60 分钟。只为变化分块重新嵌入，失败或取消保留旧索引，同一变化不会无限实时重试。“清除向量数据库”删除派生向量、压缩数据库并关闭自动更新，保留 Markdown、PDF、长期记忆与接口配置；有运行中的构建时须先取消并等待结束。
 
 ## 任务执行与上下文
 
@@ -89,7 +93,7 @@ SSE 响应头提供 `X-Agent-Run-ID`，持久化事件带 `id` 游标。终态�
 
 审批流程：模型生成草稿 → 状态 waiting_approval → 用户检查正文并确认或拒绝 → 点击“继续” → 将真实审批结果交还模型继续执行。确认操作先持久化 executing 状态，并串行执行，防止重复点击造成重复写入；若进程在写入期间退出，executing 草稿需人工核对目标内容，不能直接重复确认。
 
-默认每次执行 48 轮、900 秒软预算。达到预算会暂停并保留检查点；继续后获得新的执行预算。取消在模型流片段和工具边界检查，不能撤销已经完成的写入，也不能强行中断正在等待的非流式网络请求；它会在请求返回后停止下一步。
+默认每次执行 48 轮、900 秒软预算。达到预算会暂停并保留检查点；继续后获得新的执行预算。相同工具参数持续重复时会阻止重复执行，连续触发保护后暂停。取消可停止等待模型响应，并在工具边界检查；已经完成的写入不能撤销，外部工具调用可能需要等待返回。
 
 历史保留工具调用及原始返回，不再只保留聊天文字。上下文预算使用本地字符启发式估算，未宣称与供应商 tokenizer 完全一致。超预算时以消息组为单位进行摘录式压缩，保持 assistant/tool 配对；完整证据通过 `evidence_read(run_id, call_id, offset)` 重读。超出预算的单次输入会明确报错。此版本没有额外调用模型生成语义摘要。
 
@@ -107,7 +111,7 @@ SSE 响应头提供 `X-Agent-Run-ID`，持久化事件带 `id` 游标。终态�
 
 Python 运行默认关闭。使用前安装并启动 Docker，事先拉取运行设置中指定的镜像（默认 `python:3.12-slim`），再启用隔离代码执行。容器无网络、只读根文件系统、非 root 用户、去除 Linux capabilities，限制 CPU、内存、进程数和时间。仅复制显式选择的研究输入；结果写入专用 `/output` 挂载。日志/产物大小由运行器轮询限制，输出目录不是容器磁盘配额。宿主机不直接执行模型代码。打包 exe 也通过 Docker 中的 Python 运行，不依赖 exe 自身充当解释器。
 
-PDF 工具需要 `pip install -r requirements.txt`。桌面构建会包含 pypdf 和内置技能目录。
+PDF 工具和技能解析需要 `pip install -r requirements.txt`。桌面构建会包含 pypdf、PyYAML 和内置技能目录。
 
 ## MCP 连接
 
@@ -132,14 +136,14 @@ PDF 工具需要 `pip install -r requirements.txt`。桌面构建会包含 pypdf
 
 | 操作 | 接口 |
 | --- | --- |
-| Embedding 与向量索引 | `GET /api/agent/rag`，`POST /api/agent/rag/settings`、`/test`、`/index`、`/cancel`、`/search` |
+| Embedding 与向量索引 | `GET /api/agent/rag`，`POST /api/agent/rag/settings`、`/test`、`/index`、`/cancel`、`/clear`、`/search` |
 | 系统与设置 | `GET /api/agent/system`，`POST /api/agent/settings` |
 | 后台任务 | `POST /api/agent/runs`，`GET /api/agent/runs?session_id=...` |
 | 任务详情/游标事件 | `GET /api/agent/runs/<id>`，`GET /api/agent/runs/<id>/events?after=<seq>` |
 | 任务控制 | `POST /api/agent/runs/<id>/pause|cancel|resume|retry` |
 | 记忆 | `GET /api/agent/memories?session_id=...&project_id=...`，`POST /api/agent/memory/remember|recall|forget` |
 | 关系 | `GET /api/agent/memory/graph?session_id=...&project_id=...` |
-| 技能 | `GET /api/agent/skills`，`POST /api/agent/skills/install|read` |
+| 技能 | `GET /api/agent/skills`，`POST /api/agent/skills/install|import|read|resources` |
 | MCP | `POST /api/agent/mcp/refresh` |
 | 一致性备份 | `POST /api/agent/backup` |
 

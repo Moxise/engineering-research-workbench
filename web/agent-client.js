@@ -77,7 +77,8 @@
     else if(event==='round'){
       if(m.content&&m.__round&&m.__responseRound!==m.__round)m.response_parts.push({round:m.__round,content:m.content});
       close();m.content='';m.__round=(data.i|0)+1;m.__tl.push({kind:'llm',round:m.__round,t0:stamp(),t1:null});m.__note=`第 ${m.__round} 轮 · 正在生成…`;
-    }else if(event==='delta'){m.__thinking=false;m.content+=data.text||''}
+    }else if(event==='skill'){m.skills_used=(m.skills_used||[]).filter(s=>s.name!==data.name);m.skills_used.push(data)}
+    else if(event==='delta'){m.__thinking=false;m.content+=data.text||''}
     else if(event==='response'){
       m.__thinking=false;m.__responseRound=data.round;
       if(data.intermediate){m.response_parts=m.response_parts.filter(p=>p.round!==data.round);if(data.content)m.response_parts.push({round:data.round,content:data.content});m.content=''}else m.content=data.content||'';

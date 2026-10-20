@@ -57,6 +57,8 @@ def get_session(session_id: str) -> dict[str, Any]:
         statuses = dict(connection.execute("SELECT id,status FROM runs WHERE session_id=?", (session_id,)))
     for message in session.get("messages", []):
         if message.get("role") == "assistant":
+            names = {} if message.get("expose_internal_ids") else message.get("reference_names") or agent_context.reference_names(message.get("evidence") or [])
+            message["content"] = agent_context.display_text(message.get("content"), names)
             message["response_parts"] = agent_context.response_parts(message)
             if message.get("run_id") in statuses:
                 message["run_status"] = statuses[message["run_id"]]
@@ -704,11 +706,15 @@ def persist_interrupted_reply(run_id: str, status: str) -> dict:
     session = get_session(run["session_id"])
     user = next((m for m in session["messages"] if m.get("run_id") == run_id and m.get("role") == "user"), {})
     message = {k: user[k] for k in ("model", "profile_id", "profile_name", "persona_id", "persona_name", "request_preset", "request_preset_label") if k in user}
+    names = {} if state.get("expose_internal_ids") else state.get("reference_names") or agent_context.reference_names(state.get("evidence", []))
     message.update(id="msg-" + uuid.uuid4().hex[:10], role="assistant", run_id=run_id, run_status=status, created=_now(),
-                   content=agent_context.public_text(state.get("partial_answer") or ""), evidence=state.get("evidence", []),
+                   content=agent_context.public_text(state.get("partial_answer") or "", names), evidence=state.get("evidence", []), reference_names=names, expose_internal_ids=state.get("expose_internal_ids", False),
                    tool_trace=state.get("trace", []), drafts=state.get("drafts", []))
     message["response_parts"] = agent_context.response_parts(message)
     message["interruption"] = "已停止生成，已生成内容和原有提问已保留。" if status == "cancelled" else "任务已暂停，已生成内容已保留，可继续执行。"
+    if status == "paused" and state.get("pause_reason"):
+        message["interruption"] = state["pause_reason"]
+    message["skills_used"] = [{k: v for k, v in item.items() if k != "instructions"} for item in state.get("active_skills", {}).values()]
     message["timing"] = {"total_ms": state.get("elapsed_ms", 0), "rounds": state.get("step", 0), "tool_calls": len(state.get("trace", [])), "timeline": state.get("timeline", [])}
     agent_memory.append_message(run["session_id"], message)
     return message
@@ -807,6 +813,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
     write_mode = page_mode if page_mode in ("direct", "confirm") else persona_mode
     ctx = {
         "run_id": run_id, "session_id": session_id, "project_id": project_id,
+        "reference_names": agent_context.reference_names(refs),
         "paper_id": str(page_ctx.get("paper_id") or "").strip(),
         "write_mode": write_mode,
         "tools": list(persona.get("tools") or []) if persona else list(agent_tools.TOOL_NAMES),  # v260930 · M3 人设工具白名单
@@ -826,6 +833,8 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         "run_id": run_id, "evidence": ctx.get("evidence", []), "memory_sources": recall.get("context_pack", {}).get("sources", []),
         "tool_trace": tool_trace, "drafts": drafts,  # v260930 · M1 工具轨迹与本轮待确认草稿（前端可展示）
         "timing": timing,  # v261008b · 计时与时间轴：前端据此画时间条 + 显示总耗时（SSE done 事件随 assistant 一并回传）
+        "reference_names": ctx.get("reference_names", {}), "expose_internal_ids": ctx.get("expose_internal_ids", False),
+        "skills_used": ctx.get("skills_used", []),
     }
     assistant_msg["response_parts"] = agent_context.response_parts(assistant_msg)
     assistant_msg["run_status"] = "waiting_approval" if ctx.get("waiting_drafts") else "completed"

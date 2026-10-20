@@ -438,6 +438,8 @@ def _clean_personas(personas: Any) -> list[dict[str, Any]]:
         legacy = {"kb_search", "kb_read", "lit_context"}
         if (pid == "reader" and set(tools) == legacy) or (pid in ("executor", "archivist") and set(tools) == legacy | {"kb_create_entry", "kb_update_entry", "lit_note_write"}):
             tools = list(builtin_defaults[pid]["tools"])
+        if pid in ("executor", "archivist") and set(tools) == set(agent_tools.TOOL_NAMES) - {"skill_install"}:
+            tools = list(builtin_defaults[pid]["tools"])
         if not tools:
             tools = list(builtin_defaults[pid]["tools"]) if pid in builtin_defaults else ["kb_search", "kb_read", "lit_context"]  # 空白名单回退安全默认
         temp = item.get("temperature")

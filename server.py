@@ -95,6 +95,8 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = (sys.platform != "win32")
 
     def server_close(self):
+        from app import agent_rag_updates
+        agent_rag_updates.stop()
         super().server_close()
         sync_service.stop()
         indexer.stop_background_sync()
@@ -613,12 +615,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(agent_rag.build_index(), 202)
         if path == "/api/agent/rag/cancel":
             return self.send_json(agent_rag.cancel_build())
+        if path == "/api/agent/rag/clear":
+            return self.send_json(agent_rag.clear_index())
         if path == "/api/agent/rag/search":
-            return self.send_json(agent_rag.search(payload.get("query", ""), kind=payload.get("kind"), limit=payload.get("limit", 8)))
+            return self.send_json(agent_rag.search(payload.get("query", ""), kind=payload.get("kind"), limit=payload.get("limit")))
         if path == "/api/agent/skills/install":
-            return self.send_json(agent_skills.install(str(payload.get("name") or ""), str(payload.get("content") or "")), 201)
+            return self.send_json(agent_skills.install(str(payload.get("name") or ""), str(payload.get("content") or ""), payload.get("files")), 201)
+        if path == "/api/agent/skills/import":
+            return self.send_json(agent_skills.install_zip(payload.get("base64")), 201)
+        if path == "/api/agent/skills/resources":
+            return self.send_json(agent_skills.diagnostics(str(payload.get("name") or "")))
         if path == "/api/agent/skills/read":
-            return self.send_json(agent_skills.read(str(payload.get("name") or ""), str(payload.get("path") or "SKILL.md")))
+            return self.send_json(agent_skills.read(str(payload.get("name") or ""), str(payload.get("path") or "SKILL.md"), payload.get("offset", 0), payload.get("limit", 12000)))
         if path == "/api/agent/mcp/refresh":
             return self.send_json(agent_mcp.discover())
         if path == "/api/agent/memory/remember":
@@ -799,6 +807,8 @@ def build_server(port_override: int | None = None, auto_open_browser: bool | Non
     host = str(cfg.get("host") or "127.0.0.1")
     port = int(port_override or cfg.get("port") or 8765)
     server = WorkbenchHTTPServer((host, port), Handler)
+    from app import agent_rag_updates
+    agent_rag_updates.start()
     sync_service.get()
     url = f"http://{host}:{port}"
     print(f"Engineering Research Workbench running at {url}")

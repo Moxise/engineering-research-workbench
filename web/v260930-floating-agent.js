@@ -804,7 +804,9 @@ function responseParts(m){
   return (m.evidence||[]).filter(e=>e.role==='assistant').flatMap(e=>{round++;const content=publicText(e.content);return content?[{round,content}]:[]});
 }
 function responsePartsHtml(m){
-  return responseParts(m).map(part=>`<section class="agent-response-part"><div class="agent-response-label">第 ${esc(part.round)} 轮 · 中间回答</div><div class="fab-body agent-response-body" data-raw="${esc(part.content||'')}">${mdRender(part.content||"")}</div></section>`).join('');
+  const skills=(m.skills_used||[]).filter(s=>s&&s.name);
+  const usage=skills.length?`<details class="agent-skills-used"><summary>使用技能 · ${skills.map(s=>esc(s.display_name||s.name)).join('、')}</summary>${skills.map(s=>`<p>${esc(s.display_name||s.name)} · ${s.reason==='explicit'?'用户指定':'任务匹配'}${s.version?' · '+esc(s.version):''}${s.script_runs?' · 脚本 '+s.script_runs+' 次':''}</p>${(s.resources||[]).length?'<small>已读取：'+s.resources.map(esc).join('、')+'</small>':''}`).join('')}</details>`:'';
+  return usage+responseParts(m).map(part=>`<section class="agent-response-part"><div class="agent-response-label">第 ${esc(part.round)} 轮 · 中间回答</div><div class="fab-body agent-response-body" data-raw="${esc(part.content||'')}">${mdRender(part.content||"")}</div></section>`).join('');
 }
 function msgHtml(m,idx){
   const who=m.role==="assistant"?"AI":"YOU";

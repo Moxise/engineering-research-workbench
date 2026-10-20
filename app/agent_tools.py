@@ -136,9 +136,9 @@ def _t_kb_search(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     if not query:
         raise ValueError("query 不能为空")
     kind = str(args.get("kind") or "").strip() or None
-    limit = max(1, min(int(args.get("limit") or 8), 20))
     from .agent_runtime import settings
-    limit = min(limit, settings()["rag_top_k"])
+    maximum = settings()["rag_top_k"]
+    limit = max(1, min(int(args.get("limit") or maximum), maximum))
     from . import agent_rag
     result = agent_rag.search(query, kind=kind, limit=limit)
     from . import literature
@@ -147,9 +147,12 @@ def _t_kb_search(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         paper = papers.get(item["id"])
         if paper:
             item["paper_id"] = paper["id"]
-        item["citation"] = f"[[{item['id']}|{item.get('title', item['id'])}]]"
+        item["display_title"] = item.get("title") or "未命名条目"
+        item["citation"] = f"[[{item['display_title']}]]"
     result["scope"] = "ranked_top_k"
     result["limit"] = limit
+    result["configured_limit"] = maximum
+    result["requested_limit"] = args.get("limit")
     result["note"] = "返回相关候选节选，不等于已读全文；未进入前列不代表资料不存在。可用 kb_read 的 doc_id 或 title 直接打开引用来源。"
     return result
 
@@ -169,13 +172,14 @@ def _t_kb_read(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     for target in list(dict.fromkeys(re.findall(r"\[\[([^\]\n]+)\]\]", body[offset:offset + limit])))[:24]:
         try:
             linked = indexer.resolve_doc(target)
-            links.append({"title": linked["title"], "doc_id": linked["id"], "kind": linked["kind"], "paper_id": papers.get(linked["id"], {}).get("id")})
+            links.append({"title": linked["title"], "display_title": linked["title"], "citation": f"[[{linked['title']}]]", "doc_id": linked["id"], "kind": linked["kind"], "paper_id": papers.get(linked["id"], {}).get("id")})
         except (FileNotFoundError, ValueError):
             links.append({"title": target, "resolved": False})
-    return {"id": doc["id"], "title": doc.get("title"), "kind": doc.get("kind"), "paper_id": papers.get(doc["id"], {}).get("id"), "links": links,
+    return {"id": doc["id"], "title": doc.get("title"), "display_title": doc.get("title"), "citation": f"[[{doc.get('title') or '未命名条目'}]]", "kind": doc.get("kind"), "paper_id": papers.get(doc["id"], {}).get("id"), "links": links,
             "projects": doc.get("projects") or [], "body": body[offset:offset + limit],
             "version": hashlib.sha256(body.encode()).hexdigest(), "total_chars": len(body), "read_scope": "full_body" if offset == 0 and len(body) <= limit else "body_slice",
-            "next_offset": offset + limit if offset + limit < len(body) else None}
+            "next_offset": offset + limit if offset + limit < len(body) else None,
+            "user_message": f"已读取《{doc.get('title') or '知识条目'}》" + ("的完整正文。" if offset == 0 and len(body) <= limit else "的正文节选。")}
 
 
 def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
@@ -205,7 +209,7 @@ def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
             payload["kind_marks"].append(m)
     if ctx.get("write_mode") == "direct":
         doc = indexer.create_doc(kind, payload)
-        return {"ok": True, "doc_id": doc["id"], "title": doc.get("title"), "validation": validation}
+        return {"ok": True, "doc_id": doc["id"], "title": doc.get("title"), "user_message": f"已创建《{doc.get('title') or title}》。", "validation": validation}
     draft = save_draft("kb_create_entry", {"kind": kind, **payload}, ctx)
     return {"pending": True, "draft_id": draft["id"], "message": "建档草稿已生成，等待用户确认后写入知识库",
             "draft": {"tool": "kb_create_entry", "kind": kind, "title": title}, "validation": validation}
@@ -221,7 +225,7 @@ def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
     version = hashlib.sha256(original.encode()).hexdigest()
     expected = str(args.get("expected_version") or "")
     if expected and expected != version:
-        return {"ok": False, "conflict": True, "error": "条目已变化，请重新 kb_read 后生成更新", "version": version}
+        return {"ok": False, "conflict": True, "title": doc.get("title"), "error": "条目已变化，请重新读取正文后生成更新", "version": version}
     body = str(args.get("body") or "")
     append = bool(args.get("append"))
     if ctx.get("write_mode") == "direct" and not append and not expected:
@@ -237,7 +241,8 @@ def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
         revision = {"id": revision_id, "doc_id": doc_id, "before": original, "after_version": hashlib.sha256(body.encode()).hexdigest(), "created": agent_memory.now()}
         agent_memory.atomic_json(agent_memory.root() / "Revisions" / (revision_id + ".json"), revision)
         updated = indexer.update_doc(doc_id, {"body": body})
-        return {"ok": True, "doc_id": doc_id, "title": updated.get("title"), "updated": updated.get("updated"), "revision_id": revision_id}
+        return {"ok": True, "doc_id": doc_id, "title": updated.get("title") or doc.get("title"), "updated": updated.get("updated"), "revision_id": revision_id,
+                "user_message": f"已更新《{updated.get('title') or doc.get('title') or '知识条目'}》，原内容已保存，可从修订记录撤销。"}
     draft = save_draft("kb_update_entry", {**args, "expected_version": version}, ctx)
     return {"pending": True, "draft_id": draft["id"], "message": "更新草稿已生成，等待用户确认后写入（覆盖正文）",
             "draft": {"tool": "kb_update_entry", "doc_id": doc_id, "title": doc.get("title"), "append": append}}
@@ -286,7 +291,8 @@ def _t_lit_note_write(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, An
         rid = "rev-" + uuid.uuid4().hex
         agent_memory.atomic_json(agent_memory.root() / "Revisions" / (rid + ".json"), {"id": rid, "type": "literature", "paper_id": paper_id, "before": cur, "after_version": hashlib.sha256(next_body.encode()).hexdigest(), "created": agent_memory.now()})
         literature.save_note(paper_id, next_body)
-        return {"ok": True, "paper_id": paper_id, "title": item.get("title"), "mode": mode, "revision_id": rid}
+        return {"ok": True, "paper_id": paper_id, "title": item.get("title"), "mode": mode, "revision_id": rid,
+                "user_message": f"已更新《{item.get('title') or '当前文献'}》的笔记，原内容已保存，可从修订记录撤销。"}
     draft = save_draft("lit_note_write", {"paper_id": paper_id, "content": content, "mode": mode, "expected_version": version}, ctx)
     return {"pending": True, "draft_id": draft["id"], "message": "文献笔记写入草稿已生成，等待用户确认",
             "draft": {"tool": "lit_note_write", "paper_id": paper_id, "title": item.get("title"), "mode": mode}}
@@ -341,14 +347,14 @@ _TOOL_META: dict[str, dict[str, Any]] = {
         "params": {"type": "object", "properties": {
             "query": {"type": "string", "description": "检索关键词"},
             "kind": {"type": "string", "enum": _KIND_ENUM, "description": "可选：限定条目类型"},
-            "limit": {"type": "integer", "description": "返回条数，默认 8，最大 20"},
+            "limit": {"type": "integer", "description": "省略时使用用户设置的最多召回条数；仅任务明确需要更少结果时指定，不能超过用户上限"},
         }, "required": ["query"]},
         "write": False,
     },
     "kb_read": {
         "description": "按 doc_id 或准确 title 读取知识库正文，支持分页。返回来源 links 的 doc_id/paper_id，可继续读取原文；当前页面没有挂载文献不影响读取库内资料。",
         "params": {"type": "object", "properties": {
-            "doc_id": {"type": "string", "description": "条目 id，如 note-20260924162227-5c3cbd"},
+            "doc_id": {"type": "string", "description": "内部定位 ID，原样用于工具调用；对用户使用条目标题或 citation"},
             "title": {"type": "string", "description": "准确的条目标题；已知引用标题但没有 ID 时使用"},
             "offset": {"type": "integer", "description": "正文字符偏移，用于完整分页读取"},
             "limit": {"type": "integer", "description": "每页字符数，最大 24000"},
@@ -402,9 +408,15 @@ _TOOL_META["kb_rollback"] = agent_research.meta("恢复一次知识条目更新�
 
 
 def openai_specs(allowed: list[str] | tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+    import copy
     from . import agent_mcp
+    from .agent_runtime import settings
     names = [n for n in (TOOL_NAMES if allowed is None else allowed) if n in _TOOL_META]
-    specs = [{"type": "function", "function": {"name": n, "description": _TOOL_META[n]["description"], "parameters": _TOOL_META[n]["params"]}} for n in names]
+    specs = [{"type": "function", "function": {"name": n, "description": _TOOL_META[n]["description"], "parameters": copy.deepcopy(_TOOL_META[n]["params"])}} for n in names]
+    maximum = settings()["rag_top_k"]
+    for spec in specs:
+        if spec["function"]["name"] in {"kb_search", "memory_recall"}:
+            spec["function"]["parameters"]["properties"]["limit"].update(minimum=1, maximum=maximum, default=maximum, description=f"省略时按用户设置最多召回 {maximum} 条；仅明确需要更少结果时指定。上限不是保证命中数量。")
     return specs + [s for s in agent_mcp.specs() if allowed is None or s["function"]["name"] in allowed]
 
 
@@ -412,6 +424,9 @@ def text_protocol_prompt(allowed: list[str] | tuple[str, ...] | None = None) -> 
     """文本协议兜底：端点不支持 function calling 时，让模型用固定 JSON 块调用工具。"""
     names = [n for n in (TOOL_NAMES if allowed is None else allowed) if n in _TOOL_META]
     lines = ["你可以调用以下工具（当接口不支持原生函数调用时使用文本协议）："]
+    if any(n in {"kb_search", "memory_recall"} for n in names):
+        from .agent_runtime import settings
+        lines.append(f"检索默认使用用户设置的最多 {settings()['rag_top_k']} 条。默认省略 limit；仅任务确需更少结果时指定。")
     for n in names:
         lines.append(f"- {n}: {_TOOL_META[n]['description']}")
     lines.append(
@@ -455,7 +470,7 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
         return {"ok": False, "error": "RAG 已关闭，请在 RAG 设置中启用知识检索"}
     if not options["memory_enabled"] and name in agent_runtime.MEMORY_TOOLS:
         return {"ok": False, "error": "记忆已关闭，请在输入框下方开启记忆"}
-    if name in {"skill_read", "skill_run"}:
+    if name in {"skill_read", "skill_run", "skill_install"}:
         if not options["skills_enabled"] or str(args.get("name") or "") in options["disabled_skills"]:
             return {"ok": False, "error": "该技能已停用，请在技能页启用"}
     t0 = time.time()
@@ -490,5 +505,10 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
     result.setdefault("ok", True)
+    title = result.get("title") or (result.get("draft") or {}).get("title")
+    if title and name.startswith(("kb_", "lit_")):
+        result["display_title"] = title
+        result["citation"] = f"[[{title}]]"
+        result["presentation_hint"] = "对用户使用 display_title/citation/user_message；内部编号、版本散列和修订号只用于工具调用。"
     result["tool_ms"] = int((time.time() - t0) * 1000)
     return result

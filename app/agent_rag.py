@@ -1,7 +1,7 @@
 """Configurable embeddings and a disposable, versioned document vector index.
 
 Markdown remains authoritative. Credentials stay outside the synced workspace.
-Building/updating is explicit; ordinary keyword search never calls a model API.
+Updates are manual unless explicitly enabled; keyword search never calls a model.
 """
 from __future__ import annotations
 
@@ -20,7 +20,9 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from . import agent_memory as brain, config, indexer
 
 DEFAULTS = {"mode": "keyword", "base_url": "", "model": "", "dimensions": 0,
-            "chunk_chars": 1600, "overlap_chars": 200, "batch_size": 16, "include_pdf": False}
+            "chunk_chars": 1600, "overlap_chars": 200, "batch_size": 16, "include_pdf": False,
+            "realtime_updates": False, "scheduled_updates": False, "update_interval_minutes": 60,
+            "update_debounce_seconds": 15}
 _LOCK = threading.RLock()
 _JOBS: dict[str, dict] = {}
 _QUERY_CACHE: dict[tuple, tuple] = {}
@@ -58,13 +60,15 @@ def save_settings(data):
                 raise ValueError("Base URL 须为不含凭据、查询串的 HTTP(S) 地址")
         if len(value["model"]) > 200:
             raise ValueError("模型名称过长")
-        for key, low, high in (("dimensions", 0, 8192), ("chunk_chars", 256, 8000), ("overlap_chars", 0, 2000), ("batch_size", 1, 64)):
+        for key, low, high in (("dimensions", 0, 8192), ("chunk_chars", 256, 8000), ("overlap_chars", 0, 2000), ("batch_size", 1, 64), ("update_interval_minutes", 5, 10080), ("update_debounce_seconds", 5, 300)):
             value[key] = int(value[key])
             if not low <= value[key] <= high:
                 raise ValueError(f"{key} 超出范围 {low}–{high}")
         if value["overlap_chars"] >= value["chunk_chars"]:
             raise ValueError("分块重叠须小于分块长度")
         value["include_pdf"] = value["include_pdf"] is True
+        for key in ("realtime_updates", "scheduled_updates"):
+            value[key] = value[key] is True
         if "api_key" in data and str(data["api_key"]).strip():
             value["api_key"] = str(data["api_key"]).strip()
         if data.get("clear_api_key") is True:
@@ -168,8 +172,9 @@ def status():
     with _LOCK:
         job = dict(_JOBS.get(str(brain.root()), {}))
     job.pop("cancel", None)
+    from . import agent_rag_updates
     return {"settings": settings(), "index": {**manifest, "ready": bool(manifest.get("chunks")) and manifest.get("fingerprint") == _fingerprint(settings()),
-            "stale": bool(manifest) and manifest.get("fingerprint") != _fingerprint(settings())}, "job": job}
+            "stale": bool(manifest) and manifest.get("fingerprint") != _fingerprint(settings())}, "job": job, "updates": agent_rag_updates.status()}
 
 
 def _version(doc):
@@ -225,7 +230,7 @@ def _sources(opts):
             page += 1
 
 
-def build_index(background=True):
+def build_index(background=True, reason="manual"):
     opts = settings(private=True)
     if not opts["base_url"] or not opts["model"]:
         raise ValueError("请先保存 Embedding 接口配置")
@@ -234,7 +239,7 @@ def build_index(background=True):
     with _LOCK:
         if _JOBS.get(key, {}).get("state") in ("running", "cancelling"):
             raise ValueError("索引构建正在执行")
-        job = {"state": "running", "sources": 0, "chunks": 0, "embedded": 0, "reused": 0, "empty_sources": 0, "error": "", "cancel": threading.Event()}
+        job = {"state": "running", "reason": reason, "started_at": time.time(), "sources": 0, "chunks": 0, "embedded": 0, "reused": 0, "empty_sources": 0, "error": "", "cancel": threading.Event()}
         _JOBS[key] = job
     if background:
         threading.Thread(target=_build, args=(opts, root, job), name="rag-index", daemon=True).start()
@@ -252,12 +257,45 @@ def cancel_build():
     return status()
 
 
+def clear_index():
+    """Remove derived vectors transactionally; authoritative documents survive.
+
+    Disable automatic rebuilds, so a cleared index stays cleared until requested.
+    SQLite's schema remains as an empty container; VACUUM reclaims vector pages.
+    """
+    key = str(brain.root())
+    with _LOCK:
+        if _JOBS.get(key, {}).get("state") in ("running", "cancelling", "clearing"):
+            raise ValueError("请先取消并等待当前索引任务结束，再清除向量数据库")
+        _JOBS[key] = {"state": "clearing"}
+        try:
+            save_settings({"realtime_updates": False, "scheduled_updates": False})
+            with _connection() as conn:
+                conn.execute("DELETE FROM chunks")
+                conn.execute("DELETE FROM meta")
+                conn.commit()
+                conn.execute("VACUUM")
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            _QUERY_CACHE.clear()
+            _JOBS[key] = {"state": "cleared", "sources": 0, "chunks": 0, "embedded": 0, "reused": 0}
+        except BaseException:
+            _JOBS[key] = {"state": "failed", "error": "清除索引未完成，请稍后重试"}
+            raise
+    from . import agent_rag_updates
+    agent_rag_updates.reset()
+    return status()
+
+
 def _build(opts, root, job):
     generation = uuid.uuid4().hex
     def check():
         if brain.root() != root or job["cancel"].is_set():
             raise InterruptedError("已取消索引构建")
     try:
+        # Pick up edits/imports made outside the application before enumerating.
+        indexer.sync(immediate=True)
+        from .agent_rag_updates import source_stamp
+        observed = source_stamp(opts)
         with _connection(root) as conn:
             old = _manifest(conn)
             conn.execute("DELETE FROM chunks WHERE generation<>?", (old.get("generation", ""),))
@@ -307,7 +345,7 @@ def _build(opts, root, job):
             flush()
             check()
             manifest = {"generation": generation, "fingerprint": _fingerprint(opts), "model": opts["model"], "dimensions": dimensions,
-                        "chunks": job["chunks"], "sources": job["sources"], "built_at": brain.now()}
+                        "chunks": job["chunks"], "sources": job["sources"], "built_at": brain.now(), "built_epoch": time.time(), "source_stamp": observed}
             conn.execute("INSERT OR REPLACE INTO meta VALUES('active',?)", (brain.encode(manifest),))
             conn.execute("DELETE FROM chunks WHERE generation<>?", (generation,))
         job["state"] = "completed"
@@ -325,19 +363,20 @@ def _keyword(query, kind, limit):
              "excerpt": r.get("excerpt", ""), "source": {"doc_id": r["id"], "path": r.get("path", ""), "type": "markdown"}, "retrieval": "keyword"} for r in rows]
 
 
-def search(query, kind=None, limit=8):
+def search(query, kind=None, limit=None):
     from .agent_runtime import settings as runtime_settings
     if not runtime_settings()["rag_enabled"]:
         raise ValueError("RAG 已关闭")
     query = str(query).strip()
     if not query or len(query) > 8000:
         raise ValueError("检索问题须为 1–8000 字符")
-    limit = max(1, min(int(limit), runtime_settings()["rag_top_k"]))
+    maximum = runtime_settings()["rag_top_k"]
+    limit = max(1, min(int(limit) if limit is not None else maximum, maximum))
     opts = settings(private=True)
     mode = opts["mode"]
     keywords = _keyword(query, kind, limit) if mode != "semantic" else []
     if mode == "keyword":
-        return {"mode": mode, "count": len(keywords), "items": keywords}
+        return {"mode": mode, "count": len(keywords), "limit": limit, "items": keywords}
     try:
         with _connection() as conn:
             conn.execute("BEGIN")
@@ -393,7 +432,7 @@ def search(query, kind=None, limit=8):
             if len(hits) >= limit:
                 break
         if mode == "semantic":
-            return {"mode": mode, "count": len(hits), "items": hits}
+            return {"mode": mode, "count": len(hits), "limit": limit, "items": hits}
         # RRF on document IDs: matching by both routes beats matching only one.
         merged = {}
         for group in (keywords, hits):
@@ -402,8 +441,8 @@ def search(query, kind=None, limit=8):
                 prior = merged.get(key, {})
                 merged[key] = {**prior, **item, "rrf": prior.get("rrf", 0) + 1 / (60 + rank)}
         results = sorted(merged.values(), key=lambda item: item["rrf"], reverse=True)[:limit]
-        return {"mode": mode, "count": len(results), "items": results}
+        return {"mode": mode, "count": len(results), "limit": limit, "items": results}
     except ValueError as exc:
         if mode == "semantic":
             raise
-        return {"mode": "keyword", "requested_mode": mode, "warning": str(exc), "count": len(keywords), "items": keywords}
+        return {"mode": "keyword", "requested_mode": mode, "warning": str(exc), "count": len(keywords), "limit": limit, "items": keywords}

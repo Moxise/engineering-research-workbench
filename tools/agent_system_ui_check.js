@@ -12,7 +12,7 @@ let opts={max_steps:48,time_budget_seconds:900,context_tokens:24000,auto_recall:
 let mode='normal',failSessionOnce=false,approved=false,sequence=0,delayMemory=false,failListReads=1,failedListReads=0,releaseStream=null,draftId='draft-fixture',confirmFailure=false,draftWrites=0,draftStatus='confirmed',resumeDelayed=false;
 let ragOptions={mode:'keyword',base_url:'',model:'',dimensions:0,chunk_chars:1600,overlap_chars:200,batch_size:16,include_pdf:false,has_api_key:false},ragIndex={},ragJob={},settingsFailure=false;
 const skill={name:'literature-review',description:'比较文献并保留证据',builtin:true};
-const citationNote={id:'note-citation',kind:'note',title:'知识-原理-辐射状约束与供电连通性',body:'## 原理\n无环还需要结合连通性。',projects:[],tags:[],kind_marks:[],status:'记录'};
+const citationNote={id:'note-citation',kind:'note',title:'知识-原理-辐射状约束与供电连通性',body:'## 原理\n无环还需要结合连通性。\n\n| 术语 | 说明 |\n| --- | --- |\n| **合法动作** | `D1` 需要校核 |',projects:[],tags:[],kind_marks:[],status:'记录'};
 const citationPaper={...citationNote,id:'literature-citation',kind:'literature',title:'文献-组会原文',attachment:'Knowledge/Literature/PDF/fixture.pdf',body:'## 原始文献\n程序组织物理依据，模型选择动作。'};
 const cfg={app:{app_name:'科研工作台',subtitle:'Engineering Research Workspace',ui:{},academic_profile:{graduation_conditions:[]},llm:{enabled:true,active_profile_id:'fixture',request_presets:[{id:'default',label:'默认',model:'fixture'}],profiles:[{id:'fixture',name:'测试配置',base_url:'https://example.invalid/v1',request_presets:[{id:'default',label:'默认',model:'fixture'}]}],personas:[{id:'executor',name:'执行助手',tools:['kb_read'],write_mode:'confirm'},{id:'reader',name:'阅读助手',tools:['kb_read'],write_mode:'confirm'}]}},rss:{sources:[]},weather:{enabled:false}};
 function answer(content,extra={}){return {id:'msg-'+(++sequence),role:'assistant',content,created:'2026-10-19',model:'fixture',...extra}}
@@ -39,7 +39,7 @@ const server=http.createServer(async(req,res)=>{
       session.messages.push(message);session.title='已更新的研究会话';session.updated='2026-10-19T12:00:00';run.result={assistant:message};runs.unshift(run);
       if(mode==='metadata')failSessionOnce=true;
       const encode=events=>events.map(([event,data])=>'event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n').join('');
-      if(mode==='citation')message.content='参见 [[知识-原理-辐射状约束与供电连通性]] 和 [[literature-citation|组会原文]]。\n\n`[[代码中的引用不应变成链接]]`';
+      if(mode==='citation'){message.content='参见 [[知识-原理-辐射状约束与供电连通性]] 和 [[literature-citation|组会原文]]。\n\n`[[代码中的引用不应变成链接]]`\n\n| 术语 | 校验 |\n| --- | --- |\n| **合法动作** | `D1` 需要核对 |';message.skills_used=[{name:'evidence-audit',display_name:'证据核查',reason:'implicit',resources:['SKILL.md','references/checklist.md'],script_runs:0}]}
       if(['hold','delayed-hold'].includes(mode)){
         session.messages.pop();run.status='running';run.result=null;
         run.stop=()=>{const partial=answer('已生成的部分回答',{run_id:run.id,run_status:'cancelled',interruption:'已停止生成，已生成内容和原有提问已保留。'});session.messages.push(partial);run.status='cancelled';run.result={assistant:partial};delete run.stop;res.end(encode([['done',run.result]]))};
@@ -85,12 +85,15 @@ const server=http.createServer(async(req,res)=>{
     else if(p.includes('/drafts/')){if(confirmFailure){confirmFailure=false;res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'模拟确认失败，草稿仍待处理'}));return}approved=true;draftStatus=p.endsWith('/confirm')?'confirmed':'rejected';if(draftStatus==='confirmed')draftWrites++;data={status:draftStatus}}
     else if(p.endsWith('/skills/install')){installed.push({name:body.name,description:'用户技能',builtin:false});data={ok:true}}
     else if(p.endsWith('/skills/read'))data={content:'---\nname: literature-review\n---\n核对来源与页码'};
+    else if(p.endsWith('/skills/resources'))data={files:[{path:'SKILL.md',bytes:80},{path:'references/check.md',bytes:40}],bytes:120,warnings:['脚本执行未开启']};
+    else if(p.endsWith('/skills/import')){installed.push({name:'zip-flow',display_name:'导入的技能',description:'来自 ZIP 的工作流程',builtin:false});data={ok:true,name:'zip-flow'}}
     else if(p.endsWith('/skills'))data={skills:[skill,...installed],errors:[]};
     else if(p==='/api/agent/rag')data={settings:ragOptions,index:ragIndex,job:ragJob};
     else if(p==='/api/agent/rag/settings'){const {api_key,clear_api_key,...safe}=body;ragOptions={...ragOptions,...safe,has_api_key:clear_api_key?false:!!api_key||ragOptions.has_api_key};data=ragOptions}
     else if(p==='/api/agent/rag/test')data={ok:true,dimensions:3,model:ragOptions.model};
     else if(p==='/api/agent/rag/index'){ragIndex={generation:'fake-index',chunks:6,sources:2,dimensions:3,model:ragOptions.model,ready:true};ragJob={state:'completed',sources:2,chunks:6,embedded:6,reused:0};data={settings:ragOptions,index:ragIndex,job:ragJob}}
-    else if(p==='/api/agent/rag/search')data={mode:ragOptions.mode,count:1,items:[{id:'adapter',title:'Low rank adaptation',excerpt:'Tune an adapter instead of all parameters.',source:{path:'Knowledge/Notes/adapter.md'}}]};
+    else if(p==='/api/agent/rag/clear'){ragIndex={ready:false};ragJob={state:'cleared'};ragOptions={...ragOptions,realtime_updates:false,scheduled_updates:false};data={settings:ragOptions,index:ragIndex,job:ragJob}}
+    else if(p==='/api/agent/rag/search')data={mode:ragOptions.mode,count:1,limit:opts.rag_top_k,items:[{id:'adapter',title:'Low rank adaptation',excerpt:'Tune an adapter instead of all parameters.',source:{path:'Knowledge/Notes/adapter.md'}}]};
     else if(p.endsWith('/system'))data={settings:opts,brain:{counts:{memories:memories.length,runs:runs.length,events:2}}};
     else if(p.endsWith('/settings')){if(settingsFailure){settingsFailure=false;res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'模拟设置保存失败'}));return}opts={...opts,...body};data=opts}
     else if(p.endsWith('/mcp/refresh'))data={tools:[],errors:[]};
@@ -177,6 +180,9 @@ const server=http.createServer(async(req,res)=>{
     await page.getByText('核对来源与页码',{exact:false}).waitFor();await page.getByText('安装文本技能',{exact:true}).click();
     await page.locator('#as-skill-install input').fill('custom-flow');await page.locator('#as-skill-install textarea').fill('---\nname: custom-flow\ndescription: test\n---\n检查输入');
     await page.getByRole('button',{name:'安装技能',exact:true}).click();await page.locator('[data-enable-skill="custom-flow"]').waitFor();
+    await page.locator('[data-skill-resources="literature-review"]').click();await page.getByRole('button',{name:'references/check.md',exact:true}).click();await page.getByText('脚本执行未开启',{exact:true}).waitFor();
+    await page.locator('#as-skill-search').fill('custom-flow');assert.equal(await page.locator('[data-skill-card="literature-review"]').isVisible(),false);await page.locator('#as-skill-search').fill('');
+    await page.locator('#as-skill-zip').setInputFiles({name:'skill.zip',mimeType:'application/zip',buffer:Buffer.from('fake fixture ZIP')});await page.locator('[data-enable-skill="zip-flow"]').waitFor();
     assert.equal(await page.locator('#agent-skill').count(),0);
     delayMemory=true;await page.getByRole('tab',{name:'记忆',exact:true}).click();await page.locator('#as-memory-session').waitFor();
     const lateMemory=page.waitForResponse(r=>r.url().includes('/api/agent/memories'));await page.getByRole('tab',{name:'技能',exact:true}).click();await lateMemory;
@@ -292,10 +298,13 @@ const server=http.createServer(async(req,res)=>{
     await page.locator('[data-capability="skills_enabled"]').check();await page.locator('[data-capability="rag_enabled"]').check();
     await page.getByText('已保存，后续工具调用立即生效',{exact:true}).waitFor();assert.equal(opts.skills_enabled,true);assert.equal(opts.rag_enabled,true);
     await page.getByRole('button',{name:'配置 RAG',exact:true}).click();await page.locator('#as-rag-settings').waitFor();assert.equal(await page.locator('#as-rag-settings input[name=rag_top_k]').inputValue(),'4');
-    await page.locator('#as-rag-settings [name=mode]').selectOption('hybrid');await page.locator('#as-rag-settings [name=base_url]').fill('http://127.0.0.1:12345/v1');await page.locator('#as-rag-settings [name=model]').fill('fake-embedding');await page.locator('#as-rag-settings [name=api_key]').fill('fake-private-key');
+    await page.locator('#as-rag-settings [name=rag_top_k]').fill('12');await page.locator('#as-rag-settings [name=mode]').selectOption('hybrid');await page.locator('#as-rag-settings [name=base_url]').fill('http://127.0.0.1:12345/v1');await page.locator('#as-rag-settings [name=model]').fill('fake-embedding');await page.locator('#as-rag-settings [name=api_key]').fill('fake-private-key');
     await page.locator('#as-rag-test').click();await page.getByText('连接成功 · fake-embedding · 3 维',{exact:true}).waitFor();assert.equal(await page.locator('#as-rag-settings [name=api_key]').inputValue(),'');assert.equal(ragOptions.has_api_key,true);
     await page.locator('#as-rag-build').click();await page.locator('#as-rag-index').getByText(/资料向量索引：6 个分块/).waitFor();assert.equal(await page.locator('#as-rag-cancel').isVisible(),false);await page.locator('#as-rag-search [name=query]').fill('省参数的方法');await page.getByRole('button',{name:'检索资料',exact:true}).click();await page.locator('#as-rag-results').getByText('Low rank adaptation',{exact:true}).waitFor();
+    assert.equal(opts.rag_top_k,12);await page.locator('#as-rag-results').getByText(/实际 1 条 \/ 最多 12 条/).waitFor();
     await page.locator('[data-route="settings"]').click();await page.locator('[data-set-tab="rag"]').click();await page.locator('#as-rag-settings [name=model]').waitFor();assert.equal(await page.locator('#as-rag-settings [name=model]').inputValue(),'fake-embedding');await page.getByRole('button',{name:'保存 RAG 设置',exact:true}).click();await page.getByText('RAG 设置已保存',{exact:true}).waitFor();assert.equal(ragOptions.has_api_key,true,'blank password preserves the saved key');
+    await page.getByText('自动更新',{exact:true}).click();await page.locator('[name=realtime_updates]').check();await page.locator('[name=scheduled_updates]').check();await page.locator('[name=update_interval_minutes]').fill('30');await page.getByRole('button',{name:'保存 RAG 设置',exact:true}).click();await page.getByText('RAG 设置已保存',{exact:true}).waitFor();assert.equal(ragOptions.realtime_updates,true);assert.equal(ragOptions.scheduled_updates,true);assert.equal(ragOptions.update_interval_minutes,30);
+    await page.getByText('清除向量数据库',{exact:true}).click();await page.locator('#as-rag-clear').click();await page.getByText('向量数据库已清除，原始资料和长期记忆已保留，自动更新已关闭',{exact:true}).waitFor();assert.equal(ragIndex.ready,false);assert.equal(ragOptions.realtime_updates,false);assert.equal(ragOptions.scheduled_updates,false);assert.equal(await page.locator('[name=realtime_updates]').isChecked(),false);
     await page.locator('[data-route="agent"]').click();await page.getByRole('tab',{name:'对话',exact:true}).click();await page.locator('#agent-chat-panel [data-agent-rag-config]').click();await page.locator('#as-rag-settings').waitFor();
     await page.screenshot({path:path.join(output,'rag-settings.png')});
     await page.setViewportSize({width:390,height:844});await page.getByRole('tab',{name:'技能',exact:true}).click();await page.locator('.as-skill').filter({hasText:'custom-flow'}).waitFor();
@@ -307,9 +316,19 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
     let reply=page.locator('#agent-messages .assistant').last();
     assert.equal(await reply.locator('[data-agent-reference]').count(),2,'wiki links become clickable, inline code stays literal');
+    await hoverContrast('#agent-messages .assistant:last-child tbody td');await reply.locator('.agent-skills-used summary').click();await reply.getByText('证据核查 · 任务匹配',{exact:true}).waitFor();
+    await page.locator('#erw-fab-ball').click();await page.locator('#fab-messages .assistant').last().locator('tbody td').last().waitFor();await hoverContrast('#fab-messages .assistant:last-child tbody td');await page.locator('#fab-close').click();
     await reply.getByRole('link',{name:citationNote.title,exact:true}).click();
     await page.waitForFunction(()=>window.ERWCurrentDoc==='note-citation');
     await page.locator('#md-input').waitFor();assert.match(await page.locator('#md-input').inputValue(),/无环还需要结合连通性/);
+    async function hoverContrast(selector){
+      const cell=page.locator(selector).last();await cell.waitFor();await cell.hover();
+      const colors=await cell.evaluate(el=>{const style=getComputedStyle(el);return {fg:style.color,bg:style.backgroundColor}});
+      const luminance=color=>{const rgb=color.match(/[\d.]+/g).slice(0,3).map(v=>Number(v)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return .2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]};
+      const a=luminance(colors.fg),b=luminance(colors.bg);assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5,'hover text contrast '+JSON.stringify(colors));
+    }
+    await hoverContrast('.md-preview tbody td');await page.screenshot({path:path.join(output,'dark-table-hover.png')});
+    await page.locator('#theme-btn').click();await page.locator('#theme-btn').click();await hoverContrast('.md-preview tbody td');
     await page.locator('[data-route="agent"]').click();await page.locator('#agent-input').waitFor();
     await page.evaluate(()=>{window.__openedCitationPdf='';window.ERWLiterature.openByAttachment=async attachment=>{window.__openedCitationPdf=attachment}});
     await page.locator('#agent-messages .assistant').last().getByRole('link',{name:'组会原文',exact:true}).click();
