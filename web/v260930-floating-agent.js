@@ -808,7 +808,7 @@ function responseParts(m){
 function responsePartsHtml(m){
   const skills=(m.skills_used||[]).filter(s=>s&&s.name);
   const usage=skills.length?`<details class="agent-skills-used"><summary>使用技能 · ${skills.map(s=>esc(s.display_name||s.name)).join('、')}</summary>${skills.map(s=>`<p>${esc(s.display_name||s.name)} · ${s.reason==='explicit'?'用户指定':'任务匹配'}${s.version?' · '+esc(s.version):''}${s.script_runs?' · 脚本 '+s.script_runs+' 次':''}</p>${(s.resources||[]).length?'<small>已读取：'+s.resources.map(esc).join('、')+'</small>':''}`).join('')}</details>`:'';
-  return retrievalHtml(m)+usage+responseParts(m).map(part=>`<section class="agent-response-part"><div class="agent-response-label">第 ${esc(part.round)} 轮 · 中间回答</div><div class="fab-body agent-response-body" data-raw="${esc(part.content||'')}">${mdRender(part.content||"")}</div></section>`).join('');
+  return usage+responseParts(m).map(part=>`<section class="agent-response-part"><div class="agent-response-label">第 ${esc(part.round)} 轮 · 中间回答</div><div class="fab-body agent-response-body" data-raw="${esc(part.content||'')}">${mdRender(part.content||"")}</div></section>`).join('');
 }
 function retrievalHtml(m){
   if(m.role!=="assistant")return "";
@@ -841,6 +841,7 @@ function msgHtml(m,idx){
       ${responsePartsHtml(m)}
       ${responseParts(m).length&&m.content?'<div class="agent-response-label">'+(m.__streaming?'当前回答':'最终回复')+'</div>':''}
       ${body}
+      ${retrievalHtml(m)}
       ${m.interruption?`<div class="agent-interruption" role="status">${esc(m.interruption)}</div>`:''}
       ${m.__thinking?"":toolTraceHtml(m)+draftHtml(m)+runActionsHtml(m)+quickActionsHtml(m)}
       <div class="fab-msg-meta">${meta}</div>
@@ -1101,7 +1102,7 @@ async function send(){
   }
 }
 
-window.ERWFabTimeline={html:toolTraceHtml,bar:tlBarHtml,fmtDur,live:liveStatusHtml,drafts:draftHtml,metaParts,render:mdRender,responses:responsePartsHtml,parts:responseParts,runActions:runActionsHtml,bindDrafts:wireDrafts};
+window.ERWFabTimeline={html:toolTraceHtml,bar:tlBarHtml,fmtDur,live:liveStatusHtml,drafts:draftHtml,metaParts,render:mdRender,responses:responsePartsHtml,retrievals:retrievalHtml,parts:responseParts,runActions:runActionsHtml,bindDrafts:wireDrafts};
 
 /* ---------- 划词气泡 ---------- */
 function onDocMouseDown(e){

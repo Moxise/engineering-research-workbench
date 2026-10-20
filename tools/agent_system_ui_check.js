@@ -40,6 +40,7 @@ const server=http.createServer(async(req,res)=>{
       if(mode==='metadata')failSessionOnce=true;
       const encode=events=>events.map(([event,data])=>'event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n').join('');
       if(mode==='rag-evidence'){
+        message.content='## 检索结果\n\n'+Array.from({length:60},(_,i)=>`${i+1}. 这是用于验证长回复底部入口的检索结果，来自实际返回的来源片段。`).join('\n\n');
         const retrieval={call_id:'rag-fixture',query:'供电恢复',mode:'keyword',requested_mode:'hybrid',warning:'模拟 Embedding 超时',count:1,limit:12,items:[{id:citationNote.id,title:citationNote.title,kind:'note',retrieval:'keyword',excerpt:'实际传给模型的来源片段 <script>不执行</script>',source:{type:'markdown',offset:0,end_offset:30}}]};
         message.retrievals=[retrieval];message.capabilities={rag_enabled:true,memory_enabled:false,skills_enabled:false};message.source_policy='rag_only';
         res.writeHead(200,{'Content-Type':'text/event-stream','X-Agent-Run-ID':run.id});res.write(encode([['run',{run_id:run.id}],['capabilities',{capabilities:message.capabilities,source_policy:'rag_only'}],['round',{i:0}],['retrieval',retrieval]]));
@@ -330,7 +331,18 @@ const server=http.createServer(async(req,res)=>{
     releaseStream();await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
     await page.locator('#erw-fab-ball').click();await page.locator('#fab-messages .assistant').last().locator('.agent-retrieval-source').getByText(citationNote.title,{exact:true}).waitFor();await page.locator('#fab-close').click();
     await page.reload();await page.locator('#agent-messages .assistant').last().locator('.agent-retrievals>summary').getByText(/RAG 检索依据/).waitFor();
+    const assertRetrievalFooter=async selector=>{
+      const result=await page.locator(selector).evaluate(root=>{
+        const message=[...root.querySelectorAll('.assistant')].at(-1),body=message.querySelector('.agent-message-body,.fab-body'),cards=message.querySelectorAll('.agent-retrievals');
+        const card=cards[0],summary=card.querySelector(':scope > summary'),viewport=root.getBoundingClientRect(),bounds=summary.getBoundingClientRect();
+        return {count:cards.length,afterAnswer:!!(body.compareDocumentPosition(card)&Node.DOCUMENT_POSITION_FOLLOWING),visible:bounds.top>=viewport.top&&bounds.bottom<=viewport.bottom};
+      });
+      assert.deepEqual(result,{count:1,afterAnswer:true,visible:true},'retrieval evidence is visible below a long answer without scrolling back to its beginning');
+    };
+    await assertRetrievalFooter('#agent-messages');
     await page.screenshot({path:path.join(output,'rag-evidence.png')});
+    await page.locator('#erw-fab-ball').click();await page.locator('#fab-messages .assistant').last().locator('.agent-retrievals>summary').waitFor();
+    await assertRetrievalFooter('#fab-messages');await page.locator('#fab-close').click();
     mode='citation';await page.locator('#agent-input').fill('验证引用跳转');await page.locator('#agent-send').click();
     await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
     let reply=page.locator('#agent-messages .assistant').last();
