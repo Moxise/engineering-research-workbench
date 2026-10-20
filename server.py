@@ -169,7 +169,7 @@ class Handler(BaseHTTPRequestHandler):
                 batch = agent_memory.events(run["id"], cursor)
                 for item in batch:
                     cursor = item["seq"]
-                    if item["event"] in ("round", "delta", "response", "tool", "done", "error", "plan", "status", "compaction"):
+                    if item["event"] in ("round", "delta", "response", "tool", "done", "error", "plan", "status", "compaction", "skill", "retrieval", "capabilities"):
                         emit(item["event"], item["data"], item["seq"])
                         terminal_sent |= item["event"] in ("done", "error")
                 current = agent_memory.get_run(run["id"])

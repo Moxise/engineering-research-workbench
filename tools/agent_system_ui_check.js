@@ -39,6 +39,15 @@ const server=http.createServer(async(req,res)=>{
       session.messages.push(message);session.title='已更新的研究会话';session.updated='2026-10-19T12:00:00';run.result={assistant:message};runs.unshift(run);
       if(mode==='metadata')failSessionOnce=true;
       const encode=events=>events.map(([event,data])=>'event: '+event+'\ndata: '+JSON.stringify(data)+'\n\n').join('');
+      if(mode==='rag-evidence'){
+        const retrieval={call_id:'rag-fixture',query:'供电恢复',mode:'keyword',requested_mode:'hybrid',warning:'模拟 Embedding 超时',count:1,limit:12,items:[{id:citationNote.id,title:citationNote.title,kind:'note',retrieval:'keyword',excerpt:'实际传给模型的来源片段 <script>不执行</script>',source:{type:'markdown',offset:0,end_offset:30}}]};
+        message.retrievals=[retrieval];message.capabilities={rag_enabled:true,memory_enabled:false,skills_enabled:false};message.source_policy='rag_only';
+        res.writeHead(200,{'Content-Type':'text/event-stream','X-Agent-Run-ID':run.id});res.write(encode([['run',{run_id:run.id}],['capabilities',{capabilities:message.capabilities,source_policy:'rag_only'}],['round',{i:0}],['retrieval',retrieval]]));
+        await new Promise(resolve=>{releaseStream=resolve});releaseStream=null;
+        res.write(encode([['delta',{text:'正在按来源整理'}]]));
+        await new Promise(resolve=>{releaseStream=resolve});releaseStream=null;
+        res.end(encode([['done',{ok:true,assistant:message}]]));return;
+      }
       if(mode==='citation'){message.content='参见 [[知识-原理-辐射状约束与供电连通性]] 和 [[literature-citation|组会原文]]。\n\n`[[代码中的引用不应变成链接]]`\n\n| 术语 | 校验 |\n| --- | --- |\n| **合法动作** | `D1` 需要核对 |';message.skills_used=[{name:'evidence-audit',display_name:'证据核查',reason:'implicit',resources:['SKILL.md','references/checklist.md'],script_runs:0}]}
       if(['hold','delayed-hold'].includes(mode)){
         session.messages.pop();run.status='running';run.result=null;
@@ -312,6 +321,16 @@ const server=http.createServer(async(req,res)=>{
     await page.getByRole('tab',{name:'对话',exact:true}).click();await page.locator('#agent-input').waitFor();const mobileSend=await page.locator('#agent-send').boundingBox(),mobileCaps=await page.locator('#agent-chat-panel .agent-capability-controls').boundingBox();assert.ok(Math.abs((mobileSend.y+mobileSend.height/2)-(mobileCaps.y+mobileCaps.height/2))<4);assert.ok(await page.locator('#agent-chat-panel').evaluate(el=>el.scrollWidth<=el.clientWidth+1));await page.screenshot({path:path.join(output,'mobile-composer.png'),fullPage:true});
     await page.setViewportSize({width:1440,height:1000});
     if(await page.locator('#fab-close').isVisible())await page.locator('#fab-close').click();
+    mode='rag-evidence';await page.locator('#agent-input').fill('检索供电恢复，只参考RAG');await page.locator('#agent-send').click();
+    await page.locator('#agent-thinking .agent-retrieval-warning').getByText(/模拟 Embedding 超时/).waitFor();
+    await page.locator('#agent-thinking .agent-capability-stamp').getByText(/Skill 关闭/).waitFor();
+    await page.locator('#agent-thinking .agent-retrievals>summary').click();await page.locator('#agent-thinking .agent-retrieval-query>summary').click();
+    await page.locator('#agent-thinking .agent-retrieval-source blockquote').getByText('实际传给模型的来源片段 <script>不执行</script>',{exact:true}).waitFor();
+    releaseStream();await page.locator('#agent-thinking .agent-message-body').getByText('正在按来源整理',{exact:true}).waitFor();assert.equal(await page.locator('#agent-thinking .agent-retrievals').getAttribute('open'),'');
+    releaseStream();await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
+    await page.locator('#erw-fab-ball').click();await page.locator('#fab-messages .assistant').last().locator('.agent-retrieval-source').getByText(citationNote.title,{exact:true}).waitFor();await page.locator('#fab-close').click();
+    await page.reload();await page.locator('#agent-messages .assistant').last().locator('.agent-retrievals>summary').getByText(/RAG 检索依据/).waitFor();
+    await page.screenshot({path:path.join(output,'rag-evidence.png')});
     mode='citation';await page.locator('#agent-input').fill('验证引用跳转');await page.locator('#agent-send').click();
     await page.waitForFunction(()=>document.querySelector('#agent-send').textContent==='发送');
     let reply=page.locator('#agent-messages .assistant').last();

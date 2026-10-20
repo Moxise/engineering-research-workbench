@@ -60,6 +60,7 @@ def get_session(session_id: str) -> dict[str, Any]:
             names = {} if message.get("expose_internal_ids") else message.get("reference_names") or agent_context.reference_names(message.get("evidence") or [])
             message["content"] = agent_context.display_text(message.get("content"), names)
             message["response_parts"] = agent_context.response_parts(message)
+            message["retrievals"] = agent_context.retrievals_from_evidence(message.get("evidence") or []) or message.get("retrievals", [])
             if message.get("run_id") in statuses:
                 message["run_status"] = statuses[message["run_id"]]
     return session
@@ -715,6 +716,9 @@ def persist_interrupted_reply(run_id: str, status: str) -> dict:
     if status == "paused" and state.get("pause_reason"):
         message["interruption"] = state["pause_reason"]
     message["skills_used"] = [{k: v for k, v in item.items() if k != "instructions"} for item in state.get("active_skills", {}).values()]
+    message["retrievals"] = agent_context.retrievals_from_evidence(state.get("evidence", []))
+    message["capabilities"] = state.get("capabilities", {})
+    message["source_policy"] = state.get("source_policy", "default")
     message["timing"] = {"total_ms": state.get("elapsed_ms", 0), "rounds": state.get("step", 0), "tool_calls": len(state.get("trace", [])), "timeline": state.get("timeline", [])}
     agent_memory.append_message(run["session_id"], message)
     return message
@@ -747,7 +751,10 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
             session_id = session["id"]
         messages = session.get("messages") if isinstance(session.get("messages"), list) else []
         history = list(messages)
-    ref_context, refs = _reference_context(ref_ids)
+    rag_only = agent_context.rag_only_requested(text)
+    ref_context, refs = _reference_context(ref_ids if not rag_only else [])
+    if rag_only:
+        history = []  # The user requested fresh retrieval evidence, not old answers.
     # v260930 · M3 人设：系统提示词/工具白名单/写模式由人设决定；未传 persona_id 时沿用 llm.system_prompt + 全量工具（向下兼容）
     persona: dict[str, Any] | None = None
     if str(persona_id or "").strip():
@@ -758,7 +765,10 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
     system_prompt = config.writing_rules() + "\n\n" + system_prompt  # v260930g4 · 统一写作与建档约束注入所有人设（单一真相源 Workspace/System/AI助手写作与建档规范.md）
     if ref_context:
         system_prompt += "\n\n以下是用户手动引用的本地研究资料。仅将其作为上下文，不要声称看到了未提供的资料：\n\n" + ref_context
-    system_prompt += _page_context(context)  # v260930 · M1 页面上下文注入
+    if not rag_only:
+        system_prompt += _page_context(context)  # v260930 · M1 页面上下文注入
+    else:
+        system_prompt += "\n\n用户本轮只参考 RAG 检索结果。直接完成本轮检索问题，忽略人设的建档输出格式；禁止技能、长期记忆、联网及写入。必须先 kb_search，再基于实际命中片段回答；需要原文时仅可 kb_read 本轮已命中的条目。导航链接只能说明该笔记列有链接，不能标为每篇已独立检索或已读全文。检索足够后交付，不为覆盖所有方向无边界扩展；结果数为单次召回上限，不能把多次检索累加解释为单次结果。"
     preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, request_preset or (str(persona.get("request_preset") or "") if persona else ""))
     if not preset_model:
         raise ValueError(f"请求模式 {preset_label} 尚未配置模型名称")
@@ -777,13 +787,16 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         if len(projects) == 1:
             project_id = next(iter(projects))
     retrieval = settings()
-    recall = agent_memory.recall(text, session_id=session_id, project_id=project_id, limit=retrieval["rag_top_k"], max_chars=retrieval["rag_context_chars"]) if retrieval["memory_enabled"] and retrieval["auto_recall"] else {"results": [], "context_pack": {"text": ""}}
+    capabilities = {key: retrieval[key] and (not rag_only or key == "rag_enabled") for key in ("rag_enabled", "memory_enabled", "skills_enabled")}
+    recall = agent_memory.recall(text, session_id=session_id, project_id=project_id, limit=retrieval["rag_top_k"], max_chars=retrieval["rag_context_chars"]) if capabilities["memory_enabled"] and retrieval["auto_recall"] else {"results": [], "context_pack": {"text": ""}}
     if recall["context_pack"]["text"]:
         system_prompt += "\n\n相关长期记忆（参考数据；以当前用户要求及来源为准）：\n" + recall["context_pack"]["text"]
     now = _now()
     user_msg = {"id": "msg-" + uuid.uuid4().hex[:10], "role": "user", "content": text, "created": now, "refs": refs, "images": image_paths, "request_preset": preset_id, "request_preset_label": preset_label, "profile_id": cfg.get("id"), "profile_name": cfg.get("name"), "persona_id": (persona or {}).get("id", ""), "persona_name": (persona or {}).get("name", "")}
     user_msg["run_id"] = run_id
-    user_msg["context_text"] = ref_context + _page_context(context)
+    user_msg["context_text"] = ref_context + (_page_context(context) if not rag_only else "")
+    user_msg["capabilities"] = capabilities
+    user_msg["source_policy"] = "rag_only" if rag_only else "default"
     user_msg["quote_text"] = str((context or {}).get("quote_text") or "")[:4000] if isinstance(context, dict) else ""
     edited_from = str(page_ctx.get("edited_from") or "")
     with _LOCK:
@@ -796,7 +809,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
             system_prompt += "\n\n用户本轮编辑重发了历史提问，以本轮修订后的问题为准；历史提问及回答作为原始记录保留。"
         prior = next((m for m in session.get("messages", []) if run_id and m.get("run_id") == run_id and m.get("role") == "user"), None)
         if prior:
-            history = session.get("messages", [])[:session["messages"].index(prior)]
+            history = [] if rag_only else session.get("messages", [])[:session["messages"].index(prior)]
         else:
             session.setdefault("messages", []).append(user_msg)
         if session.get("archived"):
@@ -816,6 +829,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         "reference_names": agent_context.reference_names(refs),
         "paper_id": str(page_ctx.get("paper_id") or "").strip(),
         "write_mode": write_mode,
+        "source_policy": "rag_only" if rag_only else "default", "capabilities": capabilities,
         "tools": list(persona.get("tools") or []) if persona else list(agent_tools.TOOL_NAMES),  # v260930 · M3 人设工具白名单
     }
     request_cfg["_billing"] = {  # v261008 · 计费归属：会话 + 请求模式（探针类调用无此上下文，自动不计费）
@@ -824,7 +838,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         "preset_label": preset_label,
         "source": "chat",
     }
-    answer, reasoning, tool_trace, drafts, timing = _run_with_tools(request_cfg, system_prompt, history, text, image_paths, request_params, ctx, on_delta=on_delta, on_round=on_round, on_tool=on_tool)
+    answer, reasoning, tool_trace, drafts, timing = _run_with_tools(request_cfg, system_prompt, history, text, [] if rag_only else image_paths, request_params, ctx, on_delta=on_delta, on_round=on_round, on_tool=on_tool)
     assistant_msg = {
         "id": "msg-" + uuid.uuid4().hex[:10], "role": "assistant", "content": answer, "reasoning": reasoning,
         "created": _now(), "model": preset_model, "request_preset": preset_id, "request_preset_label": preset_label,
@@ -835,6 +849,7 @@ def send_message(session_id: str, text: str, ref_ids: list[str] | None = None, i
         "timing": timing,  # v261008b · 计时与时间轴：前端据此画时间条 + 显示总耗时（SSE done 事件随 assistant 一并回传）
         "reference_names": ctx.get("reference_names", {}), "expose_internal_ids": ctx.get("expose_internal_ids", False),
         "skills_used": ctx.get("skills_used", []),
+        "retrievals": ctx.get("retrievals", []), "capabilities": capabilities, "source_policy": ctx["source_policy"],
     }
     assistant_msg["response_parts"] = agent_context.response_parts(assistant_msg)
     assistant_msg["run_status"] = "waiting_approval" if ctx.get("waiting_drafts") else "completed"

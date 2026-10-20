@@ -7,6 +7,8 @@ const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.quer
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 const C=window.ERWAgentClient;
+const RAG_OPEN_DETAILS=new Set();
+document.addEventListener('toggle',event=>{const element=event.target,key=element?.dataset?.ragDetailKey;if(!key||!element.isConnected)return;element.open?RAG_OPEN_DETAILS.add(key):RAG_OPEN_DETAILS.delete(key);if(RAG_OPEN_DETAILS.size>1000)RAG_OPEN_DETAILS.delete(RAG_OPEN_DETAILS.values().next().value)},true);
 const S={
   open:false, session:C?.sessionId()||null, messages:[], sending:false,
   bubbleSel:"",bubbleTarget:'floating',
@@ -806,7 +808,20 @@ function responseParts(m){
 function responsePartsHtml(m){
   const skills=(m.skills_used||[]).filter(s=>s&&s.name);
   const usage=skills.length?`<details class="agent-skills-used"><summary>使用技能 · ${skills.map(s=>esc(s.display_name||s.name)).join('、')}</summary>${skills.map(s=>`<p>${esc(s.display_name||s.name)} · ${s.reason==='explicit'?'用户指定':'任务匹配'}${s.version?' · '+esc(s.version):''}${s.script_runs?' · 脚本 '+s.script_runs+' 次':''}</p>${(s.resources||[]).length?'<small>已读取：'+s.resources.map(esc).join('、')+'</small>':''}`).join('')}</details>`:'';
-  return usage+responseParts(m).map(part=>`<section class="agent-response-part"><div class="agent-response-label">第 ${esc(part.round)} 轮 · 中间回答</div><div class="fab-body agent-response-body" data-raw="${esc(part.content||'')}">${mdRender(part.content||"")}</div></section>`).join('');
+  return retrievalHtml(m)+usage+responseParts(m).map(part=>`<section class="agent-response-part"><div class="agent-response-label">第 ${esc(part.round)} 轮 · 中间回答</div><div class="fab-body agent-response-body" data-raw="${esc(part.content||'')}">${mdRender(part.content||"")}</div></section>`).join('');
+}
+function retrievalHtml(m){
+  if(m.role!=="assistant")return "";
+  const caps=m.capabilities;
+  const snapshot=caps&&Object.keys(caps).length?`<div class="agent-capability-stamp">本轮开始时：${[['rag_enabled','RAG'],['memory_enabled','记忆'],['skills_enabled','Skill']].map(([key,label])=>label+' '+(caps[key]?'开启':'关闭')).join(' · ')}${m.source_policy==='rag_only'?' · 仅参考 RAG':''}</div>`:'';
+  const rows=Array.isArray(m.retrievals)?m.retrievals:[];
+  if(!rows.length)return snapshot;
+  const labels={keyword:'关键词',semantic:'语义',hybrid:'混合'};
+  const unique=new Set(rows.flatMap(r=>(r.items||[]).map(i=>i.id||i.title)));
+  const warnings=rows.filter(r=>r.warning);
+  const keyPrefix=m.run_id||m.id||'live',detailAttrs=key=>`data-rag-detail-key="${esc(key)}"${RAG_OPEN_DETAILS.has(key)?' open':''}`;
+  const warning=warnings.length?`<p class="agent-retrieval-warning" role="status">${warnings.length} 次语义检索未完成，已回退关键词：${[...new Set(warnings.map(r=>r.warning))].map(esc).join('；')}</p>`:'';
+  return snapshot+warning+`<details class="agent-retrievals" ${detailAttrs(keyPrefix)}><summary>RAG 检索依据 · ${rows.length} 次 · ${unique.size} 个去重来源</summary><p class="agent-retrieval-hint">以下是实际返回给模型的片段；候选摘要、题录与原文全文的证据范围不同。</p>${rows.map(r=>`<details class="agent-retrieval-query" ${detailAttrs(keyPrefix+':'+r.call_id)}><summary>${esc(r.query||'知识库检索')} · ${labels[r.mode]||esc(r.mode)} · ${Number(r.count)||0} 条${r.limit!=null?' / 上限 '+Number(r.limit):''}</summary>${(r.items||[]).map(item=>`<article class="agent-retrieval-source"><a href="#" class="agent-citation" data-agent-reference="${esc(item.id||item.title)}">${esc(item.title)}</a><small>${labels[item.retrieval]||'检索命中'}${item.source?.page?' · 第 '+Number(item.source.page)+' 页':''}${item.source?.offset!=null?' · 字符 '+Number(item.source.offset)+'–'+Number(item.source.end_offset):''}</small><blockquote>${esc(item.excerpt||'未返回片段')}${item.excerpt_truncated?'…（界面节选）':''}</blockquote></article>`).join('')}</details>`).join('')}</details>`;
 }
 function msgHtml(m,idx){
   const who=m.role==="assistant"?"AI":"YOU";

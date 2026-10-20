@@ -28,6 +28,80 @@ def call(name, args, cid="call-1"):
 
 
 class AgentSystemTests(unittest.TestCase):
+    def test_rag_only_restricts_sources_and_records_public_retrievals(self):
+        hits = {"mode": "keyword", "requested_mode": "hybrid", "warning": "模拟 Embedding 超时", "count": 1, "limit": 12, "items": [{"id": "paper-hit", "title": "供电恢复原文", "kind": "literature", "retrieval": "keyword", "excerpt": "可核查的命中片段", "source": {"type": "markdown", "offset": 0, "end_offset": 10}}]}
+        seen = []
+        def model(cfg, messages, params, **kwargs):
+            seen.append((messages, kwargs.get("tools")))
+            if len(seen) == 1:
+                return call("kb_search", {"query": "供电恢复"}, "search-rag")
+            if len(seen) == 2:
+                return call("kb_read", {"title": "供电恢复原文"}, "read-rag")
+            return {"content": "仅根据命中来源回答 [[供电恢复原文]]。"}
+        with patch.object(agent, "_post_chat", side_effect=model), patch("app.agent_rag.search", return_value=hits), patch.object(indexer, "resolve_doc", return_value={"id": "paper-hit", "title": "供电恢复原文", "body": "原文正文", "kind": "literature"}), patch.object(brain, "recall") as recall:
+            run = self.wait(self.submit("检索供电恢复文献，只参考RAG的结果")["id"], "completed")
+        recall.assert_not_called()
+        self.assertLessEqual({s["function"]["name"] for s in seen[0][1]}, agent_context.RAG_ONLY_TOOLS)
+        self.assertTrue(all("可用技能（" not in m[0]["content"] for m, _ in seen))
+        message = agent.get_session(self.session["id"])["messages"][-1]
+        self.assertFalse(message["capabilities"]["skills_enabled"])
+        self.assertFalse(message["capabilities"]["memory_enabled"])
+        self.assertEqual(message["skills_used"], [])
+        self.assertEqual(message["retrievals"][0]["query"], "供电恢复")
+        self.assertEqual(message["retrievals"][0]["warning"], "模拟 Embedding 超时")
+        self.assertEqual(message["retrievals"][0]["items"][0]["excerpt"], "可核查的命中片段")
+        self.assertTrue(any(e["event"] == "retrieval" for e in brain.events(run["id"])))
+        ctx = {"source_policy": "rag_only", "rag_sources": {"paper-hit": "供电恢复原文"}, "run_id": run["id"]}
+        for name, args in [("skill_read", {"name": "literature-review"}), ("memory_recall", {"query": "供电恢复"}), ("web_search", {"query": "供电恢复"}), ("kb_read", {"title": "导航链接里没有直接命中的文献"}), ("evidence_read", {"call_id": "x", "run_id": "other"})]:
+            self.assertFalse(tools.execute(name, args, ctx)["ok"])
+
+    def test_rag_only_never_displays_ungrounded_direct_answers(self):
+        def model(*args, **kwargs):
+            kwargs["on_delta"]("未检索却编造的论文")
+            return {"content": "未检索却编造的论文"}
+        with patch.object(agent, "_post_chat", side_effect=model) as post:
+            run = self.wait(self.submit("只参考 RAG 结果检索文献")["id"], "completed")
+        self.assertEqual(post.call_count, 2)
+        message = agent.get_session(self.session["id"])["messages"][-1]
+        self.assertIn("未取得 RAG", message["content"])
+        self.assertNotIn("编造的论文", message["content"])
+        self.assertFalse(any(e["event"] == "delta" for e in brain.events(run["id"])))
+        self.assertFalse(agent_context.rag_only_requested("不要只参考RAG，还需要联网"))
+        self.assertFalse(agent_context.rag_only_requested("解释 RAG 的原理"))
+        self.assertFalse(agent_context.rag_only_requested("解释‘只参考RAG’是什么意思"))
+        self.assertFalse(agent_context.rag_only_requested("不只参考RAG，还要联网检索"))
+
+    def test_disabled_skill_instructions_are_masked_in_history_not_deleted(self):
+        original = [call("skill_read", {"name": "literature-review"}, "old-skill"), {"role": "tool", "tool_call_id": "old-skill", "content": "历史技能秘密指令"}]
+        original[0]["role"] = "assistant"
+        masked = agent_context.mask_disabled_context(original, {"skills_enabled": False})
+        self.assertNotIn("秘密指令", masked[1]["content"])
+        self.assertEqual(original[1]["content"], "历史技能秘密指令")
+        legacy = {"id": "msg-legacy-rag", "role": "assistant", "content": "旧回答", "evidence": [{"role": "tool", "tool_call_id": "legacy", "content": json.dumps({"mode": "hybrid", "count": 1, "items": [{"id": "doc", "title": "旧来源", "excerpt": "x" * 2000, "retrieval": "semantic"}]})}]}
+        brain.append_message(self.session["id"], legacy)
+        cards = agent.get_session(self.session["id"])["messages"][-1]["retrievals"]
+        self.assertEqual(cards[0]["items"][0]["title"], "旧来源")
+        self.assertTrue(cards[0]["items"][0]["excerpt_truncated"])
+
+    def test_disabling_skill_during_run_removes_instructions_and_rejects_calls(self):
+        skills.install("switch-flow", "---\nname: switch-flow\ndescription: 开关验证\n---\nSECRET_SKILL_INSTRUCTION")
+        rounds = []
+        def model(cfg, messages, params, **kwargs):
+            rounds.append((messages, kwargs.get("tools")))
+            if len(rounds) == 1:
+                return call("skill_read", {"name": "switch-flow"}, "allowed-skill")
+            if len(rounds) == 2:
+                runtime.save_settings({"skills_enabled": False})
+                return call("skill_read", {"name": "switch-flow"}, "blocked-skill")
+            return {"content": "按本轮设置回答"}
+        with patch.object(agent, "_post_chat", side_effect=model):
+            run = self.wait(self.submit("验证停用技能")["id"], "completed")
+        self.assertTrue(run["state"]["trace"][0]["ok"])
+        self.assertFalse(run["state"]["trace"][1]["ok"])
+        self.assertNotIn("SECRET_SKILL_INSTRUCTION", json.dumps(rounds[-1][0]))
+        self.assertNotIn("skill_read", {s["function"]["name"] for s in rounds[-1][1]})
+        self.assertIn("SECRET_SKILL_INSTRUCTION", json.dumps(run["state"]["evidence"]))
+
     def test_edit_resends_as_new_message_and_preserves_original_exchange(self):
         captured = []
         def model(cfg, messages, *args, **kwargs):
@@ -807,6 +881,27 @@ class AgentSystemTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(2)
+
+    def test_real_sse_transports_retrievals_capabilities_and_skill_events(self):
+        from http.server import ThreadingHTTPServer
+        from server import Handler
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            run = brain.create_run(self.session["id"], {"message": "transport"})
+            result = {"assistant": {"role": "assistant", "content": "结果"}}
+            for event, data in [("capabilities", {"capabilities": {"skills_enabled": False}}), ("retrieval", {"query": "供电恢复", "count": 12}), ("skill", {"name": "example"}), ("done", result)]:
+                brain.event(run["id"], event, data)
+            brain.update_run(run["id"], status="completed", result=result)
+            with patch.object(runtime, "submit", return_value=runtime.public_run(brain.get_run(run["id"]))):
+                request = Request(f"http://127.0.0.1:{server.server_port}/api/agent/send", data=b'{}', headers={"Content-Type": "application/json"})
+                with urlopen(request, timeout=5) as response:
+                    body = response.read().decode("utf-8")
+            for event in ("capabilities", "retrieval", "skill", "done"):
+                self.assertIn("event: " + event, body)
+        finally:
+            server.shutdown(); server.server_close(); thread.join(2)
 
     def test_http_background_jobs_events_and_sse_disconnect(self):
         from server import WorkbenchHTTPServer, Handler

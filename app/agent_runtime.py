@@ -106,6 +106,7 @@ def public_run(run: dict) -> dict:
         names = {} if assistant.get("expose_internal_ids") else assistant.get("reference_names") or agent_context.reference_names(assistant.get("evidence") or [])
         assistant["content"] = agent_context.display_text(assistant.get("content"), names)
         assistant["response_parts"] = agent_context.response_parts(assistant)
+        assistant["retrievals"] = agent_context.retrievals_from_evidence(assistant.get("evidence") or []) or assistant.get("retrievals", [])
         assistant.pop("evidence", None)
     return result
 
@@ -218,15 +219,21 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
     from . import agent, agent_tools, agent_skills
     run_id = ctx.get("run_id", "")
     opts = settings()
+    rag_only = ctx.get("source_policy") == "rag_only"
+    if rag_only:
+        opts = {**opts, "skills_enabled": False, "memory_enabled": False}
+        if not opts["rag_enabled"]:
+            raise ValueError("本轮要求只参考 RAG，但 RAG 已关闭，请先开启 RAG")
     start = time.monotonic()
     deadline = start + opts["time_budget_seconds"]
     state = brain.get_run(run_id)["state"] if run_id else {}
     ctx["run_id"] = run_id
     if not state:
-        system_prompt += agent_skills.catalog_prompt()
+        if opts["skills_enabled"]:
+            system_prompt += agent_skills.catalog_prompt()
         import re
         explicit = list(dict.fromkeys(re.findall(r"\$([a-z0-9]+(?:-[a-z0-9]+)*)", user_text)))
-        available = {item["name"] for item in agent_skills.discover()["skills"] if item.get("enabled", True)}
+        available = {item["name"] for item in agent_skills.discover()["skills"] if item.get("enabled", True)} if opts["skills_enabled"] else set()
         for name in explicit:
             if name not in available:
                 continue  # Dollar-prefixed math variables are not skill invocations.
@@ -263,9 +270,11 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
         state["waiting_drafts"] = []
     allowed = ctx.get("tools") if isinstance(ctx.get("tools"), list) else list(agent_tools.TOOL_NAMES)
     allowed = [name for name in allowed if (opts["skills_enabled"] or name not in {"skill_read", "skill_run", "skill_install"}) and (opts["rag_enabled"] or name not in RAG_TOOLS) and (opts["memory_enabled"] or name not in MEMORY_TOOLS)]
+    if rag_only:
+        allowed = [name for name in allowed if name in agent_context.RAG_ONLY_TOOLS]
     ctx["tools"] = allowed
     from . import agent_mcp
-    if opts["mcp_servers"] and not agent_mcp.specs():
+    if not rag_only and opts["mcp_servers"] and not agent_mcp.specs():
         result = agent_mcp.discover()
         if run_id and result["errors"]:
             brain.event(run_id, "mcp_diagnostics", {"errors": result["errors"]})
@@ -273,6 +282,12 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
     ctx["run_id"] = run_id
     ctx["plan"] = state.get("plan") or []
     ctx["active_skills"] = state.setdefault("active_skills", {})
+    ctx["rag_sources"] = state.setdefault("rag_sources", {})
+    state.setdefault("source_policy", ctx.get("source_policy", "default"))
+    state.setdefault("capabilities", ctx.get("capabilities", {key: opts[key] for key in ("rag_enabled", "memory_enabled", "skills_enabled")}))
+    if run_id and not state.get("capabilities_announced"):
+        brain.event(run_id, "capabilities", {"capabilities": state["capabilities"], "source_policy": state["source_policy"]})
+        state["capabilities_announced"] = True
 
     def checkpoint():
         state["messages"] = messages
@@ -323,6 +338,10 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
                         else:
                             ctx["active_skills"][skill_name] = {**snapshot, "instructions": agent_skills.load(skill_name)["instructions"]}
             names.update(agent_context.reference_names(result))
+            if name == "kb_search" and result.get("ok"):
+                for hit in result.get("items") or []:
+                    if hit.get("id"):
+                        ctx["rag_sources"][hit["id"]] = hit.get("title") or ""
             trace = {"tool": name, "call_id": call_id, "run_id": run_id, "args": args, "ok": bool(result.get("ok")), "ms": result.get("tool_ms", 0)}
             if result.get("draft_id"):
                 trace["draft_id"] = result["draft_id"]
@@ -339,6 +358,10 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
             state["evidence"].append(tool_msg)
             if run_id:
                 brain.event(run_id, "tool_result", {**trace, "result": result})
+                if name == "kb_search":
+                    retrievals = agent_context.retrievals_from_evidence(state["evidence"])
+                    if retrievals and retrievals[-1]["call_id"] == call_id:
+                        brain.event(run_id, "retrieval", retrievals[-1])
             if on_tool:
                 on_tool(name, result)
             checkpoint()
@@ -370,8 +393,13 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
         # Rebuild only active instructions, separately from system authority.
         # Pin this compact block through context compaction and checkpoint it.
         messages = [m for m in messages if not agent_context.is_skill_context(m)]
-        active = ctx.get("active_skills", {}) if opts["skills_enabled"] else {}
-        workflows = [f"已激活技能 {s['name']}（{'用户指定' if s['reason'] == 'explicit' else '任务匹配'}；声明工具：{'、'.join(s['allowed_tools']) or '沿用任务工具权限'}）：\n{s['instructions'][:12000]}" for s in active.values() if s['name'] not in opts["disabled_skills"]]
+        live_options = settings()
+        effective = {key: live_options[key] and (not rag_only or key == "rag_enabled") for key in ("rag_enabled", "memory_enabled", "skills_enabled")}
+        messages = agent_context.mask_disabled_context(messages, effective)
+        step_allowed = [name for name in allowed if (effective["skills_enabled"] or name not in {"skill_read", "skill_run", "skill_install"}) and (effective["memory_enabled"] or name not in MEMORY_TOOLS) and (effective["rag_enabled"] or name not in RAG_TOOLS)]
+        specs = agent_tools.openai_specs(step_allowed)
+        active = ctx.get("active_skills", {}) if effective["skills_enabled"] else {}
+        workflows = [f"已激活技能 {s['name']}（{'用户指定' if s['reason'] == 'explicit' else '任务匹配'}；声明工具：{'、'.join(s['allowed_tools']) or '沿用任务工具权限'}）：\n{s['instructions'][:12000]}" for s in active.values() if s['name'] not in live_options["disabled_skills"]]
         if workflows:
             messages.insert(1, {"role": "user", "content": agent_context.SKILL_CONTEXT_PREFIX + "\n" + "\n\n".join(workflows)})
         messages[0]["content"] = state["base_system_prompt"] + "\n\n系统生成的本轮执行统计：\n" + agent_context.execution_summary(state["trace"], state["evidence"])
@@ -391,7 +419,8 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
             with _LOCK:
                 _REQUEST_TOKENS[run_id] = owner
             config["_register_interrupt"] = lambda callback, token=owner: register_interrupt(run_id, callback, token)
-        stream = agent_context.TitleStream(display_names, on_delta or (lambda text: None))
+        ungrounded = rag_only and not agent_context.retrievals_from_evidence(state["evidence"])
+        stream = agent_context.TitleStream(display_names, on_delta if on_delta and not ungrounded else (lambda text: None))
         def delta(text):
             if run_id:
                 check(run_id, deadline)
@@ -439,6 +468,14 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
                     checkpoint()
                     continue
         if not calls:
+            if ungrounded:
+                if not state.get("grounding_repair"):
+                    state["grounding_repair"] = True
+                    state["partial_answer"] = ""
+                    messages.append({"role": "user", "content": "本轮尚未取得 RAG 检索证据，不能直接作答。请先调用 kb_search；检索返回零条时说明未命中，不补写未检索的信息。"})
+                    checkpoint()
+                    continue
+                answer = "本轮未取得 RAG 检索证据，无法按“只参考 RAG”的要求给出文献结果。请检查检索设置后重试。"
             if run_id:
                 brain.event(run_id, "response", {"round": state["step"], "content": agent_context.display_text(answer, display_names), "intermediate": False})
             state["final_answer"] = answer
@@ -469,4 +506,5 @@ def execute_loop(cfg, system_prompt, history, user_text, image_paths, request_pa
     ctx["reference_names"] = names
     ctx["expose_internal_ids"] = expose_ids
     ctx["skills_used"] = [{k: v for k, v in skill.items() if k != "instructions"} for skill in ctx.get("active_skills", {}).values()]
+    ctx["retrievals"] = agent_context.retrievals_from_evidence(state["evidence"])
     return agent_context.display_text(answer, display_names), reasoning, state["trace"], state["drafts"], timing

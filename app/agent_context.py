@@ -15,7 +15,71 @@ RESEARCH_RULES = """研究取证规则：
 4. workspace_list 只反映当前层级，目录大小不是递归内容大小，不得据此宣称整个目录或知识库为空。
 5. 引用直接使用工具返回的 citation（[[实际标题]]），正文、表格和操作说明均使用实际标题。doc_id、paper_id、revision_id、version、draft_id、文件存储名等是内部定位信息，仅用于工具参数，不向用户复述；不要在标题后附内部编号，也不要输出携带修订号的工具命令。写入结果优先采用 user_message，撤销只说明可从修订记录操作。仅当用户明确索要内部编号或调试信息时才展示。没有读取原文时明确说明；职责分工、作者结论以原文为准，领域扩展和工程建议单独标明。
 6. 检索清单、读取范围、工具次数依据实际执行记录和下方系统统计，不凭回忆编造；性能和预算同时考虑模型请求/token、工具调用和总耗时。确定性计算结果依赖模型、输入与求解状态，不能将失败/超时/不收敛直接当成不可行或现实真值。
+7. 只在用户要求建档、整理或修改知识条目时输出建档去向表；检索、解释、比较任务不附新建/增补/跳过清单。导航笔记中的文献链接不是逐篇检索命中或原文精读证据；不得据候选前列声称“唯一”“全库仅有”。
+8. 已完整读取的来源因上下文压缩只剩摘要时，优先用 evidence_read 按原调用取所需证据，不仅因摘要较短就反复从头读取同一文献。任何检索回退以工具返回的 warning 为准，不能把全部混合检索都说成纯向量检索。
 """
+
+RAG_ONLY_TOOLS = {"kb_search", "kb_read", "evidence_read"}
+
+
+def rag_only_requested(text: str) -> bool:
+    pattern = r"(?:只|仅)(?:能|允许)?(?:参考|依据|基于|使用|用|看)[^，,。；;\n]{0,12}(?:(?<![a-z])RAG(?![a-z])|知识库检索|知识库召回)"
+    for match in re.finditer(pattern, text, re.I):
+        prefix = re.split(r"[，,。；;\n]", text[:match.start()])[-1][-16:]
+        if re.search(r"(?:不要|无需|并非|不是|不止|不).{0,3}$", prefix) or re.search(r"(?:解释|为什么|什么叫|如何理解|是不是)", prefix):
+            continue
+        return True
+    return False
+
+
+def retrievals_from_evidence(evidence: list[dict]) -> list[dict]:
+    """Public, bounded source cards reconstructed from canonical tool evidence."""
+    calls, retrievals = {}, []
+    for item in evidence:
+        for call in item.get("tool_calls") or []:
+            fn = call.get("function") or {}
+            if fn.get("name") == "kb_search":
+                try:
+                    args = fn.get("arguments") or {}
+                    args = json.loads(args) if isinstance(args, str) else args
+                    if isinstance(args, dict):
+                        calls[call.get("id")] = args
+                except (ValueError, TypeError):
+                    pass
+        if item.get("role") != "tool":
+            continue
+        try:
+            result = json.loads(item.get("content") or "{}")
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(result, dict) or not isinstance(result.get("items"), list) or result.get("mode") not in ("keyword", "semantic", "hybrid"):
+            continue
+        source_cards = []
+        for hit in result["items"][:20]:
+            if not isinstance(hit, dict):
+                continue
+            excerpt = str(hit.get("excerpt") or "")
+            source = hit.get("source") if isinstance(hit.get("source"), dict) else {}
+            source_cards.append({"id": hit.get("id"), "title": hit.get("title") or "未命名条目", "kind": hit.get("kind"), "retrieval": hit.get("retrieval"), "excerpt": excerpt[:1600], "excerpt_truncated": len(excerpt) > 1600, "source": {k: source[k] for k in ("type", "page", "offset", "end_offset") if k in source}})
+        retrievals.append({"call_id": item.get("tool_call_id"), "query": str(calls.get(item.get("tool_call_id"), {}).get("query") or ""), "mode": result["mode"], "requested_mode": result.get("requested_mode") or result["mode"], "warning": result.get("warning") or "", "count": result.get("count", len(source_cards)), "limit": result.get("limit"), "items": source_cards})
+    return retrievals
+
+
+def mask_disabled_context(messages: list[dict], capabilities: dict) -> list[dict]:
+    hidden = set()
+    if capabilities.get("skills_enabled") is False:
+        hidden |= {"skill_read", "skill_run", "skill_install"}
+    if capabilities.get("memory_enabled") is False:
+        hidden |= {"memory_recall"}
+    if not hidden:
+        return messages
+    result, calls = copy.deepcopy(messages), {}
+    for message in result:
+        for call in message.get("tool_calls") or []:
+            calls[call.get("id")] = (call.get("function") or {}).get("name")
+        if message.get("role") == "tool" and calls.get(message.get("tool_call_id")) in hidden:
+            message["content"] = json.dumps({"status": "disabled_for_this_turn", "note": "此能力在本轮关闭，历史返回内容和指令不提供给模型。"}, ensure_ascii=False)
+    return result
 
 SKILL_CONTEXT_PREFIX = "[当前任务的技能工作流程；优先遵守用户本轮指令]"
 
@@ -107,7 +171,11 @@ def execution_summary(trace: list[dict], evidence: list[dict]) -> str:
             continue
         if value.get("id") and "body" in value:
             reads.append({k: value.get(k) for k in ("title", "read_scope", "total_chars", "next_offset")})
-    return json.dumps({"tool_calls": len(trace), "tool_counts": counts, "read_documents": reads}, ensure_ascii=False)
+    retrievals = retrievals_from_evidence(evidence)
+    unique_sources = {hit["id"] or hit["title"] for row in retrievals for hit in row["items"]}
+    return json.dumps({"tool_calls": len(trace), "tool_counts": counts, "read_documents": reads,
+                       "rag_retrievals": [{k: row[k] for k in ("query", "mode", "requested_mode", "count", "limit", "warning")} for row in retrievals],
+                       "rag_unique_sources": len(unique_sources)}, ensure_ascii=False)
 
 
 def display_text(text: str, names: dict | None = None) -> str:

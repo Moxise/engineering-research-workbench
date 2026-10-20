@@ -453,6 +453,18 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
     args = args if isinstance(args, dict) else {}
     ctx = ctx if isinstance(ctx, dict) else {}
     ctx.setdefault("write_mode", "confirm")
+    if ctx.get("source_policy") == "rag_only":
+        from . import agent_context
+        if name not in agent_context.RAG_ONLY_TOOLS:
+            return {"ok": False, "error": "用户要求本轮只参考 RAG，不允许技能、记忆、联网、写入或其他数据工具"}
+        if name == "kb_read":
+            target = str(args.get("doc_id") or args.get("title") or "").strip().removeprefix("[[").removesuffix("]]").split("|", 1)[0]
+            hits = ctx.get("rag_sources", {})
+            titles = set(hits.values()) | {title.removeprefix("文献-") for title in hits.values()}
+            if target not in hits and target not in titles:
+                return {"ok": False, "error": "本轮只参考 RAG；请先检索命中此条目，再读取正文。导航笔记里的链接不等于该文献已独立命中。"}
+        if name == "evidence_read" and args.get("run_id") and args["run_id"] != ctx.get("run_id"):
+            return {"ok": False, "error": "本轮只参考当前 RAG 证据，不读取其他任务的历史结果"}
     if ctx["write_mode"] not in WRITE_MODES:
         ctx["write_mode"] = "confirm"
     impl = _TOOL_IMPL.get(name)
