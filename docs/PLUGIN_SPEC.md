@@ -322,6 +322,12 @@ python -m core.plugins verify          # 全库体检：孤儿派生库、缺失
 `archive_variants(base_id, ids)` / `restore_variant(base_id, file)` —— 做「同一笔记的不同版本」的
 界面与工具时用它；**版本与来源的记录在内核写入路径**，插件只操作，不自己解析文件。
 
+**自动确认（v261020 起）**：`auto_merge_variants(base_id, strategy="agent", apply=False, archive_merged=…)`
+—— 内核用**已配置的模型**逐节比较基条与各版本，返回 `picks` / `reasons`（`apply=False` 只给建议；
+`apply=True` 写回基条）。模型不可用或某批没有返回结果时**自动回退**到「最近更新优先」规则，并在
+`mode`（`agent` / `rule` / `rule-fallback`）与 `note` 里说明。调用方需在 `plugin.json` 声明
+`llm:use`（会消耗模型用量）；纯规则用法传 `strategy="rule"`，不产生模型调用。
+
 **写窗口（v261009.25 起）**：`entry_update(doc_id, body=…, **字段)` —— 改条目正文或白名单字段，
 走内核的**校验写入路径**（字段白名单取自 `core/contracts`、原子写、记 `doc_update` 活动）。
 它与 `lit_note_save` 同一模式：**安全闸门在内核**——插件把它注册成写工具（`spec.write = true`）后，

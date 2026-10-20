@@ -402,6 +402,25 @@ def merge_variants(base_id: str, picks: dict, *, archive_merged: bool = False,
     return V.merge_family(base_id, picks or {}, archive_merged=archive_merged,
                           origin_info=dict(origin or V.origin("plugin", "merge_variants")))
 
+
+def auto_merge_variants(base_id: str, *, strategy: str = "agent", variant_ids: list | None = None,
+                        apply: bool = False, archive_merged: bool = False,
+                        origin: dict | None = None) -> dict:
+    """Agent 自动确认版本合并：模型逐节选来源，返回建议（或直接应用）。
+
+    - `strategy="agent"`：调用设置里已启用的模型；不可用/解析失败时**自动回退**到
+      「最近更新优先」规则，并在 `note` 里说明原因；
+    - `strategy="rule"`：不调用模型，只按规则选；
+    - `apply=False`（默认）：只返回 `picks` / `reasons`，由界面展示后再调 `merge_variants`；
+    - `apply=True`：直接写回基条（只改正文，不动标题/项目/状态）。
+
+    需要插件在 `plugin.json` 声明 `llm:use`（会消耗已配置模型的用量）。
+    """
+    from app.merge_ai import propose_picks
+
+    return propose_picks(base_id, strategy=strategy, variant_ids=list(variant_ids or []),
+                         apply=apply, archive_merged=archive_merged, origin=origin)
+
 def archive_variants(base_id: str, variant_ids: list) -> dict:
     """归档指定版本到 System/Versions/<基条>/archived/（保留可追溯）。"""
     from app import versions as V

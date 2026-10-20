@@ -1026,3 +1026,60 @@ def test_connection() -> dict[str, Any]:
     models = data.get("data") if isinstance(data, dict) else []
     names = [str(x.get("id")) for x in (models or []) if isinstance(x, dict) and x.get("id")][:12]
     return {"ok": True, "models": names, "message": "连接成功", "profile": cfg.get("name") or "", "probe": "models"}
+
+
+# ---------------------------------------------------------------- 一次性结构化补全（v261020）
+# 供内核模块 / 插件门面使用：不走会话、不落 draft，只要一个 JSON 结果。
+# 典型用途：版本族自动合并时的「逐节选来源」。
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    """从模型文本里取出第一个 JSON 对象（容忍 ```json 代码块与前后说明）。"""
+    raw = str(text or "").strip()
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.S)
+    if fenced:
+        raw = fenced.group(1)
+    else:
+        start, end = raw.find("{"), raw.rfind("}")
+        if start >= 0 and end > start:
+            raw = raw[start:end + 1]
+    try:
+        obj = json.loads(raw)
+    except Exception as exc:  # noqa: BLE001 —— 统一转成可读错误
+        raise ValueError(f"模型没有返回合法 JSON：{exc}") from exc
+    if not isinstance(obj, dict):
+        raise ValueError("模型返回的 JSON 不是对象")
+    return obj
+
+
+def complete_json(system_prompt: str, user_text: str, *, temperature: float = 0.0,
+                  max_tokens: int = 1400, request_params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """一次性补全并解析 JSON：返回 {json, text, model}。
+
+    `request_params` 会合并进这次请求（例如对推理模型传 `reasoning_effort` 降低思考长度）。
+    计费走 `llm.usage` 事件（与对话一致）；失败时抛 ValueError，由调用方决定是否回退。
+    """
+    cfg = _llm_cfg()
+    preset_id, preset_label, preset_model, preset_temperature, request_params = _request_preset(cfg, "")
+    if not preset_model:
+        raise ValueError(f"请求模式 {preset_label} 尚未配置模型名称")
+    request_cfg = dict(cfg)
+    request_cfg["model"] = preset_model
+    if preset_temperature is not None:
+        request_cfg["temperature"] = preset_temperature
+    request_cfg["_billing"] = {  # 无会话的调用归入虚拟会话（与阅读助手一致，仍计入用量）
+        "session_id": "__merge_auto__",
+        "session_title": "版本自动确认",
+        "preset_label": preset_label,
+        "source": "version_auto_merge",
+    }
+    params: dict[str, Any] = dict(request_params or {})
+    params["temperature"] = float(temperature)
+    if int(max_tokens or 0) > 0:
+        params["max_tokens"] = int(max_tokens)
+    messages: list[dict[str, Any]] = []
+    if str(system_prompt or "").strip():
+        messages.append({"role": "system", "content": str(system_prompt)})
+    messages.append({"role": "user", "content": str(user_text)})
+    message = _post_chat(request_cfg, messages, params)
+    text = _message_text(message)
+    return {"json": _extract_json_object(text), "text": text, "model": preset_model}

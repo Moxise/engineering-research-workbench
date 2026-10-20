@@ -8,7 +8,7 @@
 
   var API = '/api/plugins/version-manager';
   var STATE = { families: [], current: '', detail: null, picks: {}, archiveAfter: false,
-                filter: 'forked', keyword: '' };
+                filter: 'forked', keyword: '', autoInfo: null };
 
   function esc(t) {
     return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
@@ -147,6 +147,7 @@
     STATE.current = baseId;
     STATE.picks = {};
     STATE.archiveAfter = false;
+    STATE.autoInfo = null;
     var pane = main.querySelector('#vm-pane');
     pane.innerHTML = '<div class="empty">正在读取版本族…</div>';
     Array.prototype.forEach.call(main.querySelectorAll('.vm-item'), function (el) {
@@ -354,7 +355,10 @@
           + '<button type="button" class="vm-cbtn" data-vm-keep="' + esc(heading) + '">保留基准</button></span>';
       var row = '<div class="vm-srow vm-need" data-vm-srow="' + esc(heading) + '">'
         + '<div class="vm-shead"><span class="vm-sname">' + esc(heading)
-        + ' <b class="vm-sbadge ' + st.kind + '">' + esc(st.label) + '</b></span>' + control + '</div>'
+        + ' <b class="vm-sbadge ' + st.kind + '">' + esc(st.label) + '</b>'
+        + (STATE.autoInfo && STATE.autoInfo.picks && STATE.autoInfo.picks[heading]
+            ? ' <b class="vm-agent-tag">Agent</b>' : '')
+        + '</span>' + control + '</div>'
         + '<div class="vm-dwrap" data-vm-dwrap="' + esc(heading) + '">'
         + (st.diff ? diffHtml(st.diff) : '') + '</div></div>';
       changedCount++;
@@ -409,6 +413,33 @@
         + '</div>'
       : '';
 
+    var autoInfo = STATE.autoInfo && STATE.autoInfo.base_id === d.base_id ? STATE.autoInfo : null;
+    var autoBar = changedCount
+      ? '<div class="vm-auto">'
+        + '<button type="button" class="secondary-btn" id="vm-auto">✦ Agent 自动确认</button>'
+        + '<label class="vm-check vm-auto-apply"><input type="checkbox" id="vm-auto-apply"> 直接应用</label>'
+        + '<span class="vm-auto-state" id="vm-auto-state">'
+        + (autoInfo ? '建议已生成，可调整后应用' : '模型逐节挑选来源；不可用时自动回退到最近更新优先')
+        + '</span></div>'
+      : '';
+    var autoBanner = autoInfo
+      ? '<div class="vm-auto-result ' + esc(autoInfo.mode || '') + '">'
+        + '<div class="vm-auto-head">✦ Agent 建议 · '
+        + (autoInfo.mode === 'agent'
+            ? '模型 ' + esc(autoInfo.model || '（未命名）')
+            : '规则回退')
+        + ' · 采用 ' + (autoInfo.adopt_count || 0) + ' 处 / 保留基准 ' + (autoInfo.keep_count || 0) + ' 处</div>'
+        + (autoInfo.note ? '<div class="vm-auto-note">' + esc(autoInfo.note) + '</div>' : '')
+        + (Object.keys(autoInfo.reasons || {}).length
+            ? '<details class="vm-auto-more"><summary>逐节理由（' + Object.keys(autoInfo.reasons).length + '）</summary>'
+              + Object.keys(autoInfo.reasons).map(function (k) {
+                  return '<div class="vm-auto-reason"><span>' + esc(k) + '</span><i>' + esc(autoInfo.reasons[k]) + '</i></div>';
+                }).join('')
+              + '</details>'
+            : '')
+        + '</div>'
+      : '';
+
     var archived = (d.archived || []).map(function (row) {
       return '<div class="vm-arow"><span class="vm-vtext"><b>' + esc(row.title || row.id) + '</b>'
         + '<span class="vm-vmeta">归档于 ' + esc(String(row.archived_at || '').replace('T', ' ').slice(0, 16))
@@ -436,7 +467,7 @@
       + (variants.length ? versionRows : forkHint) + '</div>'
 
       + (variants.length
-          ? '<div class="vm-block"><h4>② 需要确认的改动（一致的小节自动沿用基准）</h4>' + summary + sectionRows
+          ? '<div class="vm-block"><h4>② 需要确认的改动（一致的小节自动沿用基准）</h4>' + summary + autoBar + autoBanner + sectionRows
             + sameBlock
             + '<label class="vm-check"><input type="checkbox" id="vm-archive-after"> 合并后把被替换的版本一并归档</label>'
             + '<div class="vm-actions"><button class="primary-btn" id="vm-merge">应用 '
@@ -571,6 +602,31 @@
           toast('已合并：替换小节 ' + ((out.replaced_sections || []).join('、') || '（无）'));
           loadDetail(d.base_id, main);
         }).catch(function (e) { toast('合并失败：' + e.message, true); });
+    };
+    var autoBtn = pane.querySelector('#vm-auto');
+    if (autoBtn) autoBtn.onclick = function () {
+      var applyNow = !!(pane.querySelector('#vm-auto-apply') && pane.querySelector('#vm-auto-apply').checked);
+      var stateEl = pane.querySelector('#vm-auto-state');
+      autoBtn.disabled = true;
+      if (stateEl) stateEl.textContent = '分析中…' + (applyNow ? '（直接应用）' : '（只给建议）');
+      post(API + '/auto-merge', { base_id: d.base_id, apply: applyNow, archive_merged: STATE.archiveAfter })
+        .then(function (out) {
+          if (out.applied) {
+            var replaced = (out.merge && out.merge.replaced_sections) || [];
+            toast('Agent 已自动合并：替换 ' + (replaced.join('、') || '（无）'));
+            loadDetail(d.base_id, main);
+            return;
+          }
+          STATE.picks = out.picks || {};
+          STATE.autoInfo = out;
+          paintDetail(main);
+          toast('Agent 已选择 ' + (out.adopt_count || 0) + ' 处采用、' + (out.keep_count || 0) + ' 处保留基准；检查后点「应用」写回基条');
+        })
+        .catch(function (e) {
+          autoBtn.disabled = false;
+          if (stateEl) stateEl.textContent = '';
+          toast('自动确认失败：' + e.message, true);
+        });
     };
     var archBtn = pane.querySelector('#vm-archive');
     if (archBtn) archBtn.onclick = function () {

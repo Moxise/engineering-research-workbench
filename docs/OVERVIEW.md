@@ -139,7 +139,7 @@ engineering-research-workbench/
 │  ├─ knowledge-graph/       图谱页与总览迷你图（整页接管）
 │  ├─ floating-assist/       悬浮球 AI 助手（overlay 槽位）
 │  ├─ billing/ focus/ rss/ weather/                附属插件
-│  ├─ version-manager/       版本族：逐节合并 / 归档取回（页面 + 路由 + 3 个 Agent 工具）
+│  ├─ version-manager/       版本族：Agent 自动确认 / 逐节合并 / 归档取回（页面 + 路由 + 4 个 Agent 工具）
 │  └─ report-export/ backup-snapshot/ milestone-calendar/ metrics-table/   可选插件
 │
 ├─ web/                      前端（无构建步骤，server.py 直接提供）
@@ -226,7 +226,7 @@ flowchart LR
 | `focus` | 专注计时：专注/休息倒计时、环形进度、25/45/60/90 预设；设置存浏览器本地 | 侧栏「专注」 | `ui:panel` |
 | `rss` | 科研资讯：RSS/Atom 聚合、arXiv 多级回退、缓存与离线降级、多源筛选 | 侧栏「资讯」 | `net:http` `storage:own` `config:own` |
 | `weather` | 天气：顶栏槽位常驻温度+现象、逐日预报、地名解析、离线显示上次成功结果并说明原因 | 顶栏天气块 | `net:http` `storage:own` `config:own` |
-| `version-manager` | 同一笔记的不同版本的查看/逐节合并/归档取回（数据模型在内核，本插件提供页面、路由与 3 个 Agent 工具） | 侧栏「版本」 | `ui:panel` |
+| `version-manager` | 同一笔记的不同版本的查看/逐节合并/归档取回；**Agent 自动确认**（模型逐节选来源，失败回退规则）（数据模型在内核，本插件提供页面、路由与 4 个 Agent 工具） | 侧栏「版本」 | `ui:panel` `llm:use` |
 
 **可选（默认关，4 个，设置里一键启用）**
 
@@ -251,7 +251,7 @@ flowchart LR
 | **派生索引与检索** | `app/perf_index_*` `core/index/` | SQLite（schema v4）：文档/关系/待办/FTS；中文分词检索；可整库重建；迁移框架；WAL checkpoint |
 | **项目与待办** | `app/projects.py` `app/todos.py` | 项目注册表（稳定 `project_id`）、项目文件树、待办清单、活动日志（追加型 JSONL） |
 | **文献** | `app/literature.py` | 条目/元数据/阅读状态/BibTeX 导出/互链；PDF 存储与 Range 分片、批注、笔记（与知识库同源） |
-| **科研 Agent** | `app/agent.py` `app/agent_tools.py` | 对话循环 + SSE 流式 + 上下文注入 + **4 个内核内置工具**（`kb_search/kb_read/kb_create_entry/kb_update_entry`，写工具走草稿闸门）+ 人设与工具白名单 + 请求模式 + 写作规范注入；版本族 3 个工具（`versions/merge_versions/archive_versions`）由 `version-manager` 插件登记，停用则不可用 |
+| **科研 Agent** | `app/agent.py` `app/agent_tools.py` | 对话循环 + SSE 流式 + 上下文注入 + **4 个内核内置工具**（`kb_search/kb_read/kb_create_entry/kb_update_entry`，写工具走草稿闸门）+ 人设与工具白名单 + 请求模式 + 写作规范注入；版本族 4 个工具（`versions/auto_merge_versions/merge_versions/archive_versions`）由 `version-manager` 插件登记，停用则不可用 |
 | **多版本与来源（数据面）** | `app/versions.py` `app/store.py` `app/activity.py` | 同一笔记的不同版本归成**版本族**（`variant_of`/`variant_label`，外部工具按标题签名自动归族）；四条写入路径（界面/Agent/MCP/插件）都记**来源**（`origin_surface/tool/client/at`，活动日志带 `source`）；**分叉/冲突时先留一版**；归档到 `System/Versions/<基条>/archived/` 可追溯。**界面与工具在 `version-manager` 插件**（v261009.44 起；停用则入口消失，数据仍在） |
 | **设置与运维** | `app/config.py` `server.py` | `config/app.json` 全量设置页、Workspace 迁移、索引重建、快速重启、**插件管理**（启停/权限/路由/工具/依赖/配置/预览） |
 | **MCP 服务** | `mcp/` | 30 个工具（`kb_*` 15 + `ws_*`/`todo_*`/导出 15；插件工具以 `p_<id>__<tool>` 动态并入），供外部 AI Agent/IDE 直接操作工作区 |

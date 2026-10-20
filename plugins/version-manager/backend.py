@@ -104,11 +104,33 @@ def register(ctx):
             return {"error": "bad_request", "message": str(exc)}
         return {"ok": True, **out}
 
+    def route_auto_merge(request):
+        """Agent 自动确认：模型逐节选来源；apply=true 时直接写回基条。"""
+        body = request.get("body") or {}
+        base_id = str(body.get("base_id") or "").strip()
+        if not base_id:
+            return {"error": "bad_request", "message": "缺少 base_id"}
+        try:
+            out = core_api.auto_merge_variants(
+                base_id,
+                strategy=str(body.get("strategy") or "agent"),
+                variant_ids=[str(x) for x in (body.get("variant_ids") or []) if str(x).strip()],
+                apply=bool(body.get("apply")),
+                archive_merged=bool(body.get("archive_merged")),
+                origin=_origin("auto_merge"),
+            )
+        except FileNotFoundError as exc:
+            return {"error": "not_found", "message": str(exc)}
+        except ValueError as exc:
+            return {"error": "bad_request", "message": str(exc)}
+        return {"ok": True, **out}
+
     ctx.routes.post("adopt", route_adopt)
     ctx.routes.get("history", route_history)
     ctx.routes.get("overview", route_overview)
     ctx.routes.get("family", route_family)
     ctx.routes.post("merge", route_merge)
+    ctx.routes.post("auto-merge", route_auto_merge)
     ctx.routes.post("archive", route_archive)
     ctx.routes.post("restore", route_restore)
 
@@ -147,6 +169,22 @@ def register(ctx):
             return {"ok": False, "error": "需要 base_id 与 variant_ids"}
         return {"ok": True, **core_api.archive_variants(base_id, ids)}
 
+    def tool_auto_merge(args, call_ctx=None):
+        args = args or {}
+        base_id = str(args.get("base_id") or args.get("doc_id") or "").strip()
+        if not base_id:
+            return {"ok": False, "error": "缺少 base_id"}
+        try:
+            return {"ok": True, **core_api.auto_merge_variants(
+                base_id,
+                strategy=str(args.get("strategy") or "agent"),
+                apply=True,
+                archive_merged=bool(args.get("archive_merged")),
+                origin=_origin("auto_merge"),
+            )}
+        except FileNotFoundError as exc:
+            return {"ok": False, "error": str(exc)}
+
     ctx.mcp.tool("versions", {
         "description": "列某条条目的版本族：基条 + 各版本 + 已归档清单，并显示每一版是谁写的"
                        "（工作台界面 / 内核 Agent / 外部 MCP 客户端 / 插件）。",
@@ -169,6 +207,19 @@ def register(ctx):
                        "required": ["base_id"]},
         "write": True,
     }, tool_merge)
+
+    ctx.mcp.tool("auto_merge_versions", {
+        "description": "Agent 自动确认版本合并：模型逐节选择来源并直接写回基条（不必逐节手动确认）；"
+                       "模型不可用时自动回退到「最近更新优先」规则。**写工具**：先出草稿，确认后落盘。",
+        "parameters": {"type": "object",
+                       "properties": {"base_id": {"type": "string", "description": "族里的基条 id"},
+                                      "strategy": {"type": "string", "enum": ["agent", "rule"],
+                                                   "description": "agent=调用已配置模型（默认）；rule=只用规则"},
+                                      "archive_merged": {"type": "boolean",
+                                                         "description": "合并后把被采用的版本一并归档"}},
+                       "required": ["base_id"]},
+        "write": True,
+    }, tool_auto_merge)
 
     ctx.mcp.tool("archive_versions", {
         "description": "归档指定版本：移入 Workspace/System/Versions/<基条>/archived/ 永久保留"

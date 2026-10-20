@@ -1,8 +1,8 @@
 {
   "id": "version-manager",
   "name": "版本管理",
-  "version": "1.0.9",
-  "description": "同一笔记的不同版本：查看版本族、按小节合并、归档与取回（含来源追踪）",
+  "version": "1.1.0",
+  "description": "同一笔记的不同版本：查看版本族、Agent 自动确认并按小节合并、归档与取回（含来源追踪）",
   "api_version": 1,
   "core_min": "v261009.44",
   "kind": "inprocess",
@@ -11,7 +11,8 @@
   "entry": "backend.py",
   "permissions": [
     "ui:panel",
-    "config:own"
+    "config:own",
+    "llm:use"
   ],
   "nav": [
     {
@@ -41,6 +42,10 @@
     },
     {
       "method": "POST",
+      "path": "auto-merge"
+    },
+    {
+      "method": "POST",
       "path": "merge"
     },
     {
@@ -54,12 +59,14 @@
   ],
   "mcp_tools": [
     "versions",
+    "auto_merge_versions",
     "merge_versions",
     "archive_versions"
   ],
   "preview": {
     "summary": "同一笔记的不同版本归成一条「版本族」：逐版对照、按小节合并、归档后仍可追溯",
     "features": [
+      "**Agent 自动确认**：点一下让模型逐节挑选来源（信息完整、结论可靠优先），给出理由后可一键应用；模型不可用时自动回退到「最近更新优先」规则",
       "不管是在工作台里改的，还是外部工具（MCP）塞进来的同名不同版，都会自动归到同一族",
       "每个版本都显示**来源**（含**分支创建时间**）：工作台界面 / 内核 Agent / 外部 MCP 客户端（含客户端名）/ 插件",
       "**按 H2 小节挑内容**合并（选基准 + 逐节选来源），合并结果写回基条",

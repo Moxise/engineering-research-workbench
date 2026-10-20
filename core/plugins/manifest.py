@@ -28,6 +28,7 @@ KNOWN_PERMISSIONS: dict[str, str] = {
     "config:own": "可读写自己的配置",
     "ui:panel": "可注册前端面板（导航项 + 页面）",
     "process:spawn": "可拉起自己的独立进程",
+    "llm:use": "可调用内核已配置的模型（消耗用量）",
 }
 
 ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
