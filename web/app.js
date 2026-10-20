@@ -210,6 +210,27 @@
     {id:'method',icon:'⚒',label:'方法',color:'#e76f51'},
     {id:'experiment',icon:'⚗',label:'实验',color:'#d1569a'}
   ];
+  /* v261020 · 分类标记内置模板（与 core/contracts/kinds.py 的 MARK_IDS 对齐）。
+     正常走 /api/knowledge-marks 取服务端数据；这里只作接口不可用时的兜底展示。 */
+  const MARK_TEMPLATE_FALLBACK=[
+    {id:'knowledge',icon:'◈',label:'知识',color:'#2a9d8f',hint:'术语、概念与机制'},
+    {id:'synthesis',icon:'◎',label:'归类',color:'#6b7fd7',hint:'跨族归并与索引'},
+    {id:'method',icon:'⚒',label:'方法',color:'#e76f51',hint:'算法、流程与操作口径'},
+    {id:'question',icon:'？',label:'问题',color:'#d1495b',hint:'待解疑问与风险'},
+    {id:'thinking',icon:'✦',label:'思路',color:'#f4a261',hint:'猜想、方案与思路'},
+    {id:'architecture',icon:'▤',label:'架构',color:'#4a6fa5',hint:'结构设计与模块边界'},
+    {id:'experiment',icon:'⚗',label:'实验',color:'#d1569a',hint:'实验记录与结论'},
+    {id:'data',icon:'⊞',label:'数据',color:'#2d7dd2',hint:'数据集与选型'},
+    {id:'model',icon:'⬡',label:'模型',color:'#8e6fbf',hint:'模型、训练与推理设置'},
+    {id:'principle',icon:'∑',label:'原理',color:'#7a8b3a',hint:'原理、度量与数学基础'}
+  ];
+  /* v261020 · 标记图案面板：分组陈列，兼顾符号/emoji 与科研场景。 */
+  const MARK_ICON_GROUPS=[
+    {name:'几何',icons:['◆','◇','●','○','■','□','▲','△','▶','▷','◈','◉','⬡','⬢','▣','▤']},
+    {name:'科研',icons:['⚗','⚛','∑','∫','∞','≡','⊞','⊟','⌬','☰','⚙','⚑','✎','✍','☀','☾']},
+    {name:'符号',icons:['✦','✧','★','☆','✱','✳','❖','⚡','☁','❄','☯','⚖','⌁','⟡','⌘','⌥']},
+    {name:'标记',icons:['✓','✔','✗','✘','❗','❓','➜','⇢','↗','↘','⟳','⌛','⏱','⇧','◎','？']}
+  ];
   function allMarks(){
     const rows=state.config?.app?.classification_marks;
     return Array.isArray(rows)?rows:DEFAULT_KIND_MARKS;
@@ -1741,26 +1762,41 @@
   /* v261020 · 分类标记：图标可自由输入（候选一键填入），既能在设置里新建/编辑，也能从条目编辑器“＋ 自定义”直接建。 */
   function markFormHtml(prefix,mark){
     const m=mark||{icon:'◆',label:'',color:'#4a6fa5'};
+    const icon=m.icon||'◆';
     return `<div class="form-grid">
       <div class="field span-2"><label>分类名称</label><input id="${prefix}-label" maxlength="16" value="${esc(m.label||'')}" placeholder="例如：问题"></div>
-      <div class="field span-2"><label>颜色</label><input id="${prefix}-color" type="color" value="${esc(m.color||'#4a6fa5')}"></div>
-      <div class="field span-4"><label>图标</label>
-        <div class="mark-icon-pick" id="${prefix}-icon-pick">${KNOWLEDGE_ICON_CHOICES.map(ic=>`<button type="button" data-${prefix}-icon="${esc(ic)}" class="${(m.icon||'◆')===ic?'on':''}" title="选择 ${esc(ic)}">${esc(ic)}</button>`).join('')}</div>
-        <div class="field-help" style="margin:8px 0 5px">点候选图标即可选用；也可以直接输入任意符号或 emoji（最多 4 个字符）。</div>
-        <input id="${prefix}-icon" maxlength="4" value="${esc(m.icon||'◆')}" placeholder="可输入其它图标">
+      <div class="field span-2"><label>颜色与预览</label>
+        <div class="mark-color-row"><input id="${prefix}-color" type="color" value="${esc(m.color||'#4a6fa5')}"><span class="mark-chip on" id="${prefix}-preview" style="--mark-color:${esc(m.color||'#4a6fa5')}">${esc(icon)} ${esc(m.label||'预览')}</span></div>
+        <div class="field-help" style="margin-top:6px">预览随名称、颜色与图案实时变化。</div>
+      </div>
+      <div class="field span-4"><label>标记图案</label>
+        <div class="mark-icon-groups" id="${prefix}-icon-groups">
+          ${MARK_ICON_GROUPS.map(g=>`<div class="mig"><span class="mig-name">${esc(g.name)}</span><div class="mig-grid">${g.icons.map(ic=>`<button type="button" data-${prefix}-icon="${esc(ic)}" class="${icon===ic?'on':''}" title="选择 ${esc(ic)}">${esc(ic)}</button>`).join('')}</div></div>`).join('')}
+        </div>
+        <div class="mark-icon-custom"><input id="${prefix}-icon" maxlength="4" value="${esc(icon)}" placeholder="也可输入其它符号"><span class="field-help">点选上面的图案，或直接输入任意符号 / emoji（最多 4 个字符）。</span></div>
       </div>
     </div>`;
   }
   function wireMarkForm(prefix){
-    $$(`#${prefix}-icon-pick [data-${prefix}-icon]`).forEach(btn=>btn.onclick=()=>{
+    const iconInput=$(`#${prefix}-icon`),labelInput=$(`#${prefix}-label`),colorInput=$(`#${prefix}-color`),preview=$(`#${prefix}-preview`);
+    const syncPreview=()=>{
+      if(!preview)return;
+      preview.textContent=`${iconInput.value.trim()||'◆'} ${labelInput.value.trim()||'预览'}`;
+      preview.style.setProperty('--mark-color',colorInput.value||'#4a6fa5');
+    };
+    $$(`#${prefix}-icon-groups [data-${prefix}-icon]`).forEach(btn=>btn.onclick=()=>{
       const icon=btn.dataset[prefix+'Icon']||'◆';
-      $(`#${prefix}-icon`).value=icon;
-      $$(`#${prefix}-icon-pick [data-${prefix}-icon]`).forEach(x=>x.classList.toggle('on',x===btn));
+      iconInput.value=icon;
+      $$(`#${prefix}-icon-groups [data-${prefix}-icon]`).forEach(x=>x.classList.toggle('on',x===btn));
+      syncPreview();
     });
-    $(`#${prefix}-icon`).addEventListener('input',()=>{
-      const icon=$(`#${prefix}-icon`).value.trim();
-      $$(`#${prefix}-icon-pick [data-${prefix}-icon]`).forEach(x=>x.classList.toggle('on',x.dataset[prefix+'Icon']===icon));
+    iconInput.addEventListener('input',()=>{
+      const icon=iconInput.value.trim();
+      $$(`#${prefix}-icon-groups [data-${prefix}-icon]`).forEach(x=>x.classList.toggle('on',x.dataset[prefix+'Icon']===icon));
+      syncPreview();
     });
+    labelInput.addEventListener('input',syncPreview);
+    colorInput.addEventListener('input',syncPreview);
   }
   async function createClassificationMark(fields){
     const app=state.config?.app;
@@ -1815,11 +1851,33 @@
       toast('分类标记已更新');
     };
   }
-  async function addClassificationMark(app,cfg){
-    const label=$('#km-label').value.trim();
-    if(!label){toast('请填写分类名称',true);return}
-    const mark=await createClassificationMark({label,icon:$('#km-icon').value,color:$('#km-color').value});
-    if(!mark)return;
+  function markTemplateById(id){
+    const catalog=state.markCatalog||{};
+    const rows=Array.isArray(catalog.templates)&&catalog.templates.length?catalog.templates:MARK_TEMPLATE_FALLBACK;
+    return rows.find(t=>t.id===id)||null;
+  }
+  function markLimit(){
+    return Number((state.markCatalog||{}).limit)||24;
+  }
+  async function addTemplateMark(app,cfg,id){
+    const tpl=markTemplateById(id);
+    if(!tpl)return;
+    const marks=classificationMarksConfig(app);
+    if(marks.length>=markLimit()){toast(`分类标记最多 ${markLimit()} 个，请先删除不用的`,true);return}
+    if(marks.some(m=>m.id===tpl.id))return;
+    marks.push({id:tpl.id,icon:tpl.icon,label:tpl.label,color:tpl.color});
+    await saveKnowledgeTypes(app,cfg,`已添加分类“${tpl.label}”`);
+    renderSettingsTab('knowledge',cfg);
+  }
+  async function addAllTemplateMarks(app,cfg){
+    const marks=classificationMarksConfig(app),limit=markLimit();
+    const rows=((state.markCatalog||{}).templates)||MARK_TEMPLATE_FALLBACK;
+    const remaining=rows.filter(t=>!marks.some(m=>m.id===t.id));
+    const room=Math.max(0,limit-marks.length);
+    if(!remaining.length){toast('内置模板都已添加');return}
+    if(!room){toast(`分类标记最多 ${limit} 个，请先删除不用的`,true);return}
+    remaining.slice(0,room).forEach(t=>marks.push({id:t.id,icon:t.icon,label:t.label,color:t.color}));
+    await saveKnowledgeTypes(app,cfg,`已添加 ${Math.min(remaining.length,room)} 个内置模板`);
     renderSettingsTab('knowledge',cfg);
   }
   async function deleteClassificationMark(app,cfg,id){
@@ -1881,6 +1939,11 @@
     const ordered=reg.order.map(id=>rows.find(x=>x.id===id)).filter(Boolean);
     const extras=rows.filter(x=>!reg.order.includes(x.id));
     const all=[...ordered,...extras],marks=classificationMarksConfig(app);
+    const limit=markLimit();
+    const catalog=state.markCatalog||{};
+    const templates=Array.isArray(catalog.templates)&&catalog.templates.length?catalog.templates:MARK_TEMPLATE_FALLBACK;
+    const remaining=templates.filter(t=>!marks.some(m=>m.id===t.id));
+    const atLimit=marks.length>=limit;
     p.innerHTML=`<div class="card-head"><div><h3>研究 · 知识条目</h3><p class="row-meta">这里统一管理条目类型、顺序、显示状态和新建 Markdown 模板。自定义类型共用通用 Markdown 编辑器。</p></div><button class="primary-btn" id="kt-add">＋ 添加自定义条目</button></div>
       <div class="list-stack" id="kt-list">${all.map((x,i)=>`<div class="list-row" data-kt="${esc(x.id)}">
         <div style="font-size:18px;width:24px;text-align:center">${esc(x.icon||'◆')}</div>
@@ -1893,29 +1956,22 @@
       </div>`).join('')||'<div class="empty">暂无知识条目类型</div>'}</div>
       <div class="field-help" style="margin-top:10px">隐藏不会删除 Markdown 数据；“模板”只影响以后新建的条目，并可一键还原为预设。</div>
 
-      <div class="card-head" style="margin-top:26px"><div><h3>分类标记</h3><p class="row-meta">默认精简为“知识 / 方法 / 实验”。可在这里新增或编辑分类（图标支持任意符号/emoji）；条目编辑器里的「＋ 自定义」也能直接新建。删除分类后，使用该分类的条目会自动设为“无标记”。</p></div></div>
+      <div class="card-head" style="margin-top:26px"><div><h3>分类标记 <span class="badge">${marks.length}/${limit}</span></h3><p class="row-meta">默认 3 个（知识 / 方法 / 实验）。从下面的<b>内置模板</b>按需添加，或自定义名称、颜色与图标图案；条目编辑器里的「＋ 自定义」也能直接新建。删除分类后，使用该分类的条目会自动清空。</p></div></div>
       <div class="list-stack" id="km-list">${marks.map(m=>`<div class="list-row">
         <div style="font-size:18px;width:28px;text-align:center;color:${esc(m.color)}">${esc(m.icon)}</div>
         <div class="row-main"><div class="row-title">${esc(m.label)}</div><div class="row-meta"><code>${esc(m.id)}</code></div></div>
         <span class="mark-chip" style="--mark-color:${esc(m.color)}">${esc(m.icon)} ${esc(m.label)}</span>
         <button class="secondary-btn" data-km-edit="${esc(m.id)}">编辑</button>
         <button class="secondary-btn" data-km-delete="${esc(m.id)}">删除</button>
-      </div>`).join('')||'<div class="empty">暂无分类标记；下方可以添加。</div>'}</div>
-      <div class="form-grid" style="margin-top:14px">
-        <div class="field span-2"><label>分类名称</label><input id="km-label" maxlength="16" placeholder="例如：问题"></div>
-        <div class="field span-2"><label>图标</label>
-          <div class="mark-icon-quick">
-            <input id="km-icon" maxlength="4" value="◆" placeholder="任意符号或 emoji">
-            <details class="compact-icon-select" id="km-icon-select">
-              <summary id="km-icon-trigger" title="从候选图标里选"><span>候选</span><span class="compact-icon-caret">⌄</span></summary>
-              <div class="compact-icon-menu" id="km-icon-menu">${KNOWLEDGE_ICON_CHOICES.map(ic=>`<button type="button" data-km-icon="${esc(ic)}" class="${ic==='◆'?'on':''}" title="选择 ${esc(ic)}">${esc(ic)}</button>`).join('')}</div>
-            </details>
-          </div>
-          <div class="field-help">可直接输入任意符号/emoji（最多 4 个字符），也可从候选里点选。</div>
-        </div>
-        <div class="field span-2"><label>颜色</label><input id="km-color" type="color" value="#4a6fa5"></div>
-      </div>
-      <div style="margin-top:10px"><button class="primary-btn" id="km-add">＋ 添加分类标记</button></div>`;
+      </div>`).join('')||'<div class="empty">暂无分类标记；可从下面的模板添加，或自定义一个。</div>'}</div>
+
+      <div class="section-title" style="margin-top:18px"><div><h3>内置模板</h3><p class="row-meta">点卡片即可添加；添加后仍可在这里编辑图案与颜色。</p></div>${remaining.length?`<button class="secondary-btn" id="km-add-all" ${atLimit?'disabled':''}>全部添加</button>`:''}</div>
+      <div class="mark-template-grid" id="km-templates">${remaining.length?remaining.map(t=>`<button type="button" class="mark-template" data-km-tpl="${esc(t.id)}" style="--mark-color:${esc(t.color)}" ${atLimit?'disabled':''} title="${esc(t.hint||t.id)}">
+          <span class="mt-icon">${esc(t.icon)}</span>
+          <span class="mt-text"><b>${esc(t.label)}</b><small>${esc(t.hint||t.id)}</small></span>
+          <span class="mt-add">＋</span>
+        </button>`).join(''):'<div class="empty">内置模板都已添加；可在下面自定义新分类。</div>'}</div>
+      <div class="mark-custom-row"><button class="primary-btn" id="km-custom" ${atLimit?'disabled':''}>＋ 自定义标记</button><span class="field-help">名称最多 16 字；图标支持任意符号 / emoji；上限 ${limit} 个${atLimit?'（已达上限，请先删除不用的）':''}。</span></div>`;
     $('#kt-add').onclick=()=>openKnowledgeTypeEditor(app,cfg);
     $$('[data-kt-visible]',p).forEach(el=>el.onchange=async()=>{
       const id=el.dataset.ktVisible;const set=new Set(reg.hidden||[]);if(el.checked)set.delete(id);else set.add(id);reg.hidden=[...set];
@@ -1936,18 +1992,9 @@
       reg.custom=reg.custom.filter(x=>x.id!==id);reg.order=reg.order.filter(x=>x!==id);reg.hidden=reg.hidden.filter(x=>x!==id);delete reg.templates[id];
       await saveKnowledgeTypes(app,cfg,'自定义条目类型定义已删除');renderSettingsTab('knowledge',cfg);
     });
-    const kmIconDetails=$('#km-icon-select'),kmIconInput=$('#km-icon');
-    $$('[data-km-icon]',p).forEach(btn=>btn.onclick=()=>{
-      const icon=btn.dataset.kmIcon||'◆';
-      kmIconInput.value=icon;
-      $$('[data-km-icon]',p).forEach(x=>x.classList.toggle('on',x===btn));
-      if(kmIconDetails)kmIconDetails.open=false;
-    });
-    kmIconInput.addEventListener('input',()=>{
-      const icon=kmIconInput.value.trim();
-      $$('[data-km-icon]',p).forEach(x=>x.classList.toggle('on',x.dataset.kmIcon===icon));
-    });
-    $('#km-add').onclick=()=>addClassificationMark(app,cfg);
+    $$('[data-km-tpl]',p).forEach(b=>b.onclick=()=>addTemplateMark(app,cfg,b.dataset.kmTpl));
+    const kmAddAll=$('#km-add-all');if(kmAddAll)kmAddAll.onclick=()=>addAllTemplateMarks(app,cfg);
+    const kmCustom=$('#km-custom');if(kmCustom)kmCustom.onclick=()=>openMarkCreator(()=>renderSettingsTab('knowledge',cfg));
     $$('[data-km-edit]',p).forEach(b=>b.onclick=()=>{
       const mark=marks.find(x=>x.id===b.dataset.kmEdit);
       if(mark)openMarkEditor(mark,cfg,()=>renderSettingsTab('knowledge',cfg));
@@ -1968,7 +2015,9 @@
       };
     }catch(error){if(panel.isConnected)panel.textContent='读取窗口设置失败：'+error.message}
   }
-  async function renderSettings(){const cfg=await api('/api/config');state.config=cfg;
+  async function renderSettings(){
+    const [cfg,markCatalog]=await Promise.all([api('/api/config'),api('/api/knowledge-marks').catch(()=>null)]);
+    state.config=cfg;if(markCatalog)state.markCatalog=markCatalog;
     /* v261009.4 · 设置页 tab 由两部分组成：内核自带 + **模块自登记**（ERWPanels.settingsTab）。
        这样「插件管理」这类页面不必在 app.js 里加分支——内核不认识具体功能（§6.3）。 */
     const extra=window.ERWPanels.settingsTabs();

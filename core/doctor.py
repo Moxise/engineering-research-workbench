@@ -168,7 +168,24 @@ def check_contract_selfconsistency(rep: Report) -> None:
             f"缺状态机或日期字段的类型：{bad}" if bad else "七类均有状态机与日期字段")
 
 
-def scan_docs(ws: Path, rep: Report, index: sqlite3.Connection | None) -> dict:
+def configured_marks(root: Path) -> set[str]:
+    """config/app.json 里用户自定义的分类标记 id（doctor 不 import app，直接读配置）。"""
+    cfg = root / "config" / "app.json"
+    try:
+        rows = json.loads(cfg.read_text(encoding="utf-8")).get("classification_marks") or []
+    except Exception:
+        return set()
+    out: set[str] = set()
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict):
+            mark_id = str(row.get("id") or "").strip()
+            if mark_id:
+                out.add(mark_id)
+    return out
+
+
+def scan_docs(ws: Path, rep: Report, index: sqlite3.Connection | None,
+              extra_marks: set[str] | None = None) -> dict:
     docs = list(iter_docs(ws))
     by_kind: dict[str, int] = {}
     id_mismatch: list[str] = []
@@ -189,7 +206,7 @@ def scan_docs(ws: Path, rep: Report, index: sqlite3.Connection | None) -> dict:
         if allowed and status not in allowed:
             status_bad.append(f"{doc_id}: status={status} 不在 {allowed}")
         marks = as_list(meta.get("kind_marks"))
-        valid_marks = {str(m["id"]) for m in C.MARK_IDS}
+        valid_marks = {str(m["id"]) for m in C.MARK_IDS} | set(extra_marks or ())
         for m in marks:
             if m not in valid_marks:
                 mark_bad.append(f"{doc_id}: kind_marks 含 {m}")
@@ -239,7 +256,7 @@ def scan_docs(ws: Path, rep: Report, index: sqlite3.Connection | None) -> dict:
     rep.add("文档·id 前缀与 kind 不符", "warn", len(id_mismatch),
             "契约已明确「id 不承载类型语义」，故仅提示；修法见 REFACTOR_PLAN §5.3", id_mismatch)
     rep.add("文档·status 越界", "error", len(status_bad), "状态机在 core/contracts/kinds.py 声明", status_bad)
-    rep.add("文档·kind_marks 越界", "error", len(mark_bad), "合法标记见契约 MARK_IDS", mark_bad)
+    rep.add("文档·kind_marks 越界", "error", len(mark_bad), "合法标记见契约 MARK_IDS + 设置页自定义标记", mark_bad)
     rep.add("文档·缺契约强制标记", "error", len(mark_missing), "如 experiment 固定带 ⚗", mark_missing)
     rep.add("文档·缺法定日期", "error", len(date_missing), "各类型日期字段见契约 DATE_FIELDS", date_missing)
     rep.add("文档·title 与首个 H1 不一致", "error", len(h1_bad), "改名须同步 H1（用 kb_rename_entry）", h1_bad)
@@ -402,7 +419,7 @@ def run(workspace: Path, root: Path) -> Report:
             0 if workspace.is_dir() else 1, str(workspace))
     check_contract_selfconsistency(rep)
     index = load_index(workspace)
-    scan_docs(workspace, rep, index)
+    scan_docs(workspace, rep, index, configured_marks(root))
     if index is not None:
         index.close()
     check_workspace_hygiene(workspace, rep)

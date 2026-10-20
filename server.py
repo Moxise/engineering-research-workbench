@@ -335,6 +335,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(self.plugin_payload(detail=detail))
         if path == "/api/knowledge-types":
             return self.send_json(store.knowledge_type_registry())
+        if path == "/api/knowledge-marks":  # v261020 · 分类标记：内置模板 / 默认集合 / 上限
+            return self.send_json(store.mark_catalog())
         if path == "/api/projects":
             return self.send_json(indexer.project_names())
         if path == "/api/project-records":

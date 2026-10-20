@@ -38,11 +38,16 @@ def validate_write(
     *,
     partial: bool = False,
     title: str = "",
+    allowed_marks: Iterable[str] | None = None,
 ) -> list[dict[str, str]]:
     """校验一次写入的字段（创建或更新）。
 
     ``partial=True`` 表示「更新」语义：只校验 payload 里**实际出现**的键，
     不要求法定日期齐备（未出现的字段保持不变）。
+
+    ``allowed_marks``：调用方额外放行的标记 id（设置页自定义分类标记）。
+    内置标记始终合法；自定义标记由 ``config/app.json`` 的 ``classification_marks``
+    声明，由 app 层传入（core 不读配置）。
 
     返回问题清单（空 = 通过）。`level=error` 必须拒写。
     """
@@ -62,8 +67,10 @@ def validate_write(
             "可选：" + " / ".join(f"`{s}`" for s in allowed),
         ))
 
-    # F003 · kind_marks 必须是合法标记 id
+    # F003 · kind_marks 必须是合法标记 id（内置契约标记 + 设置页自定义标记）
     valid_marks = {str(m["id"]) for m in C.MARK_IDS}
+    if allowed_marks:
+        valid_marks |= {str(m).strip() for m in allowed_marks if str(m).strip()}
     marks = [str(m).strip() for m in (data.get("kind_marks") or []) if str(m).strip()]
     bad_marks = [m for m in marks if m not in valid_marks]
     if bad_marks:

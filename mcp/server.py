@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import sys
 import traceback
@@ -30,7 +31,7 @@ from .protocol import (  # noqa: E402
     ok,
     resource,
 )
-from .tools_knowledge import HANDLERS as KB_HANDLERS, TOOLS as KB_TOOLS  # noqa: E402
+from .tools_knowledge import HANDLERS as KB_HANDLERS, MARK_ENUM, TOOLS as KB_TOOLS  # noqa: E402
 from .tools_workspace import HANDLERS as WS_HANDLERS, TOOLS as WS_TOOLS  # noqa: E402
 
 ALL_TOOLS = KB_TOOLS + WS_TOOLS
@@ -127,11 +128,40 @@ def plugin_tool_catalog() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return entries, kept
 
 
+def _mark_ids() -> list[str]:
+    """内置标记 + 设置页自定义标记（MCP 过滤参数 enum 随配置动态刷新）。"""
+    ids = list(MARK_ENUM)
+    try:
+        from app import config as app_config
+
+        rows = app_config.get_app().get("classification_marks") or []
+        for row in rows if isinstance(rows, list) else []:
+            if isinstance(row, dict):
+                mark_id = str(row.get("id") or "").strip()
+                if mark_id:
+                    ids.append(mark_id)
+    except Exception:  # app 不可用时退回内置集合
+        pass
+    return list(dict.fromkeys(ids))
+
+
 def all_tools() -> list[dict[str, Any]]:
     """当前 MCP 工具面：内核工具 + 已启用插件的工具（内部字段 `_write` 不外发）。"""
     entries, _ = plugin_tool_catalog()
     public = [{k: v for k, v in e.items() if not k.startswith("_")} for e in entries]
-    return KB_TOOLS + WS_TOOLS + public
+    tools = copy.deepcopy(KB_TOOLS) + WS_TOOLS + public
+    # v261020 · 自定义分类标记：`kb_list_entries(mark=…)` 的 enum 按当前配置刷新
+    try:
+        marks = _mark_ids()
+        for spec in tools:
+            if spec.get("name") != "kb_list_entries":
+                continue
+            props = (spec.get("inputSchema") or {}).get("properties") or {}
+            if isinstance(props.get("mark"), dict):
+                props["mark"]["enum"] = marks
+    except Exception:  # noqa: BLE001 —— 工具面不因标记配置异常而失败
+        pass
+    return tools
 
 INSTRUCTIONS = (
     "插件提供的工具（名字形如 p_<插件id>__<工具>）**只在该插件启用时出现**："

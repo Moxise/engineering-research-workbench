@@ -246,7 +246,7 @@ flowchart LR
 
 | 能力 | 落点 | 要点 |
 | --- | --- | --- |
-| **知识库契约** | `core/contracts/` | 七类 kind（灵感/研究日志/笔记/实验/里程碑/工作总结/文献）、类别词（架构/方法/模型/原理/数据集）、10 个内置标记、关系矩阵；标题命名与存放是**硬约束**，`level=error` 会被工具拒写 |
+| **知识库契约** | `core/contracts/` | 七类 kind（灵感/研究日志/笔记/实验/里程碑/工作总结/文献）、类别词（架构/方法/模型/原理/数据集）、10 个内置标记（默认启用 3 个，其余在设置页按需添加）、关系矩阵；标题命名与存放是**硬约束**，`level=error` 会被工具拒写 |
 | **条目读写** | `app/store.py` | 原子写、frontmatter 解析、关系解析（`[[wikilink]]` 与关系层）、命名同步、回收站（`System/Trash/<kind>/`） |
 | **派生索引与检索** | `app/perf_index_*` `core/index/` | SQLite（schema v4）：文档/关系/待办/FTS；中文分词检索；可整库重建；迁移框架；WAL checkpoint |
 | **项目与待办** | `app/projects.py` `app/todos.py` | 项目注册表（稳定 `project_id`）、项目文件树、待办清单、活动日志（追加型 JSONL） |

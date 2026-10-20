@@ -245,17 +245,37 @@ CATEGORY_WORD_ALIASES: dict[str, str] = {
 }
 
 MARK_IDS: list[dict[str, str]] = [
-    {"id": "knowledge", "icon": "◈", "label": "知识"},
-    {"id": "synthesis", "icon": "◎", "label": "归类"},
-    {"id": "method", "icon": "⚒", "label": "方法"},
-    {"id": "question", "icon": "？", "label": "问题"},
-    {"id": "thinking", "icon": "✦", "label": "思路"},
-    {"id": "architecture", "icon": "▤", "label": "架构"},
-    {"id": "experiment", "icon": "⚗", "label": "实验"},
-    {"id": "data", "icon": "⊞", "label": "数据"},
-    {"id": "model", "icon": "⬡", "label": "模型"},
-    {"id": "principle", "icon": "∑", "label": "原理"},
+    {"id": "knowledge", "icon": "◈", "label": "知识", "color": "#2a9d8f"},
+    {"id": "synthesis", "icon": "◎", "label": "归类", "color": "#6b7fd7"},
+    {"id": "method", "icon": "⚒", "label": "方法", "color": "#e76f51"},
+    {"id": "question", "icon": "？", "label": "问题", "color": "#d1495b"},
+    {"id": "thinking", "icon": "✦", "label": "思路", "color": "#f4a261"},
+    {"id": "architecture", "icon": "▤", "label": "架构", "color": "#4a6fa5"},
+    {"id": "experiment", "icon": "⚗", "label": "实验", "color": "#d1569a"},
+    {"id": "data", "icon": "⊞", "label": "数据", "color": "#2d7dd2"},
+    {"id": "model", "icon": "⬡", "label": "模型", "color": "#8e6fbf"},
+    {"id": "principle", "icon": "∑", "label": "原理", "color": "#7a8b3a"},
 ]
+
+#: 每个内置标记的一句话用途（设置页「内置模板」卡片显示，帮助判断该不该加）。
+MARK_TEMPLATE_HINTS: dict[str, str] = {
+    "knowledge": "术语、概念与机制",
+    "synthesis": "跨族归并与索引",
+    "method": "算法、流程与操作口径",
+    "question": "待解疑问与风险",
+    "thinking": "猜想、方案与思路",
+    "architecture": "结构设计与模块边界",
+    "experiment": "实验记录与结论",
+    "data": "数据集与选型",
+    "model": "模型、训练与推理设置",
+    "principle": "原理、度量与数学基础",
+}
+
+#: 默认启用的三个标记；其余内置模板在「设置 → 知识条目 → 分类标记」按需添加。
+MARK_DEFAULT_IDS: list[str] = ["knowledge", "method", "experiment"]
+
+#: 分类标记总数上限（配置清洗、前端与校验共用同一口径）。
+MARK_LIMIT = 24
 
 # 实验编号体系（`<阶段序号>.<序号>`）仅适用于有编号规范的课题（红外暗弱探测）；
 # 以下项目无编号规范，豁免 T017「实验类条目未写明实验编号」告警。

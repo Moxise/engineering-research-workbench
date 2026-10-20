@@ -28,6 +28,41 @@ def _knowledge_cfg() -> dict[str, Any]:
     raw = config.get_app().get("knowledge_types") or {}
     return raw if isinstance(raw, dict) else {}
 
+
+def allowed_marks() -> set[str]:
+    """当前合法的分类标记 id：契约内置的 10 个 + 设置页自定义的（config/app.json）。
+
+    自定义标记由用户在「设置 → 知识条目 → 分类标记」添加，id 形如 `mark_xxx`；
+    core 不读配置，所以这里把配置里的 id 作为额外放行集合交给写入校验。
+    """
+    ids = {str(m["id"]) for m in contracts.MARK_IDS}
+    rows = config.get_app().get("classification_marks")
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, dict):
+                mark_id = str(row.get("id") or "").strip()
+                if mark_id:
+                    ids.add(mark_id)
+    return ids
+
+
+def mark_catalog() -> dict[str, Any]:
+    """设置页「内置模板」数据：内置标记的 id/图案/颜色/用途 + 上限与默认集合。"""
+    return {
+        "limit": contracts.MARK_LIMIT,
+        "defaults": list(contracts.MARK_DEFAULT_IDS),
+        "templates": [
+            {
+                "id": str(m["id"]),
+                "icon": str(m["icon"]),
+                "label": str(m["label"]),
+                "color": str(m.get("color") or "#4a6fa5"),
+                "hint": contracts.MARK_TEMPLATE_HINTS.get(str(m["id"]), ""),
+            }
+            for m in contracts.MARK_IDS
+        ],
+    }
+
 def custom_kind_records() -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[str] = set(contracts.kind_dir_map())
@@ -609,7 +644,9 @@ def _enforce_write(kind: str, payload: dict[str, Any], *, partial: bool = False,
     现在两条写入路径（HTTP 的 store 与 MCP 工具层）都过这里。
     `level=error` 直接拒写；warn 级只提示，不阻断。
     """
-    issues = contract_validate.validate_write(kind, payload, partial=partial, title=title)
+    issues = contract_validate.validate_write(
+        kind, payload, partial=partial, title=title, allowed_marks=allowed_marks(),
+    )
     if contract_validate.errors(issues):
         raise ValueError("字段校验未通过：" + contract_validate.summarize(issues))
 

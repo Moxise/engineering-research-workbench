@@ -180,6 +180,10 @@ def main() -> int:
     check("合法 status 放行", not _codes("idea", {"status": "探索中"}))
     check("越界 kind_marks 被拒", "F003" in _codes("note", {"kind_marks": ["知识-方法"]}))
     check("合法 kind_marks 放行", not _codes("note", {"kind_marks": ["method"]}))
+    # 设置页自定义标记（id 形如 mark_*）：默认拒写，app 层传入 allowed_marks 后放行
+    check("自定义标记未放行时被拒", "F003" in _codes("note", {"kind_marks": ["mark_zzz"]}))
+    check("自定义标记放行后合法",
+          not _codes("note", {"kind_marks": ["mark_zzz"]}, allowed_marks={"mark_zzz"}))
     # 契约强制标记：建档自动补齐；更新时显式漏掉则拒写
     check("experiment 建档自动补齐 ⚗", not _codes("experiment", {"kind_marks": []}))
     check("experiment 更新漏掉 ⚗ 被拒",

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import threading
@@ -220,6 +221,23 @@ _KIND_ENUM = list(contracts.KIND_ORDER)
 _CATEGORY_ENUM = [str(c["word"]) for c in contracts.CATEGORY_WORDS]
 _MARK_ENUM = [str(m["id"]) for m in contracts.MARK_IDS]
 
+
+def _all_mark_ids() -> list[str]:
+    """内置标记 + 设置页自定义标记（工具 schema 的 enum 随配置动态刷新）。"""
+    ids = list(_MARK_ENUM)
+    try:
+        from . import config as _config
+
+        rows = _config.get_app().get("classification_marks") or []
+        for row in rows if isinstance(rows, list) else []:
+            if isinstance(row, dict):
+                mark_id = str(row.get("id") or "").strip()
+                if mark_id:
+                    ids.append(mark_id)
+    except Exception:  # 配置不可用时退回内置集合
+        pass
+    return list(dict.fromkeys(ids))
+
 _TOOL_META: dict[str, dict[str, Any]] = {
     "kb_search": {
         "description": "在本地知识库中按关键词检索条目（标题/正文/标签/项目全字段）。建档前必须先用它查重。",
@@ -295,9 +313,17 @@ def plugin_tool_meta() -> dict[str, dict[str, Any]]:
 
 
 def all_tool_meta() -> dict[str, dict[str, Any]]:
-    """内核工具 + 插件工具的统一视图（顺序：内核在前，插件按加载顺序）。"""
-    merged = dict(_TOOL_META)
+    """内核工具 + 插件工具的统一视图（顺序：内核在前，插件按加载顺序）。
+
+    v261020 · `kb_create_entry.kind_marks` 的 enum 在这里按当前配置动态刷新，
+    这样设置页新增的自定义标记也能被 Agent 选用（静态 `_MARK_ENUM` 只是兜底）。
+    """
+    merged = copy.deepcopy(_TOOL_META)
     merged.update(plugin_tool_meta())
+    try:
+        merged["kb_create_entry"]["params"]["properties"]["kind_marks"]["enum"] = _all_mark_ids()
+    except Exception:  # 工具结构被插件改坏时不影响其它工具
+        pass
     return merged
 
 

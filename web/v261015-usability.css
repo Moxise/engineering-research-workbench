@@ -366,8 +366,25 @@ html[data-animations="off"] #sidebar-nav .group-disclosure{transition:none}
 @media(prefers-reduced-motion:reduce){#main .milestone-ring::after{animation:none!important}}
 html[data-animations="off"] #main .milestone-ring::after{animation:none!important}
 
-/* v261020 · 分类标记：设置页“图标”可自由输入，候选图标收纳成小下拉 */
-.mark-icon-quick{display:flex;gap:8px;align-items:center;min-width:0}
-.mark-icon-quick #km-icon{flex:1 1 auto;min-width:0;max-width:140px}
-.mark-icon-quick .compact-icon-select{flex:0 0 auto;width:104px}
-.mark-icon-quick .compact-icon-select>summary{width:104px}
+/* v261020 · 分类标记模板库与分组图案面板（设置 → 知识条目） */
+.mark-template-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.mark-template{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:10px 12px;cursor:pointer;font:inherit;transition:border-color .15s,background .15s}
+.mark-template:hover:not(:disabled){border-color:var(--mark-color);background:color-mix(in srgb,var(--mark-color) 6%,var(--surface))}
+.mark-template:disabled{opacity:.5;cursor:not-allowed}
+.mark-template .mt-icon{flex:0 0 auto;width:30px;height:30px;display:grid;place-items:center;border-radius:8px;background:color-mix(in srgb,var(--mark-color) 12%,var(--surface));color:var(--mark-color);font-size:15px}
+.mark-template .mt-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
+.mark-template .mt-text b{font-size:12px;font-weight:600}
+.mark-template .mt-text small{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mark-template .mt-add{flex:0 0 auto;color:var(--mark-color);font-weight:700;font-size:14px}
+.mark-custom-row{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.mark-icon-groups{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:9px;padding:8px;max-height:236px;overflow:auto;background:var(--surface-2)}
+.mark-icon-groups .mig{display:flex;align-items:flex-start;gap:10px}
+.mark-icon-groups .mig-name{flex:0 0 34px;font-size:10px;color:var(--muted);padding-top:6px}
+.mark-icon-groups .mig-grid{display:flex;flex-wrap:wrap;gap:4px}
+.mark-icon-groups .mig-grid button{width:30px;height:28px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text);font-size:14px;line-height:1;cursor:pointer}
+.mark-icon-groups .mig-grid button:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.mark-icon-groups .mig-grid button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:700}
+.mark-icon-custom{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+.mark-icon-custom input{max-width:180px}
+.mark-color-row{display:flex;align-items:center;gap:10px}
+.mark-color-row input[type=color]{width:48px;height:34px;padding:2px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface-2);cursor:pointer}

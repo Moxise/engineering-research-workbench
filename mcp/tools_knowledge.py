@@ -129,7 +129,10 @@ def _constraint_text(topic: str) -> str:
         lines += [f"| `{c['word']}` | `{c['mark']}` |" for c in C.CATEGORY_WORDS]
         lines += ["", "`kind_marks` 可多选叠加；跨族底账类条目可用 `knowledge` / `synthesis`。",
                   "`kind: experiment` 的条目**固定**含 `experiment` 标记（由写入工具自动补齐），"
-                  "不再使用 `实验` 类别词。"]
+                  "不再使用 `实验` 类别词。",
+                  "",
+                  "自定义标记：设置页「知识条目 → 分类标记」可从内置模板添加，或自定义名称/图案/颜色"
+                  "（id 形如 `mark_xxx`，上限 24 个）；写入时与内置标记同等合法。"]
         return "\n".join(lines)
     if topic == "relations":
         lines = ["## 关系层（v261008.2）", "", C.RELATION_RULE, "",
