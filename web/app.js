@@ -199,6 +199,7 @@
     if(state.bulkBusy){toast('正在删除所选条目，请稍候');return false}
     if(route==='research-overview')route='overview'; // Keep old bookmarks working after removing the duplicate page.
     if (!await guardEditor('离开当前页面')){if(location.hash.slice(1)!==state.route)location.replace('#'+state.route);return false}
+    window.ERWDocReferences?.close();
     window.ERWKnowledgeGraph?.destroy();
     if(route!=='milestones')window.ERWMilestoneTimeline?.destroy?.(); /* v260930g9c · 返回 false 供 ERWNav 等调用方感知取消 */
     state.dirty=false;state.editorBaseline=null;state.draft=null;state.selectedDoc=null;window.ERWCurrentDoc='';++state.docSelectSeq;
@@ -1161,6 +1162,7 @@
   async function selectDoc(id){
     if(state.selectedDoc?.id===id)return true;
     if(!await guardEditor('切换文档'))return false;
+    window.ERWDocReferences?.close();
     const seq=++state.docSelectSeq;
     const doc=await api('/api/docs/'+encodeURIComponent(id));
     if(seq!==state.docSelectSeq)return; /* later selection wins; prevents milestone jump race */
@@ -1315,7 +1317,7 @@
     <button type="button" data-md="h1" title="一级标题">H1</button><button type="button" data-md="h2" title="二级标题">H2</button><button type="button" data-md="h3" title="三级标题">H3</button><span class="sep"></span>
     <button type="button" data-md="bold"><b>B</b></button><button type="button" data-md="italic"><i>I</i></button><button type="button" data-md="strike"><s>S</s></button><button type="button" data-md="inlinecode">&#96;</button><span class="sep"></span>
     <button type="button" data-md="ul" title="无序列表">•</button><button type="button" data-md="ol" title="有序列表">1.</button><button type="button" data-md="task">☑</button><button type="button" data-md="quote">❯</button><button type="button" data-md="hr">—</button><span class="sep"></span>
-    <button type="button" data-md="link">↗</button><button type="button" data-md="image">▧</button><button type="button" data-md="wiki">[[ ]]</button><span class="sep"></span>
+    <button type="button" data-md="link">↗</button><button type="button" data-md="image">▧</button><button type="button" data-md="wiki" title="插入引用 · Ctrl+Shift+K，或输入 [[">[[ 引用 ]]</button><span class="sep"></span>
     <button type="button" data-md="math" title="行内公式">∑</button><button type="button" data-md="mathblock" title="块公式">∑□</button><button type="button" data-md="code">&lt;/&gt;</button><button type="button" data-md="table">▦</button><button type="button" data-md="mermaid" title="Mermaid 绘图（flowchart / sequence / class / state / gantt 等）">◇</button>
     <div class="editor-tabs"><button class="${state.editorMode==='split'?'active':''}" data-edit-mode="split">分屏</button><button class="${state.editorMode==='edit'?'active':''}" data-edit-mode="edit">编辑</button><button class="${state.editorMode==='preview'?'active':''}" data-edit-mode="preview">预览</button></div>
     </div><div class="editor-pane ${state.editorMode==='edit'?'edit-only':state.editorMode==='preview'?'preview-only':''}" id="editor-pane"><textarea class="md-input" id="md-input" spellcheck="false" placeholder="Markdown · GFM 表格/任务列表 · LaTeX · Mermaid · 代码高亮 · [[双链]] · 截图粘贴…">${esc(body)}</textarea><div class="md-preview" id="md-preview"></div></div>`}
@@ -1343,6 +1345,7 @@
     ta.addEventListener('paste',onPasteImage); ta.addEventListener('dragover',e=>e.preventDefault()); ta.addEventListener('drop',onDropImage);
     $$('[data-edit-mode]').forEach(b=>b.onclick=()=>{state.editorMode=b.dataset.editMode;localStorage.setItem('editorMode',state.editorMode);$('#doc-editor').dataset.reading=String(state.editorMode==='preview');const p=$('#editor-pane');p.className='editor-pane '+(state.editorMode==='edit'?'edit-only':state.editorMode==='preview'?'preview-only':'');$$('[data-edit-mode]').forEach(x=>x.classList.toggle('active',x.dataset.editMode===state.editorMode)); if(state.editorMode!=='edit')renderMarkdownPreview();});
     $$('[data-md]').forEach(b=>b.onclick=()=>applyMdCommand(b.dataset.md));
+    window.ERWDocReferences?.bindEditor(ta);
   }
   const debouncedPreview=debounce(renderMarkdownPreview,250);
   /* ---------- v260924b · 分屏滚动同步核心 ---------- */
@@ -1496,7 +1499,6 @@
         html=parts.map((h,i)=>`<div class="md-block" data-line="${anchors[i].line}">${h}</div>`).join('');
       }catch(e){console.warn('marked chunked parse failed, fallback whole',e);state._mdAnchors=null;html=marked.parse(raw,opts);}
     } else {html=basicMarkdown(raw);state._mdAnchors=null;}
-    html=html.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(_,target,label)=>`<a href="#" class="wiki-link" data-wiki="${esc(target)}">${esc(label||target)}</a>`);
     /* v260924 · 关联条目跳转：符合知识库命名前缀的反引号标题（如 `知识-方法-…`、`文献-…`）自动转为
        可点击链接（点击复用双链逻辑，按目标 kind 路由到笔记/文献/总结等管理页并选中），
        仅包裹已有文本、不新增界面元素，避免加剧界面拥挤 */
@@ -1507,18 +1509,20 @@
     });
     html=normalizePreviewPaths(html);
     if(seq!==out._markdownSeq||!document.body.contains(out))return;
-    out.innerHTML=window.DOMPurify?DOMPurify.sanitize(html,{ADD_ATTR:['target','rel','data-wiki','checked','disabled'],ADD_TAGS:['mjx-container']}):html;
+    // Sanitize before the shared DOM parser; literal examples in code remain untouched.
+    out.innerHTML=window.ERWAgentClient.linkify(window.DOMPurify?DOMPurify.sanitize(html,{ADD_ATTR:['target','rel','data-wiki','checked','disabled'],ADD_TAGS:['mjx-container']}):html);
     $$('pre code',out).forEach(el=>{try{window.hljs?.highlightElement(el)}catch{}});
     await renderMermaidBlocks(out,seq);
     if(seq!==out._markdownSeq||!document.body.contains(out))return;
     try{await window.ERWRenderLibraries.renderMath([out])}catch(e){console.warn(e)}
     if(seq!==out._markdownSeq||!document.body.contains(out))return;
-    $$('.wiki-link',out).forEach(a=>a.onclick=async e=>{e.preventDefault();const q=a.dataset.wiki;const results=await api('/api/docs?q='+encodeURIComponent(q));const self=state.selectedDoc&&state.selectedDoc.id;const exact=results.find(x=>x.id===q||x.title===q)||results.find(x=>x.id!==self)||null;if(exact){await openDocRoute(routeForKind(exact.kind),exact.id)}else toast(`未找到关联条目：${q}`,true)});
+    window.ERWDocReferences?.bindPreview(out);
   }
   window.ERWMarkdown = {renderInto: renderMarkdownInto};
 
   function applyMdCommand(cmd){
     const ta=$('#md-input'); const a=ta.selectionStart,b=ta.selectionEnd,sel=ta.value.slice(a,b);
+    if(cmd==='wiki'&&window.ERWDocReferences){window.ERWDocReferences.openPicker(ta);return}
     const map={h1:`# ${sel||'标题'}`,h2:`## ${sel||'标题'}`,h3:`### ${sel||'标题'}`,bold:`**${sel||'粗体'}**`,italic:`*${sel||'斜体'}*`,strike:`~~${sel||'删除线'}~~`,inlinecode:'`'+(sel||'code')+'`',ul:`- ${sel||'列表项'}`,ol:`1. ${sel||'列表项'}`,task:`- [ ] ${sel||'待办'}`,quote:`> ${sel||'引用'}`,hr:'\n---\n',link:`[${sel||'链接文字'}](https://)`,math:`$${sel||'E=mc^2'}$`,mathblock:'$$\n'+(sel||'\\int_0^1 x^2 \\, dx')+'\n$$',code:'```python\n'+(sel||'# code')+'\n```',table:'| 列1 | 列2 |\n| --- | --- |\n| 内容 | 内容 |',mermaid:'```mermaid\nflowchart LR\n  A[开始] --> B[结果]\n```',wiki:`[[${sel||'关联笔记标题'}]]`};
     if(cmd==='image'){pickImage();return;} insertAtSelection(ta,map[cmd]||'');
   }
@@ -1537,6 +1541,7 @@
       const button=$('#doc-save');if(button)button.disabled=true;
       try{
         const saved=await api(doc.draft?'/api/docs':'/api/docs/'+encodeURIComponent(doc.id),{method:'POST',body:doc.draft?{...body,kind:doc.kind}:body});
+        window.ERWDocReferences?.invalidate();
         state.draft=null;state.selectedDoc=saved;window.ERWCurrentDoc=saved.id;
         // Do not drop edits typed while the request was in flight.
         if(JSON.stringify(editorPayload(doc))===snapshot){renderDocEditor(saved)}
@@ -1552,7 +1557,7 @@
   async function deleteCurrentDoc(doc){
     if(doc.draft){if(editorDirty()&&!await window.ERWDialog.confirm('丢弃这篇草稿及其修改？',{title:'丢弃草稿'}))return;state.draft=null;state.selectedDoc=null;state.editorBaseline=null;state.dirty=false;await renderDocsPage(doc.kind);return}
     if(!await window.ERWDialog.confirm(`删除“${doc.title}”？文件会移入 Workspace/System/Trash。`))return;
-    await api('/api/docs/'+doc.id,{method:'DELETE'});toast('已移入回收目录');state.docSelection.delete(doc.id);state.selectedDoc=null;state.editorBaseline=null;state.dirty=false;await renderDocsPage(doc.kind);
+    await api('/api/docs/'+doc.id,{method:'DELETE'});window.ERWDocReferences?.invalidate();toast('已移入回收目录');state.docSelection.delete(doc.id);state.selectedDoc=null;state.editorBaseline=null;state.dirty=false;await renderDocsPage(doc.kind);
   }
   function routeForKind(k){ return BUILTIN_ROUTE_KIND[k] || ('kind-'+encodeURIComponent(k))}
   async function exportBibtex(){

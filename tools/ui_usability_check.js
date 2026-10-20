@@ -26,6 +26,7 @@ fs.mkdirSync(output, {recursive:true});
   const readingOnly=process.argv.includes('--reading-only');
   const overviewOnly=process.argv.includes('--overview-only');
   const pdfQualityOnly=process.argv.includes('--pdf-quality-only');
+  const referencesOnly=process.argv.includes('--references-only');
   let browser;
   try{
     browser=await chromium.launch({headless:true,channel:process.env.UI_BROWSER||'msedge'});
@@ -174,6 +175,102 @@ fs.mkdirSync(output, {recursive:true});
     const settleOverview=()=>page.waitForFunction(()=>{const e=document.querySelector('.overview-dashboard'),r=e.getBoundingClientRect(),key=[r.width,r.height,document.querySelector('.heatmap-card')?.style.cssText].join('|');if(e._testLayoutKey!==key){e._testLayoutKey=key;e._testLayoutSince=performance.now()}return performance.now()-e._testLayoutSince>=160});
     const smallText=()=>page.evaluate(()=>Array.from(document.querySelectorAll('body *')).filter(e=>e.children.length===0&&e.textContent.trim()&&e.getClientRects().length&&parseFloat(getComputedStyle(e).fontSize)<11).map(e=>({class:e.className,size:getComputedStyle(e).fontSize,text:e.textContent.slice(0,30)})));
     await page.goto(base);await ready();
+    if(referencesOnly){
+      const source=doc('note','ref-source','知识-原理-GraphRAG 与电网物理图的区别');
+      const referenced={...doc('literature','ref-paper','文献-物理信息引导思维树搜索的大模型负荷转供方法'),attachment:'Knowledge/Literature/PDF/ui-paper.pdf',body:'# 方法与原文\n\n这份文献提供真实的局部物理状态，先核对证据再选择动作。\n\n| 方法 | 依据 |\n| --- | --- |\n| 物理模型 | 状态计算 |\n\n参见 [[ref-child|结构化任务描述]] 或 [本地笔记文件](../Notes/ref-child.md)。\n\n`[[代码示例]]`'};
+      const child={...doc('note','ref-child','知识-方法-物理信息与结构化任务描述'),body:'# 结构化任务描述\n\n这里是第二份引用文档。'};
+      const slow={...doc('note','ref-slow','延迟返回的笔记'),body:'# 延迟结果\n\n旧响应不能覆盖新预览。'};
+      source.body='# 本地文档引用\n\n请比较 [[ref-paper|物理信息引导思维树搜索]]，以及 [[ref-child|结构化任务描述]]。\n\n失效引用：[[已删除的资料]]；重名引用：[[同名条目]]；连接问题：[[连接异常]]。\n\n慢速引用：[[ref-slow|延迟笔记]]。再次引用 [[ref-paper|原文]]。\n\n`[[代码示例不应该高亮]]`\n\n[Markdown 文件](../Notes/ref-child.md) · [网络链接](https://example.invalid/paper.md)';
+      docRecords.push(source,referenced,child,slow);
+      const resolutions=new Map(),searches=[];let holdSlow=null,failConnection=true;
+      await page.route('**/api/docs**',async route=>{
+        const u=new URL(route.request().url());
+        if(u.pathname==='/api/docs/resolve'){
+          const target=(u.searchParams.get('target')||'').split('#')[0];resolutions.set(target,(resolutions.get(target)||0)+1);
+          if(target===slow.id&&holdSlow)await holdSlow;
+          if(target==='同名条目')return route.fulfill({status:400,json:{message:'存在同名条目，请使用条目 ID 引用'}});
+          if(target==='连接异常'&&failConnection)return route.fulfill({status:503,json:{message:'服务暂时不可用'}});
+          const found=docRecords.find(d=>d.id===target||d.title===target);
+          return route.fulfill(found?{json:found}:{status:404,json:{message:'未找到对应条目：'+target}});
+        }
+        if(u.pathname==='/api/docs'&&u.searchParams.get('scope')==='reference'){
+          const query=(u.searchParams.get('q')||'').toLowerCase();searches.push(query);
+          if(query==='搜索失败')return route.fulfill({status:500,json:{message:'模拟搜索失败'}});
+          if(query==='慢查询')await new Promise(resolve=>setTimeout(resolve,350));
+          const items=docRecords.filter(d=>[d.title,d.body,...(d.tags||[])].join(' ').toLowerCase().includes(query));
+          return route.fulfill({json:{items,total:items.length,page:1,pages:1,page_size:30}});
+        }
+        return route.fallback();
+      });
+      await page.setViewportSize({width:2550,height:1233});await page.evaluate(()=>window.ERWNav.open('note','ref-source'));await page.waitForSelector('#md-input',{state:'attached'});
+      const sourceLink=target=>page.locator(`#md-preview a[data-agent-reference="${target}"]`).first();
+      await page.waitForSelector('#md-preview [data-reference-state="valid"]');await page.waitForSelector('#md-preview [data-reference-state="missing"]');await page.waitForSelector('#md-preview [data-reference-state="unavailable"]');
+      assert.equal(await page.locator('#md-preview code [data-agent-reference],#md-preview pre [data-agent-reference]').count(),0);
+      assert.equal(await page.locator('#md-preview a[href="https://example.invalid/paper.md"]').getAttribute('data-reference-state'),null,'external links remain untouched');
+      assert.equal(await page.locator('#md-preview a[href="../Notes/ref-child.md"]').getAttribute('data-agent-reference'),child.id,'local Markdown paths resolve by stable document identity');
+      assert.equal(resolutions.get(referenced.id),1,'duplicate citations share one exact lookup');
+      const editor=page.locator('#md-input');await page.locator('[data-edit-mode="split"]').click();
+      const draft=source.body+'\n\n未保存的研究补充';await editor.fill(draft);await page.waitForSelector('#md-preview a[data-agent-reference="ref-paper"]');
+      await editor.fill(draft+'\n\n<img src="reference-invalid.png" onerror="window.__unsafeReferenceHtml=true">');await page.waitForSelector('#md-preview img');await page.waitForTimeout(100);
+      assert.equal(await page.evaluate(()=>window.__unsafeReferenceHtml),undefined,'reference conversion never executes raw document HTML');assert.equal(await page.locator('#md-preview img').getAttribute('onerror'),null);await editor.fill(draft);
+      await sourceLink(referenced.id).click();await page.waitForFunction(()=>document.querySelector('#reference-preview-title')?.textContent.includes('物理信息引导'));
+      assert.equal(await page.locator('.docs-layout').getAttribute('data-reference-docked'),'true');assert.equal(await editor.inputValue(),draft);assert.equal(await page.locator('#f-title').inputValue(),source.title);
+      assert.equal(await page.locator('#workbench-dialog').count(),0,'preview never invokes the unsaved-document guard');
+      assert.equal(await page.locator('[data-reference-pdf]').isVisible(),true);
+      await page.locator('body').dispatchEvent('keydown',{key:'Escape',isComposing:true,keyCode:229});assert.equal(await page.locator('.document-reference-preview').count(),1,'IME cancellation does not close the reference pane');
+      await page.waitForSelector('.reference-preview-body a[href="../Notes/ref-child.md"][data-agent-reference="ref-child"]');
+      await page.locator('.reference-preview-body a[href="../Notes/ref-child.md"]').click();await page.waitForFunction(()=>document.querySelector('#reference-preview-title').textContent.includes('结构化任务描述'));
+      await page.locator('[data-reference-back]').click();await page.waitForFunction(()=>document.querySelector('#reference-preview-title').textContent.includes('文献-'));
+      await sourceLink('已删除的资料').click();await page.waitForSelector('.reference-preview-body [data-reference-retry]');assert((await page.locator('.reference-preview-body').innerText()).includes('未找到'));
+      const restored=doc('note','ref-restored','已删除的资料');restored.body='# 恢复的资料\n\n原引用现在可以重新使用。';docRecords.push(restored);
+      await page.locator('[data-reference-retry]').click();await page.waitForFunction(()=>document.querySelector('#reference-preview-title').textContent==='已删除的资料');await page.waitForSelector('#md-preview [data-agent-reference="已删除的资料"][data-reference-state="valid"]');
+      let releaseSlow;holdSlow=new Promise(resolve=>releaseSlow=resolve);await page.evaluate(()=>window.ERWDocReferences.invalidate());
+      await sourceLink(slow.id).click();await sourceLink(child.id).click();await page.waitForFunction(()=>document.querySelector('#reference-preview-title').textContent.includes('结构化任务描述'));releaseSlow();holdSlow=null;await page.waitForTimeout(100);
+      assert((await page.locator('#reference-preview-title').innerText()).includes('结构化任务描述'),'late preview responses cannot replace the latest target');
+      for(const theme of ['dark','light']){
+        if(await page.locator('html').getAttribute('data-theme')!==theme)await page.locator('#theme-btn').click();
+        await sourceLink(referenced.id).click();await page.waitForFunction(()=>document.querySelector('#reference-preview-title')?.textContent.includes('文献-'));
+        await page.waitForSelector('#md-preview [data-agent-reference="同名条目"][data-reference-state="missing"]');
+        const broken=await sourceLink('同名条目').evaluate(e=>({color:getComputedStyle(e).color,style:getComputedStyle(e).textDecorationStyle,title:e.title}));assert.equal(broken.style,'wavy');assert(broken.title.includes('同名'));
+        await shot('document-reference-fullscreen-'+theme,{fullPage:false});
+        for(const zoom of [100,125]){
+          await page.setViewportSize({width:2550,height:1233});
+          await page.locator('#zoom-btn').click();await page.locator(`[data-zoom="${zoom}"]`).click();
+          for(const width of [2550,1920,1280,760]){
+            await page.setViewportSize({width,height:1000});await page.waitForTimeout(50);const b=await page.locator('.document-reference-preview').boundingBox();assert(b.x>=0&&b.x+b.width<=width+1&&b.y>=0&&b.y+b.height<=1001,'reference pane stays inside the viewport at '+width+' '+zoom+'%');
+            assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'reference pane does not widen the document');
+          }
+        }
+        await page.setViewportSize({width:2550,height:1233});
+        await page.locator('#zoom-btn').click();await page.locator('[data-zoom="100"]').click();
+      }
+      await respond(()=>sourceLink(child.id).click({modifiers:['Control']}),'cancel');assert.equal(await page.locator('#f-title').inputValue(),source.title);assert.equal(await editor.inputValue(),draft);
+      await page.locator('[data-reference-close]').click();assert.equal(await page.locator('.document-reference-preview').count(),0);
+      const beforePerf=await page.evaluate(()=>JSON.stringify({docs:window.__workbenchPerf.docs,key:window.__workbenchPerf.docKey,page:window.__workbenchPerf.docPage}));
+      await editor.fill('前文 [[物理');await page.waitForSelector('[data-reference-option]');
+      await editor.press('ArrowDown');await editor.press('ArrowUp');await editor.press('Enter');
+      const inserted=await editor.inputValue();assert.equal(inserted,'前文 [[ref-paper|'+referenced.title+']]');
+      assert.equal(await page.evaluate(()=>JSON.stringify({docs:window.__workbenchPerf.docs,key:window.__workbenchPerf.docKey,page:window.__workbenchPerf.docPage})),beforePerf,'reference search never changes list pagination');
+      await editor.press('Control+z');assert.equal(await editor.inputValue(),'前文 [[物理','inserting a reference has a native undo step');await editor.press('Escape');
+      await editor.fill('保留前后文字');await editor.evaluate(e=>{e.setSelectionRange(2,2)});await page.locator('[data-md="wiki"]').click();await page.locator('#document-reference-search').fill('结构化');await page.waitForSelector('[data-reference-option]');await page.locator('#document-reference-search').press('Enter');
+      assert.equal(await editor.inputValue(),'保留[[ref-child|'+child.title+']]前后文字');
+      await editor.press('Control+Shift+k');await page.waitForSelector('#document-reference-search');assert.equal(await page.locator('#global-search-input').count(),0);await page.locator('#document-reference-search').press('Escape');
+      await editor.fill('```text\n[[物理');await page.waitForTimeout(200);assert.equal(await page.locator('.document-reference-completion').count(),0,'code examples do not trigger completion');
+      await editor.dispatchEvent('compositionstart');await editor.fill('[[物理');assert.equal(await page.locator('.document-reference-completion').count(),0);await editor.dispatchEvent('compositionend');await page.waitForSelector('[data-reference-option]');await editor.press('Escape');
+      await editor.fill('[[不存在的候选项');await page.waitForSelector('.reference-completion-results .reference-status');await page.waitForFunction(()=>document.querySelector('.reference-completion-results')?.textContent.includes('没有找到'));await editor.press('Escape');
+      await editor.fill('[[搜索失败');await page.waitForFunction(()=>document.querySelector('.reference-completion-results')?.textContent.includes('模拟搜索失败'));await editor.press('Escape');
+      await editor.fill('[[慢查询');await page.waitForTimeout(180);await editor.fill('[[结构化');await page.waitForSelector('[data-reference-option]');await page.waitForTimeout(400);assert((await page.locator('.reference-completion-results').innerText()).includes(child.title));await editor.press('Escape');
+      for(const zoom of [125,100]){
+        await page.locator('#zoom-btn').click();await page.locator(`[data-zoom="${zoom}"]`).click();await editor.fill('[[物理');await page.waitForSelector('[data-reference-option]');
+        const b=await page.locator('.document-reference-completion').boundingBox();assert(b.x>=0&&b.x+b.width<=2551&&b.y>=0&&b.y+b.height<=1234,'completion popup respects app zoom');await editor.press('Escape');
+      }
+      await editor.fill('[[物理');await page.waitForSelector('[data-reference-option]');await page.waitForFunction(()=>document.querySelector('#md-preview').textContent.includes('物理'));await shot('document-reference-completion',{fullPage:false});await editor.press('Enter');
+      const finalBody=await editor.inputValue();await page.locator('#doc-save').click();await page.waitForFunction(()=>document.querySelector('#doc-save')?.disabled===false);assert.equal(source.body,finalBody);assert.equal(docWrites,1);
+      await page.evaluate(()=>{const pdfPage={getViewport:({scale})=>({width:600*scale,height:840*scale,scale,transform:[scale,0,0,-scale,0,840*scale]}),render:()=>({promise:Promise.resolve()}),getTextContent:async()=>({items:[]}),cleanup:()=>{}};window.pdfjsLib={getDocument:()=>({promise:Promise.resolve({numPages:1,getPage:async()=>pdfPage})})}});
+      await page.waitForSelector('#md-preview [data-agent-reference="ref-paper"]');await sourceLink(referenced.id).click({modifiers:['Control']});await page.waitForSelector('.lit-page canvas');
+      assert.equal(await page.locator('.document-reference-preview').count(),0);assert.equal(await page.locator('#workbench-dialog').count(),0,'clean Ctrl-click opens the referenced PDF directly');
+      assert.deepEqual(errors,[]);console.log('PASS: local reference previews/history, exact/broken/ambiguous/offline status, retry/late responses, unsaved draft protection; picker, [[ completion, keyboard/IME/undo, stable identities, independent paging, saved references and responsive themes. No model requests.');return;
+    }
     if(pdfQualityOnly){
       const longProject='Two-stage fine-tuning of large language models for distribution network service restoration via CoT reasoning';
       const longTag='结构化输出与供电恢复的物理约束 <RAG> "测试"';
