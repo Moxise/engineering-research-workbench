@@ -17,6 +17,7 @@ from typing import Any
 from core.contracts.naming import (  # noqa: F401  —— 门面再导出
     CJK,
     LATIN,
+    allowed_prefixes,
     derive_marks,
     display_width,
     expected_prefix,

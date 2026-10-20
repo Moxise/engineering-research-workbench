@@ -216,7 +216,11 @@ def project_names() -> list[str]:
 
 
 def todos(include_done: bool = True) -> list[dict]:
-    """待办清单（`System/todos.json`），字段与 `/api/todos` 一致：`id/title/done/project/due/priority`。
+    """待办清单（`System/todos.json`），字段与 `/api/todos` 一致：
+
+    `id/title/done/project/due/priority/completed_at/overdue`。
+    `due` 为 `YYYY-MM-DD`（当天 23:59 截止）或 `YYYY-MM-DD HH:MM`（精确到分）；
+    `overdue` 是读取时派生的布尔值；`completed_at` 记录实际完成时间。
 
     默认含已完成项；只关心待办的传 `include_done=False`。
     """

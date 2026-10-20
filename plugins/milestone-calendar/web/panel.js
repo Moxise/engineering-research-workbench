@@ -1,7 +1,7 @@
-/* 日历与提醒 · 插件面板 v1.0.0
+/* 日历 · 插件面板 v1.0.1
  *
  * 一个脚本登记两个自登记点（内核只加载一次 nav[0] 的 mount）：
- *   ① 侧栏导航页「日历提醒」——月历 + 逾期/今日/近期清单；
+ *   ① 侧栏导航页「日历」（核心工作组，待办之后）——月历 + 逾期/今日/近期清单；
  *   ② **顶栏槽位角标**（nav[].slot = "topbar"）——逾期/今日数量常驻可见。
  * 样式全部落在 [data-plugin="milestone-calendar"] 内。
  */
@@ -35,11 +35,12 @@
     var overdue = c.overdue || 0, today = c.today || 0;
     if (!overdue && !today) {
       box.innerHTML = '<span class="mc-badge calm" title="没有逾期或今日到期的项">✓ 到期</span>';
+      box.title = '没有逾期或今日到期的项（点开侧栏「日历」看明细）';
       return;
     }
     box.innerHTML = (overdue ? '<span class="mc-badge bad" title="逾期未完成">⚠ ' + overdue + '</span>' : '')
       + (today ? '<span class="mc-badge warn" title="今天到期">◔ ' + today + '</span>' : '');
-    box.title = '逾期 ' + overdue + ' · 今日到期 ' + today + '（点开侧栏「日历提醒」看明细）';
+    box.title = '逾期 ' + overdue + ' · 今日到期 ' + today + '（点开侧栏「日历」看明细）';
     box.onclick = function () { location.hash = '#' + ID; };
   }
 
@@ -133,8 +134,8 @@
   function render(main) {
     main.innerHTML = ''
       + '<section class="card card-pad mc-card">'
-      +   '<div class="card-kicker">CALENDAR / REMINDERS</div>'
-      +   '<h3>日历与提醒</h3>'
+      +   '<div class="card-kicker">CALENDAR</div>'
+      +   '<h3>日历</h3>'
       +   '<p class="row-meta">里程碑与待办的到期情况：逾期 / 今天 / 近期一目了然，顶栏还有常驻角标。'
       +     '（不做系统通知——内核没有通知通道；常驻角标比会漏的弹窗可靠。）</p>'
       +   '<div class="mc-summary" id="mc-summary"></div>'
@@ -164,12 +165,12 @@
 
   window.ERWPanels.register({
     id: ID,
-    group: 'research',
-    before: 'milestones',
-    label: '日历提醒',
+    group: 'core',
+    before: 'agent',
+    label: '日历',
     icon: '▦',
     eyebrow: 'PLAN',
-    title: '日历与提醒',
+    title: '日历',
     render: function (main) { render(main); },
   });
 

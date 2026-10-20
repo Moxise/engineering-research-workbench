@@ -333,14 +333,15 @@ def _sync_todos_conn(conn: sqlite3.Connection, force: bool = False, root: Path |
     conn.executemany(
         """
         INSERT OR REPLACE INTO todos_index(
-            id,title,done,project,project_id,priority,due,created,updated
-        ) VALUES(?,?,?,?,?,?,?,?,?)
+            id,title,done,project,project_id,priority,due,completed_at,created,updated
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)
         """,
         [
             (
                 str(x.get("id") or ""), str(x.get("title") or ""), 1 if x.get("done") else 0,
                 str(x.get("project") or ""), str(x.get("project_id") or ""),
                 str(x.get("priority") or ""), str(x.get("due") or ""),
+                str(x.get("completed_at") or ""),
                 str(x.get("created") or ""), str(x.get("updated") or ""),
             )
             for x in items if str(x.get("id") or "")

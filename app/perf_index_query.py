@@ -256,14 +256,18 @@ def list_todos() -> list[dict[str, Any]]:
         rows = conn.execute(
             "SELECT * FROM todos_index ORDER BY done ASC, CASE WHEN due='' THEN 1 ELSE 0 END, due ASC, updated DESC"
         ).fetchall()
-    return [
-        {
+    from .todos import is_overdue  # 逾期口径与 /api/todos 同源，避免两处各算一份
+    out = []
+    for r in rows:
+        item = {
             "id": r["id"], "title": r["title"], "done": bool(r["done"]), "project": r["project"],
             "project_id": r["project_id"], "priority": r["priority"], "due": r["due"],
+            "completed_at": (r["completed_at"] if "completed_at" in r.keys() else ""),
             "created": r["created"], "updated": r["updated"],
         }
-        for r in rows
-    ]
+        item["overdue"] = is_overdue(item)
+        out.append(item)
+    return out
 
 
 def _activity_payload(today_obj: date, days: int = 400) -> dict[str, Any]:

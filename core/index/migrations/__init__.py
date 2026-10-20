@@ -48,9 +48,10 @@ class Migration:
 def _build_registry() -> list[Migration]:
     from . import m0001_documents_attachment as m1
     from . import m0002_document_links_role as m2
+    from . import m0003_todos_completed_at as m3
 
     out: list[Migration] = []
-    for mod in (m1, m2):
+    for mod in (m1, m2, m3):
         out.append(Migration(
             id=mod.ID, title=mod.TITLE,
             from_version=mod.FROM_VERSION, to_version=mod.TO_VERSION,
@@ -71,4 +72,5 @@ KNOWN_VERSIONS: dict[int, str] = {
     1: "最初结构（documents 无 attachment、document_links 无 role）",
     2: "v260923 · documents 增加 attachment",
     3: "v261008.2 · document_links 增加 role（类型化关系）",
+    4: "v261019 · todos_index 增加 completed_at（完成时间限制）",
 }

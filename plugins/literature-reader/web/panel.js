@@ -584,7 +584,12 @@ function renderLiMarks(){
  box.innerHTML=window.ERWMarkChips.html([...new Set([...on,...saved])]);
  qa("#li-marks .mark-chip:not(.add-mark)").forEach(b=>b.onclick=()=>b.classList.toggle("on"));
  const add=q("#li-marks .mark-chip.add-mark");
-  if(add)add.onclick=()=>window.ERWMarkChips.openManager(renderLiMarks);
+  if(add)add.onclick=()=>{
+    /* v261020 · 阅读区也能直接新建分类（内核提供快速创建；旧内核退回设置页） */
+    const create=window.ERWMarkChips&&window.ERWMarkChips.create;
+    if(typeof create==="function")create(renderLiMarks);
+    else window.ERWMarkChips.openManager(renderLiMarks);
+  };
 }
 /* v260929 · 阅读区标签 chip 化：与文献编辑区同款（× 移除 + ＋ 弹窗勾选已有或新建），替换原逗号输入框 */
 function liTags(){const box=q("#li-tags");if(!box)return [];try{const v=JSON.parse(box.dataset.tags||"[]");return Array.isArray(v)?v:[]}catch{return []}}

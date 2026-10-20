@@ -1,7 +1,7 @@
 {
   "id": "milestone-calendar",
-  "name": "日历与提醒",
-  "version": "1.0.0",
+  "name": "日历",
+  "version": "1.0.1",
   "description": "里程碑与待办的日历视图 + 顶栏常驻角标（逾期/今日/近期待办一眼可见）",
   "api_version": 1,
   "core_min": "v261009.24",
@@ -16,7 +16,7 @@
   "nav": [
     {
       "id": "milestone-calendar",
-      "label": "日历提醒",
+      "label": "日历",
       "icon": "▦",
       "mount": "web/panel.js"
     },
@@ -58,7 +58,7 @@
       "刻意不做系统通知——常驻角标比会漏的弹窗可靠",
       "Agent 工具：问「有什么逾期/今天要做的」"
     ],
-    "where": "侧栏 → 日历提醒；顶栏角标",
+    "where": "侧栏 → 核心工作 → 日历；顶栏角标",
     "screens": [
       "web/preview.png"
     ]

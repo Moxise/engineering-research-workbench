@@ -77,18 +77,19 @@ check("旧库起点正确", before["version"] == 1 and "attachment" not in befor
 print("\n== 1. 计划（只读）==")
 c = sqlite3.connect(str(DB))
 p = mig.plan(c)
-check("识别出 2 个待执行迁移", len(p["pending"]) == 2, str([s["id"] for s in p["pending"]]))
+expected_ids = [m["id"] for m in p["pending"]]
+check("识别出 3 个待执行迁移", len(p["pending"]) == 3, str(expected_ids))
 check("标记需要重建索引", p["needs_reindex"] is True)
-check("目标版本 = 迁移清单最大值", p["target_version"] == mig.TARGET_VERSION == 3, f"target={p['target_version']}")
+check("目标版本 = 迁移清单最大值", p["target_version"] == mig.TARGET_VERSION == 4, f"target={p['target_version']}")
 
 print("\n== 2. dry-run 不改动任何东西 ==")
 res = mig.apply(c, dry_run=True)
 after_dry = schema_snapshot()
-check("dry-run 报告将执行的迁移", res["applied"] == ["0001", "0002"], str(res["applied"]))
+check("dry-run 报告将执行的迁移", res["applied"] == ["0001", "0002", "0003"], str(res["applied"]))
 check("dry-run 后结构与版本不变", after_dry == before, f"{after_dry}")
 
 print("\n== 3. apply（含备份）+ verify ==")
-backup = mig.backup_db(DB, backups_dir=BACKUPS, label="pre-v3")
+backup = mig.backup_db(DB, backups_dir=BACKUPS, label="pre-v4")
 check("备份文件已生成", bool(backup and backup.is_file()), str(backup))
 res = mig.apply(c)
 c.commit()
@@ -122,7 +123,7 @@ print("\n== 6. rollback 回退到 v1 ==")
 rb = mig.rollback(c, to_version=1)
 c.commit()
 rolled = schema_snapshot()
-check("已回退 2 步", rb["rolled_back"] == ["0002", "0001"], str(rb["rolled_back"]))
+check("已回退 3 步", rb["rolled_back"] == ["0003", "0002", "0001"], str(rb["rolled_back"]))
 check("role 列已移除", "role" not in rolled["links"], str(rolled["links"]))
 check("attachment 列已移除", "attachment" not in rolled["docs"], str(rolled["docs"]))
 check("版本回到 1", rolled["version"] == 1, str(rolled["version"]))
@@ -131,18 +132,25 @@ print("\n== 7. rollback dry-run ==")
 res_apply_again = mig.apply(c)
 c.commit()
 rb2 = mig.rollback(c, to_version=1, dry_run=True)
-check("dry-run 只报计划", rb2.get("would_rollback") == ["0002", "0001"], str(rb2))
+check("dry-run 只报计划", rb2.get("would_rollback") == ["0003", "0002", "0001"], str(rb2))
 check("dry-run 未改动", mig.current_version(c) == mig.TARGET_VERSION)
 c.close()
 
 print("\n== 8. 真实库只读 dry-run（不落盘）==")
 real = ROOT / "Workspace" / "System" / "Cache" / "index.sqlite"
 if real.is_file():
-    rc = sqlite3.connect(f"file:{real.as_posix()}?mode=ro", uri=True)
-    rp = mig.plan(rc)
-    check("真实库已是最新，无待执行迁移", rp["up_to_date"] is True,
-          f"current={rp['current_version']} target={rp['target_version']} pending={rp['pending']}")
-    rc.close()
+    try:
+        rc = sqlite3.connect(f"file:{real.as_posix()}?mode=ro", uri=True)
+        rp = mig.plan(rc)
+        # 工作台正在运行时，库可能被占用而读不到 meta；此时如实报 SKIP，不误判成回归。
+        if rp["current_version"] == 0 and mig.current_version(rc) == 0:
+            print("SKIP 真实库当前不可读（工作台可能正在运行并占用该库）")
+        else:
+            check("真实库已是最新，无待执行迁移", rp["up_to_date"] is True,
+                  f"current={rp['current_version']} target={rp['target_version']} pending={rp['pending']}")
+        rc.close()
+    except sqlite3.Error as exc:
+        print(f"SKIP 真实库当前不可读：{exc}")
 else:
     check("真实库存在", False, str(real))
 
@@ -153,7 +161,7 @@ FRESH = WORK / "fresh.sqlite"
 if FRESH.exists():
     FRESH.unlink()
 _orig_db_path = pdb._db_path
-pdb._db_path = lambda: FRESH
+pdb._db_path = lambda root=None: FRESH
 try:
     conn = pdb._connect()
     upgraded = pdb._init_db(conn)
@@ -168,6 +176,7 @@ try:
           mig.apply(conn, dry_run=True)["applied"] == [], "pending 应为空")
 
     # 版本护栏：把版本改成高于代码，_init_db 必须拒绝而不是照改
+    pdb._SCHEMA_READY.pop(str(FRESH), None)   # 清掉已初始化缓存，才会重新走版本检查
     conn.execute("UPDATE meta SET value='99' WHERE key='schema_version'")
     conn.commit()
     try:

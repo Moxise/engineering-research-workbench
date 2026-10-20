@@ -155,6 +155,8 @@ KINDS: dict[str, dict[str, Any]] = {
         "dir": "Knowledge/Literature",
         "label": "文献",
         "prefix": "文献-",
+        # 文献与专利同属文献内容：`prefixes` 声明全部合法前缀（T002 校验口径），主前缀仍为 `文献-`
+        "prefixes": ["文献-", "专利-"],
         "category_word": False,
         "title_verbatim": True,  # 文献题名照抄原文（外文题名保留原样），不套用名称段「不夹小写英文词 / 不合写」两项规则
         "statuses": ["待阅读", "阅读中", "已精读", "已归档"],

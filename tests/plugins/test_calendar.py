@@ -1,5 +1,5 @@
 """（常驻测试 · 原 .scratch/tmp 夹具，v261009.36 迁入 tests/）
-夹具：日历与提醒插件（milestone-calendar）—— 到期分桶口径 + 顶栏槽位。
+夹具：日历插件（milestone-calendar）—— 到期分桶口径 + 顶栏槽位。
 
 覆盖：
 ① agenda 的分桶与 `core_api` 数据**逐项对齐**（用夹具独立复算同一套规则交叉验证）；

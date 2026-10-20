@@ -243,6 +243,7 @@ def _initialize_schema(conn: sqlite3.Connection) -> bool:
             project_id TEXT NOT NULL DEFAULT '',
             priority TEXT NOT NULL DEFAULT '',
             due TEXT NOT NULL DEFAULT '',
+            completed_at TEXT NOT NULL DEFAULT '',
             created TEXT NOT NULL DEFAULT '',
             updated TEXT NOT NULL DEFAULT ''
         );

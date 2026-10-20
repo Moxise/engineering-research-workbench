@@ -10,6 +10,18 @@
     const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
     return m ? `${m[1]}-${m[2]}-${m[3]}` : String(s);
   };
+  /* v261019 · 待办截止时间精确到分：`YYYY-MM-DD HH:MM`；只有日期时按当天 23:59 口径显示。 */
+  const dueParts = (s) => {
+    const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+    return m ? { ymd: `${m[1]}-${m[2]}-${m[3]}`, hm: m[4] ? `${m[4]}:${m[5]}` : '' } : null;
+  };
+  const fmtDue = (s) => {
+    const p = dueParts(s);
+    if (!p) return s ? String(s) : '—';
+    return p.hm ? `${p.ymd.slice(5)} ${p.hm}` : p.ymd.slice(5);
+  };
+  const dueFromInputs = (date, time) => (!date ? '' : (time ? `${date} ${time}` : date));
+  const dueTimeOf = (s) => dueParts(s)?.hm || '';
   const fmtTime = (s) => {
     if (!s) return '—';
     try { return new Date(s).toLocaleString('zh-CN', {hour12:false}); } catch { return s; }
@@ -40,7 +52,7 @@
     sidebarPinned: new Set(storedArray('sidebarPinned', ['core'])),
     sidebarOpen: new Set(storedArray('sidebarOpen', ['core','resources','system'])),
     knowledgeTypes: [],
-    dirty: false, editorBaseline:null, draft:null, saving:null, leaving:null, docSelectSeq: 0, docSelection: new Set(), todoSelection: new Set(), docSelectionMode:false, todoSelectionMode:false, bulkBusy:false,
+    dirty: false, editorBaseline:null, draft:null, saving:null, leaving:null, docSelectSeq: 0, docSelection: new Set(), todoSelection: new Set(), todoEditing:null, docSelectionMode:false, todoSelectionMode:false, bulkBusy:false,
   };
   window.ERWDesktop = {...window.ERWDesktop, hasUnsavedChanges: () => editorDirty()||!!state.saving,
     documentOpen: () => !!state.selectedDoc, documentDraft: () => !!state.selectedDoc?.draft,
@@ -364,7 +376,7 @@
     if(route!=='milestones')window.ERWMilestoneTimeline?.destroy?.(); /* v260930g9c · 返回 false 供 ERWNav 等调用方感知取消 */
     state.dirty=false;state.editorBaseline=null;state.draft=null;state.selectedDoc=null;window.ERWCurrentDoc='';++state.docSelectSeq;
     state.docSelection.clear();state.todoSelection.clear();
-    state.docSelectionMode=false;state.todoSelectionMode=false;
+    state.docSelectionMode=false;state.todoSelectionMode=false;state.todoEditing=null;
     state.route=route; location.hash=route; document.documentElement.dataset.route=route; document.documentElement.dataset.knowledgeKind=kindFromRoute(route)||''; renderSidebar(); setHeader(route);
     if(state.heatmapObserver){try{state.heatmapObserver.disconnect();}catch{} state.heatmapObserver=null;}
     /* v260923u · 切页不再先清空主区为 LOADING：保留旧页面内容直到新页数据就绪后一次性替换，
@@ -418,10 +430,12 @@
   }
 
   function sortTodos(items,now=today()){
-    const day=s=>/^\d{4}-\d{2}-\d{2}$/.test(s||'')?Date.parse(s+'T12:00:00'):NaN;
+    /* v261019 · 截止时间可精确到分：比较用完整时刻，只有日期时按当天 23:59。 */
+    const stamp=s=>{const p=dueParts(s);if(!p)return NaN;return Date.parse(`${p.ymd}T${p.hm||'23:59'}:00`)};
+    const day=s=>/^\d{4}-\d{2}-\d{2}/.test(s||'')?Date.parse(String(s).slice(0,10)+'T12:00:00'):NaN;
     const reference=day(now),priority={紧急:0,高:1,普通:2,低:3};
-    const distance=s=>Number.isFinite(day(s))?Math.abs(day(s)-reference):Infinity;
-    return [...items].sort((a,b)=>Number(!!a.done)-Number(!!b.done)||distance(a.due)-distance(b.due)||(priority[a.priority]??2)-(priority[b.priority]??2)||(a.due||'9999').localeCompare(b.due||'9999')||String(a.id).localeCompare(String(b.id)));
+    const distance=s=>Number.isFinite(stamp(s))?Math.abs(stamp(s)-reference):Infinity;
+    return [...items].sort((a,b)=>Number(!!a.done)-Number(!!b.done)||distance(a.due)-distance(b.due)||(priority[a.priority]??2)-(priority[b.priority]??2)||String(a.due||'9999').localeCompare(String(b.due||'9999'))||String(a.id).localeCompare(String(b.id)));
   }
 
   async function loadOverviewMilestones(){
@@ -720,7 +734,7 @@
   function overviewTaskCard(items){
     return `<section class="card card-pad overview-task-card theme-card theme-task"><div class="card-head">${overviewCardHeading('当前任务','TODAY TASKS','tasks')}<button class="secondary-btn" data-go="todos">全部待办 · ${items.length}</button></div>
       <form class="overview-todo-add" id="overview-todo-form"><label class="sr-only" for="overview-todo-title">新增待办</label><input class="search-input" id="overview-todo-title" placeholder="添加一个待办，Enter 保存" required maxlength="300"><button class="primary-btn" type="submit" aria-label="添加待办">＋ 添加</button></form>
-      <div class="overview-task-list" tabindex="0" aria-label="待办列表，滚动浏览全部任务">${items.length?items.map(t=>`<div class="overview-task-row"><input type="checkbox" class="todo-check" data-overview-check="${esc(t.id)}" aria-label="完成任务：${esc(t.title)}"><div class="row-main"><div class="row-title" title="${esc(t.title)}">${esc(t.title)}</div><div class="row-meta">${esc(t.project||'未关联项目')}</div></div><time class="overview-task-due ${t.due&&t.due<today()?'is-overdue':''}">${fmtDate(t.due)}</time>${t.priority?`<span class="badge" data-priority="${esc(t.priority)}">${esc(t.priority)}</span>`:''}</div>`).join(''):'<div class="empty compact-empty">暂无待办，添加下一步研究计划吧</div>'}</div></section>`;
+      <div class="overview-task-list" tabindex="0" aria-label="待办列表，滚动浏览全部任务">${items.length?items.map(t=>`<div class="overview-task-row ${t.overdue?'is-overdue':''}"><input type="checkbox" class="todo-check" data-overview-check="${esc(t.id)}" data-todo-overdue="${t.overdue?1:''}" data-todo-due="${esc(t.due)}" aria-label="完成任务：${esc(t.title)}"><div class="row-main"><div class="row-title" title="${esc(t.title)}">${esc(t.title)}</div><div class="row-meta">${esc(t.project||'未关联项目')}${t.done&&t.completed_at?` · 完成于 ${esc(fmtDue(t.completed_at))}`:''}</div></div><time class="overview-task-due ${t.overdue?'is-overdue':''}" title="${esc(fmtDue(t.due))}${t.overdue?'（已逾期）':''}">${esc(fmtDue(t.due))}</time>${t.priority?`<span class="badge" data-priority="${esc(t.priority)}">${esc(t.priority)}</span>`:''}</div>`).join(''):'<div class="empty compact-empty">暂无待办，添加下一步研究计划吧</div>'}</div></section>`;
   }
 
   function overviewMilestoneCard(items,now=today()){
@@ -748,7 +762,7 @@
     const previousEvents=previous.reduce((a,x)=>a+(x.count||0),0);
     const delta=weekEvents-previousEvents;
     const completed=recent.reduce((a,x)=>a+(x.breakdown?.todo_done||0),0);
-    const overdue=todosList.filter(x=>!x.done&&x.due&&x.due<endDate).length;
+    const overdue=todosList.filter(x=>!x.done&&x.overdue).length;
     const max=Math.max(1,...recent.map(x=>x.count||0));
     const pct=Math.min(100,goal?weekActive/goal*100:0);
     return `<section class="card card-pad rhythm-card"><div class="card-head">${overviewCardHeading('科研节奏','WEEKLY MOMENTUM','rhythm')}<span class="badge accent">近 7 天</span></div>
@@ -807,9 +821,28 @@
   async function confirmTodoCompletion(input,id,refresh){
     const done=input.checked;
     const title=input.closest('.overview-task-row,.todo-row')?.querySelector('.row-title,.todo-title')?.textContent||'这项待办';
-    if(done&&!await window.ERWDialog.confirm(`确认完成“${title}”？`)){input.checked=false;return}
+    const due=input.dataset.todoDue||'';
+    if(done){
+      /* v261019 · 完成时间限制：逾期待办需要二次确认，确认后带 force=true 提交；
+         服务端同样会拦（409），这里先按界面已知的逾期状态把话说清楚。 */
+      const overdue=input.dataset.todoOverdue==='1';
+      const message=overdue
+        ? `确认完成已逾期的“${title}”（截止 ${fmtDue(due)}）？完成时间会记为现在。`
+        : `确认完成“${title}”？`;
+      if(!await window.ERWDialog.confirm(message)){input.checked=false;return}
+    }
     input.disabled=true;
-    try{await api('/api/todos/'+encodeURIComponent(id),{method:'POST',body:{done}});toast(done?'待办已完成':'待办已恢复');await refresh()}
+    try{
+      const body={done};
+      if(done&&input.dataset.todoOverdue==='1')body.force=true;
+      try{await api('/api/todos/'+encodeURIComponent(id),{method:'POST',body})}
+      catch(err){
+        /* 页面数据可能比服务端旧：409 + requires_confirm 时再问一次，确认后重试 force。 */
+        if(done&&err.status===409&&await window.ERWDialog.confirm(err.message)){await api('/api/todos/'+encodeURIComponent(id),{method:'POST',body:{done:true,force:true}})}
+        else throw err;
+      }
+      toast(done?'待办已完成':'待办已恢复');await refresh()
+    }
     catch(e){input.checked=!done;toast(e.message,true)}
     finally{input.disabled=false}
   }
@@ -888,13 +921,30 @@
     if(state.route!=='todos')return;
     const items=sortTodos(records),completed=items.filter(x=>x.done);
     state.todoSelection=new Set([...state.todoSelection].filter(id=>items.some(x=>x.id===id)));
+    if(state.todoEditing&&!items.some(x=>x.id===state.todoEditing))state.todoEditing=null;
     $('#main').innerHTML=`<section class="card card-pad todo-page"><div class="card-head"><h3>待办</h3><button class="secondary-btn" id="todo-clear-completed" data-bulk-control ${completed.length?'':'disabled'}>清理已完成 · ${completed.length}</button></div>
-      <div class="todo-add"><input class="search-input" id="todo-title" placeholder="新增任务…"><select class="search-input" id="todo-project"><option value="">不关联项目</option>${projects.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select><input class="search-input" id="todo-due" type="date" value="${today()}"><select class="search-input" id="todo-priority"><option>普通</option><option>紧急</option><option>高</option><option>低</option></select><div class="todo-add-actions"><button class="primary-btn" id="todo-add">＋ 添加</button>${batchModeButton('todo')}</div></div>
-      ${selectionToolbar('todo')}<div class="todo-list">${items.length?items.map(todoRow).join(''):'<div class="empty">暂无任务</div>'}</div>
+      <div class="todo-add"><input class="search-input" id="todo-title" placeholder="新增任务…"><select class="search-input" id="todo-project"><option value="">不关联项目</option>${projects.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select><input class="search-input" id="todo-due" type="date" value="${today()}" aria-label="截止日期"><input class="search-input" id="todo-time" type="time" aria-label="截止时间（可选）"><select class="search-input" id="todo-priority"><option>普通</option><option>紧急</option><option>高</option><option>低</option></select><div class="todo-add-actions"><button class="primary-btn" id="todo-add">＋ 添加</button>${batchModeButton('todo')}</div></div>
+      ${selectionToolbar('todo')}<div class="todo-list">${items.length?items.map(t=>todoRow(t,projects)).join(''):'<div class="empty">暂无任务</div>'}</div>
     </section>`;
-    $('#todo-add').onclick=async()=>{const title=$('#todo-title').value.trim();if(!title)return;try{await api('/api/todos',{method:'POST',body:{title,project:$('#todo-project').value,due:$('#todo-due').value,priority:$('#todo-priority').value}});toast('任务已添加');await renderTodos()}catch(e){toast(e.message,true)}};
+    $('#todo-add').onclick=async()=>{const title=$('#todo-title').value.trim();if(!title)return;try{await api('/api/todos',{method:'POST',body:{title,project:$('#todo-project').value,due:dueFromInputs($('#todo-due').value,$('#todo-time').value),priority:$('#todo-priority').value}});toast('任务已添加');await renderTodos()}catch(e){toast(e.message,true)}};
     $$('[data-todo-check]').forEach(x=>x.onclick=()=>{x.checked=x.getAttribute('aria-checked')!=='true';confirmTodoCompletion(x,x.dataset.todoCheck,renderTodos)});
     $$('[data-todo-del]').forEach(x=>x.onclick=async()=>{if(await window.ERWDialog.confirm('删除该任务？')){try{await api('/api/todos/'+encodeURIComponent(x.dataset.todoDel),{method:'DELETE'});state.todoSelection.delete(x.dataset.todoDel);await renderTodos()}catch(e){toast(e.message,true)}}});
+    $$('[data-todo-edit]').forEach(b=>b.onclick=()=>{state.todoEditing=b.dataset.todoEdit;renderTodos()});
+    const editForm=$('#todo-edit-form');
+    if(editForm){
+      const titleInput=$('#todo-edit-title');
+      setTimeout(()=>{titleInput?.focus();titleInput?.select()},20);
+      $$('[data-todo-edit-cancel]').forEach(b=>b.onclick=()=>{state.todoEditing=null;renderTodos()});
+      editForm.onsubmit=async e=>{
+        e.preventDefault();
+        const title=titleInput.value.trim();
+        if(!title){toast('待办标题不能为空',true);titleInput.focus();return}
+        const body={title,project:$('#todo-edit-project').value,due:dueFromInputs($('#todo-edit-date').value,$('#todo-edit-time').value),priority:$('#todo-edit-priority').value};
+        try{await api('/api/todos/'+encodeURIComponent(editForm.dataset.todoEditId),{method:'POST',body});state.todoEditing=null;toast('待办已更新');await renderTodos()}
+        catch(err){toast(err.message,true)}
+      };
+      $$('input,select',editForm).forEach(el=>el.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();state.todoEditing=null;renderTodos()}}));
+    }
     const remove=async(ids,onlyDone=false)=>{
       if(!ids.length||!await window.ERWDialog.confirm(onlyDone?`确认清理 ${ids.length} 条已完成待办？未完成待办会保留。`:`确认删除所选 ${ids.length} 条待办？`))return;
       const result=await deleteSelection('todos',ids,onlyDone);if(!result)return;
@@ -903,7 +953,23 @@
     wireSelection('todo',items,()=>remove([...state.todoSelection]));
     $('#todo-clear-completed').onclick=()=>remove(completed.map(x=>x.id),true);
   }
-  function todoRow(t){return `<div class="todo-row ${t.done?'done':''}"><input class="row-select" type="checkbox" ${state.todoSelectionMode?'':'hidden'} data-todo-pick="${esc(t.id)}" data-bulk-control aria-label="选择待办：${esc(t.title)}"><button type="button" class="todo-complete" role="checkbox" aria-checked="${!!t.done}" data-todo-check="${esc(t.id)}" aria-label="${t.done?'恢复待办':'完成任务'}：${esc(t.title)}" title="${t.done?'恢复待办':'标记完成'}">${t.done?'✓':''}</button><div class="todo-copy"><div class="todo-title">${esc(t.title)}</div><div class="row-meta">${esc(t.project||'未关联项目')}</div></div><time>${fmtDate(t.due)}</time><span class="badge" data-priority="${esc(t.priority||'普通')}">${esc(t.priority||'普通')}</span><button class="ghost-btn danger" data-todo-del="${esc(t.id)}">删除</button></div>`}
+  function todoEditRow(t,projects){
+    const date=dueParts(t.due)?.ymd||today();
+    return `<div class="todo-row todo-row-editing is-editing" data-todo-row="${esc(t.id)}">
+      <form class="todo-edit-form" id="todo-edit-form" data-todo-edit-id="${esc(t.id)}">
+        <label class="todo-edit-title-field"><span>标题</span><input class="search-input" id="todo-edit-title" maxlength="300" value="${esc(t.title)}"></label>
+        <label><span>截止日期</span><input class="search-input" id="todo-edit-date" type="date" value="${esc(date)}"></label>
+        <label><span>时间</span><input class="search-input" id="todo-edit-time" type="time" value="${esc(dueTimeOf(t.due))}"></label>
+        <label><span>项目</span><select class="search-input" id="todo-edit-project"><option value="">不关联项目</option>${projects.map(p=>`<option value="${esc(p)}" ${p===t.project?'selected':''}>${esc(p)}</option>`).join('')}</select></label>
+        <label><span>优先级</span><select class="search-input" id="todo-edit-priority">${['普通','紧急','高','低'].map(p=>`<option ${p===(t.priority||'普通')?'selected':''}>${p}</option>`).join('')}</select></label>
+        <div class="todo-edit-actions"><button class="primary-btn" type="submit">保存</button><button class="secondary-btn" type="button" data-todo-edit-cancel>取消</button></div>
+      </form></div>`;
+  }
+  function todoRow(t,projects){
+    if(state.todoEditing===t.id) return todoEditRow(t,projects||[]);
+    const overdue=!!t.overdue;
+    const doneMeta=t.done&&t.completed_at?`完成于 ${fmtDue(t.completed_at)}`:'';
+    return `<div class="todo-row ${t.done?'done':''} ${overdue?'is-overdue':''}" data-todo-row="${esc(t.id)}"><input class="row-select" type="checkbox" ${state.todoSelectionMode?'':'hidden'} data-todo-pick="${esc(t.id)}" data-bulk-control aria-label="选择待办：${esc(t.title)}"><button type="button" class="todo-complete" role="checkbox" aria-checked="${!!t.done}" data-todo-check="${esc(t.id)}" data-todo-overdue="${overdue?1:''}" data-todo-due="${esc(t.due)}" aria-label="${t.done?'恢复待办':'完成任务'}：${esc(t.title)}" title="${t.done?'恢复待办':'标记完成'}">${t.done?'✓':''}</button><div class="todo-copy"><div class="todo-title">${esc(t.title)}</div><div class="row-meta">${esc(t.project||'未关联项目')}${doneMeta?` · ${esc(doneMeta)}`:''}</div></div><time class="${overdue?'is-overdue':''}" title="${esc(fmtDue(t.due))}${overdue?'（已逾期）':''}">${esc(fmtDue(t.due))}</time><span class="badge" data-priority="${esc(t.priority||'普通')}">${esc(t.priority||'普通')}</span><button class="ghost-btn" data-todo-edit="${esc(t.id)}" aria-label="编辑待办：${esc(t.title)}">编辑</button><button class="ghost-btn danger" data-todo-del="${esc(t.id)}">删除</button></div>`}
 
   /* v261009 · 专注计时已搬出内核，成为插件 plugins/focus（自登记 ERWPanels 面板）。
      内核不再认识「专注」：删掉该插件只是少一个导航项。 */
@@ -1057,7 +1123,7 @@
   /* v260929 · 暴露给 PDF 阅读工作区复用同一套标记徽章渲染，避免标记目录二次维护 */
   window.ERWMarkBadges = markBadges;
   /* v260929 · 分类标记 chips 暴露给 PDF 阅读工作区复用（html 渲染 + 自定义标记管理）；onChanged 供调用方重渲染自己的 chips 盒 */
-  window.ERWMarkChips = {html:markChipsHtml, openManager:openMarkManager};
+  window.ERWMarkChips = {html:markChipsHtml, openManager:openMarkManager, create:after=>openMarkCreator(after)};
   window.ERWMarkList = allMarks; /* v260929 · 标记目录（含自定义）供阅读区筛选项等复用 */
   /* v260929b · 阅读区 AI 助手自定义动作目录（设置 → 文献/PDF 维护），供 AI 面板渲染个性化按钮 */
   window.ERWAssistCustomActions = () => { const a = state.config?.app?.llm?.assist; return Array.isArray(a?.custom_actions) ? a.custom_actions : []; };
@@ -1079,9 +1145,16 @@
     },80); }
   } };
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
-  function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')}
+  function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')+`<button type="button" class="mark-chip add-mark" data-mark-add title="新建自定义分类标记（图标与名称可在设置里继续修改）">＋ 自定义</button>`}
   function wireMarkChips(){
-    $$('#f-marks .mark-chip').forEach(b=>b.onclick=()=>{b.classList.toggle('on');state.dirty=true});
+    $$('#f-marks .mark-chip:not(.add-mark)').forEach(b=>b.onclick=()=>{b.classList.toggle('on');state.dirty=true});
+    const add=$('#f-marks .mark-chip.add-mark');
+    if(add)add.onclick=()=>openMarkCreator(mark=>{
+      /* v261020 · 从条目编辑器直接建分类：建完立刻选中，并保留其它已选中的标记 */
+      refreshMarkChips();
+      const chip=$(`#f-marks .mark-chip[data-mark="${mark.id}"]`);
+      if(chip){chip.classList.add('on');state.dirty=true}
+    });
   }
   function refreshMarkChips(){
     const box=$('#f-marks'); if(!box)return;
@@ -1665,14 +1738,88 @@
       closeModal();renderSettingsTab('knowledge',cfg);
     };
   }
-  async function addClassificationMark(app,cfg){
-    const label=$('#km-label').value.trim(),icon=$('#km-icon').value.trim()||'◆',color=$('#km-color').value||'#4a6fa5';
-    if(!label){toast('请填写分类名称',true);return}
+  /* v261020 · 分类标记：图标可自由输入（候选一键填入），既能在设置里新建/编辑，也能从条目编辑器“＋ 自定义”直接建。 */
+  function markFormHtml(prefix,mark){
+    const m=mark||{icon:'◆',label:'',color:'#4a6fa5'};
+    return `<div class="form-grid">
+      <div class="field span-2"><label>分类名称</label><input id="${prefix}-label" maxlength="16" value="${esc(m.label||'')}" placeholder="例如：问题"></div>
+      <div class="field span-2"><label>颜色</label><input id="${prefix}-color" type="color" value="${esc(m.color||'#4a6fa5')}"></div>
+      <div class="field span-4"><label>图标</label>
+        <div class="mark-icon-pick" id="${prefix}-icon-pick">${KNOWLEDGE_ICON_CHOICES.map(ic=>`<button type="button" data-${prefix}-icon="${esc(ic)}" class="${(m.icon||'◆')===ic?'on':''}" title="选择 ${esc(ic)}">${esc(ic)}</button>`).join('')}</div>
+        <div class="field-help" style="margin:8px 0 5px">点候选图标即可选用；也可以直接输入任意符号或 emoji（最多 4 个字符）。</div>
+        <input id="${prefix}-icon" maxlength="4" value="${esc(m.icon||'◆')}" placeholder="可输入其它图标">
+      </div>
+    </div>`;
+  }
+  function wireMarkForm(prefix){
+    $$(`#${prefix}-icon-pick [data-${prefix}-icon]`).forEach(btn=>btn.onclick=()=>{
+      const icon=btn.dataset[prefix+'Icon']||'◆';
+      $(`#${prefix}-icon`).value=icon;
+      $$(`#${prefix}-icon-pick [data-${prefix}-icon]`).forEach(x=>x.classList.toggle('on',x===btn));
+    });
+    $(`#${prefix}-icon`).addEventListener('input',()=>{
+      const icon=$(`#${prefix}-icon`).value.trim();
+      $$(`#${prefix}-icon-pick [data-${prefix}-icon]`).forEach(x=>x.classList.toggle('on',x.dataset[prefix+'Icon']===icon));
+    });
+  }
+  async function createClassificationMark(fields){
+    const app=state.config?.app;
+    if(!app)return null;
+    const label=String(fields.label||'').trim();
+    if(!label){toast('请填写分类名称',true);return null}
     const marks=classificationMarksConfig(app);
-    if(marks.some(x=>x.label===label)){toast('该分类名称已存在',true);return}
-    const id='mark_'+Date.now().toString(36);
-    marks.push({id,icon,label,color});
-    await saveKnowledgeTypes(app,cfg,'分类标记已添加');
+    if(marks.some(x=>x.label===label)){toast('该分类名称已存在',true);return null}
+    const mark={id:'mark_'+Date.now().toString(36),icon:String(fields.icon||'◆').trim().slice(0,4)||'◆',label,color:fields.color||'#4a6fa5'};
+    marks.push(mark);
+    await saveKnowledgeTypes(app,state.config,'分类标记已添加');
+    return mark;
+  }
+  async function saveClassificationMark(id,fields,cfg){
+    const app=state.config?.app;
+    if(!app)return null;
+    const marks=classificationMarksConfig(app),idx=marks.findIndex(x=>x.id===id);
+    if(idx<0)return null;
+    const label=String(fields.label||'').trim();
+    if(!label){toast('请填写分类名称',true);return null}
+    if(marks.some((x,i)=>i!==idx&&x.label===label)){toast('该分类名称已存在',true);return null}
+    marks[idx]={...marks[idx],label,icon:String(fields.icon||'◆').trim().slice(0,4)||'◆',color:fields.color||marks[idx].color};
+    await saveKnowledgeTypes(app,cfg||state.config,'分类标记已更新');
+    if(state.selectedDoc)refreshMarkChips();
+    return marks[idx];
+  }
+  function openMarkCreator(after){
+    modal('新建分类标记',markFormHtml('mk'),
+      '<button class="secondary-btn" id="mk-cancel">取消</button><button class="primary-btn" id="mk-save">创建</button>');
+    $('#mk-cancel').onclick=closeModal;
+    wireMarkForm('mk');
+    setTimeout(()=>$('#mk-label')?.focus(),30);
+    $('#mk-save').onclick=async()=>{
+      const mark=await createClassificationMark({label:$('#mk-label').value,icon:$('#mk-icon').value,color:$('#mk-color').value});
+      if(!mark)return;
+      closeModal();
+      if(typeof after==='function')after(mark);
+      toast(`已创建分类“${mark.label}”`);
+    };
+  }
+  function openMarkEditor(mark,cfg,after){
+    modal('编辑分类标记',markFormHtml('mk',mark),
+      '<button class="secondary-btn" id="mk-cancel">取消</button><button class="primary-btn" id="mk-save">保存</button>');
+    $('#mk-cancel').onclick=closeModal;
+    wireMarkForm('mk');
+    setTimeout(()=>$('#mk-label')?.focus(),30);
+    $('#mk-save').onclick=async()=>{
+      const saved=await saveClassificationMark(mark.id,{label:$('#mk-label').value,icon:$('#mk-icon').value,color:$('#mk-color').value},cfg);
+      if(!saved)return;
+      closeModal();
+      if(typeof after==='function')after(saved);
+      toast('分类标记已更新');
+    };
+  }
+  async function addClassificationMark(app,cfg){
+    const label=$('#km-label').value.trim();
+    if(!label){toast('请填写分类名称',true);return}
+    const mark=await createClassificationMark({label,icon:$('#km-icon').value,color:$('#km-color').value});
+    if(!mark)return;
     renderSettingsTab('knowledge',cfg);
   }
   async function deleteClassificationMark(app,cfg,id){
@@ -1746,23 +1893,27 @@
       </div>`).join('')||'<div class="empty">暂无知识条目类型</div>'}</div>
       <div class="field-help" style="margin-top:10px">隐藏不会删除 Markdown 数据；“模板”只影响以后新建的条目，并可一键还原为预设。</div>
 
-      <div class="card-head" style="margin-top:26px"><div><h3>分类标记</h3><p class="row-meta">默认精简为“知识 / 方法 / 实验”。分类只在这里增减；删除分类后，使用该分类的条目会自动设为“无标记”。</p></div></div>
+      <div class="card-head" style="margin-top:26px"><div><h3>分类标记</h3><p class="row-meta">默认精简为“知识 / 方法 / 实验”。可在这里新增或编辑分类（图标支持任意符号/emoji）；条目编辑器里的「＋ 自定义」也能直接新建。删除分类后，使用该分类的条目会自动设为“无标记”。</p></div></div>
       <div class="list-stack" id="km-list">${marks.map(m=>`<div class="list-row">
         <div style="font-size:18px;width:28px;text-align:center;color:${esc(m.color)}">${esc(m.icon)}</div>
         <div class="row-main"><div class="row-title">${esc(m.label)}</div><div class="row-meta"><code>${esc(m.id)}</code></div></div>
         <span class="mark-chip" style="--mark-color:${esc(m.color)}">${esc(m.icon)} ${esc(m.label)}</span>
+        <button class="secondary-btn" data-km-edit="${esc(m.id)}">编辑</button>
         <button class="secondary-btn" data-km-delete="${esc(m.id)}">删除</button>
       </div>`).join('')||'<div class="empty">暂无分类标记；下方可以添加。</div>'}</div>
       <div class="form-grid" style="margin-top:14px">
         <div class="field span-2"><label>分类名称</label><input id="km-label" maxlength="16" placeholder="例如：问题"></div>
-        <div class="field"><label>图标</label>
-          <details class="compact-icon-select" id="km-icon-select">
-            <summary id="km-icon-trigger" title="选择图标"><span id="km-icon-current">◆</span><span class="compact-icon-caret">⌄</span></summary>
-            <div class="compact-icon-menu" id="km-icon-menu">${KNOWLEDGE_ICON_CHOICES.map(ic=>`<button type="button" data-km-icon="${esc(ic)}" class="${ic==='◆'?'on':''}" title="选择 ${esc(ic)}">${esc(ic)}</button>`).join('')}</div>
-          </details>
-          <input id="km-icon" type="hidden" value="◆">
+        <div class="field span-2"><label>图标</label>
+          <div class="mark-icon-quick">
+            <input id="km-icon" maxlength="4" value="◆" placeholder="任意符号或 emoji">
+            <details class="compact-icon-select" id="km-icon-select">
+              <summary id="km-icon-trigger" title="从候选图标里选"><span>候选</span><span class="compact-icon-caret">⌄</span></summary>
+              <div class="compact-icon-menu" id="km-icon-menu">${KNOWLEDGE_ICON_CHOICES.map(ic=>`<button type="button" data-km-icon="${esc(ic)}" class="${ic==='◆'?'on':''}" title="选择 ${esc(ic)}">${esc(ic)}</button>`).join('')}</div>
+            </details>
+          </div>
+          <div class="field-help">可直接输入任意符号/emoji（最多 4 个字符），也可从候选里点选。</div>
         </div>
-        <div class="field"><label>颜色</label><input id="km-color" type="color" value="#4a6fa5"></div>
+        <div class="field span-2"><label>颜色</label><input id="km-color" type="color" value="#4a6fa5"></div>
       </div>
       <div style="margin-top:10px"><button class="primary-btn" id="km-add">＋ 添加分类标记</button></div>`;
     $('#kt-add').onclick=()=>openKnowledgeTypeEditor(app,cfg);
@@ -1785,15 +1936,22 @@
       reg.custom=reg.custom.filter(x=>x.id!==id);reg.order=reg.order.filter(x=>x!==id);reg.hidden=reg.hidden.filter(x=>x!==id);delete reg.templates[id];
       await saveKnowledgeTypes(app,cfg,'自定义条目类型定义已删除');renderSettingsTab('knowledge',cfg);
     });
-    const kmIconDetails=$('#km-icon-select');
+    const kmIconDetails=$('#km-icon-select'),kmIconInput=$('#km-icon');
     $$('[data-km-icon]',p).forEach(btn=>btn.onclick=()=>{
       const icon=btn.dataset.kmIcon||'◆';
-      $('#km-icon').value=icon;
-      $('#km-icon-current').textContent=icon;
+      kmIconInput.value=icon;
       $$('[data-km-icon]',p).forEach(x=>x.classList.toggle('on',x===btn));
       if(kmIconDetails)kmIconDetails.open=false;
     });
+    kmIconInput.addEventListener('input',()=>{
+      const icon=kmIconInput.value.trim();
+      $$('[data-km-icon]',p).forEach(x=>x.classList.toggle('on',x.dataset.kmIcon===icon));
+    });
     $('#km-add').onclick=()=>addClassificationMark(app,cfg);
+    $$('[data-km-edit]',p).forEach(b=>b.onclick=()=>{
+      const mark=marks.find(x=>x.id===b.dataset.kmEdit);
+      if(mark)openMarkEditor(mark,cfg,()=>renderSettingsTab('knowledge',cfg));
+    });
     $$('[data-km-delete]',p).forEach(b=>b.onclick=()=>deleteClassificationMark(app,cfg,b.dataset.kmDelete));
   }
   async function renderDesktopSettings(panel){

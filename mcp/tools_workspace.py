@@ -107,9 +107,8 @@ def t_list_todos(wb: Workbench, args: dict[str, Any]) -> Any:
         items = [x for x in items if str(x.get("project") or "") == ref]
     overdue_only = bool(args.get("overdue_only", False))
     if overdue_only:
-        from datetime import date as _date
-        today = _date.today().isoformat()
-        items = [x for x in items if not x.get("done") and str(x.get("due") or "") < today]
+        # v261019 · 逾期口径与 /api/todos 同源（日期-only 视为当天 23:59 截止）
+        items = [x for x in items if x.get("overdue")]
     return {"total": len(items), "items": items}
 
 
@@ -139,9 +138,14 @@ def t_update_todo(wb: Workbench, args: dict[str, Any]) -> Any:
             payload[key] = args[key]
     if args.get("done") is not None:
         payload["done"] = bool(args["done"])
+    if args.get("force") is not None:
+        payload["force"] = bool(args["force"])
     if not payload:
         return fail("没有可更新字段", "至少传入 title / project / due / priority / done 之一。")
-    item = wb.update_todo(todo_id, payload)
+    try:
+        item = wb.update_todo(todo_id, payload)
+    except ValueError as exc:  # OverdueError：逾期完成需显式确认
+        return fail(str(exc), "确认仍要完成后重试，并传 `force: true`。")
     return {"updated": True, "todo": item}
 
 
@@ -290,21 +294,22 @@ TOOLS = [
           "overdue_only": b("只看已逾期且未完成")},
          read_only=True),
     tool("todo_create", "创建待办",
-         "新增一条待办到 System/todos.json。",
+         "新增一条待办到 System/todos.json。截止时间可选到分（`YYYY-MM-DD HH:MM`）。",
          {"title": s("待办标题"),
           "project": s("归属项目名"),
-          "due": s("截止日期 YYYY-MM-DD"),
+          "due": s("截止时间，`YYYY-MM-DD`（当天 23:59 截止）或 `YYYY-MM-DD HH:MM`"),
           "priority": s("优先级", enum=TODO_PRIORITY_ENUM, default="普通"),
           "done": b("是否已完成")},
          ["title"], destructive=False),
     tool("todo_update", "更新待办",
-         "更新待办标题、项目、截止日期、优先级或完成状态。",
+         "更新待办标题、项目、截止时间、优先级或完成状态。逾期待办标记完成需 `force: true` 二次确认。",
          {"todo_id": s("待办 id，形如 todo-3f9a1c2b7d"),
           "title": s("新标题"),
           "project": s("新归属项目名"),
-          "due": s("新截止日期 YYYY-MM-DD"),
+          "due": s("新截止时间，`YYYY-MM-DD` 或 `YYYY-MM-DD HH:MM`"),
           "priority": s("新优先级", enum=TODO_PRIORITY_ENUM),
-          "done": b("是否完成")},
+          "done": b("是否完成"),
+          "force": b("已逾期待办标记完成时传 true（等价于界面上的二次确认）")},
          ["todo_id"], destructive=False),
     tool("kb_search", "全库检索",
          "跨知识条目、待办、会话做统一检索。" + COMMON_FREEZE_NOTE,

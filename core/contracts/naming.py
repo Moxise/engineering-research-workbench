@@ -79,6 +79,16 @@ def expected_prefix(kind: str) -> str:
     return str(C.KINDS.get(kind, {}).get("prefix") or "")
 
 
+def allowed_prefixes(kind: str) -> list[str]:
+    """该类型全部合法前缀（`prefixes` 未声明时退化为单 `prefix`）。"""
+    spec = C.KINDS.get(kind, {})
+    out = [str(x) for x in (spec.get("prefixes") or []) if str(x)]
+    primary = str(spec.get("prefix") or "")
+    if primary and primary not in out:
+        out.insert(0, primary)
+    return out
+
+
 _EXP_NUMBER_EXEMPT: set[str] = {str(x) for x in getattr(C, "EXPERIMENT_NUMBER_EXEMPT_PROJECTS", [])}
 
 
@@ -117,9 +127,10 @@ def validate_title(
             "T004", "error", f"前缀 `{prefix}-` 已废弃（历史「归类-」并入「知识-<类别>-」）",
             f"改为 `{C.CATEGORY_WORD_ALIASES[prefix]}-<类别>-{name or '<名称>'}`",
         ))
-    elif not spec["prefix"].startswith(prefix) or prefix + "-" != spec["prefix"]:
+    elif f"{prefix}-" not in allowed_prefixes(kind):
+        allowed = " / ".join(f"`{p}`" for p in allowed_prefixes(kind))
         issues.append(_issue(
-            "T002", "error", f"`{kind}` 条目前缀应为 `{spec['prefix']}`，当前为 `{prefix}-`",
+            "T002", "error", f"`{kind}` 条目前缀应为 {allowed}，当前为 `{prefix}-`",
             f"改为 `{spec['prefix']}{name or '<名称>'}`",
         ))
 

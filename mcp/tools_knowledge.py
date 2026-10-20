@@ -95,7 +95,7 @@ def _constraint_text(topic: str) -> str:
     if topic == "naming":
         lines = ["## 命名规范", "", C.PREFIX_RULE, "", "### 前缀表", "",
                  "| 条目类型 | 前缀 | 类别词 |", "| --- | --- | --- |"]
-        lines += [f"| {kind} | `{v['prefix']}` | {'有且仅有一个' if v['category_word'] else '不使用'} |" for kind, v in C.KINDS.items()]
+        lines += [f"| {kind} | `{'` / `'.join(naming.allowed_prefixes(kind))}` | {'有且仅有一个' if v['category_word'] else '不使用'} |" for kind, v in C.KINDS.items()]
         lines += ["", "### 类别词判据（仅 `知识-`）", "", "| 类别词 | 判据 |", "| --- | --- |"]
         lines += [f"| `{c['word']}` | {c['criteria']} |" for c in C.CATEGORY_WORDS]
         lines += ["", "### 名称段规则", ""] + [f"{n}. {r}" for n, r in enumerate(C.NAME_SEGMENT_RULES, 1)]

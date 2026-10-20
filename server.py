@@ -553,7 +553,15 @@ class Handler(BaseHTTPRequestHandler):
             if current is None:
                 raise FileNotFoundError(todo_id)
             normalized = indexer.normalize_project_update(current, payload)
-            item = todos.update(todo_id, normalized)
+            # v261019 · 完成时间限制：逾期仍可完成，但必须显式确认（force=true），
+            # 前端据此弹二次确认；返回 409 让调用方区分「逾期需确认」与真正的参数错误。
+            try:
+                item = todos.update(todo_id, normalized)
+            except todos.OverdueError as exc:
+                indexer.refresh_todos()
+                return self.send_json(
+                    {"error": "overdue", "requires_confirm": True, "message": str(exc), "todo": current}, 409
+                )
             indexer.refresh_todos()
             return self.send_json(item)
         return self.send_json({"error": "not_found"}, 404)

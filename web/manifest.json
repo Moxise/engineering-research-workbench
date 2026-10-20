@@ -70,9 +70,15 @@
     },
     {
       "file": "v261015-usability.css",
-      "v": "261016-v3",
+      "v": "261020-marks",
       "theme": "base",
-      "note": "v261015d · 可用性修订：统一无卡头（card-kicker 隐藏）、密度与动效开关联动"
+      "note": "v261020 · 条目卡片元信息两行 + 分类标记图标自由输入（候选下拉）；上版：v261015d · 可用性修订：统一无卡头（card-kicker 隐藏）、密度与动效开关联动"
+    },
+    {
+      "file": "v261019-todo-edit.css",
+      "v": "261019",
+      "theme": "base",
+      "note": "v261019 · 待办行内编辑态布局 + 截止时间（到分）与逾期高亮；追加在 usability 之后覆盖其 todo-row 列定义"
     },
     {
       "file": "vendor/github.min.css",
@@ -162,9 +168,9 @@
     },
     {
       "file": "app.js",
-      "v": "261016-v3",
+      "v": "261020-marks",
       "theme": "base",
-      "note": "v261015c · 合并上游 UI 重设计 v3：移除重复页 research-overview（导航项/路由分支/渲染函数），保留旧书签别名；上版：条目卡片统一高度：卡片标题/摘要/项目名补 title 悬停提示（配合 styles.css 的两行省略）；再上版：插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）"
+      "note": "v261020 · 分类标记可自由配置：设置里新增/编辑（图标可输入任意符号或 emoji）、条目编辑器「＋ 自定义」直接新建；上版：v261019 · 待办可编辑（标题/截止日期+时间/项目/优先级，行内表单）与完成时间限制（逾期二次确认、completed_at 展示）；上版：v261015c · 合并上游 UI 重设计 v3：移除重复页 research-overview（导航项/路由分支/渲染函数），保留旧书签别名；再上版：条目卡片统一高度：卡片标题/摘要/项目名补 title 悬停提示（配合 styles.css 的两行省略）；再上版：插件接入基础：自登记挂载点带 data-plugin=<id>（导航页 #main / 设置页 #settings-panel，每次导航先清掉，插件 CSS 不泄漏到内核页面）"
     },
     {
       "file": "plugin-host.js",

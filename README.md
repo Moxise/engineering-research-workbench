@@ -2,12 +2,12 @@
 
 > 一个面向科研人员的本地优先、Markdown-first 工科科研工作台：项目管理、研究笔记、文献卡片、知识图谱、科研时间线、全文检索、RSS 资讯与可引用本地知识的 LLM Agent，统一在一个轻量 Web 界面中完成。
 
-**当前版本：`v261015.1`**
+**当前版本：`v261020.4`**
 
 **Windows 桌面版**：默认单文件便携版，将发布 ZIP 解压到可写目录后双击 `ResearchWorkbench.exe`；无需同级运行库目录，缺少同名 `.exe.config` 时会自动补建。支持右侧窗口控制、可配置关闭行为、托盘后台运行和重复启动唤回。最大化保留 Windows 任务栏。源码构建执行 `build_client.bat`，操作与数据位置见 [Windows 使用说明](docs/WINDOWS.md)。
 
 > 📐 **项目结构与功能总览（含结构图）见 [`docs/OVERVIEW.md`](docs/OVERVIEW.md)**——三层结构、目录树、
-> 数据流与插件生命周期图、11 个插件一览、内核功能清单、数据位置、闸门表、加功能决策表。
+> 数据流与插件生命周期图、12 个插件一览、内核功能清单、数据位置、闸门表、加功能决策表。
 > 本文（README）偏使用与特性介绍。
 >
 > 📖 **使用教程见 [`docs/manual/`](docs/manual/README.md)**——**也可以直接在工作台里读**：
@@ -1273,7 +1273,7 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 后台定时任务（`ctx.jobs`）、订阅内核事件（`ctx.events`）、产出文件下载（`ctx.raw`）、
 读知识库（`core_api.entries/entry/projects/todos/…`）、写条目正文（`core_api.entry_update` + 写工具闸门）。
 
-**当前 11 个插件**（详细目录与每个插件的说明见 [`plugins/README.md`](plugins/README.md)；
+**当前 12 个插件**（详细目录与每个插件的说明见 [`plugins/README.md`](plugins/README.md)；
 想自己写一个见 [`plugins/.template/`](plugins/.template/) 与 [`docs/PLUGIN_SPEC.md`](docs/PLUGIN_SPEC.md)）：
 
 | 插件 | 提供什么 | 默认 |
@@ -1285,9 +1285,10 @@ RSS、天气或外部模型不可用时，不应影响 Markdown 和 Workspace �
 | `focus` | 专注计时（纯前端页面，设置存浏览器本地） | 附属（开） |
 | `rss` | 科研资讯：RSS/Atom 聚合 + arXiv 多级回退 | 附属（开） |
 | `weather` | 天气：顶栏槽位 + 逐日预报 + 离线降级 | 附属（开） |
+| `version-manager` | 版本族：查看 / 逐节合并 / 归档取回（3 个 Agent 工具，写走草稿闸门） | 附属（开） |
 | `report-export` | 报告导出：DOCX（标准库写 OOXML）/ HTML（可打印成 PDF）/ Markdown | 可选（关） |
 | `backup-snapshot` | 备份与快照：内核后台任务定时打包知识库与配置、按份数清理 | 可选（关） |
-| `milestone-calendar` | 日历与提醒：里程碑/待办到期视图 + 顶栏常驻角标 | 可选（关） |
+| `milestone-calendar` | 日历：里程碑/待办到期视图 + 顶栏常驻角标 | 可选（关） |
 | `metrics-table` | 指标表：读条目正文表格与 ```metrics 块，跨实验对照 + CSV/Markdown 导出 | 可选（关） |
 
 **安装 / 启停 / 预览**：把目录或 `<id>-<version>.zip` 丢进 `plugins/` 即被发现（zip 会自动解包到
