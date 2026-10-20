@@ -113,11 +113,12 @@
         <details><summary>自动更新</summary><label class="as-check"><input name="realtime_updates" type="checkbox" ${r.realtime_updates?'checked':''}>资料变化后自动更新</label><label>合并连续修改的等待时间（秒）<input name="update_debounce_seconds" type="number" min="5" max="300" value="${r.update_debounce_seconds??15}"></label><label class="as-check"><input name="scheduled_updates" type="checkbox" ${r.scheduled_updates?'checked':''}>定期更新</label><label>更新间隔（分钟）<input name="update_interval_minutes" type="number" min="5" max="10080" value="${r.update_interval_minutes??60}"></label><p class="as-hint">工作台服务运行期间生效，每 5 秒检查变化；未修改的分块复用向量。RAG 关闭或使用关键词模式时暂停自动更新。自动更新会向已配置的 Embedding 接口发送变化的资料分块。</p></details>
         <p class="as-hint">索引包含知识库 Markdown 全文。构建时向该接口发送资料分块；检索时发送问题。连接测试仅发送一段短文本。密钥仅保存在本机配置中，不写入对话或工作区备份。</p>
         <div class="as-actions"><button type="submit" class="primary-btn">保存 RAG 设置</button><button type="button" id="as-rag-test" class="secondary-btn">保存并测试连接</button><button type="button" id="as-rag-build" class="secondary-btn">保存并更新索引</button><button type="button" id="as-rag-cancel" class="secondary-btn" hidden>取消构建</button></div><p role="status" id="as-rag-status"></p>
-      </form><div class="as-rag-index" id="as-rag-index" aria-live="polite"></div><details id="as-rag-clear-panel"><summary>清除向量数据库</summary><p class="as-hint">删除所有资料分块向量并释放索引空间，保留文献、笔记、灵感和长期记忆。自动更新会关闭，后续可手动重建。正在构建时需先取消并等待结束。</p><button type="button" id="as-rag-clear">确认清除向量索引</button></details>
+      </form><div class="as-rag-index" id="as-rag-index" aria-live="polite"></div><details id="as-rag-clear-panel"><summary>清除向量数据库</summary><p class="as-hint">删除所有资料分块向量并释放索引空间，保留文献、笔记、灵感和长期记忆。自动更新会关闭，后续可手动重建。正在构建时需先取消并等待结束。</p><button type="button" id="as-rag-clear">清除向量索引…</button></details>
       <form class="as-form" id="as-rag-search"><label>检索试用<input name="query" required maxlength="8000" placeholder="例如：有哪些减少微调参数的方法？"></label><button type="submit" class="secondary-btn">检索资料</button><div id="as-rag-results"></div></form>`;
     const form=$('#as-rag-settings',root),message=$('#as-rag-status',root);
-    let busy=false,polling=false;
+    let busy=false,polling=false,currentStatus=initial;
     function draw(status){
+      currentStatus=status;
       const index=status.index||{},job=status.job||{},running=['running','cancelling'].includes(job.state);
       $('#as-rag-index',root).innerHTML=`<p><strong>资料向量索引：</strong>${index.generation?`${index.chunks} 个分块 · ${index.sources} 份来源 · ${esc(index.model)} · ${index.dimensions} 维`:'尚未建立'}</p>${index.stale?'<p class="as-error">接口、模型或分块配置已改变，请更新索引后使用语义检索。</p>':''}${job.state?`<p>${({running:'构建中',cancelling:'正在取消',completed:'构建完成',failed:'构建失败',cancelled:'已取消',cleared:'已清除'})[job.state]||esc(job.state)} · 已处理 ${job.sources||0} 份来源 / ${job.chunks||0} 个分块 · 新嵌入 ${job.embedded||0} · 复用 ${job.reused||0}${job.empty_sources?` · 空正文 ${job.empty_sources}`:''}</p>${job.error?`<p class="as-error">${esc(job.error)}</p>`:''}`:''}<p class="as-hint">资料修改后点击更新；未改变的分块复用已有向量。失败或取消会保留上次完整索引。关键词模式不调用嵌入接口；混合模式不可用时明确提示并退回关键词。</p>`;
       const updates=status.updates||{};if(status.settings?.scheduled_updates&&updates.next_scheduled_at)$('#as-rag-index',root).insertAdjacentHTML('beforeend',`<p class="as-hint">下次定期更新：${esc(new Date(updates.next_scheduled_at*1000).toLocaleString())}</p>`);
@@ -137,7 +138,18 @@
       try{await save();if(action==='test'){message.textContent='正在测试连接…';const result=await api('rag/test',{});message.textContent=`连接成功 · ${result.model} · ${result.dimensions} 维`}else if(action==='index'){draw(await api('rag/index',{}));message.textContent='已开始构建索引';poll()}else{message.textContent='RAG 设置已保存';draw(await api('rag'))}}catch(error){message.textContent=error.message;toast(error.message,true)}finally{busy=false;form.querySelectorAll('button:not(#as-rag-cancel)').forEach(button=>button.disabled=false);api('rag').then(status=>{if(!root.isConnected)return;const running=draw(status);if(running||status.settings?.realtime_updates||status.settings?.scheduled_updates)poll()}).catch(()=>{})}
     }
     form.onsubmit=event=>{event.preventDefault();perform('save')};$('#as-rag-test',root).onclick=()=>perform('test');$('#as-rag-build',root).onclick=()=>perform('index');$('#as-rag-cancel',root).onclick=async()=>{try{draw(await api('rag/cancel',{}))}catch(error){toast(error.message,true)}};
-    $('#as-rag-clear',root).onclick=async event=>{if(busy)return;busy=true;event.target.disabled=true;try{const status=await api('rag/clear',{});form.elements.realtime_updates.checked=false;form.elements.scheduled_updates.checked=false;draw(status);message.textContent='向量数据库已清除，原始资料和长期记忆已保留，自动更新已关闭'}catch(error){message.textContent=error.message;toast(error.message,true)}finally{busy=false;event.target.disabled=false;try{draw(await api('rag'))}catch(error){message.textContent+='；状态读取失败：'+error.message}}};
+    $('#as-rag-clear',root).onclick=async event=>{
+      if(busy)return;busy=true;const button=event.currentTarget;button.disabled=true;let cancelled=false;
+      try{
+        if(!window.ERWDialog?.confirm)throw Error('确认窗口未能加载，请刷新后重试');
+        const index=currentStatus.index||{},scope=index.generation?`当前索引包含 ${Number(index.sources)||0} 份来源、${Number(index.chunks)||0} 个分块。\n\n`:'';
+        const confirmed=await window.ERWDialog.confirm(scope+'将删除全部资料向量并关闭实时和定期更新。文献、笔记、灵感、长期记忆及 Embedding 配置会保留。\n\n恢复语义检索需要重新构建索引，可能产生嵌入调用费用。是否继续？',{
+          title:'清除向量数据库？',danger:true,buttons:[{value:'cancel',label:'取消'},{value:'confirm',label:'确认清除',primary:true,danger:true}]
+        });
+        if(!confirmed){cancelled=true;return}if(!root.isConnected)return;
+        const status=await api('rag/clear',{});form.elements.realtime_updates.checked=false;form.elements.scheduled_updates.checked=false;draw(status);message.textContent='向量数据库已清除，原始资料和长期记忆已保留，自动更新已关闭';
+      }catch(error){message.textContent=error.message;toast(error.message,true)}finally{busy=false;button.disabled=false;if(cancelled&&button.isConnected)button.focus({preventScroll:true});if(root.isConnected)try{draw(await api('rag'))}catch(error){message.textContent+='；状态读取失败：'+error.message}}
+    };
     $('#as-rag-search',root).onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,b=$('button',f);b.disabled=true;try{const result=await api('rag/search',{query:f.elements.query.value});$('#as-rag-results',root).innerHTML=`<p class="as-hint">检索方式：${esc(result.mode)}${result.warning?' · '+esc(result.warning):''} · 实际 ${result.count} 条 / 最多 ${result.limit??form.elements.rag_top_k.value} 条</p>${result.items.map(item=>`<article class="as-memory"><strong>${esc(item.title)}</strong><p>${esc(item.excerpt)}</p><small>${esc(item.source?.path||item.id)}${item.source?.page?' · 第 '+item.source.page+' 页':''}</small></article>`).join('')}`}catch(error){$('#as-rag-results',root).textContent=error.message}finally{b.disabled=false}};
     if(draw(initial)||r.realtime_updates||r.scheduled_updates)poll();
   }

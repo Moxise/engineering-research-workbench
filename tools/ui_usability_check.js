@@ -769,6 +769,8 @@ fs.mkdirSync(output, {recursive:true});
     }
     await shot('single-titlebar-zoom125');
     console.log('PASS: one titlebar, refresh dropdown, fixed Markdown export, dark contrast and 125% zoom');
+    // This section verifies both themes independently of previous checks.
+    if(await page.locator('html').getAttribute('data-theme')!=='light')await page.locator('#theme-btn').click();
     await go('settings');await page.locator('[data-set-tab="sync"]').click();await page.waitForSelector('#sync-url');
     assert.equal(await page.locator('.sync-wrap').isVisible(),false,'sync button hidden while disabled');
     await page.locator('#sync-url').fill('http://192.168.1.10:8765');await page.locator('#sync-test').click();await page.waitForFunction(()=>document.querySelector('#sync-test-result').textContent.includes('连接成功'));

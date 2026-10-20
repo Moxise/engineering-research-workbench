@@ -6,11 +6,12 @@ const path=require('node:path');
 const {chromium}=require('playwright');
 const root=path.resolve(__dirname,'..');
 const output=path.join(root,'.scratch','verify','agent-system');fs.mkdirSync(output,{recursive:true});
-const sessions=[{id:'chat-fixture123',title:'科研验收',updated:'2026-10-19',messages:[]},{id:'chat-other123',title:'另一会话',updated:'2026-10-18',messages:[]}];
+const longTitle='配电网供电恢复文献检索与多种方法的证据对比，保留完整来源并核验物理约束。'.repeat(5);
+const sessions=[{id:'chat-fixture123',title:longTitle,updated:'2026-10-19',messages:[]},{id:'chat-other123',title:'另一会话',updated:'2026-10-18',messages:[]}];
 const runs=[{id:'run-other',session_id:sessions[1].id,status:'completed',updated:'2026-10-18'}],memories=[],installed=[],requests=[];
 let opts={max_steps:48,time_budget_seconds:900,context_tokens:24000,auto_recall:true,web_enabled:true,code_enabled:false,docker_image:'python:3.12-slim',mcp_servers:[],skills_enabled:true,disabled_skills:[],rag_enabled:true,memory_enabled:true,rag_top_k:8,rag_context_chars:8000};
 let mode='normal',failSessionOnce=false,approved=false,sequence=0,delayMemory=false,failListReads=1,failedListReads=0,releaseStream=null,draftId='draft-fixture',confirmFailure=false,draftWrites=0,draftStatus='confirmed',resumeDelayed=false;
-let ragOptions={mode:'keyword',base_url:'',model:'',dimensions:0,chunk_chars:1600,overlap_chars:200,batch_size:16,include_pdf:false,has_api_key:false},ragIndex={},ragJob={},settingsFailure=false;
+let ragOptions={mode:'keyword',base_url:'',model:'',dimensions:0,chunk_chars:1600,overlap_chars:200,batch_size:16,include_pdf:false,has_api_key:false},ragIndex={},ragJob={},settingsFailure=false,clearFailure=false;
 const skill={name:'literature-review',description:'比较文献并保留证据',builtin:true};
 const citationNote={id:'note-citation',kind:'note',title:'知识-原理-辐射状约束与供电连通性',body:'## 原理\n无环还需要结合连通性。\n\n| 术语 | 说明 |\n| --- | --- |\n| **合法动作** | `D1` 需要校核 |',projects:[],tags:[],kind_marks:[],status:'记录'};
 const citationPaper={...citationNote,id:'literature-citation',kind:'literature',title:'文献-组会原文',attachment:'Knowledge/Literature/PDF/fixture.pdf',body:'## 原始文献\n程序组织物理依据，模型选择动作。'};
@@ -102,7 +103,7 @@ const server=http.createServer(async(req,res)=>{
     else if(p==='/api/agent/rag/settings'){const {api_key,clear_api_key,...safe}=body;ragOptions={...ragOptions,...safe,has_api_key:clear_api_key?false:!!api_key||ragOptions.has_api_key};data=ragOptions}
     else if(p==='/api/agent/rag/test')data={ok:true,dimensions:3,model:ragOptions.model};
     else if(p==='/api/agent/rag/index'){ragIndex={generation:'fake-index',chunks:6,sources:2,dimensions:3,model:ragOptions.model,ready:true};ragJob={state:'completed',sources:2,chunks:6,embedded:6,reused:0};data={settings:ragOptions,index:ragIndex,job:ragJob}}
-    else if(p==='/api/agent/rag/clear'){ragIndex={ready:false};ragJob={state:'cleared'};ragOptions={...ragOptions,realtime_updates:false,scheduled_updates:false};data={settings:ragOptions,index:ragIndex,job:ragJob}}
+    else if(p==='/api/agent/rag/clear'){if(clearFailure){clearFailure=false;res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'模拟清除失败，原索引保留'}));return}ragIndex={ready:false};ragJob={state:'cleared'};ragOptions={...ragOptions,realtime_updates:false,scheduled_updates:false};data={settings:ragOptions,index:ragIndex,job:ragJob}}
     else if(p==='/api/agent/rag/search')data={mode:ragOptions.mode,count:1,limit:opts.rag_top_k,items:[{id:'adapter',title:'Low rank adaptation',excerpt:'Tune an adapter instead of all parameters.',source:{path:'Knowledge/Notes/adapter.md'}}]};
     else if(p.endsWith('/system'))data={settings:opts,brain:{counts:{memories:memories.length,runs:runs.length,events:2}}};
     else if(p.endsWith('/settings')){if(settingsFailure){settingsFailure=false;res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({message:'模拟设置保存失败'}));return}opts={...opts,...body};data=opts}
@@ -132,6 +133,16 @@ const server=http.createServer(async(req,res)=>{
     await page.goto('http://127.0.0.1:'+server.address().port+'/#agent');
     await page.getByRole('tab',{name:'对话',exact:true}).waitFor();
     await page.locator('#agent-profile-select').waitFor({state:'attached'});
+    const headerLayout=async()=>{
+      const layout=await page.locator('.agent-chat-head').evaluate(header=>{
+        const title=header.querySelector('h3'),actions=header.querySelector('.agent-head-actions'),head=header.getBoundingClientRect(),text=title.getBoundingClientRect(),buttons=actions.getBoundingClientRect();
+        return {noOverflow:header.scrollWidth<=header.clientWidth+1,hasRoom:text.width>24&&text.right<=buttons.left,actionsFit:buttons.right<=head.right+1,tooltip:title.title,background:getComputedStyle(header).backgroundColor};
+      });
+      assert.equal(layout.noOverflow,true);assert.equal(layout.hasRoom,true);assert.equal(layout.actionsFit,true);assert.equal(layout.tooltip,longTitle);assert.equal(layout.background,'rgba(0, 0, 0, 0)');
+    };
+    await headerLayout();await page.screenshot({path:path.join(output,'chat-header-light.png')});
+    await page.setViewportSize({width:390,height:844});await headerLayout();await page.screenshot({path:path.join(output,'chat-header-mobile.png')});
+    await page.setViewportSize({width:1440,height:1000});
     await page.getByText('模型选项',{exact:true}).click();await page.locator('#agent-profile-select').waitFor();await page.getByText('模型选项',{exact:true}).click();
     assert.equal(failedListReads,1,'transient connection failure retries safely without a model call');
     await page.locator('#agent-chat-panel [data-agent-capability="rag_enabled"]:enabled').waitFor();
@@ -314,7 +325,20 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(opts.rag_top_k,12);await page.locator('#as-rag-results').getByText(/实际 1 条 \/ 最多 12 条/).waitFor();
     await page.locator('[data-route="settings"]').click();await page.locator('[data-set-tab="rag"]').click();await page.locator('#as-rag-settings [name=model]').waitFor();assert.equal(await page.locator('#as-rag-settings [name=model]').inputValue(),'fake-embedding');await page.getByRole('button',{name:'保存 RAG 设置',exact:true}).click();await page.getByText('RAG 设置已保存',{exact:true}).waitFor();assert.equal(ragOptions.has_api_key,true,'blank password preserves the saved key');
     await page.getByText('自动更新',{exact:true}).click();await page.locator('[name=realtime_updates]').check();await page.locator('[name=scheduled_updates]').check();await page.locator('[name=update_interval_minutes]').fill('30');await page.getByRole('button',{name:'保存 RAG 设置',exact:true}).click();await page.getByText('RAG 设置已保存',{exact:true}).waitFor();assert.equal(ragOptions.realtime_updates,true);assert.equal(ragOptions.scheduled_updates,true);assert.equal(ragOptions.update_interval_minutes,30);
-    await page.getByText('清除向量数据库',{exact:true}).click();await page.locator('#as-rag-clear').click();await page.getByText('向量数据库已清除，原始资料和长期记忆已保留，自动更新已关闭',{exact:true}).waitFor();assert.equal(ragIndex.ready,false);assert.equal(ragOptions.realtime_updates,false);assert.equal(ragOptions.scheduled_updates,false);assert.equal(await page.locator('[name=realtime_updates]').isChecked(),false);
+    const clearRequests=()=>requests.filter(r=>r.path==='/api/agent/rag/clear').length,clearBefore=clearRequests();
+    await page.getByText('清除向量数据库',{exact:true}).click();await page.locator('#as-rag-clear').click();
+    await page.getByRole('alertdialog',{name:'清除向量数据库？'}).waitFor();
+    await page.locator('#workbench-dialog-message').getByText(/2 份来源、6 个分块/).waitFor();
+    assert.equal(await page.locator('#workbench-dialog [data-dialog-result=cancel]').evaluate(e=>e===document.activeElement),true,'cancellation is the default focused action');
+    assert.equal(clearRequests(),clearBefore,'opening confirmation must not clear data');
+    await page.locator('#workbench-dialog [data-dialog-result=cancel]').click();assert.equal(ragIndex.ready,true);assert.equal(ragOptions.realtime_updates,true);
+    assert.equal(await page.locator('#as-rag-clear').evaluate(e=>e===document.activeElement),true,'cancel restores focus to the trigger');
+    await page.locator('#as-rag-clear:enabled').click();await page.getByRole('alertdialog').waitFor();await page.keyboard.press('Escape');
+    await page.locator('#as-rag-clear:enabled').click();await page.getByRole('alertdialog').waitFor();await page.locator('#workbench-dialog-backdrop').click({position:{x:2,y:2}});assert.equal(clearRequests(),clearBefore,'Escape and backdrop also cancel without writes');
+    clearFailure=true;await page.locator('#as-rag-clear:enabled').click();await page.locator('#workbench-dialog [data-dialog-result=confirm]').click();
+    await page.locator('#as-rag-status').getByText('模拟清除失败，原索引保留',{exact:true}).waitFor();assert.equal(ragIndex.ready,true);assert.equal(ragOptions.scheduled_updates,true);
+    await page.locator('#as-rag-clear:enabled').click();await page.screenshot({path:path.join(output,'rag-clear-confirm-dark.png')});await page.locator('#workbench-dialog [data-dialog-result=confirm]').click();
+    await page.getByText('向量数据库已清除，原始资料和长期记忆已保留，自动更新已关闭',{exact:true}).waitFor();assert.equal(clearRequests(),clearBefore+2);assert.equal(ragIndex.ready,false);assert.equal(ragOptions.realtime_updates,false);assert.equal(ragOptions.scheduled_updates,false);assert.equal(await page.locator('[name=realtime_updates]').isChecked(),false);
     await page.locator('[data-route="agent"]').click();await page.getByRole('tab',{name:'对话',exact:true}).click();await page.locator('#agent-chat-panel [data-agent-rag-config]').click();await page.locator('#as-rag-settings').waitFor();
     await page.screenshot({path:path.join(output,'rag-settings.png')});
     await page.setViewportSize({width:390,height:844});await page.getByRole('tab',{name:'技能',exact:true}).click();await page.locator('.as-skill').filter({hasText:'custom-flow'}).waitFor();

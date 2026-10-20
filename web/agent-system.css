@@ -64,6 +64,21 @@
 .agent-workspace>[role=tabpanel]{grid-row:2;grid-column:1}
 .agent-workspace>[hidden]{display:none!important}
 .agent-workspace .agent-chat{height:100%;box-sizing:border-box}
+#main #agent-chat-panel .agent-chat-head{box-sizing:border-box;min-width:0;gap:20px;padding:2px 0 14px;background:transparent!important;border:0!important;border-bottom:1px solid var(--line)!important}
+.agent-chat-heading{display:flex;align-items:center;gap:11px;flex:1;min-width:0}
+.agent-chat-mark{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;border-radius:11px;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);border:1px solid color-mix(in srgb,var(--accent) 16%,transparent)}
+.agent-chat-mark svg{width:22px;height:22px}
+.agent-chat-title-group{min-width:0}
+.agent-chat-caption{display:block;color:var(--muted);font-size:10px;line-height:1.5;letter-spacing:.05em;margin-bottom:2px}
+#agent-chat-title{font-size:15px;line-height:1.5;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent-head-actions{flex-shrink:0;gap:7px}
+#agent-chat-panel .agent-head-actions button{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:34px;padding:6px 10px;border-radius:9px;font-size:12px;line-height:1.5;white-space:nowrap}
+.agent-head-actions svg{width:17px;height:17px;flex-shrink:0}
+#agent-chat-panel #agent-delete{width:34px;min-width:34px;padding:7px;color:var(--muted);border:1px solid transparent;background:transparent}
+#agent-chat-panel #agent-delete:hover:not(:disabled){color:var(--danger,#b42318);border-color:color-mix(in srgb,var(--danger,#b42318) 25%,var(--line));background:color-mix(in srgb,var(--danger,#b42318) 7%,transparent)}
+#agent-chat-panel .agent-head-actions button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+#as-rag-clear{color:var(--danger,#b42318);border-color:color-mix(in srgb,var(--danger,#b42318) 35%,var(--line))}
+@media(max-width:600px){#main #agent-chat-panel .agent-chat-head{gap:8px;padding-bottom:10px}.agent-chat-mark,.agent-chat-caption{display:none}#agent-chat-title{font-size:13px}.agent-head-actions{gap:4px}#agent-chat-panel .agent-head-actions button{min-height:36px;padding:6px 8px}}
 .agent-workspace .agent-compose-left{flex:1;flex-wrap:wrap;min-width:0}
 .agent-workspace #agent-send{flex:0 0 auto;min-width:60px;white-space:nowrap;align-self:flex-end}
 .agent-workspace .agent-preset-label{display:flex;align-items:center;gap:5px;font-size:11px;white-space:nowrap}
