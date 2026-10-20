@@ -393,3 +393,7 @@ html[data-animations="off"] #main .milestone-ring::after{animation:none!importan
 .mark-color-pick .mcp-hex{font-size:11px;color:var(--muted);font-family:ui-monospace,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mark-preview-box{height:34px;box-sizing:border-box;display:flex;align-items:center;padding:0 8px;border:1px dashed var(--line-strong);border-radius:8px;background:var(--surface-2);overflow:hidden}
 .mark-preview-box .mark-chip{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
+
+/* v261020 · 条目信息折叠按钮：离卡片右上圆角与覆盖式滚动条再远一点（此前贴边，悬停底纹压到圆角） */
+#main .meta-head{padding-right:12px}
+#main .meta-toggle:hover{transform:none}
