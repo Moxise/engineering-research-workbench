@@ -4,7 +4,7 @@ const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>Array.from(r.quer
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clamp=v=>Math.max(0,Math.min(1,v));
 const PDF_RENDER_RADIUS=4; /* v261009p · 仅保留当前页前后少量已渲染 canvas，防长 PDF 内存随滚动线性增长 */
-const PDF_DPR_CAP=2;       /* 高 DPI 屏限制离屏像素规模；视觉清晰度基本不变，显存/内存峰值显著下降 */
+const PDF_PAGE_PIXEL_LIMIT=12*1024*1024, PDF_CACHE_PIXEL_LIMIT=40*1024*1024, PDF_CANVAS_SIDE_LIMIT=8192;
 const S={items:[],paper:null,pdf:null,scale:1.15,zoomMode:"fit",focus:false,libraryHidden:false,sideHidden:true,layoutObserver:null,layoutTimer:null,openSeq:0,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],annByPage:new Map(),trimTimer:null,ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
 let wheelFrame=0,wheelTimer=null,wheelTarget=null,wheelBase=1,wheelAnchor=null,zoomSerial=0;
 
@@ -45,7 +45,7 @@ function shell(){
  q("#lit-focus").onclick=()=>{S.focus=!S.focus;S.libraryHidden=S.focus;S.sideHidden=true;layout()};
  q("#lit-fit").onclick=()=>{stopWheelZoom();S.zoomMode="fit";refit()};
  q("#lit-scroll").addEventListener("wheel",pdfWheelZoom,{passive:false});
- S.layoutObserver=new ResizeObserver(()=>{clearTimeout(S.layoutTimer);S.layoutTimer=setTimeout(()=>{if(S.pdf&&S.zoomMode==="fit")refit()},120)});S.layoutObserver.observe(q(".lit-reader"));
+ S.layoutObserver=new ResizeObserver(schedulePdfLayout);S.layoutObserver.observe(q(".lit-reader"));
  q("#lit-upload").onclick=()=>q("#lit-file").click();q("#lit-file").onchange=e=>upload(e.target.files?.[0]);
  q("#lit-back").onclick=()=>window.dispatchEvent(new Event("erw-lit-back")); /* v260929 · 返回文献列表：经事件通知 app.js 重新渲染列表页（hash 未变不触发路由） */
  let t;q("#lit-search").oninput=()=>{clearTimeout(t);t=setTimeout(loadList,160)};q("#lit-status").onchange=loadList;q("#lit-mark").onchange=loadList;
@@ -63,17 +63,25 @@ async function openPaper(id){
  if(openSeq!==S.openSeq||!q(".lit-shell"))return;
  S.paper=paper;window.ERWResearchUI?.remember("pdf",{id:paper.id,title:paper.title});S.annotations=Array.isArray(annotations)?annotations:[];rebuildAnnotationIndex();
  q("#lit-reader-empty").hidden=true;q("#lit-reader-live").hidden=false;side();loadList().catch(()=>{}) /* v260929 · 列表刷新仅更新徽章，不阻塞 PDF 加载 */;
- try{await ensurePdfJs();const pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;if(openSeq!==S.openSeq||!q(".lit-shell")){pdf.destroy?.();return}S.pdf=pdf;S.zoomMode="fit";layout();S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>{if(q(".lit-shell"))go(S.current,false)})}
+ try{
+  await ensurePdfJs();const pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;
+  if(openSeq!==S.openSeq||!q(".lit-shell")){pdf.destroy?.();return}
+  S.pdf=pdf;S.zoomMode="fit";layout();
+  const target=Math.max(1,Math.min(pdf.numPages,+S.paper.last_page||1));S.current=target;
+  await build();requestAnimationFrame(()=>{if(openSeq===S.openSeq&&q(".lit-shell"))go(target,false)});
+ }
  catch(e){const host=q("#lit-pages");if(host&&openSeq===S.openSeq)host.innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
 function releasePageCanvas(r){
  if(!r?.el)return;
+ r.renderTask?.cancel?.();
  const cv=q("canvas",r.el);
  if(cv){cv.width=1;cv.height=1} /* 先主动释放 backing store，再移除 DOM，避免 GC 延迟占住几十 MB */
 }
 function reset(){
  stopWheelZoom();
- S.generation++;S.observer?.disconnect();clearTimeout(S.trimTimer);
+ S.generation++;S.observer?.disconnect();clearTimeout(S.trimTimer);clearTimeout(track.t);
+ const scroll=q("#lit-scroll");if(scroll)scroll.onscroll=null;
  S.pages.forEach(r=>releasePageCanvas(r));S.pages.clear();
  S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.areaResolver=null;
  S.annotations=[];S.annByPage.clear();S.ai={text:"",image:"",result:"",error:"",busy:false,instruction:""}
@@ -97,6 +105,7 @@ function removeAnnotationLocal(id,page){
 function unloadPage(n){
  const r=S.pages.get(+n);if(!r||!r.rendered||r.rendering)return;
  if(S.pending?.page===+n||S.selectedAnn?.page===+n)return; /* 正在编辑/选择的页不回收 */
+ if(pageIsVisible(r))return;
  releasePageCanvas(r);
  r.el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>";
  r.rendered=false;r.textItems=null;r.annotations=annotationsForPage(n);
@@ -105,6 +114,40 @@ function trimRenderedPages(center=S.current){
  if(!S.pdf)return;
  const lo=Math.max(1,+center-PDF_RENDER_RADIUS),hi=Math.min(S.pdf.numPages,+center+PDF_RENDER_RADIUS);
  S.pages.forEach((r,n)=>{if(n<lo||n>hi)unloadPage(n)});
+ const cached=[...S.pages.entries()].map(([n,r])=>{const cv=q("canvas",r.el);return {n,r,pixels:cv?cv.width*cv.height:0}}).filter(item=>item.pixels>1);
+ let pixels=cached.reduce((total,item)=>total+item.pixels,0);
+ for(const item of cached.sort((a,b)=>Math.abs(b.n-center)-Math.abs(a.n-center))){
+  if(pixels<=PDF_CACHE_PIXEL_LIMIT)break;
+  if(item.n===+center)continue;
+  unloadPage(item.n);if(!item.r.rendered&&!item.r.rendering)pixels-=item.pixels;
+ }
+}
+function pageIsVisible(r){const sc=q("#lit-scroll");if(!sc||!r.el.isConnected)return false;const view=sc.getBoundingClientRect(),page=r.el.getBoundingClientRect();return page.bottom>view.top&&page.top<view.bottom}
+/* Render vector text above screen resolution, including CSS/app zoom. Bound each
+   backing store instead of capping native DPR, so high-DPI screens stay sharp. */
+function pdfPixelSize(width,height,element){
+ const cssZoom=element.getBoundingClientRect().width/width||1;
+ const density=Math.max(2,window.devicePixelRatio||1)*cssZoom;
+ const scale=Math.min(density,Math.sqrt(PDF_PAGE_PIXEL_LIMIT/(width*height)),PDF_CANVAS_SIDE_LIMIT/width,PDF_CANVAS_SIDE_LIMIT/height);
+ return {width:Math.max(1,Math.floor(width*scale)),height:Math.max(1,Math.floor(height*scale))};
+}
+function refreshPdfResolution(){
+ if(!S.pdf||S.zooming)return;
+ S.pages.forEach((r,n)=>{
+  if(!r.rendered||r.rendering)return;
+  const cv=q("canvas",r.el);if(!cv)return;
+  const size=pdfPixelSize(parseFloat(cv.style.width),parseFloat(cv.style.height),r.el);
+  if(size.width===cv.width&&size.height===cv.height)return;
+  releasePageCanvas(r);r.rendered=false;renderPage(n);
+ });
+}
+function schedulePdfLayout(){
+ clearTimeout(S.layoutTimer);
+ if(!S.pdf||!q(".lit-shell"))return;
+ S.layoutTimer=setTimeout(()=>{
+  if(!S.pdf||!q(".lit-shell")||S.zooming)return;
+  if(S.zoomMode==="fit")refit().catch(error=>toast("PDF 显示更新失败："+error.message,true));else refreshPdfResolution();
+ },120);
 }
 function scheduleTrim(center=S.current){
  clearTimeout(S.trimTimer);
@@ -131,13 +174,15 @@ async function build(){
  S.pages.forEach(r=>S.observer.observe(r.el));q("#lit-scroll").onscroll=throttle(track,80);toolbar();
 }
 async function renderPage(n){
- const r=S.pages.get(n);if(!r||r.rendered||r.rendering||!S.pdf)return;r.rendering=true;const gen=S.generation;
+ const r=S.pages.get(n);if(!r||r.rendered||r.rendering||!S.pdf||wheelTarget!=null)return;r.rendering=true;const gen=S.generation;
  try{
-  const p=await S.pdf.getPage(n),vp=p.getViewport({scale:S.scale}),dpr=Math.min(window.devicePixelRatio||1,PDF_DPR_CAP);if(gen!==S.generation)return;
+  const p=await S.pdf.getPage(n),vp=p.getViewport({scale:S.scale});if(gen!==S.generation)return;
   r.el.style.width=vp.width+"px";r.el.style.height=vp.height+"px";r.el.innerHTML='<div class="lit-page" data-page="'+n+'" style="width:'+vp.width+'px;height:'+vp.height+'px"><canvas></canvas><svg class="lit-annotation-layer" viewBox="0 0 1 1" preserveAspectRatio="none"></svg><div class="lit-selection-layer"></div><div class="lit-interaction-layer" title="拖动选择文字"></div></div>';
-  const cv=q("canvas",r.el),ctx=cv.getContext("2d");cv.width=Math.floor(vp.width*dpr);cv.height=Math.floor(vp.height*dpr);cv.style.width=vp.width+"px";cv.style.height=vp.height+"px";
-  await p.render({canvasContext:ctx,viewport:vp,transform:dpr===1?null:[dpr,0,0,dpr,0,0]}).promise;if(gen!==S.generation)return;
-  const text=await p.getTextContent();
+  const cv=q("canvas",r.el),size=pdfPixelSize(vp.width,vp.height,r.el);cv.width=size.width;cv.height=size.height;cv.style.width=vp.width+"px";cv.style.height=vp.height+"px";
+  const ctx=cv.getContext("2d",{alpha:false});ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
+  r.renderTask=p.render({canvasContext:ctx,viewport:vp,transform:[cv.width/vp.width,0,0,cv.height/vp.height,0,0]});
+  await r.renderTask.promise;if(gen!==S.generation)return;
+  const text=await p.getTextContent();if(gen!==S.generation)return;
   r.textItems=buildPdfTextGeometry(text,vp);
   r.annotations=annotationsForPage(n);r.rendered=true;
   try{p.cleanup()}catch{} /* 释放 PDF.js 当前页 operator/display 资源；需要时可再次惰性渲染 */
@@ -145,7 +190,10 @@ async function renderPage(n){
   hit.onmousedown=e=>beginPdfGeometrySelection(n,e);
   hit.onclick=e=>handlePageAnnotationClick(n,e);
   paint(n);scheduleTrim(S.current);
- }catch(e){r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{r.rendering=false}
+ }catch(e){if(gen===S.generation&&e.name!=="RenderingCancelledException")r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{
+  r.rendering=false;r.renderTask=null;
+  if(gen===S.generation){trimRenderedPages();const cv=q("canvas",r.el);if(r.rendered&&cv){const size=pdfPixelSize(parseFloat(cv.style.width),parseFloat(cv.style.height),r.el);if(size.width!==cv.width||size.height!==cv.height)schedulePdfLayout()}}
+ }
 }
 
 function buildPdfTextGeometry(text,viewport){
@@ -403,7 +451,7 @@ function pageAtScroll(){
  if(a&&b){const da=Math.abs((a.el.offsetTop+a.el.offsetHeight/2)-y),db=Math.abs((b.el.offsetTop+b.el.offsetHeight/2)-y);if(db<da)best=best+1}
  return best;
 }
-function track(){if(S.zooming)return;const best=pageAtScroll();scheduleTrim(best);if(best===S.current)return;S.current=best;toolbar();dispatchPage();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)} /* v261009p · O(logN) 页定位 + 有界渲染缓存 */
+function track(){if(S.zooming)return;const best=pageAtScroll();/* 回收的预读页可能仍在 observer 边界内，滚动时重新预热当前页和相邻页。 */for(let n=Math.max(1,best-1);n<=Math.min(S.pdf?.numPages||0,best+1);n++)renderPage(n);scheduleTrim(best);if(best===S.current)return;S.current=best;toolbar();dispatchPage();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)} /* v261009p · O(logN) 页定位 + 有界渲染缓存 */
 async function savePos(page){if(!S.paper||!S.pdf)return;const st=S.paper.reading_status==="未读"?"在读":S.paper.reading_status;S.paper.last_page=page;S.paper.reading_status=st;try{await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({last_page:page,page_count:S.pdf.numPages,reading_status:st})})}catch{}}
 function dispatchPage(){document.dispatchEvent(new CustomEvent("erw-lit-page",{detail:{page:S.current}}))} /* v260930d · M5 翻页事件 */
 function go(n,smooth=true){
@@ -422,7 +470,7 @@ function showSide(){S.sideHidden=false;S.focus=false;layout()}
 async function refit(){
  const pdf=S.pdf;if(!pdf||!q(".lit-shell"))return;const first=await pdf.getPage(1);if(pdf!==S.pdf||!q("#lit-scroll"))return;
  const target=Math.max(.2,Math.min(2.4,availablePdfWidth()/first.getViewport({scale:1}).width));
- if(S.pages.size&&Math.abs(target-S.scale)<.002)return;
+ if(S.pages.size&&Math.abs(target-S.scale)<.002){refreshPdfResolution();return}
  const keep=S.current,gen=++S.generation;S.observer?.disconnect();await build();if(gen===S.generation&&q(".lit-shell"))go(keep,false);
 }
 function pdfAnchor(clientX,clientY){
@@ -610,7 +658,7 @@ function paintLiTags(tags){
  const box=q("#li-tags");if(!box)return;
  const list=[...new Set((tags||[]).map(x=>String(x).trim()).filter(Boolean))];
  box.dataset.tags=JSON.stringify(list);
- box.innerHTML=list.length?list.map((t,i)=>'<span class="project-chip tag-chip">'+esc(t)+'<button type="button" data-tag-remove="'+i+'" title="移除标签">×</button></span>').join(""):'<span class="row-meta">暂无标签</span>';
+ box.innerHTML=list.length?list.map((t,i)=>'<span class="project-chip tag-chip" title="'+esc(t)+'"><span class="project-chip-label">'+esc(t)+'</span><button type="button" data-tag-remove="'+i+'" title="移除标签">×</button></span>').join(""):'<span class="row-meta">暂无标签</span>';
  qa("[data-tag-remove]",box).forEach(b=>b.onclick=()=>{const now=liTags();now.splice(+b.dataset.tagRemove,1);paintLiTags(now)});
  const add=q("#li-tag-add");
  if(add)add.onclick=()=>{if(window.ERWTagPicker)window.ERWTagPicker(liTags(),()=>[...new Set(S.items.flatMap(x=>x.tags||[]))],paintLiTags)};
@@ -676,6 +724,11 @@ window.ERWCapture={
    if(!S.area)toggleArea();
  }),
 };
+// App zoom does not reliably trigger ResizeObserver. DPR can change on monitor moves.
+new MutationObserver(schedulePdfLayout).observe(document.documentElement,{attributes:true,attributeFilter:["style"]});
+window.addEventListener("resize",schedulePdfLayout);
+function watchPdfDpi(){window.matchMedia("(resolution: "+(window.devicePixelRatio||1)+"dppx)").addEventListener("change",()=>{schedulePdfLayout();watchPdfDpi()},{once:true})}
+watchPdfDpi();
 
 function pageText(n){ /* v260930c · M4 · 取渲染页缓存的文本几何拼正文：textItems 为内容流顺序，术语提取够用；未渲染页返回空 */
  const r=S.pages.get(+n);if(!r||!Array.isArray(r.textItems))return "";

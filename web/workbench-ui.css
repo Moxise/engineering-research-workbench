@@ -53,6 +53,11 @@ html[data-window-hidden="true"] #main .overview-dashboard *::after{animation-pla
 #main .overview-dashboard{display:grid!important;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:none!important;grid-auto-flow:row!important;grid-auto-rows:auto!important;align-content:start!important;align-items:stretch!important}
 #main .overview-dashboard>*{grid-column:1/-1!important;grid-row:auto!important;min-width:0}
 #main .overview-continue button{min-width:0;text-align:left}
+/* Fixed, single-line chips keep long project names out of the editor toolbar. */
+#main .project-chip{box-sizing:border-box;width:160px;flex:0 0 160px;max-width:100%;height:22px;min-height:22px;font-size:11px;white-space:nowrap}
+#main .project-chip.tag-chip{width:120px;flex-basis:120px}
+#main .project-chip-label{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:16px}
+#main .project-chip button{flex:0 0 14px;width:14px;min-width:14px;height:16px;line-height:16px}
 /* Keep the shell visible on long pages; only the navigation list scrolls. */
 @media(min-width:821px){
   #app.app-shell>.sidebar{position:sticky!important;top:0!important;align-self:start!important;height:var(--vh-px,100dvh)!important;min-height:0!important;max-height:var(--vh-px,100dvh)!important;overflow:visible!important}

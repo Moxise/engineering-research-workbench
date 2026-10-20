@@ -1,6 +1,8 @@
 /* Run against a local server with Playwright available in NODE_PATH.
  * All task/document writes are intercepted; the user's workspace is never edited.
  * node tools/ui_usability_check.js (starts its own static fixture server)
+ * --pdf-quality-only tests chips/DPR/cache; add --pdf-fixture=path.pdf --pdf-page=7
+ * for read-only verification with the same PDF.js version used by the app.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -23,6 +25,7 @@ fs.mkdirSync(output, {recursive:true});
   const base=process.argv.slice(2).find(value=>/^https?:/.test(value))||`http://127.0.0.1:${server.address().port}`;
   const readingOnly=process.argv.includes('--reading-only');
   const overviewOnly=process.argv.includes('--overview-only');
+  const pdfQualityOnly=process.argv.includes('--pdf-quality-only');
   let browser;
   try{
     browser=await chromium.launch({headless:true,channel:process.env.UI_BROWSER||'msedge'});
@@ -171,6 +174,90 @@ fs.mkdirSync(output, {recursive:true});
     const settleOverview=()=>page.waitForFunction(()=>{const e=document.querySelector('.overview-dashboard'),r=e.getBoundingClientRect(),key=[r.width,r.height,document.querySelector('.heatmap-card')?.style.cssText].join('|');if(e._testLayoutKey!==key){e._testLayoutKey=key;e._testLayoutSince=performance.now()}return performance.now()-e._testLayoutSince>=160});
     const smallText=()=>page.evaluate(()=>Array.from(document.querySelectorAll('body *')).filter(e=>e.children.length===0&&e.textContent.trim()&&e.getClientRects().length&&parseFloat(getComputedStyle(e).fontSize)<11).map(e=>({class:e.className,size:getComputedStyle(e).fontSize,text:e.textContent.slice(0,30)})));
     await page.goto(base);await ready();
+    if(pdfQualityOnly){
+      const longProject='Two-stage fine-tuning of large language models for distribution network service restoration via CoT reasoning';
+      const longTag='结构化输出与供电恢复的物理约束 <RAG> "测试"';
+      literatureEditor.projects=[longProject,'短项目'];literatureEditor.tags=[longTag,'RAG'];paper.tags=[longTag,'RAG'];
+      await page.setViewportSize({width:2550,height:1233});
+      if(await page.locator('html').getAttribute('data-theme')!=='dark')await page.locator('#theme-btn').click();
+      await page.evaluate(()=>window.ERWNav.open('literature','ui-lit-editor'));await page.waitForSelector('#f-projects .project-chip-label');
+      const chips=async(selector,width)=>{
+        const values=await page.locator(selector+' .project-chip').evaluateAll(es=>es.map(e=>{const r=e.getBoundingClientRect(),label=e.querySelector('.project-chip-label'),b=e.querySelector('button').getBoundingClientRect();return {width:e.offsetWidth,height:e.offsetHeight,title:e.title,text:label.textContent,ellipsis:getComputedStyle(label).textOverflow,nowrap:getComputedStyle(label).whiteSpace,clipped:label.scrollWidth>label.clientWidth,buttonInside:b.left>=r.left&&b.right<=r.right+1&&b.top>=r.top&&b.bottom<=r.bottom+1}}));
+        assert.equal(values.length,2);assert(values.every(v=>v.width===width&&v.height===22&&v.buttonInside&&v.ellipsis==='ellipsis'&&v.nowrap==='nowrap'),'equal-sized chips preserve accessible remove buttons: '+JSON.stringify(values));assert(values[0].clipped,'long labels are truncated instead of wrapping');return values;
+      };
+      for(const zoom of [100,125]){
+        await page.locator('#zoom-btn').click();await page.locator(`[data-zoom="${zoom}"]`).click();
+        for(const width of [2550,1280]){
+          await page.setViewportSize({width,height:1233});await chips('#f-projects',160);
+          assert.equal(await page.locator('#f-projects .project-chip').first().getAttribute('title'),longProject);
+          assert((await page.locator('.meta-block').boundingBox()).height<=90*(zoom/100),'long projects keep compact metadata short');
+        }
+      }
+      await page.setViewportSize({width:2550,height:1233});await page.locator('#zoom-btn').click();await page.locator('[data-zoom="100"]').click();
+      await shot('project-chips-editor-fullscreen',{fullPage:false});
+      await page.locator('#meta-toggle').click();assert.equal((await chips('#f-tags',120))[0].title,longTag);
+      await page.locator('[data-project-remove="1"]').click();assert.deepEqual(JSON.parse(await page.locator('#f-projects').getAttribute('data-projects')),[longProject]);
+      await page.locator('#f-tags [data-tag-remove="1"]').click();assert.deepEqual(JSON.parse(await page.locator('#f-tags').getAttribute('data-tags')),[longTag]);
+      await respond(()=>go('literature'),'discard');await page.locator('#open-lit-workspace').waitFor();
+      const installMock=()=>page.evaluate(()=>{
+        window.__qualityRenders=0;window.__qualityCancels=0;
+        const pdfPage={getViewport:({scale})=>({width:960*scale,height:540*scale,scale,transform:[scale,0,0,-scale,0,540*scale]}),render:({canvasContext:ctx,viewport:v,transform})=>{
+          window.__qualityRenders++;ctx.setTransform(...transform);ctx.fillStyle='#fff';ctx.fillRect(0,0,v.width,v.height);ctx.fillStyle='#111';ctx.font=(14*v.scale)+'px sans-serif';ctx.fillText('Sharp vector text · PDF rendering quality',30*v.scale,50*v.scale);
+          let reject,timer;const promise=new Promise((resolve,fail)=>{reject=fail;timer=setTimeout(resolve,window.__qualityDelay||40)});return {promise,cancel:()=>{window.__qualityCancels++;clearTimeout(timer);reject(Object.assign(new Error('cancelled'),{name:'RenderingCancelledException'}))}};
+        },getTextContent:async()=>({items:[]}),cleanup:()=>{}};
+        window.pdfjsLib={getDocument:()=>({promise:Promise.resolve({numPages:20,getPage:async()=>pdfPage})})};
+      });
+      await installMock();await page.locator('#open-lit-workspace').click();await page.locator('[data-paper="ui-paper"]').click();
+      const rendered=()=>page.waitForFunction(()=>{const sc=document.querySelector('#lit-scroll'),v=sc.getBoundingClientRect(),visible=[...document.querySelectorAll('.lit-page-shell')].filter(e=>{const r=e.getBoundingClientRect();return r.bottom>v.top&&r.top<v.bottom});return !document.querySelector('#lit-pages').style.zoom&&visible.length&&visible.every(e=>e.querySelector('canvas')?.width>1&&e.querySelector('.lit-interaction-layer')?.onmousedown)&&!document.querySelector('.lit-page-error')});
+      await rendered();await page.locator('#lit-toggle-side').click();await chips('#li-tags',120);
+      await shot('project-chips-fullscreen',{fullPage:false});
+      await page.locator('#lit-toggle-side').click();
+      const wheelPdf=async(delta,count=1)=>{await page.locator('#lit-scroll').hover({position:{x:180,y:180}});await page.keyboard.down('Control');for(let i=0;i<count;i++)await page.mouse.wheel(0,delta);await page.keyboard.up('Control');await page.waitForTimeout(220);await rendered()};
+      await wheelPdf(240,3); // Manual zoom small enough to test native DPR without hitting the pixel limit.
+      const cdp=await page.context().newCDPSession(page);
+      const resolution=()=>page.locator('.lit-page canvas').first().evaluate(e=>({width:e.width,height:e.height,cssWidth:parseFloat(e.style.width),screenWidth:e.getBoundingClientRect().width,screenHeight:e.getBoundingClientRect().height,dpr:devicePixelRatio}));
+      for(const dpr of [1,2,3]){
+        await cdp.send('Emulation.setDeviceMetricsOverride',{width:2550,height:1233,deviceScaleFactor:dpr,mobile:false});
+        for(const zoom of [100,125]){
+          await page.locator('#zoom-btn').click();await page.locator(`[data-zoom="${zoom}"]`).click();
+          await page.waitForFunction(({density,zoom})=>{const e=document.querySelector('.lit-page canvas');return e&&Math.abs(e.width/parseFloat(e.style.width)-Math.max(2,density)*zoom/100)<.01},{density:dpr,zoom});
+          const r=await resolution();assert(r.width/r.screenWidth>=Math.max(2,dpr)-.02,'canvas meets screen density at DPR '+dpr+' and '+zoom+'%');
+        }
+      }
+      await cdp.send('Emulation.setDeviceMetricsOverride',{width:2550,height:1233,deviceScaleFactor:1,mobile:false});
+      await page.locator('#zoom-btn').click();await page.locator('[data-zoom="100"]').click();
+      await wheelPdf(-240,8);assert(parseInt(await page.locator('#lit-zoom-label').innerText(),10)>=399);
+      const large=await resolution();assert(large.width*large.height<=12*1024*1024&&large.width<=8192&&large.height<=8192,'large zoom obeys the per-page allocation limit');
+      for(const target of [2,5,10,15,20,10,1]){
+        await page.locator('#lit-scroll').evaluate((sc,n)=>{const el=document.querySelector(`.lit-page-shell[data-page="${n}"]`);sc.scrollTop=el.offsetTop-8},target);
+        await page.waitForFunction(n=>document.querySelector(`.lit-page-shell[data-page="${n}"] canvas`)?.width>1,target);
+        await page.waitForTimeout(180);
+        const cache=await page.locator('.lit-page canvas').evaluateAll(es=>({pixels:es.reduce((sum,e)=>sum+e.width*e.height,0),count:es.length}));
+        assert(cache.pixels<=40*1024*1024,'retained page pixels remain bounded after scrolling: '+JSON.stringify({target,cache}));
+      }
+      assert.equal(await page.locator('.lit-page-error').count(),0);
+      const renders=await page.evaluate(()=>{window.__qualityDelay=400;return window.__qualityRenders}),cancels=await page.evaluate(()=>window.__qualityCancels);
+      await page.locator('#lit-zoom-out').click();await page.waitForFunction(before=>window.__qualityRenders>before,renders);await page.locator('#lit-zoom-in').click();await rendered();
+      assert(await page.evaluate(()=>window.__qualityCancels)>cancels,'superseded renders are actually cancelled');assert.equal(await page.locator('.lit-page-error').count(),0,'cancelled renders do not appear as page errors');
+      const fixtureArg=process.argv.find(value=>value.startsWith('--pdf-fixture='));
+      if(fixtureArg){
+        const fixturePath=path.resolve(fixtureArg.slice('--pdf-fixture='.length)),pdfBytes=fs.readFileSync(fixturePath),cache=path.join(output,'pdfjs-3.11.174');fs.mkdirSync(cache,{recursive:true});
+        for(const name of ['pdf.min.js','pdf.worker.min.js']){const file=path.join(cache,name);if(!fs.existsSync(file)){const response=await fetch('https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/'+name);assert(response.ok);fs.writeFileSync(file,Buffer.from(await response.arrayBuffer()))}}
+        await page.context().route('**/qa-pdfjs/*',route=>route.fulfill({contentType:'application/javascript',path:path.join(cache,new URL(route.request().url()).pathname.split('/').pop())}));
+        await page.route('**/api/literature/ui-paper/pdf',route=>route.fulfill({contentType:'application/pdf',body:pdfBytes}));
+        await page.evaluate(()=>delete window.pdfjsLib);await page.addScriptTag({url:base+'/qa-pdfjs/pdf.min.js'});await page.evaluate(()=>window.pdfjsLib.GlobalWorkerOptions.workerSrc=location.origin+'/qa-pdfjs/pdf.worker.min.js');
+        const pageArg=process.argv.find(value=>value.startsWith('--pdf-page=')),targetPage=Math.max(1,Math.trunc(Number(pageArg?.split('=')[1])||1));
+        paper.last_page=targetPage;await page.locator('[data-paper="ui-paper"]').click();
+        try{await page.waitForSelector(`.lit-page[data-page="${targetPage}"] canvas`)}catch(error){console.log('Real PDF diagnostics:',await page.evaluate(()=>({page:window.ERWLiterature.context().page,label:document.querySelector('#lit-page-label')?.textContent,text:document.querySelector('#lit-pages')?.textContent.slice(0,500),canvases:[...document.querySelectorAll('.lit-page')].map(e=>e.dataset.page)})),errors);await shot('pdf-real-failure',{fullPage:false});throw error}
+        await page.waitForFunction(()=>window.ERWLiterature.context().page_text.length>100);await rendered();
+        assert.equal(await page.locator('.lit-page-error').count(),0);assert((await page.locator(`.lit-page[data-page="${targetPage}"] canvas`).evaluate(e=>e.width/e.getBoundingClientRect().width))>1.9);
+        await shot('pdf-sharp-real-fullscreen',{fullPage:false});
+        await wheelPdf(-100);assert.equal(await page.locator('.lit-page-error').count(),0);await shot('pdf-sharp-real-zoom',{fullPage:false});
+        await page.locator('#lit-toggle-side').click();await page.locator('[data-tab="info"]').click();await page.locator('#lit-fit').click();await page.waitForTimeout(180);await rendered();
+        await shot('pdf-sharp-real-side-info',{fullPage:false});
+      }
+      assert.deepEqual(errors,[]);console.log('PASS: fixed single-line project/tag chips, full-name identity and remove controls; PDF supersampling, app zoom, DPR 1/2/3 transitions, large-page pixel/cache limits, scroll rehydration and render cancellation'+(fixtureArg?'; real PDF.js rendering verified':''));return;
+    }
     if(overviewOnly){
       let scrollChecks=0,navChecks=0;
       const verify=async(label)=>{
