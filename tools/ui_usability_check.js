@@ -22,6 +22,7 @@ fs.mkdirSync(output, {recursive:true});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const base=process.argv.slice(2).find(value=>/^https?:/.test(value))||`http://127.0.0.1:${server.address().port}`;
   const readingOnly=process.argv.includes('--reading-only');
+  const overviewOnly=process.argv.includes('--overview-only');
   let browser;
   try{
     browser=await chromium.launch({headless:true,channel:process.env.UI_BROWSER||'msedge'});
@@ -73,6 +74,9 @@ fs.mkdirSync(output, {recursive:true});
       localStorage.setItem('sidebarPinned',JSON.stringify(['core']));
       localStorage.setItem('uiScale','100');
       localStorage.setItem('fabBallPos',JSON.stringify({x:1548,y:300}));
+      localStorage.setItem('erwRecent:doc',JSON.stringify({id:'ui-note',kind:'note',title:'知识-方法-物理状态计算与大模型决策的职责分离'}));
+      localStorage.setItem('erwRecent:pdf',JSON.stringify({id:'ui-paper',title:'文献-物理信息引导思维树搜索的大模型负荷转供方法'}));
+      localStorage.setItem('erwRecent:chat',JSON.stringify({id:'ui-agent-session',title:'LLM 的世界模型与确定性电气求解器如何分工？'}));
     });
     await page.route('**/api/**',async route=>{
       const request=route.request(),url=new URL(request.url()),method=request.method();
@@ -162,9 +166,70 @@ fs.mkdirSync(output, {recursive:true});
     const ready=()=>page.waitForSelector('.overview-todo-add');
     const go=async route=>{await page.locator(`#sidebar-nav [data-route="${route}"]`).click();await page.waitForFunction(r=>document.documentElement.dataset.route===r,route)};
     const respond=async(trigger,result='confirm')=>{const work=trigger();await page.waitForSelector('#workbench-dialog');await page.locator(`[data-dialog-result="${result}"]`).click();await page.waitForSelector('#workbench-dialog',{state:'detached'});await work};
-    const shot=name=>page.screenshot({path:path.join(output,name+'.png'),fullPage:true});
+    const shot=(name,options={})=>page.screenshot({path:path.join(output,name+'.png'),fullPage:true,...options});
+    // Resize handlers and the heatmap observer may reflow cards after the viewport event.
+    const settleOverview=()=>page.waitForFunction(()=>{const e=document.querySelector('.overview-dashboard'),r=e.getBoundingClientRect(),key=[r.width,r.height,document.querySelector('.heatmap-card')?.style.cssText].join('|');if(e._testLayoutKey!==key){e._testLayoutKey=key;e._testLayoutSince=performance.now()}return performance.now()-e._testLayoutSince>=160});
     const smallText=()=>page.evaluate(()=>Array.from(document.querySelectorAll('body *')).filter(e=>e.children.length===0&&e.textContent.trim()&&e.getClientRects().length&&parseFloat(getComputedStyle(e).fontSize)<11).map(e=>({class:e.className,size:getComputedStyle(e).fontSize,text:e.textContent.slice(0,30)})));
     await page.goto(base);await ready();
+    if(overviewOnly){
+      let scrollChecks=0,navChecks=0;
+      const verify=async(label)=>{
+        await page.waitForFunction(()=>document.querySelector('.overview-continue button'));
+        await page.waitForFunction(()=>Math.abs(parseFloat(document.documentElement.style.getPropertyValue('--vh-px'))*(parseFloat(document.documentElement.style.zoom)||1)-innerHeight)<1);
+        await settleOverview();
+        const frame=await page.evaluate(()=>{
+          const rect=e=>{const r=e.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}};
+          const root=document.querySelector('.overview-dashboard'),selectors=['.overview-preferences','.overview-continue','.overview-top-row','.overview-mid-row','.overview-ops-grid','.overview-lower-band'];
+          return {root:rect(root),sections:selectors.map(selector=>({selector,...rect(root.querySelector(':scope > '+selector))})),scroll:document.documentElement.scrollWidth,width:innerWidth};
+        });
+        for(const section of frame.sections){assert(section.width>=frame.root.width-2,'overview sections use the full row: '+JSON.stringify({label,section,root:frame.root}));assert(section.left>=frame.root.left-1&&section.right<=frame.root.right+1,'section stays inside dashboard: '+label)}
+        for(let i=1;i<frame.sections.length;i++)assert(frame.sections[i].top>=frame.sections[i-1].bottom-1,'sections retain their visible order without overlap: '+JSON.stringify({label,sections:frame.sections}));
+        assert(frame.scroll<=frame.width+1,'no page horizontal overflow: '+label);
+        assert.equal(await page.locator('#overview-continue button').count(),4,'all recent-work actions remain accessible');
+        const sidebar=page.locator('#app>.sidebar'),before=await sidebar.boundingBox();
+        assert(Math.abs(before.y)<1&&Math.abs(before.height-(await page.evaluate(()=>innerHeight)))<2,'browser navigation fills the viewport: '+JSON.stringify({label,before}));
+        await page.evaluate(()=>window.scrollTo(0,Math.min(640,document.documentElement.scrollHeight-innerHeight)));
+        const scrolled=await page.evaluate(()=>window.scrollY);
+        if(scrolled>2){scrollChecks++;const after=await sidebar.boundingBox();assert(Math.abs(after.y-before.y)<1&&Math.abs(after.height-before.height)<1,'navigation stays fixed while the page scrolls: '+label)}
+        const nav=page.locator('#sidebar-nav'),canScroll=await nav.evaluate(e=>e.scrollHeight>e.clientHeight+2);
+        if(canScroll){navChecks++;const bounds=await nav.boundingBox();await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2);const pageScroll=await page.evaluate(()=>window.scrollY);await page.mouse.wheel(0,440);await page.waitForFunction(()=>document.querySelector('#sidebar-nav').scrollTop>0);const after=await page.evaluate(()=>({page:window.scrollY,nav:document.querySelector('#sidebar-nav').scrollTop}));assert(Math.abs(after.page-pageScroll)<2,'scrolling navigation does not move the page: '+JSON.stringify({label,pageScroll,after}));await nav.evaluate(e=>e.scrollTop=0)}
+        await page.evaluate(()=>window.scrollTo(0,0));
+      };
+      for(const density of ['cozy','compact']){
+        if(await page.locator('html').getAttribute('data-density')!==density)await page.locator('#density-btn').click();
+        for(const zoom of [100,125]){
+          await page.setViewportSize({width:2550,height:1233});await page.locator('#zoom-btn').click();await page.locator(`[data-zoom="${zoom}"]`).click();
+          for(const [width,height] of [[2550,1233],[2560,1440],[1920,1080],[1536,864],[1280,720],[1279,900],[1100,800]]){
+            await page.setViewportSize({width,height});await verify(`${density} ${width}x${height} ${zoom}%`);
+            if(width===2550&&zoom===100){await shot('overview-browser-fullscreen-'+density,{fullPage:false});await page.evaluate(()=>window.scrollTo(0,600));await shot('overview-browser-scrolled-'+density,{fullPage:false});await page.evaluate(()=>window.scrollTo(0,0))}
+          }
+        }
+      }
+      assert(scrollChecks>0&&navChecks>0,'the matrix includes real page and navigation scrolling');
+      todos=[];for(const record of milestoneRows)deletedDocs.add(record.id);fixtureDashboard.upcoming_milestones=[];
+      await page.setViewportSize({width:2550,height:1233});await page.locator('#zoom-btn').click();await page.locator('[data-zoom="100"]').click();
+      if(await page.locator('html').getAttribute('data-density')!=='cozy')await page.locator('#density-btn').click();
+      if(await page.locator('html').getAttribute('data-theme')!=='dark')await page.locator('#theme-btn').click();
+      await go('overview');await ready();await verify('full-screen empty tasks and milestones');
+      assert.equal(await page.locator('[data-overview-check]').count(),0);
+      await shot('overview-browser-fullscreen-empty-dark',{fullPage:false});
+      await page.locator('#overview-stats-visible').uncheck();
+      assert.equal(await page.locator('.heatmap-card').isVisible(),false);assert.equal(await page.locator('#overview-continue').isVisible(),true);assert.equal(await page.locator('.overview-task-card').isVisible(),true);
+      const hidden=await page.locator('.overview-dashboard').evaluate(root=>{const rows=[...root.children].filter(e=>getComputedStyle(e).display!=='none').map(e=>e.getBoundingClientRect());return rows.every((r,i)=>!i||r.top>=rows[i-1].bottom-1)});assert(hidden,'hiding statistics leaves no overlapping or misplaced rows');
+      await page.locator('#overview-stats-visible').check();
+      // The fixed-height shell must retain the resize handle and all three sidebar modes.
+      const resizer=page.locator('.sidebar-resizer');
+      for(const [key,mode] of [['Home','icon'],['End','full']]){
+        await resizer.press(key);assert.equal(await page.locator('html').getAttribute('data-sidebar-mode'),mode);await verify('full-screen '+mode+' navigation');
+      }
+      for(let i=0;i<8;i++)await resizer.press('ArrowLeft');
+      assert.equal(await page.locator('html').getAttribute('data-sidebar-mode'),'compact');await verify('full-screen compact navigation');
+      await resizer.dblclick();assert.equal(await resizer.getAttribute('aria-valuenow'),'168');
+      await page.setViewportSize({width:760,height:1000});
+      assert(await page.locator('#app>.sidebar').evaluate(e=>e.getBoundingClientRect().height<160),'small-screen navigation remains compact');
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+      assert.deepEqual(errors,[]);console.log('PASS: full-screen-first overview order and row widths, empty/populated states, fixed navigation with independent scrolling, both densities, 100/125% and responsive boundaries');return;
+    }
     assert.equal(await page.locator('#overview-continue').isVisible(),true);
     await page.locator('#overview-stats-visible').uncheck();
     assert.equal(await page.locator('.heatmap-card').isVisible(),false);
@@ -559,6 +624,19 @@ fs.mkdirSync(output, {recursive:true});
     // Navigate with the existing unsaved-document guard, then check shell zoom.
     await respond(()=>go('overview'),'discard');await ready();
     await shot('desktop-overview');
+    const previousDensity=await page.locator('html').getAttribute('data-density');
+    if(previousDensity!=='cozy')await page.locator('#density-btn').click();
+    await page.setViewportSize({width:2550,height:1233});
+    for(const zoom of [100,125]){
+      await page.locator('#zoom-btn').click();await page.locator(`[data-zoom="${zoom}"]`).click();await settleOverview();
+      const sidebar=page.locator('#app>.sidebar'),before=await sidebar.boundingBox();
+      assert(Math.abs(before.y-48)<1&&Math.abs(before.height-1185)<2,'desktop navigation fits below the titlebar at '+zoom+'%');
+      await page.evaluate(()=>window.scrollTo(0,600));assert(await page.evaluate(()=>scrollY>2),'desktop overview exercises actual scrolling');
+      const after=await sidebar.boundingBox();assert(Math.abs(after.y-48)<1&&Math.abs(after.height-before.height)<1,'desktop navigation remains fixed when full-screen content scrolls');
+      await page.evaluate(()=>window.scrollTo(0,0));
+    }
+    if(previousDensity!=='cozy')await page.locator('#density-btn').click();
+    await page.setViewportSize({width:1600,height:1000});
     await page.locator('#zoom-btn').click();await page.locator('[data-zoom="125"]').click();
     await page.waitForTimeout(150);
     assert.equal(Math.round((await chrome.boundingBox()).height),48,'titlebar height is stable under app zoom');

@@ -48,6 +48,18 @@ html[data-window-hidden="true"] #main .overview-dashboard *::after{animation-pla
 
 /* Fill the canvas at every zoom; workspaces should not inherit a reading-width cap. */
 #app>.main-shell>#main{width:100%!important;max-width:none!important;margin-inline:0!important;box-sizing:border-box}
+/* Overview sections flow in document order; each section owns its responsive columns.
+   Legacy numbered rows in a 12-column outer grid misplaced newly added sections. */
+#main .overview-dashboard{display:grid!important;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:none!important;grid-auto-flow:row!important;grid-auto-rows:auto!important;align-content:start!important;align-items:stretch!important}
+#main .overview-dashboard>*{grid-column:1/-1!important;grid-row:auto!important;min-width:0}
+#main .overview-continue button{min-width:0;text-align:left}
+/* Keep the shell visible on long pages; only the navigation list scrolls. */
+@media(min-width:821px){
+  #app.app-shell>.sidebar{position:sticky!important;top:0!important;align-self:start!important;height:var(--vh-px,100dvh)!important;min-height:0!important;max-height:var(--vh-px,100dvh)!important;overflow:visible!important}
+  html[data-desktop="true"] #app.app-shell>.sidebar{top:var(--desktop-titlebar-height,48px)!important}
+  #app>.sidebar>:is(.brand,.sidebar-footer){flex:0 0 auto}
+  #app>.sidebar>#sidebar-nav{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overscroll-behavior-y:contain}
+}
 #main .docs-layout .doc-editor:not(.empty-editor){display:flex!important;flex-direction:column!important;overflow:hidden!important;min-height:0!important}
 #main .doc-editor-content{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain}
 #main .docs-layout .meta-block{flex:0 0 auto!important;min-height:max-content!important;max-height:none!important;overflow:visible!important;scrollbar-gutter:auto}
