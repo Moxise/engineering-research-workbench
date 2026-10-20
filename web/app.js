@@ -1763,26 +1763,38 @@
   function markFormHtml(prefix,mark){
     const m=mark||{icon:'◆',label:'',color:'#4a6fa5'};
     const icon=m.icon||'◆';
-    return `<div class="form-grid">
+    const color=m.color||'#4a6fa5';
+    return `<div class="form-grid mark-form">
       <div class="field span-2"><label>分类名称</label><input id="${prefix}-label" maxlength="16" value="${esc(m.label||'')}" placeholder="例如：问题"></div>
-      <div class="field span-2"><label>颜色与预览</label>
-        <div class="mark-color-row"><input id="${prefix}-color" type="color" value="${esc(m.color||'#4a6fa5')}"><span class="mark-chip on" id="${prefix}-preview" style="--mark-color:${esc(m.color||'#4a6fa5')}">${esc(icon)} ${esc(m.label||'预览')}</span></div>
-        <div class="field-help" style="margin-top:6px">预览随名称、颜色与图案实时变化。</div>
+      <div class="field"><label>颜色</label>
+        <label class="mark-color-pick" title="选择颜色">
+          <input id="${prefix}-color" type="color" value="${esc(color)}">
+          <span class="mcp-dot" id="${prefix}-dot" style="background:${esc(color)}"></span>
+          <span class="mcp-hex" id="${prefix}-hex">${esc(color)}</span>
+        </label>
+      </div>
+      <div class="field"><label>预览</label>
+        <div class="mark-preview-box"><span class="mark-chip on" id="${prefix}-preview" style="--mark-color:${esc(color)}">${esc(icon)} ${esc(m.label||'预览')}</span></div>
       </div>
       <div class="field span-4"><label>标记图案</label>
         <div class="mark-icon-groups" id="${prefix}-icon-groups">
           ${MARK_ICON_GROUPS.map(g=>`<div class="mig"><span class="mig-name">${esc(g.name)}</span><div class="mig-grid">${g.icons.map(ic=>`<button type="button" data-${prefix}-icon="${esc(ic)}" class="${icon===ic?'on':''}" title="选择 ${esc(ic)}">${esc(ic)}</button>`).join('')}</div></div>`).join('')}
         </div>
-        <div class="mark-icon-custom"><input id="${prefix}-icon" maxlength="4" value="${esc(icon)}" placeholder="也可输入其它符号"><span class="field-help">点选上面的图案，或直接输入任意符号 / emoji（最多 4 个字符）。</span></div>
+        <div class="mark-icon-custom"><input id="${prefix}-icon" maxlength="4" value="${esc(icon)}" placeholder="也可输入其它符号"><span class="field-help">点选上面的图案，或直接输入任意符号 / emoji（最多 4 个字符）。预览随名称、颜色与图案实时变化。</span></div>
       </div>
     </div>`;
   }
   function wireMarkForm(prefix){
     const iconInput=$(`#${prefix}-icon`),labelInput=$(`#${prefix}-label`),colorInput=$(`#${prefix}-color`),preview=$(`#${prefix}-preview`);
+    const dot=$(`#${prefix}-dot`),hex=$(`#${prefix}-hex`);
     const syncPreview=()=>{
-      if(!preview)return;
-      preview.textContent=`${iconInput.value.trim()||'◆'} ${labelInput.value.trim()||'预览'}`;
-      preview.style.setProperty('--mark-color',colorInput.value||'#4a6fa5');
+      const color=colorInput.value||'#4a6fa5';
+      if(preview){
+        preview.textContent=`${iconInput.value.trim()||'◆'} ${labelInput.value.trim()||'预览'}`;
+        preview.style.setProperty('--mark-color',color);
+      }
+      if(dot)dot.style.background=color;
+      if(hex)hex.textContent=color;
     };
     $$(`#${prefix}-icon-groups [data-${prefix}-icon]`).forEach(btn=>btn.onclick=()=>{
       const icon=btn.dataset[prefix+'Icon']||'◆';
