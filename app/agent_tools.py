@@ -143,7 +143,9 @@ def _t_kb_search(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     result = agent_rag.search(query, kind=kind, limit=limit)
     from . import literature
     papers = {p.get("doc_id"): p for p in literature._load_registry().get("items", []) if p.get("doc_id")}
+    from .evidence import describe
     for item in result.get("items", []):
+        item["evidence"] = item.get("evidence") or describe(item)
         paper = papers.get(item["id"])
         if paper:
             item["paper_id"] = paper["id"]

@@ -26,7 +26,7 @@
 
   const state = {
     config: null, statuses: {}, projects: [], route: 'overview', docs: [], selectedDoc: null,
-    editorMode: 'split', milestoneView: 'timeline', graphView: '2d', graph: null, graphSelected: null, graphPreviewSeq: 0, previewSeq: 0,
+    editorMode: ['split','edit','preview'].includes(localStorage.getItem('editorMode'))?localStorage.getItem('editorMode'):'preview', milestoneView: 'timeline', graphView: '2d', graph: null, graphSelected: null, graphPreviewSeq: 0, previewSeq: 0,
     graphKinds: new Set(storedArray('graphKinds', ['idea','journal','note','milestone','summary','literature','project','tag'])),
     graphRelations: new Set(storedArray('graphRelations', ['wikilink','tag','project'])),
     agentSession: window.ERWAgentClient?.sessionId()||null, agentRefs: [], agentImages: [], agentQuotes: [], agentPreset: localStorage.getItem('agentRequestPreset') || '', agentSending:false, agentEdit:null,
@@ -206,8 +206,8 @@
     state.docSelectionMode=false;state.todoSelectionMode=false;
     state.route=route; location.hash=route; document.documentElement.dataset.route=route; document.documentElement.dataset.knowledgeKind=kindFromRoute(route)||''; renderSidebar(); setHeader(route);
     if(state.heatmapObserver){try{state.heatmapObserver.disconnect();}catch{} state.heatmapObserver=null;}
-    /* v260923u · 切页不再先清空主区为 LOADING：保留旧页面内容直到新页数据就绪后一次性替换，
-     * 消除「白一下→加载→跳变」的重新加载感。navSeq 序号守卫：快速连点时丢弃过期渲染的收尾动画/错误覆盖。 */
+    $('#main').setAttribute('aria-busy','true');
+    $('#main').innerHTML=`<section class="page-loading" role="status"><strong>正在打开${esc($('#page-title').textContent)}…</strong><div class="page-loading-lines" aria-hidden="true"></div></section>`;
     const seq=state.navSeq=(state.navSeq||0)+1;
     try {
       if(route==='overview') await renderOverview();
@@ -226,8 +226,8 @@
       animateMain();
     } catch(err){
       if(seq!==state.navSeq) return false;
-      console.error(err); $('#main').innerHTML=`<div class="card card-pad danger">加载失败：${esc(err.message)}</div>`; animateMain();
-    }
+      console.error(err); $('#main').innerHTML=`<div class="card page-load-error" role="alert"><strong>暂时无法载入${esc($('#page-title').textContent)}</strong><span>${esc(err.message)}</span><button type="button" class="secondary-btn" id="page-load-retry">重试</button></div>`;$('#page-load-retry').onclick=()=>navigate(route);animateMain();
+    }finally{if(seq===state.navSeq)$('#main').removeAttribute('aria-busy')}
     return true; /* v260930g9c · 导航成功完成 */
   }
 
@@ -276,7 +276,8 @@
     const d=new Date((dash.today||today())+'T00:00:00');
     const dateTitle=d.toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'});
     const recentToday=(activity.days||[]).find(x=>x.date===dash.today)?.count||0;
-    $('#main').innerHTML = `<div class="overview-dashboard">
+    $('#main').innerHTML = `<div class="overview-dashboard" data-stats-hidden="${localStorage.getItem('overviewStatsHidden')==='1'}">
+      <div class="overview-preferences"><label><input type="checkbox" id="overview-stats-visible" ${localStorage.getItem('overviewStatsHidden')==='1'?'':'checked'}> 显示统计卡片</label></div><section class="card overview-continue" id="overview-continue"><h3>继续上次工作</h3></section>
       <div class="overview-top-row">
         ${researchHeatmapCard(activity)}
         <div class="overview-academic-grid">
@@ -546,7 +547,7 @@
   }
   function projectPulseCard(items){
     const rows=(items||[]).slice(0,6);
-    return `<section class="card card-pad project-pulse-card theme-card theme-project"><div class="card-head"><div>${overviewCardHeading('项目推进','PROJECT PULSE','project')}</div><div class="card-head-actions"><button class="primary-btn" id="overview-new-project">＋ 新建项目</button><button class="secondary-btn" data-go="folders">项目目录</button></div></div>${rows.length?`<div class="project-pulse-grid">${rows.map(x=>`<div class="project-pulse-item" style="--project-accent:${stableProjectAccent(x.name)}"><div class="project-pulse-name"><strong>${esc(x.name)}</strong><span>${x.last_updated?`更新 ${esc(fmtDate(x.last_updated))}`:'暂无更新记录'}</span></div><div class="project-pulse-metrics"><span><b>${x.docs||0}</b> 文档</span><span><b>${x.open_todos||0}</b> 待办</span><span><b>${x.milestones||0}</b> 里程碑</span><span><b>${x.literature||0}</b> 文献</span></div></div>`).join('')}</div>`:`<div class="academic-empty compact"><strong>还没有科研项目</strong></div>`}</section>`;
+    return `<section class="card card-pad project-pulse-card theme-card theme-project"><div class="card-head"><div>${overviewCardHeading('项目推进','PROJECT PULSE','project')}</div><div class="card-head-actions"><button class="primary-btn" id="overview-new-project">＋ 新建项目</button><button class="secondary-btn" data-go="folders">项目目录</button></div></div>${rows.length?`<div class="project-pulse-grid">${rows.map(x=>`<div class="project-pulse-item" style="--project-accent:${stableProjectAccent(x.name)}"><div class="project-pulse-name"><strong title="${esc(x.name)}">${esc(window.ERWResearchUI?.projectLabel(x.name)||x.name)}</strong><span>${x.last_updated?`更新 ${esc(fmtDate(x.last_updated))}`:'暂无更新记录'}</span></div><div class="project-pulse-metrics"><span><b>${x.docs||0}</b> 文档</span><span><b>${x.open_todos||0}</b> 待办</span><span><b>${x.milestones||0}</b> 里程碑</span><span><b>${x.literature||0}</b> 文献</span></div></div>`).join('')}</div>`:`<div class="academic-empty compact"><strong>还没有科研项目</strong></div>`}</section>`;
   }
 
   function overviewTaskCard(items){
@@ -618,6 +619,18 @@
       b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open()}});
     });
     $$('[data-quick-doc]').forEach(b=>b.addEventListener('click',async()=>{if(await navigate(b.dataset.quickDoc))setTimeout(()=>($('#new-doc')||$('#new-ms'))?.click(),30);}));
+    const continueRoot=$('#overview-continue');
+    if(continueRoot){
+      const add=(label,title,action)=>{const b=document.createElement('button');b.type='button';b.className='secondary-btn';b.textContent=label+' · '+title;b.title=title;b.onclick=action;continueRoot.append(b)};
+      const recent=window.ERWResearchUI?.recent;
+      const doc=recent?.('doc'),pdf=recent?.('pdf'),chat=recent?.('chat');
+      if(doc?.id)add('最近资料',doc.title,()=>openDocRoute(routeForKind(doc.kind),doc.id));
+      if(pdf?.id)add('继续阅读',pdf.title,async()=>{if(await guardEditor('打开论文')){await navigate('literature');await window.ERWLiterature?.openById?.(pdf.id)}});
+      if(chat?.id)add('最近对话',chat.title||'Agent',async()=>{window.ERWAgentClient?.select(chat.id,'main');state.agentSession=chat.id;await navigate('agent')});
+      add('待确认草稿','查看任务',async()=>{await navigate('agent');window.ERWAgentSystem?.open('runs')});
+      if(!doc&&!pdf&&!chat){const hint=document.createElement('span');hint.className='row-meta';hint.textContent='打开资料或对话后，这里会保留继续工作的入口。';continueRoot.append(hint)}
+      const toggle=$('#overview-stats-visible');if(toggle)toggle.onchange=()=>{localStorage.setItem('overviewStatsHidden',toggle.checked?'0':'1');$('.overview-dashboard').dataset.statsHidden=String(!toggle.checked)};
+    }
     const hm=$('#heatmap-month-select'); if(hm)hm.addEventListener('change',async()=>{await setHeatmapMonths(hm.value);await renderOverview();animateMain();});
     const center=$('#overview-ms-center');if(center)center.onclick=centerOverviewMilestone;
     const hs=$('#heatmap-scale-settings'); if(hs)hs.addEventListener('click',openHeatmapScaleSettings);
@@ -818,8 +831,9 @@
     window.ERWAgentClient?.select(state.agentSession,'main');
     const personas=llmCfg.personas?.length?llmCfg.personas:[{id:'executor',name:'执行助手'}];
     if(!personas.some(persona=>persona.id===state.agentPersona))state.agentPersona=personas[0].id;
-    $('#main').innerHTML=`<div class="agent-layout"><aside class="card agent-sessions"><div class="agent-side-head"><div><h3>Agent 对话</h3></div><button class="primary-btn" id="agent-new">＋</button></div><div class="agent-session-list">${sessions.length?sessions.map(x=>`<button type="button" class="agent-session ${x.id===state.agentSession?'active':''}" data-agent-session="${x.id}"><strong>${esc(x.title)}</strong><small>${esc(fmtTime(x.updated))} · ${x.message_count||0} 条</small></button>`).join(''):'<div class="empty compact">暂无对话</div>'}</div></aside><section class="agent-workspace" id="agent-workspace"><nav class="agent-workspace-tabs" id="agent-workspace-tabs" role="tablist" aria-label="Agent 功能"></nav><section class="card agent-chat" id="agent-chat-panel" role="tabpanel" aria-labelledby="agent-tab-chat"><header class="agent-chat-head"><div class="agent-chat-heading"><span class="agent-chat-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-10a7.5 7.5 0 0 1 7.5-7.5h3a7.5 7.5 0 0 1 7.5 7.5Z"/><path d="M7 10h8M7 14h5"/></svg></span><div class="agent-chat-title-group"><span class="agent-chat-caption">当前对话</span><h3 id="agent-chat-title">科研 Agent</h3></div></div><div class="agent-head-actions"><button type="button" class="secondary-btn agent-title-reference" id="agent-ref" title="选择文献、笔记等资料作为提问上下文"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg><span>引用资料</span></button><button type="button" class="ghost-btn agent-title-delete" id="agent-delete" aria-label="删除对话" title="删除对话" ${state.agentSession?'':'disabled'}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h14M8 3h4M5 5l1 12h8l1-12M8 8v6M12 8v6"/></svg></button></div></header><div class="agent-messages" id="agent-messages"><div class="empty">${state.agentSession?'正在载入对话…':'新建一个对话开始'}</div></div><div class="agent-context-strip" id="agent-context-strip"></div><div class="agent-composer"><div class="agent-image-strip" id="agent-image-strip"></div><textarea id="agent-input" placeholder="向科研 Agent 提问，可引用研究资料或粘贴图片…"></textarea><div class="agent-compose-actions">${window.ERWAgentClient.capabilityControls()}<div class="agent-compose-left"><button class="ghost-btn" id="agent-image">▧ 图片</button><label class="agent-preset-label">助手 <select class="search-input" id="agent-persona">${personas.map(persona=>`<option value="${esc(persona.id)}" ${persona.id===state.agentPersona?'selected':''}>${esc(persona.name)}</option>`).join('')}</select></label></div><details class="agent-model-options"><summary>模型选项</summary><div><label class="agent-preset-label">请求模式 <select class="search-input agent-preset-select" id="agent-preset">${requestPresetHtml}</select></label><span class="row-meta">Enter 发送 · Shift+Enter 换行</span></div></details><button class="primary-btn" id="agent-send">发送</button></div></div></section><section class="card agent-system" id="agent-system-panel" role="tabpanel" hidden><div class="as-content"></div></section></section></div>`;
+    $('#main').innerHTML=`<div class="agent-layout"><button type="button" class="agent-session-drawer-toggle" id="agent-session-drawer" aria-expanded="false">会话列表 <span>展开</span></button><aside class="card agent-sessions" id="agent-session-drawer-panel"><div class="agent-side-head"><div><h3>Agent 对话</h3></div><button class="primary-btn" id="agent-new">＋</button></div><div class="agent-session-list">${sessions.length?sessions.map(x=>`<button type="button" class="agent-session ${x.id===state.agentSession?'active':''}" data-agent-session="${x.id}"><strong>${esc(x.title)}</strong><small>${esc(fmtTime(x.updated))} · ${x.message_count||0} 条</small></button>`).join(''):'<div class="empty compact">暂无对话</div>'}</div></aside><section class="agent-workspace" id="agent-workspace"><nav class="agent-workspace-tabs" id="agent-workspace-tabs" role="tablist" aria-label="Agent 功能"></nav><section class="card agent-chat" id="agent-chat-panel" role="tabpanel" aria-labelledby="agent-tab-chat"><header class="agent-chat-head"><div class="agent-chat-heading"><span class="agent-chat-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-10a7.5 7.5 0 0 1 7.5-7.5h3a7.5 7.5 0 0 1 7.5 7.5Z"/><path d="M7 10h8M7 14h5"/></svg></span><div class="agent-chat-title-group"><span class="agent-chat-caption">当前对话</span><h3 id="agent-chat-title">科研 Agent</h3></div></div><div class="agent-head-actions"><button type="button" class="secondary-btn agent-title-reference" id="agent-ref" title="选择文献、笔记等资料作为提问上下文"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg><span>引用资料</span></button><button type="button" class="ghost-btn agent-title-delete" id="agent-delete" aria-label="删除对话" title="删除对话" ${state.agentSession?'':'disabled'}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h14M8 3h4M5 5l1 12h8l1-12M8 8v6M12 8v6"/></svg></button></div></header><div class="agent-messages" id="agent-messages"><div class="empty">${state.agentSession?'正在载入对话…':'新建一个对话开始'}</div></div><div class="agent-context-strip" id="agent-context-strip"></div><div class="agent-composer"><div class="agent-image-strip" id="agent-image-strip"></div><textarea id="agent-input" placeholder="向科研 Agent 提问，可引用研究资料或粘贴图片…"></textarea><div class="agent-compose-actions">${window.ERWAgentClient.capabilityControls()}<div class="agent-compose-left"><button class="ghost-btn" id="agent-image">▧ 图片</button><label class="agent-preset-label">助手 <select class="search-input" id="agent-persona">${personas.map(persona=>`<option value="${esc(persona.id)}" ${persona.id===state.agentPersona?'selected':''}>${esc(persona.name)}</option>`).join('')}</select></label></div><details class="agent-model-options"><summary>模型选项</summary><div><label class="agent-preset-label">请求模式 <select class="search-input agent-preset-select" id="agent-preset">${requestPresetHtml}</select></label><span class="row-meta">Enter 发送 · Shift+Enter 换行</span></div></details><button class="primary-btn" id="agent-send">发送</button></div></div></section><section class="card agent-system" id="agent-system-panel" role="tabpanel" hidden><div class="as-content"></div></section></section></div>`;
     window.ERWAgentClient.mountCapabilities($('#agent-chat-panel'));
+    $('#agent-session-drawer').onclick=()=>{const layout=$('.agent-layout'),open=layout.dataset.sessionsOpen!=='true';layout.dataset.sessionsOpen=String(open);$('#agent-session-drawer').setAttribute('aria-expanded',String(open));$('#agent-session-drawer span').textContent=open?'收起':'展开'};
     $('#agent-new').onclick=async()=>{const s=await api('/api/agent/sessions',{method:'POST',body:{}});state.agentSession=s.id;window.ERWAgentClient?.setSession(s,'main');window.ERWAgentClient?.select(s.id,'main');state.agentRefs=[];state.agentImages=[];state.agentQuotes=[];state.agentEdit=null;window.ERWAgentSystem?.open('chat');renderAgent()};
     $$('[data-agent-session]').forEach(b=>b.onclick=()=>selectAgentSession(b.dataset.agentSession));
     $('#agent-ref').onclick=openAgentReferencePicker;$('#agent-image').onclick=pickAgentImage;$('#agent-delete').onclick=async()=>{if(state.agentSession&&await window.ERWDialog.confirm('将该对话移入 Trash？')){await api('/api/agent/sessions/'+encodeURIComponent(state.agentSession),{method:'DELETE'});state.agentSession=null;renderAgent()}};
@@ -865,6 +879,7 @@
   function selectAgentSession(id){
     if(state.agentSession===id&&$('#agent-messages'))return;
     state.agentSession=id;state.agentRefs=[];state.agentImages=[];state.agentQuotes=[];state.agentEdit=null;
+    if($('.agent-layout'))$('.agent-layout').dataset.sessionsOpen='false';$('#agent-session-drawer')?.setAttribute('aria-expanded','false');if($('#agent-session-drawer span'))$('#agent-session-drawer span').textContent='展开';
     window.ERWAgentClient?.select(id,'main');paintAgentContext();paintAgentImages();paintSharedAgent(true);loadAgentSession(id);
   }
   async function loadAgentSession(id){
@@ -880,7 +895,7 @@
   }
   function paintSharedAgent(force=false){
     const client=window.ERWAgentClient,root=$('#agent-messages');if(!client||!root||state.route!=='agent'||!state.agentSession)return;
-    const e=client.snapshot(state.agentSession),session=e.session;
+    const e=client.snapshot(state.agentSession),session=e.session;window.ERWResearchUI?.remember('chat',{id:session.id,title:session.title});
     Object.assign($('#agent-chat-title'),{textContent:session.title||'科研 Agent',title:session.title||'科研 Agent'});
     if(force||root._sharedBase!==session.messages){
       root.innerHTML=session.messages.map(agentMessageHtml).join('')+(e.live?agentMessageHtml(e.live):'')||'<div class="empty">暂无消息。你可以直接提问，或先引用研究资料。</div>';
@@ -1007,6 +1022,7 @@
     /* v260929 · 文献页保留原有列表/编辑器（BibTeX 同步、自动 cite_key、元数据表单均在此），
        PDF 阅读工作区不整体接管，改由列表页头部按钮进入（openLiteratureWorkspace），两套 UI 共存 */
     const [docs,projects] = await Promise.all([api('/api/docs?kind='+encodeURIComponent(kind)), api('/api/projects')]);
+    if(state.navSeq!==navSeq||kindFromRoute(state.route)!==kind)return false;
     if(syncRefresh&&(editorDirty()||state.saving||state.draft||state.navSeq!==navSeq||activeId!==state.selectedDoc?.id))return false;
     state.docs=docs; state.projects=projects; state.selectedDoc=null;state.draft=null;state.editorBaseline=null;state.dirty=false;
     if(kind==='milestone') return renderMilestoneShell(docs,projects);
@@ -1047,7 +1063,7 @@
     toast(`重建完成：补关联 ${r.linked||0} 篇，新登记 ${r.registered||0} 篇，补建条目 ${r.ensured||0} 篇`);
     if(state.route==='settings')renderSettings();else renderDocsPage('literature');
   }
-  function docsShell(kind,docs,projects){return `<div class="docs-layout"><aside class="card doc-list-panel"><div class="doc-filter"><div style="display:flex;gap:6px"><input class="search-input" id="doc-search" placeholder="搜索标题、正文、标签、项目、分类…"><button class="secondary-btn" id="new-doc" title="新建条目" aria-label="新建条目">＋</button>${batchModeButton('doc')}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><select class="search-input" id="doc-status"><option value="">全部状态</option>${(state.statuses[kind]||[]).map(s=>`<option>${esc(s)}</option>`).join('')}</select><select class="search-input" id="doc-project"><option value="">全部项目</option>${projects.map(p=>`<option>${esc(p)}</option>`).join('')}</select><select class="search-input" id="doc-mark" style="grid-column:span 2"><option value="">全部分类</option>${allMarks().map(k=>`<option value="${esc(k.id)}">${esc(k.icon)} ${esc(k.label)}</option>`).join('')}</select></div>${kind==='literature'?'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="secondary-btn" id="export-bib">批量导出 BibTeX</button><button class="secondary-btn" id="open-lit-workspace">PDF 阅读工作区</button></div>':''}</div>${selectionToolbar('doc')}<div class="doc-list" id="doc-list">${docItems(docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"></section></div>`}
+  function docsShell(kind,docs,projects){return `<div class="docs-layout"><aside class="card doc-list-panel"><div class="doc-filter"><div style="display:flex;gap:6px"><input class="search-input" id="doc-search" placeholder="搜索标题、正文、标签、项目、分类…"><button class="secondary-btn" id="new-doc" title="新建条目" aria-label="新建条目">＋</button>${batchModeButton('doc')}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><select class="search-input" id="doc-status"><option value="">全部状态</option>${(state.statuses[kind]||[]).map(s=>`<option>${esc(s)}</option>`).join('')}</select><select class="search-input" id="doc-project"><option value="">全部项目</option>${projects.map(p=>`<option value="${esc(p)}" title="${esc(p)}">${esc(window.ERWResearchUI?.projectLabel(p)||p)}</option>`).join('')}</select><select class="search-input" id="doc-mark" style="grid-column:span 2"><option value="">全部分类</option>${allMarks().map(k=>`<option value="${esc(k.id)}">${esc(k.icon)} ${esc(k.label)}</option>`).join('')}</select></div>${kind==='literature'?'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="secondary-btn" id="export-bib">批量导出 BibTeX</button><button class="secondary-btn" id="open-lit-workspace">PDF 阅读工作区</button></div>':''}</div>${selectionToolbar('doc')}<div class="doc-list" id="doc-list">${docItems(docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"></section></div>`}
   function markBadges(d){return (d.kind_marks||[]).slice(0,4).map(id=>{const c=allMarks().find(k=>k.id===id);if(!c)return '';const col=esc(c.color);return `<span class="badge mark-badge" style="--mark-color:${col};color:${col};border-color:${col};background:${col}1a">${esc(c.icon)} ${esc(c.label)}</span>`}).join('')}
   /* v260929 · 暴露给 PDF 阅读工作区复用同一套标记徽章渲染，避免标记目录二次维护 */
   window.ERWMarkBadges = markBadges;
@@ -1064,11 +1080,11 @@
   window.ERWLLMReady = () => state.config?.app?.llm?.enabled === true;
   /* v260930d · M5 阅读中知识关联：悬浮球/气泡跳转到指定知识条目（导航+选中跨脚本桥） */
   /* v260930g9c · 关联知识「打开条目」跳转：六类→对应路由并选中；literature 额外自动进 PDF 阅读工作区（引用跳文献即看原文） */
-  window.ERWNav = { open: async (kind, id) => {
+  window.ERWNav = { open: async (kind, id, options={}) => {
     const ok=await openDocRoute(routeForKind(kind),id);
     if(ok===false)return; /* 用户在未保存确认框点了取消：中止，不在旧页面执行 selectDoc */
     const doc=state.selectedDoc;
-    if(kind==='literature'&&doc?.id===id&&doc.attachment)await openAttachmentInWorkspace(doc);
+    if(kind==='literature'&&doc?.id===id&&doc.attachment&&!options.note)await openAttachmentInWorkspace(doc);
   } };
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
   function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')}
@@ -1095,7 +1111,7 @@
     const projects=(d.projects||[]).length?(d.projects||[]):(d.project?[d.project]:[]);
     const project=projects[0]||'未关联项目';
     const val=d.due||d.record_date||d.added_date||d.updated;
-    const meta=`<span class="doc-project" title="${esc(project)}">${esc(project)}</span>${markBadges(d)}${d.status?`<span class="doc-status">${esc(d.status)}</span>`:''}${val?`<time>${esc(fmtDate(val))}</time>`:''}`;
+    const meta=`<span class="doc-project" title="${esc(project)}">${esc(window.ERWResearchUI?.projectLabel(project)||project)}</span>${markBadges(d)}${d.kind==='literature'?(window.ERWResearchUI?.evidenceBadge(d)||''):''}${d.status?`<span class="doc-status">${esc(d.status)}</span>`:''}${val?`<time>${esc(fmtDate(val))}</time>`:''}`;
     const attB=d.attachment_exists?'<span class="doc-mini-flag" title="有 PDF 附件">⧉</span>':'';
     const pinB=d.pinned?'<span class="doc-mini-flag" title="已置顶">📌</span>':'';
     return `<article class="doc-item${d.pinned?' pinned':''}" data-doc-id="${d.id}" data-doc-kind="${esc(d.kind||'')}" ${d.draft?'data-doc-draft="true"':''}><input type="checkbox" class="row-select doc-select" ${state.docSelectionMode&&!d.draft?'':'hidden'} ${d.draft?'disabled':''} data-doc-pick="${esc(d.id)}" data-bulk-control aria-label="选择文档：${esc(d.title)}"><div class="doc-type-rail" aria-hidden="true"></div><div class="doc-compact-main"><div class="title">${esc(d.title)}</div><div class="doc-compact-meta">${meta}</div><div class="excerpt">${esc(d.draft?'新建草稿 · 尚未保存':d.excerpt||'')}</div></div><div class="doc-mini-flags">${attB}${pinB}</div></article>`
@@ -1161,7 +1177,7 @@
     renderDocEditor(doc);
   }
   /* v260929 · 条目信息（填写一次即固定）可收起：收起后只留一行摘要，腾出正文撰写/阅读空间；收起状态按条目类型分别记忆 */
-  function metaCollapsed(kind){try{return localStorage.getItem('erwMetaCollapsed:'+kind)==='1'}catch{return false}}
+  function metaCollapsed(kind){try{return localStorage.getItem('erwMetaCollapsed:'+kind)!=='0'}catch{return true}}
   function metaSummary(doc){
     const parts=String(doc.authors||'').split(/[;,，；]/).map(x=>x.trim()).filter(Boolean);
     const authors=parts.length?parts.length>1?parts[0]+' 等':parts[0]:'';
@@ -1172,9 +1188,12 @@
     const dateField=kind==='milestone'?'due':(kind==='summary'||kind==='journal'?'record_date':kind==='literature'?'added_date':'');
     $('#doc-editor').className='card doc-editor';
     const tagsSpan=special||kind==='summary'?'span-4':(dateField?'span-2':'span-3');
-    const metaFold=metaCollapsed(kind);
-    $('#doc-editor').innerHTML=`<div class="doc-editor-content"><div class="meta-block${metaFold?' collapsed':''}" id="meta-block">
-      <div class="meta-head"><span class="meta-head-title">条目信息</span><span class="meta-summary">${esc(metaSummary(doc))}</span><button type="button" class="ghost-btn meta-toggle" id="meta-toggle" aria-expanded="${!metaFold}" aria-controls="meta-fields">${metaFold?'展开':'收起'}</button></div>
+    state.editorMode=doc.draft?'edit':(['split','edit','preview'].includes(localStorage.getItem('editorMode'))?localStorage.getItem('editorMode'):'preview');
+    $('#doc-editor').dataset.reading=String(state.editorMode==='preview');
+    const metaFold=!doc.draft&&state.editorMode!=='edit'&&metaCollapsed(kind);
+    window.ERWResearchUI?.remember('doc',{id:doc.id,title:doc.title,kind:doc.kind,projects:doc.projects||[]});
+    $('#doc-editor').innerHTML=`<div class="doc-editor-content"><div class="meta-block${metaFold?' compact':''}" id="meta-block">
+      <div class="meta-head"><span class="meta-head-title">条目信息</span><span class="meta-summary">${esc(metaSummary(doc))}</span><button type="button" class="ghost-btn meta-toggle" id="meta-toggle" aria-expanded="${!metaFold}" aria-controls="meta-fields">${metaFold?'更多资料':'精简信息'}</button></div>
       <div class="form-grid" id="meta-fields">
       <div class="field span-2"><label>标题</label><input id="f-title" value="${esc(doc.title)}"></div>
       <div class="field span-2"><div class="field-label-row"><label>项目</label><span class="field-help">默认为空；点击 ＋ 从已有项目中勾选，可同时关联多个项目。</span></div><div class="project-picker-row"><div class="project-chip-box" id="f-projects" data-projects="${esc(JSON.stringify(doc.projects||[]))}"></div><button type="button" class="secondary-btn project-add-btn" id="f-project-add" title="从已有项目中添加">＋</button></div></div>
@@ -1189,11 +1208,12 @@
     </div>
     <div class="editor-wrap">${editorHtml(doc.body||'')}</div></div>
     <div class="editor-actions"><span class="row-meta">${doc.draft?'新建草稿 · 首次保存后生成 Markdown 文件':`${esc(doc.path)} · 更新 ${fmtTime(doc.updated)}`}</span><div class="right"><button class="secondary-btn" id="doc-open-file" ${doc.draft?'disabled':''} title="在外部编辑器中打开该 Markdown 原文件">↗ 打开原文件</button><button class="secondary-btn" id="doc-delete">${doc.draft?'丢弃草稿':'删除'}</button><button class="primary-btn" id="doc-save">保存</button></div></div>`;
+    ['f-title','f-status','f-projects'].forEach(id=>$('#'+id)?.closest('.field')?.classList.add('meta-essential'));
     wireEditor();
     const metaBtn=$('#meta-toggle'); /* v260929 · 条目信息收起/展开：只切类名不动输入值，保存仍带全部字段 */
     if(metaBtn)metaBtn.onclick=()=>{
-      const folded=$('#meta-block').classList.toggle('collapsed');
-      metaBtn.textContent=folded?'展开':'收起';
+      const folded=$('#meta-block').classList.toggle('compact');
+      metaBtn.textContent=folded?'更多资料':'精简信息';
       metaBtn.setAttribute('aria-expanded',String(!folded));
       $('#meta-block').scrollTop=0;
       $('.doc-editor-content').scrollTop=0;
@@ -1224,7 +1244,7 @@
     const box=$('#f-projects');if(!box)return [];try{const v=JSON.parse(box.dataset.projects||'[]');return Array.isArray(v)?v:[]}catch{return []}
   }
   function paintEditorProjects(projects){
-    const box=$('#f-projects');if(!box)return;const list=[...new Set((projects||[]).map(x=>String(x).trim()).filter(Boolean))];box.dataset.projects=JSON.stringify(list);box.innerHTML=list.length?list.map((p,i)=>`<span class="project-chip">${esc(p)}<button type="button" data-project-remove="${i}" title="移除项目">×</button></span>`).join(''):'<span class="row-meta">未关联项目</span>';$$('[data-project-remove]',box).forEach(b=>b.onclick=()=>{const now=editorProjects();now.splice(+b.dataset.projectRemove,1);paintEditorProjects(now);state.dirty=true});
+    const box=$('#f-projects');if(!box)return;const list=[...new Set((projects||[]).map(x=>String(x).trim()).filter(Boolean))];box.dataset.projects=JSON.stringify(list);box.innerHTML=list.length?list.map((p,i)=>`<span class="project-chip" title="${esc(p)}">${esc(window.ERWResearchUI?.projectLabel(p)||p)}<button type="button" data-project-remove="${i}" title="移除项目">×</button></span>`).join(''):'<span class="row-meta">未关联项目</span>';$$('[data-project-remove]',box).forEach(b=>b.onclick=()=>{const now=editorProjects();now.splice(+b.dataset.projectRemove,1);paintEditorProjects(now);state.dirty=true});
   }
   /* v260923 · 标签 chip 化：与项目一致的交互（× 移除 + ＋ 弹窗添加） */
   function editorTags(){
@@ -1320,7 +1340,7 @@
     ta.addEventListener('input',()=>{state.dirty=true;state._mdSyncVer=(state._mdSyncVer||0)+1;if(bib&&!syncingBib){const m=ta.value.match(/```bibtex\s*\n([\s\S]*?)```/i);if(m&&bib.value.trim()!==m[1].trim()){syncingBib=true;bib.value=m[1].trim();syncingBib=false;}}debouncedPreview();});
     if(bib)bib.addEventListener('input',()=>{if(syncingBib)return;syncingBib=true;const block='```bibtex\n'+bib.value.trim()+'\n```';if(/```bibtex\s*\n[\s\S]*?```/i.test(ta.value))ta.value=ta.value.replace(/```bibtex\s*\n[\s\S]*?```/i,block);else ta.value='## BibTeX\n\n'+block+'\n\n'+ta.value;syncingBib=false;state.dirty=true;debouncedPreview();});
     ta.addEventListener('paste',onPasteImage); ta.addEventListener('dragover',e=>e.preventDefault()); ta.addEventListener('drop',onDropImage);
-    $$('[data-edit-mode]').forEach(b=>b.onclick=()=>{state.editorMode=b.dataset.editMode; const p=$('#editor-pane');p.className='editor-pane '+(state.editorMode==='edit'?'edit-only':state.editorMode==='preview'?'preview-only':'');$$('[data-edit-mode]').forEach(x=>x.classList.toggle('active',x.dataset.editMode===state.editorMode)); if(state.editorMode!=='edit')renderMarkdownPreview();});
+    $$('[data-edit-mode]').forEach(b=>b.onclick=()=>{state.editorMode=b.dataset.editMode;localStorage.setItem('editorMode',state.editorMode);$('#doc-editor').dataset.reading=String(state.editorMode==='preview');if(state.editorMode==='edit'){const meta=$('#meta-block');meta?.classList.remove('compact');const toggle=$('#meta-toggle');if(toggle){toggle.textContent='精简信息';toggle.setAttribute('aria-expanded','true')}} const p=$('#editor-pane');p.className='editor-pane '+(state.editorMode==='edit'?'edit-only':state.editorMode==='preview'?'preview-only':'');$$('[data-edit-mode]').forEach(x=>x.classList.toggle('active',x.dataset.editMode===state.editorMode)); if(state.editorMode!=='edit')renderMarkdownPreview();});
     $$('[data-md]').forEach(b=>b.onclick=()=>applyMdCommand(b.dataset.md));
   }
   const debouncedPreview=debounce(renderMarkdownPreview,250);
@@ -1554,7 +1574,7 @@
   }
   function milestoneTimelineHtml(docs,compact=false){ if(!docs.length)return '<div class="empty">暂无里程碑</div>'; return `<div class="timeline ${compact?'compact':''}">${docs.map(d=>`<div class="timeline-item" data-ms-id="${d.id}"><div class="timeline-date">${fmtDate(d.due)}</div><span class="timeline-dot"></span><div class="timeline-card"><div style="display:flex;justify-content:space-between;gap:10px"><strong>${esc(d.title)}</strong><span class="badge">${esc(d.status||'')}</span></div><div class="row-meta">${esc((d.projects||[]).join(', ')||d.project||'未归属项目')} · ${esc(d.excerpt||'')}</div></div></div>`).join('')}</div>`}
   function wireMilestoneCards(){ $$('[data-ms-id]').forEach(x=>x.onclick=async()=>{state.milestoneView='docs';renderMilestoneView();setTimeout(()=>selectDoc(x.dataset.msId),10)}); }
-  async function renderGraphPage(){ const g=await api('/api/graph');state.graph=g;
+  async function renderGraphPage(){ const navSeq=state.navSeq,g=await api('/api/graph');if(state.route!=='graph'||navSeq!==state.navSeq)return;state.graph=g;
     const filterKinds=[['idea','灵感'],['journal','实验记录'],['note','笔记'],['milestone','里程碑'],['summary','工作总结'],['literature','文献'],['tag','标签'],['project','项目']];
     const relationKinds=[['wikilink','显式引用'],['tag','标签关联'],['project','项目归属']];
     $('#main').innerHTML=`<div class="card card-pad"><div class="card-head"><div><h3>知识图谱</h3></div><div class="graph-view-tools"><span class="graph-view-label">关系网络</span><button class="secondary-btn" id="graph-fit" type="button">⤢ 全览</button></div></div>
@@ -1566,7 +1586,7 @@
   async function copyText(text){try{await navigator.clipboard.writeText(text);toast('已复制到剪贴板')}catch{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();toast('已复制到剪贴板')}}
 
 
-  async function renderFolders(){const [tree,info]=await Promise.all([api('/api/workspace/tree'),api('/api/workspace/info')]);
+  async function renderFolders(){const navSeq=state.navSeq,[tree,info]=await Promise.all([api('/api/workspace/tree'),api('/api/workspace/info')]);if(state.route!=='folders'||navSeq!==state.navSeq)return;
     $('#main').innerHTML=`<div class="workspace-layout"><section class="card tree-panel"><div class="card-head"><div><h3>文件夹</h3></div><button class="secondary-btn" id="tree-refresh">刷新</button></div>${treeHtml(tree)}</section><section class="card card-pad"><div class="card-head"><div><h3>工作目录</h3></div></div><div class="field"><label>当前根目录</label><input readonly value="${esc(info.root)}"></div><div style="margin-top:12px"><button class="primary-btn" id="open-workspace">在系统文件管理器中打开</button> <button class="secondary-btn" id="new-project">新建项目</button> <button class="secondary-btn" id="new-folder">新建文件夹</button></div><div class="section-title"><div><h3>自动结构</h3><p>启动时自动识别、创建必要目录；兼容旧版 data/research_os 等常见目录并进行非破坏式复制迁移。</p></div></div><div class="mono" style="font-size:12px;line-height:1.8">Workspace/<br>├─ Knowledge/{Ideas, Journals, Notes, Milestones, Summaries, Literature, Attachments, Exports}<br>├─ Projects/<br>├─ Resources/<br>└─ System/</div><div class="section-title"><div><h3>迁移状态</h3></div></div><div class="row-meta">${info.migration?.performed_at?`已检查 · ${esc(info.migration.performed_at)} · 发现 ${info.migration.sources_found||0} 个旧数据源 · 本次复制 ${info.migration.copied_count||0} 个文件`:'尚未执行迁移检查'}</div><div style="margin-top:10px"><button class="secondary-btn" id="migration-rescan">重新扫描并迁移</button></div></section></div>`;
     $('#tree-refresh').onclick=renderFolders;$('#open-workspace').onclick=()=>api('/api/workspace/open',{method:'POST',body:{path:''}}).then(()=>toast('已打开 Workspace')).catch(e=>toast(e.message,true));$('#migration-rescan').onclick=async()=>{const r=await api('/api/workspace/migrate',{method:'POST',body:{}});toast(`迁移扫描完成：复制 ${r.copied_count||0} 个文件`);renderFolders()};$('#new-project').onclick=()=>{modal('新建项目工程目录',`<div class="field"><label>项目名称</label><input id="new-project-name" placeholder="请输入你的项目名称"></div><div class="row-meta" style="margin-top:8px">将自动创建 Notes / Experiments / Data / Results / Figures / Manuscript / References。</div>`,`<button class="secondary-btn" id="project-cancel">取消</button><button class="primary-btn" id="project-create">创建</button>`);$('#project-cancel').onclick=closeModal;$('#project-create').onclick=async()=>{const r=await api('/api/workspace/project',{method:'POST',body:{name:$('#new-project-name').value}});toast('项目目录已创建：'+r.path);closeModal();renderFolders()}};$('#new-folder').onclick=()=>{modal('新建 Workspace 文件夹',`<div class="field"><label>相对路径</label><input id="new-folder-path" value="Projects/NewProject" placeholder="Projects/项目名"></div>`,`<button class="secondary-btn" id="folder-cancel">取消</button><button class="primary-btn" id="folder-create">创建</button>`);$('#folder-cancel').onclick=closeModal;$('#folder-create').onclick=async()=>{await api('/api/workspace/folder',{method:'POST',body:{path:$('#new-folder-path').value}});toast('文件夹已创建');closeModal();renderFolders()}};wireTreeOpen();
   }
@@ -1765,7 +1785,7 @@
       };
     }catch(error){if(panel.isConnected)panel.textContent='读取窗口设置失败：'+error.message}
   }
-  async function renderSettings(){const cfg=await api('/api/config');state.config=cfg;
+  async function renderSettings(){const navSeq=state.navSeq,cfg=await api('/api/config');if(state.route!=='settings'||navSeq!==state.navSeq)return;state.config=cfg;
     $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="weather">天气</button><button data-set-tab="rss">资讯源</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="ai">AI 能力</button><button data-set-tab="rag">RAG / 嵌入模型</button><button data-set-tab="interface">界面</button></aside><section class="card settings-panel" id="settings-panel"></section></div>`;
     const syncTab=document.createElement('button');syncTab.dataset.setTab='sync';syncTab.textContent='同步';$('.settings-nav').append(syncTab);
     if(window.pywebview?.api?.desktop_set_close_action){const button=document.createElement('button');button.dataset.setTab='desktop';button.textContent='窗口';$('.settings-nav').append(button)}
@@ -1897,7 +1917,7 @@
     try{await api('/api/health');location.reload();}catch{setTimeout(()=>waitForRestart(attempt+1),450);}
   }
 
-  async function loadBootstrap(){ const [cfg,statuses,projects,health,ws,knowledgeTypes]=await Promise.all(['/api/config','/api/statuses','/api/projects','/api/health','/api/workspace/info','/api/knowledge-types'].map(bootstrapRead)); state.config=cfg;state.statuses=statuses;state.projects=projects;state.knowledgeTypes=Array.isArray(knowledgeTypes)?knowledgeTypes:[];if(localStorage.getItem('sidebarPinned')===null){state.sidebarPinned=new Set(cfg.app.ui?.sidebar_pinned_groups||['core']);saveSidebarState();}$('#brand-title').textContent=cfg.app.app_name;$('#brand-subtitle').textContent=cfg.app.subtitle;$('#version-label').textContent=health.version;$('#workspace-mini').textContent='Workspace · '+ws.relative;state.milestoneView=(['3d','fishbone'].includes(cfg.app.ui?.milestone_default_view)?'timeline':cfg.app.ui?.milestone_default_view)||state.milestoneView;state.graphView='2d';state.heatmapMonths=Math.max(1,Math.min(12,Number(cfg.app.ui?.heatmap_months)||state.heatmapMonths||12));if(Array.isArray(cfg.app.ui?.heatmap_thresholds)&&cfg.app.ui.heatmap_thresholds.length===2)state.heatmapThresholds=[Math.max(1,Math.round(+cfg.app.ui.heatmap_thresholds[0]||1)),Math.max(Math.max(1,Math.round(+cfg.app.ui.heatmap_thresholds[0]||1))+1,Math.round(+cfg.app.ui.heatmap_thresholds[1]||3))];if(Array.isArray(cfg.app.ui?.heatmap_colors)&&cfg.app.ui.heatmap_colors.length===3)state.heatmapColors=cfg.app.ui.heatmap_colors;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));localStorage.setItem('heatmapThresholds',JSON.stringify(state.heatmapThresholds));localStorage.setItem('heatmapColors',JSON.stringify(state.heatmapColors));const theme=localStorage.getItem('theme')||cfg.app.ui?.theme||'light';applyTheme(theme); }
+  async function loadBootstrap(){ const [cfg,statuses,projects,health,ws,knowledgeTypes]=await Promise.all(['/api/config','/api/statuses','/api/projects','/api/health','/api/workspace/info','/api/knowledge-types'].map(bootstrapRead)); state.config=cfg;state.statuses=statuses;state.projects=projects;await window.ERWResearchUI?.loadProjects();state.knowledgeTypes=Array.isArray(knowledgeTypes)?knowledgeTypes:[];if(localStorage.getItem('sidebarPinned')===null){state.sidebarPinned=new Set(cfg.app.ui?.sidebar_pinned_groups||['core']);saveSidebarState();}$('#brand-title').textContent=cfg.app.app_name;$('#brand-subtitle').textContent=cfg.app.subtitle;$('#version-label').textContent=health.version;$('#workspace-mini').textContent='Workspace · '+ws.relative;state.milestoneView=(['3d','fishbone'].includes(cfg.app.ui?.milestone_default_view)?'timeline':cfg.app.ui?.milestone_default_view)||state.milestoneView;state.graphView='2d';state.heatmapMonths=Math.max(1,Math.min(12,Number(cfg.app.ui?.heatmap_months)||state.heatmapMonths||12));if(Array.isArray(cfg.app.ui?.heatmap_thresholds)&&cfg.app.ui.heatmap_thresholds.length===2)state.heatmapThresholds=[Math.max(1,Math.round(+cfg.app.ui.heatmap_thresholds[0]||1)),Math.max(Math.max(1,Math.round(+cfg.app.ui.heatmap_thresholds[0]||1))+1,Math.round(+cfg.app.ui.heatmap_thresholds[1]||3))];if(Array.isArray(cfg.app.ui?.heatmap_colors)&&cfg.app.ui.heatmap_colors.length===3)state.heatmapColors=cfg.app.ui.heatmap_colors;localStorage.setItem('heatmapMonths',String(state.heatmapMonths));localStorage.setItem('heatmapThresholds',JSON.stringify(state.heatmapThresholds));localStorage.setItem('heatmapColors',JSON.stringify(state.heatmapColors));const theme=localStorage.getItem('theme')||cfg.app.ui?.theme||'light';applyTheme(theme); }
 
   function bindGlobal(){
     window.addEventListener('workbench:focus-state',event=>acceptNativeFocus(event.detail));

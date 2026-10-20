@@ -360,7 +360,7 @@ def _build(opts, root, job):
 def _keyword(query, kind, limit):
     rows = indexer.retrieve_docs(query, kind=kind or None, limit=limit)["items"]
     return [{"id": r["id"], "title": r.get("title", ""), "kind": r.get("kind", ""), "project": ", ".join(r.get("projects") or []),
-             "excerpt": r.get("excerpt", ""), "source": {"doc_id": r["id"], "path": r.get("path", ""), "type": "markdown"}, "retrieval": "keyword"} for r in rows]
+             "excerpt": r.get("excerpt", ""), "source": {"doc_id": r["id"], "path": r.get("path", ""), "type": "markdown"}, "retrieval": "keyword", "evidence": r.get("evidence") or {}} for r in rows]
 
 
 def search(query, kind=None, limit=None):
@@ -404,7 +404,7 @@ def search(query, kind=None, limit=None):
             if score > 0:
                 scored.append((score, row))
         scored.sort(key=lambda pair: pair[0], reverse=True)
-        hits, checked, seen = [], {}, set()
+        hits, checked, seen, scopes = [], {}, set(), {}
         for score, row in scored:
             source = json.loads(row["source"])
             doc_id = row["doc_id"]
@@ -413,7 +413,10 @@ def search(query, kind=None, limit=None):
             if source["type"] == "markdown":
                 if doc_id not in checked:
                     try:
-                        checked[doc_id] = _version(indexer.get_doc(doc_id))
+                        doc = indexer.get_doc(doc_id)
+                        checked[doc_id] = _version(doc)
+                        from .evidence import describe
+                        scopes[doc_id] = describe(doc)
                     except FileNotFoundError:
                         checked[doc_id] = None
                 if checked[doc_id] != source["version"]:
@@ -428,7 +431,7 @@ def search(query, kind=None, limit=None):
                     continue
             seen.add(doc_id)
             hits.append({"id": doc_id, "title": source["title"], "kind": row["kind"], "excerpt": row["text"], "project": source.get("project", ""),
-                         "score": round(score, 6), "source": source, "retrieval": "semantic"})
+                         "score": round(score, 6), "source": source, "retrieval": "semantic", "evidence": scopes.get(doc_id) or {"level": "pdf", "label": "有 PDF 全文", "has_pdf": source.get("type") == "pdf", "declared": False}})
             if len(hits) >= limit:
                 break
         if mode == "semantic":

@@ -300,7 +300,10 @@ def list_projects() -> list[dict[str, Any]]:
     return sorted(items, key=lambda x: (str(x.get("last_updated") or ""), str(x.get("name") or "")), reverse=True)
 
 
-def create_project(name: str, description: str = "", status: str = "进行中") -> dict[str, Any]:
+def create_project(name: str, description: str = "", status: str = "进行中", display_name: str = "") -> dict[str, Any]:
+    display_name = str(display_name or "").strip()
+    if len(display_name) > 32:
+        raise ValueError("项目显示简称不能超过 32 个字符")
     with _LOCK:
         ensure_registry()
         safe = _safe_name(name)
@@ -312,13 +315,16 @@ def create_project(name: str, description: str = "", status: str = "进行中") 
         rec = {
             "id": _new_id(), "name": safe, "description": str(description or "").strip(),
             "status": status if status in PROJECT_STATUSES else "进行中",
-            "created": now, "updated": now,
+            "created": now, "updated": now, "display_name": display_name,
         }
         items.append(rec); _save_registry(items)
         return {"ok": True, **rec, "path": f"Projects/{safe}"}
 
 
 def update_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    display_name = str(payload.get("display_name") or "").strip()
+    if "display_name" in payload and len(display_name) > 32:
+        raise ValueError("项目显示简称不能超过 32 个字符")
     with _LOCK:
         ensure_registry()
         items = _load_registry()
@@ -344,6 +350,8 @@ def update_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             rec["name"] = new_name
         if "description" in payload:
             rec["description"] = str(payload.get("description") or "").strip()
+        if "display_name" in payload:
+            rec["display_name"] = display_name
         if "status" in payload:
             value = str(payload.get("status") or "")
             if value not in PROJECT_STATUSES:

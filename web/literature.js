@@ -5,7 +5,7 @@ const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const clamp=v=>Math.max(0,Math.min(1,v));
 const PDF_RENDER_RADIUS=4; /* v261009p · 仅保留当前页前后少量已渲染 canvas，防长 PDF 内存随滚动线性增长 */
 const PDF_DPR_CAP=2;       /* 高 DPI 屏限制离屏像素规模；视觉清晰度基本不变，显存/内存峰值显著下降 */
-const S={items:[],paper:null,pdf:null,scale:1.15,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],annByPage:new Map(),trimTimer:null,ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
+const S={items:[],paper:null,pdf:null,scale:1.15,zoomMode:"fit",focus:false,libraryHidden:false,sideHidden:true,layoutObserver:null,layoutTimer:null,openSeq:0,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],annByPage:new Map(),trimTimer:null,ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
 async function ensurePdfJs(){
@@ -36,7 +36,14 @@ async function loadList(){
  qa("[data-paper]").forEach(e=>e.onclick=()=>openPaper(e.dataset.paper));
 }
 function shell(){
- q("#main").innerHTML='<div class="lit-shell"><aside class="card doc-list-panel lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><div class="lit-head-actions"><button class="ghost-btn" id="lit-back">← 返回文献列表</button><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><div class="doc-filter"><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-mark"><option value="">全部分类</option></select></div></div><div class="doc-list lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-copy" disabled title="Ctrl+C">复制</button><span class="lit-sep"></span><button data-ai="translate" disabled title="将选中文本交给 AI 翻译为中文">AI 翻译</button><button data-ai="summarize" disabled title="将选中文本交给 AI 总结要点">AI 总结</button><button data-ai="organize" disabled title="将选中文本交给 AI 整理为知识笔记">AI 整理</button><span class="lit-sep"></span><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
+ S.openSeq++;reset();S.paper=null;clearTimeout(S.layoutTimer);
+ q("#main").innerHTML='<div class="lit-shell side-hidden"><div class="lit-layout-toolbar"><button type="button" id="lit-toggle-library" aria-expanded="true">文献列表</button><button type="button" id="lit-focus" aria-pressed="false" disabled>专注阅读</button><button type="button" id="lit-fit" disabled>适应宽度</button><button type="button" id="lit-toggle-side" aria-expanded="false" disabled>资料与笔记</button></div><aside class="card doc-list-panel lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><div class="lit-head-actions"><button class="ghost-btn" id="lit-back">← 返回文献列表</button><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><div class="doc-filter"><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-mark"><option value="">全部分类</option></select></div></div><div class="doc-list lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-copy" disabled title="Ctrl+C">复制</button><span class="lit-sep"></span><button data-ai="translate" disabled title="将选中文本交给 AI 翻译为中文">AI 翻译</button><button data-ai="summarize" disabled title="将选中文本交给 AI 总结要点">AI 总结</button><button data-ai="organize" disabled title="将选中文本交给 AI 整理为知识笔记">AI 整理</button><span class="lit-sep"></span><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
+ S.layoutObserver?.disconnect();S.libraryHidden=false;S.sideHidden=true;S.focus=false;
+ q("#lit-toggle-library").onclick=()=>{S.libraryHidden=!S.libraryHidden;S.focus=false;layout()};
+ q("#lit-toggle-side").onclick=()=>{S.sideHidden=!S.sideHidden;S.focus=false;layout()};
+ q("#lit-focus").onclick=()=>{S.focus=!S.focus;S.libraryHidden=S.focus;S.sideHidden=true;layout()};
+ q("#lit-fit").onclick=()=>{S.zoomMode="fit";refit()};
+ S.layoutObserver=new ResizeObserver(()=>{clearTimeout(S.layoutTimer);S.layoutTimer=setTimeout(()=>{if(S.pdf&&S.zoomMode==="fit")refit()},120)});S.layoutObserver.observe(q(".lit-reader"));
  q("#lit-upload").onclick=()=>q("#lit-file").click();q("#lit-file").onchange=e=>upload(e.target.files?.[0]);
  q("#lit-back").onclick=()=>window.dispatchEvent(new Event("erw-lit-back")); /* v260929 · 返回文献列表：经事件通知 app.js 重新渲染列表页（hash 未变不触发路由） */
  let t;q("#lit-search").oninput=()=>{clearTimeout(t);t=setTimeout(loadList,160)};q("#lit-status").onchange=loadList;q("#lit-mark").onchange=loadList;
@@ -45,16 +52,17 @@ function shell(){
 async function upload(file){if(!file)return;try{const r=await fetch("/api/literature/import",{method:"POST",headers:{"Content-Type":"application/pdf","X-Filename":encodeURIComponent(file.name)},body:file});const d=await r.json();if(!r.ok)throw new Error(d.message||"上传失败");await loadList();await openPaper(d.id)}catch(e){window.ERWDialog.alert(e.message)}finally{q("#lit-file").value=""}}
 
 async function openPaper(id){
- reset();
+ const openSeq=++S.openSeq;reset();
  const enc=encodeURIComponent(id);
  const [paper,annotations]=await Promise.all([
   api("/api/literature/"+enc),
   api("/api/literature/"+enc+"/annotations")
  ]);
- S.paper=paper;S.annotations=Array.isArray(annotations)?annotations:[];rebuildAnnotationIndex();
+ if(openSeq!==S.openSeq||!q(".lit-shell"))return;
+ S.paper=paper;window.ERWResearchUI?.remember("pdf",{id:paper.id,title:paper.title});S.annotations=Array.isArray(annotations)?annotations:[];rebuildAnnotationIndex();
  q("#lit-reader-empty").hidden=true;q("#lit-reader-live").hidden=false;side();loadList().catch(()=>{}) /* v260929 · 列表刷新仅更新徽章，不阻塞 PDF 加载 */;
- try{await ensurePdfJs();S.pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>go(S.current,false))}
- catch(e){q("#lit-pages").innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
+ try{await ensurePdfJs();const pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;if(openSeq!==S.openSeq||!q(".lit-shell")){pdf.destroy?.();return}S.pdf=pdf;S.zoomMode="fit";layout();S.current=Math.max(1,Math.min(S.pdf.numPages,+S.paper.last_page||1));await build();requestAnimationFrame(()=>{if(q(".lit-shell"))go(S.current,false)})}
+ catch(e){const host=q("#lit-pages");if(host&&openSeq===S.openSeq)host.innerHTML='<div class="lit-empty">PDF 渲染失败：'+esc(e.message)+"</div>"}
 }
 function releasePageCanvas(r){
  if(!r?.el)return;
@@ -100,10 +108,11 @@ function scheduleTrim(center=S.current){
  S.trimTimer=setTimeout(()=>trimRenderedPages(center),120);
 }
 async function build(){
- const host=q("#lit-pages");host.innerHTML="";S.pages.clear();const gen=S.generation;
+ const host=q("#lit-pages");if(!host||!S.pdf)return;S.pages.forEach(releasePageCanvas);host.innerHTML="";S.pages.clear();const gen=S.generation,pdf=S.pdf;
  /* v261009p · 旧实现为拿页面尺寸在打开 PDF 时串行 getPage(1..N)，长论文首屏会被 N 次异步解析阻塞。
     学术论文绝大多数页面同尺寸：只取第 1 页作为占位尺寸，真正进入视口时再按实际页面尺寸修正。 */
- const first=await S.pdf.getPage(1);if(gen!==S.generation)return;
+ const first=await pdf.getPage(1);if(gen!==S.generation||pdf!==S.pdf||!host.isConnected)return;
+ if(S.zoomMode==="fit")S.scale=Math.max(.2,Math.min(2.4,(q("#lit-scroll").clientWidth-32)/first.getViewport({scale:1}).width));
  const baseVp=first.getViewport({scale:S.scale});
  const frag=document.createDocumentFragment();
  for(let n=1;n<=S.pdf.numPages;n++){
@@ -398,11 +407,25 @@ function go(n,smooth=true){
  const top=Math.max(0,rec.el.offsetTop-8);
  sc.scrollTo({top,behavior:smooth?"smooth":"auto"});S.current=+n;toolbar();dispatchPage();scheduleTrim(+n);
 }
-async function zoom(delta){if(!S.pdf)return;const keep=S.current;S.scale=Math.max(.65,Math.min(2.4,S.scale+delta));S.generation++;S.observer?.disconnect();await build();requestAnimationFrame(()=>go(keep,false))}
-function toolbar(){if(!S.pdf)return;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});qa("[data-ai]").forEach(b=>{b.disabled=!(S.pending?.kind==="text"&&S.pending?.text);b.classList.toggle("ready",!!(S.pending?.kind==="text"&&S.pending?.text))});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;const cp=q("#lit-copy");if(cp)cp.disabled=!(S.pending?.kind==="text"&&S.pending?.text)}
+function layout(){
+ const shell=q(".lit-shell");if(!shell)return;
+ shell.classList.toggle("library-hidden",S.libraryHidden);shell.classList.toggle("side-hidden",S.sideHidden);
+ q("#lit-toggle-library").setAttribute("aria-expanded",String(!S.libraryHidden));q("#lit-toggle-side").setAttribute("aria-expanded",String(!S.sideHidden));
+ q("#lit-focus").setAttribute("aria-pressed",String(S.focus));q("#lit-focus").textContent=S.focus?"退出专注":"专注阅读";
+}
+function showSide(){S.sideHidden=false;S.focus=false;layout()}
+async function refit(){
+ const pdf=S.pdf;if(!pdf||!q(".lit-shell"))return;const first=await pdf.getPage(1);if(pdf!==S.pdf||!q("#lit-scroll"))return;
+ const target=Math.max(.2,Math.min(2.4,(q("#lit-scroll").clientWidth-32)/first.getViewport({scale:1}).width));
+ if(S.pages.size&&Math.abs(target-S.scale)<.002)return;
+ const keep=S.current,gen=++S.generation;S.observer?.disconnect();await build();if(gen===S.generation&&q(".lit-shell"))go(keep,false);
+}
+async function zoom(delta){if(!S.pdf)return;S.zoomMode="manual";const keep=S.current;S.scale=Math.max(.65,Math.min(2.4,S.scale+delta));S.generation++;S.observer?.disconnect();await build();requestAnimationFrame(()=>go(keep,false))}
+function toolbar(){if(!S.pdf)return;q(".lit-toolbar").dataset.selection=String(!!S.pending);q("#lit-focus").disabled=false;q("#lit-fit").disabled=false;q("#lit-toggle-side").disabled=false;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});qa("[data-ai]").forEach(b=>{b.disabled=!(S.pending?.kind==="text"&&S.pending?.text);b.classList.toggle("ready",!!(S.pending?.kind==="text"&&S.pending?.text))});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;const cp=q("#lit-copy");if(cp)cp.disabled=!(S.pending?.kind==="text"&&S.pending?.text)}
 
 
 async function openAnnotation(page,id){
+ showSide();
  const a=annotationById(id);if(!a)return;
  S.selectedAnn={page:+page,id};
  qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab==="annotations"));
@@ -597,7 +620,7 @@ async function openByAttachment(att){
  if(!hit)throw new Error("该附件未登记到 PDF 工作区");
  await start();await openPaper(hit.id);
 }
-window.ERWLiterature={start,openByAttachment,context:()=>({paper_id:S.paper?.id||"",title:S.paper?.title||"",page:S.current||1,selection:S.pending?.kind==="text"?String(S.pending.text||""):"",page_text:pageText(S.current||1)})}; /* v260930 · M2 悬浮球上下文桥：当前文献/页码/PDF 选中文本；v260930c · M4 增加当前页文本层正文（术语提取输入） */
+window.ERWLiterature={start,openByAttachment,openById:async id=>{await start();await openPaper(id)},context:()=>({paper_id:S.paper?.id||"",title:S.paper?.title||"",page:S.current||1,selection:S.pending?.kind==="text"?String(S.pending.text||""):"",page_text:pageText(S.current||1)})}; /* v260930 · M2 悬浮球上下文桥：当前文献/页码/PDF 选中文本；v260930c · M4 增加当前页文本层正文（术语提取输入） */
 /* v260930e · 悬浮球截图桥：page()=截当前整页；area()=进入框选模式，resolve 框选区域截图（外部接管联动） */
 window.ERWCapture={
  page:()=>S.pdf?pageDataUrl():"",

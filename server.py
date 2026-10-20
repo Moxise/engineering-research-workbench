@@ -530,6 +530,7 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("name") or ""),
                 str(payload.get("description") or ""),
                 str(payload.get("status") or "进行中"),
+                display_name=str(payload.get("display_name") or ""),
             )
             return self.send_json(result)
         if path == "/api/project-records":
@@ -537,6 +538,7 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("name") or ""),
                 str(payload.get("description") or ""),
                 str(payload.get("status") or "进行中"),
+                display_name=str(payload.get("display_name") or ""),
             )
             return self.send_json(result, 201)
         if path.startswith("/api/projects/"):

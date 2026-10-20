@@ -98,7 +98,10 @@ def get_doc(doc_id: str) -> dict[str, Any]:
     if not path.exists():
         remove_doc(doc_id)
         raise FileNotFoundError(doc_id)
-    return store._doc_from_path(str(row["kind"]), path, include_body=True)
+    doc = store._doc_from_path(str(row["kind"]), path, include_body=True)
+    from .evidence import describe
+    doc["evidence"] = describe(doc)
+    return doc
 
 
 def resolve_doc(target: str) -> dict[str, Any]:

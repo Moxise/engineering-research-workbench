@@ -583,7 +583,7 @@ def _row_doc(row: sqlite3.Row, check_attachment: bool = True) -> dict[str, Any]:
         if not att_path.is_absolute():
             att_path = _root() / att
         att_ok = att_path.suffix.lower() == ".pdf" and att_path.is_file()
-    return {
+    doc = {
         "id": row["id"], "path": row["path"], "filename": Path(row["path"]).name,
         "kind": row["kind"], "title": row["title"], "status": row["status"],
         "created": row["created"], "updated": row["updated"], "excerpt": row["excerpt"],
@@ -594,6 +594,10 @@ def _row_doc(row: sqlite3.Row, check_attachment: bool = True) -> dict[str, Any]:
         "venue": row["venue"], "doi": row["doi"], "url": row["url"], "cite_key": row["cite_key"],
         "attachment": att, "attachment_exists": att_ok,
     }
+
+    from .evidence import describe
+    doc["evidence"] = describe(doc)
+    return doc
 
 
 def _registry() -> list[dict[str, Any]]:

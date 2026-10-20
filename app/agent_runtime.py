@@ -101,6 +101,7 @@ def submit(payload: dict) -> dict:
 
 def public_run(run: dict) -> dict:
     result = copy.deepcopy({k: v for k, v in run.items() if k not in ("state", "request")})
+    result["summary"] = " ".join(str((run.get("request") or {}).get("message") or "").split())[:180] or "科研任务"
     if isinstance(result.get("result"), dict) and isinstance(result["result"].get("assistant"), dict):
         assistant = result["result"]["assistant"]
         names = {} if assistant.get("expose_internal_ids") else assistant.get("reference_names") or agent_context.reference_names(assistant.get("evidence") or [])

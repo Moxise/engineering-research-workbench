@@ -30,11 +30,11 @@
     const main=$('#main');
     main.innerHTML='<div class="empty"><div>正在加载项目…</div></div>';
     try{
-      const rows=await api('/api/project-records');
+      const rows=await api('/api/project-records');window.ERWResearchUI?.setProjects(rows);
       if(location.hash!=='#projects')return;
       main.innerHTML=`<div class="project-manager">
         <section class="card card-pad project-manager-head"><div><h3>项目管理</h3></div><button class="primary-btn" id="project-new">＋ 新建项目</button></section>
-        <div class="project-manager-grid">${rows.length?rows.map(projectCard).join(''):'<section class="card card-pad"><div class="empty">暂无项目，点击“新建项目”开始。</div></section>'}</div>
+        <p class="row-meta">同一资料可以关联多个项目；各项目条目数不能直接相加作为总数。</p><div class="project-manager-grid">${rows.length?rows.map(projectCard).join(''):'<section class="card card-pad"><div class="empty">暂无项目，点击“新建项目”开始。</div></section>'}</div>
       </div>`;
       $('#project-new').onclick=()=>openProjectEditor();
       $$('[data-project-edit]').forEach(b=>b.onclick=()=>openProjectEditor(rows.find(x=>x.id===b.dataset.projectEdit)));
@@ -45,7 +45,7 @@
 
   function projectCard(p){
     return `<section class="card project-manager-card">
-      <div class="project-card-top"><div><h3 title="${esc(p.name)}">${esc(p.name)}</h3></div><span class="badge ${p.status==='进行中'?'accent':''}">${esc(p.status||'进行中')}</span></div>
+      <div class="project-card-top"><div><h3 title="${esc(p.name)}">${esc(p.display_name||p.name)}</h3></div><span class="badge ${p.status==='进行中'?'accent':''}">${esc(p.status||'进行中')}</span></div>
       <p class="project-desc" title="${esc(p.description||'')}">${esc(p.description||'暂无项目描述')}</p>
       <div class="project-card-metrics"><span><b>${p.docs||0}</b> 知识条目</span><span><b>${p.open_todos||0}</b> 待办</span><span><b>${p.milestones||0}</b> 里程碑</span></div>
       <div class="project-card-meta"><span>更新 ${esc(fmtDate(p.last_updated))}</span><span>创建 ${esc(fmtDate(p.created))}</span></div>
@@ -57,12 +57,13 @@
     const editing=!!p;
     modal(editing?'编辑项目':'新建项目',`<div class="project-form">
       <label><span>项目名称</span><input class="search-input" id="pm-name" value="${esc(p?.name||'')}" maxlength="100" placeholder="请输入项目名称"></label>
+      <label><span>显示简称（可选）</span><input class="search-input" id="pm-display-name" value="${esc(p?.display_name||'')}" maxlength="32" placeholder="用于导航；正式名称与资料关联保持不变"></label>
       <label><span>项目状态</span><select class="search-input" id="pm-status">${STATUS.map(s=>`<option ${p?.status===s?'selected':''}>${s}</option>`).join('')}</select></label>
       <label class="wide"><span>项目描述</span><textarea class="search-input" id="pm-desc" rows="5" placeholder="简要说明项目目标、阶段或范围">${esc(p?.description||'')}</textarea></label>
     </div>`,`<button class="secondary-btn" id="pm-cancel">取消</button><button class="primary-btn" id="pm-save">保存</button>`);
     $('#pm-cancel').onclick=closeModal;
     $('#pm-save').onclick=async()=>{
-      const body={name:$('#pm-name').value.trim(),status:$('#pm-status').value,description:$('#pm-desc').value.trim()};
+      const body={name:$('#pm-name').value.trim(),status:$('#pm-status').value,description:$('#pm-desc').value.trim(),display_name:$('#pm-display-name').value.trim()};
       if(!body.name)return toast('项目名称不能为空',true);
       try{
         if(editing) await api('/api/projects/'+encodeURIComponent(p.id),{method:'POST',body});

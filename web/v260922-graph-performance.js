@@ -55,7 +55,7 @@
       this.searchIndex = [];
       this.searchHits = new Set();
       this.selectedId = null;
-      this.focusDepth = 1;
+      this.focusDepth = 1;this.scopeProject='';
       this.focusDistances = new Map();
       this.mode = '2d'; // A single, readable relationship view across all entry points.
       this.camera = {
@@ -83,7 +83,12 @@
       const graph = initialGraph || await api(`/api/graph?limit=${MAX_FETCH_NODES}`);
       if (this.destroyed || route() !== 'graph' || !this.canvas.isConnected) return;
       this.raw = graph || {nodes:[],edges:[],meta:{}};
-      this.refreshFilteredGraph(true);
+      const projects=[...new Set(this.raw.nodes.flatMap(n=>n.kind==='project'?[n.label]:(n.projects||[])))].filter(Boolean);
+      const saved=localStorage.getItem('erwGraphProjectScope'),preferred=window.ERWResearchUI?.recent('doc')?.projects?.[0];
+      this.scopeProject=saved===null?(projects.includes(preferred)?preferred:projects[0]||''):(projects.includes(saved)?saved:'');
+      const selector=document.querySelector('#graph-project-scope');if(selector){selector.innerHTML='<option value="">全部项目</option>'+projects.map(name=>`<option value="${esc(name)}" title="${esc(name)}">${esc(window.ERWResearchUI?.projectLabel(name)||name)}</option>`).join('');selector.value=this.scopeProject}
+
+      this.refreshFilteredGraph(true);this.focusInitialTopic();
       this.resizeObserver = new ResizeObserver(() => this.requestRender());
       this.resizeObserver.observe(this.canvas);
       this.requestRender();
@@ -107,7 +112,7 @@
             <div class="graph-smart-search"><span>⌕</span><input id="graph-smart-search" autocomplete="off" placeholder="搜索知识、标签或项目……"><kbd>↑↓ Enter</kbd></div>
             <div class="graph-smart-results hidden" id="graph-smart-results"></div>
           </div>
-          <div class="graph-focus-tools" aria-label="图谱聚焦">
+          <div class="graph-focus-tools" aria-label="图谱聚焦"><label>项目范围 <select id="graph-project-scope" aria-label="图谱项目范围"></select></label>
             <button class="secondary-btn active" type="button" data-graph-focus="1">直接关系</button>
             <button class="secondary-btn" type="button" data-graph-focus="2">两级关系</button>
             <button class="secondary-btn" type="button" data-graph-focus="0">恢复全图</button>
@@ -115,7 +120,7 @@
             <button class="ghost-btn" type="button" data-graph-scope="docs">仅知识节点</button>
             <button class="ghost-btn" type="button" data-graph-scope="all">全部节点</button>
           </div>
-          <div class="graph-engine-status" id="graph-engine-status"></div>`;
+          <div class="graph-engine-status" id="graph-engine-status"></div><details class="graph-diagnostics"><summary>诊断信息</summary><pre id="graph-diagnostics-text"></pre></details>`;
         wrap.parentElement.insertBefore(toolbar,wrap);
       }
       const input=toolbar.querySelector('#graph-smart-search'); const results=toolbar.querySelector('#graph-smart-results');
@@ -125,8 +130,9 @@
       this.outsidePointerHandler=e=>{if(this.destroyed)return;if(!toolbar.contains(e.target))results.classList.add('hidden')};
       document.addEventListener('pointerdown',this.outsidePointerHandler,{capture:true});
       toolbar.querySelectorAll('[data-graph-focus]').forEach(b=>b.onclick=()=>{
-        const d=Number(b.dataset.graphFocus||0); if(!d){this.clearFocus(true);return} this.focusDepth=d; this.updateFocus(); this.syncFocusButtons(); this.requestRender();
+        const d=Number(b.dataset.graphFocus||0); if(!d){this.setProjectScope('');this.clearFocus(true);return} this.focusDepth=d; this.updateFocus(); this.syncFocusButtons(); this.requestRender();
       });
+      toolbar.querySelector('#graph-project-scope').onchange=event=>this.setProjectScope(event.target.value);
       toolbar.querySelector('[data-graph-scope="docs"]').onclick=()=>this.setScope(true);
       toolbar.querySelector('[data-graph-scope="all"]').onclick=()=>this.setScope(false);
     }
@@ -161,7 +167,7 @@
     refreshFilteredGraph(rebuildLayout=false) {
       const kinds=new Set([...document.querySelectorAll('[data-graph-kind]:checked')].map(x=>x.dataset.graphKind));
       const relations=new Set([...document.querySelectorAll('[data-graph-relation]:checked')].map(x=>x.dataset.graphRelation));
-      const nodes=(this.raw.nodes||[]).filter(n=>kinds.has(n.kind)); const ids=new Set(nodes.map(n=>String(n.id)));
+      const nodes=(this.raw.nodes||[]).filter(n=>kinds.has(n.kind)&&(!this.scopeProject||(n.projects||[]).includes(this.scopeProject)||n.project===this.scopeProject||(n.kind==='project'&&n.label===this.scopeProject))); const ids=new Set(nodes.map(n=>String(n.id)));
       const edges=(this.raw.edges||[]).filter(e=>relations.has(e.relation)&&ids.has(String(e.source))&&ids.has(String(e.target)));
       this.graph={nodes,edges}; this.nodeMap=new Map(nodes.map(n=>[String(n.id),n]));
       this.buildAdjacency(); this.buildSearchIndex();
@@ -171,6 +177,14 @@
       this.setStatus(`${nodes.length} 节点 · ${edges.length} 关系 · Force + LOD`);
     }
 
+    setProjectScope(name){
+      this.scopeProject=name;localStorage.setItem('erwGraphProjectScope',name);const select=document.querySelector('#graph-project-scope');if(select)select.value=name;
+      this.selectedId=null;this.refreshFilteredGraph(true);this.focusInitialTopic();
+    }
+    focusInitialTopic(){
+      const recent=window.ERWResearchUI?.recent('doc'),node=this.nodeMap.get(recent?.id)||this.graph.nodes.find(n=>n.kind==='note')||this.graph.nodes.find(n=>!n.virtual);
+      if(!node)return;this.selectedId=String(node.id);this.focusDepth=1;this.updateFocus();this.syncFocusButtons();this.updateSidePanel(node);this.setStatus('主题已聚焦');this.animateCameraTo(this.selectedId);
+    }
     buildAdjacency() {
       this.adjacency=new Map(); this.degree=new Map(); this.edgeImportance=new Map(); this._degreeSorted=null;
       for(const n of this.graph.nodes){const id=String(n.id);this.adjacency.set(id,[]);this.degree.set(id,0)}
@@ -254,14 +268,14 @@
     syncFocusButtons(){document.querySelectorAll('[data-graph-focus]').forEach(b=>b.classList.toggle('active',Number(b.dataset.graphFocus||0)===this.focusDepth&&!!this.selectedId))}
 
     selectNode(id,animate=false){
-      const node=this.nodeMap.get(String(id));if(!node)return;this.selectedId=String(id);this.focusDepth=this.focusDepth||1;this.updateFocus();this.syncFocusButtons();this.setSidePanel('detail');this.updateSidePanel(node);this.openPreview(node);const bundle=document.querySelector('#graph-bundle');if(bundle)bundle.disabled=false;if(animate)this.animateCameraTo(id);else this.requestRender();
+      const node=this.nodeMap.get(String(id));if(!node)return;this.selectedId=String(id);this.focusDepth=this.focusDepth||1;this.updateFocus();this.syncFocusButtons();this.setSidePanel('detail');this.updateSidePanel(node);this.openPreview(node);this.setStatus('主题已聚焦');const bundle=document.querySelector('#graph-bundle');if(bundle)bundle.disabled=false;if(animate)this.animateCameraTo(id);else this.requestRender();
     }
     clearFocus(resetCamera=false){
-      this.setSidePanel('overview');this.selectedId=null;this.focusDistances.clear();this.searchHits.clear();this.syncFocusButtons();const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info'),bundle=document.querySelector('#graph-bundle');if(title)title.textContent='选择节点';if(info)info.textContent='搜索或点击节点后，将进入 Focus + Context；点击空白处可恢复全图。';if(bundle)bundle.disabled=true;this.hidePreview();if(resetCamera){const c=this.camera[this.mode];c.panX=0;c.panY=0;c.zoom=1;if(this.mode==='3d'){c.rotX=.25;c.rotY=0}}this.requestRender();
+      this.setSidePanel('overview');this.selectedId=null;this.focusDistances.clear();this.searchHits.clear();this.syncFocusButtons();const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info'),bundle=document.querySelector('#graph-bundle');if(title)title.textContent='选择节点';if(info)info.textContent='搜索或点击节点，查看相关主题；需要浏览全部资料时点击“恢复全图”。';if(bundle)bundle.disabled=true;this.hidePreview();this.setStatus('项目概览');if(resetCamera){const c=this.camera[this.mode];c.panX=0;c.panY=0;c.zoom=1;if(this.mode==='3d'){c.rotX=.25;c.rotY=0}}this.requestRender();
     }
 
     updateSidePanel(n){
-      const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info');if(title)title.textContent=n.label||n.id;if(!info)return;const projects=(n.projects||[]).length?n.projects:(n.project?[n.project]:[]),tags=n.tags||[],degree=this.degree.get(String(n.id))||0;info.innerHTML=`<div><b>类型：</b>${esc(KIND_LABEL[n.kind]||n.kind)}</div><div><b>项目：</b>${esc(projects.join(', ')||'—')}</div><div><b>标签：</b>${esc(tags.join(', ')||'—')}</div><div><b>状态：</b>${esc(n.status||'—')}</div><div><b>直接关系：</b>${degree}</div><div class="row-meta graph-selection-hint">Focus + Context 已启用；可切换直接关系 / 两级关系。</div>`;
+      const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info');if(title)title.textContent=n.label||n.id;if(!info)return;const projects=(n.projects||[]).length?n.projects:(n.project?[n.project]:[]),tags=n.tags||[],degree=this.degree.get(String(n.id))||0;info.innerHTML=`<div><b>类型：</b>${esc(KIND_LABEL[n.kind]||n.kind)}</div><div><b>项目：</b>${esc(projects.join(', ')||'—')}</div><div><b>标签：</b>${esc(tags.join(', ')||'—')}</div><div><b>状态：</b>${esc(n.status||'—')}</div><div><b>直接关系：</b>${degree}</div><div class="row-meta graph-selection-hint">已聚焦此主题；可切换直接关系或两级关系。</div>`;
     }
 
     async openPreview(n){
@@ -296,9 +310,9 @@
       ctx.globalAlpha=1;this.paintLabels(ctx,labelCandidates,zoom,nodeCount);ctx.globalAlpha=1;
     }
 
-    nodeAlpha(dist,isSel){if(!this.selectedId)return 1;if(isSel)return 1;if(dist===1)return 1;if(dist===2)return this.focusDepth>=2?.55:.16;return .12}
+    nodeAlpha(dist,isSel){if(!this.selectedId)return 1;if(isSel)return 1;if(dist===1)return 1;if(dist===2)return this.focusDepth>=2?.7:0;return 0}
     edgeAlpha(e,zoom){
-      const a=String(e.source),b=String(e.target),da=this.focusDistances.get(a),db=this.focusDistances.get(b);if(this.selectedId){if(a===this.selectedId||b===this.selectedId)return 1;if(this.focusDepth>=2&&da!=null&&db!=null&&Math.max(da,db)<=2)return .32;return .025}
+      const a=String(e.source),b=String(e.target),da=this.focusDistances.get(a),db=this.focusDistances.get(b);if(this.selectedId){if(a===this.selectedId||b===this.selectedId)return 1;if(this.focusDepth>=2&&da!=null&&db!=null&&Math.max(da,db)<=2)return .32;return 0}
       if(zoom<.6)return .06;if(zoom<.9)return .10;if(zoom<1.35)return .16;return .28;
     }
     paintEdges(ctx,w,h,zoom){
@@ -314,7 +328,7 @@
       for(const x of candidates){if(count>=limit&&!x.isSel&&!x.isSearch)break;const text=String(x.n.label||'').slice(0,x.isSel?36:24),fontSize=clamp((x.isSel?12:x.dist===1?11:10)*clamp(zoom,.82,1.28),9,15),weight=(x.isSel||x.dist===1||x.isSearch)?700:500,font=`${weight} ${fontSize}px Microsoft YaHei, sans-serif`;ctx.font=font;const key=`${font}|${text}`;let tw=this.labelWidth.get(key);if(tw==null){tw=ctx.measureText(text).width;this.labelWidth.set(key,tw)}const left=x.p.x+x.rad+4,top=x.p.y-fontSize*.72,rect={l:left-2,t:top-2,r:left+tw+3,b:top+fontSize+4};const collide=!x.isSel&&!x.isSearch&&placed.some(r=>!(rect.r<r.l||rect.l>r.r||rect.b<r.t||rect.t>r.b));if(collide)continue;placed.push(rect);ctx.globalAlpha=x.isSel||x.isSearch?1:(this.selectedId?(x.dist===1?.95:x.dist===2?.62:.2):.78);ctx.fillStyle=x.isSel||x.isSearch?css('--text','#222'):css('--muted','#667');ctx.fillText(text,left,x.p.y+fontSize*.25);count++}ctx.globalAlpha=1;
     }
 
-    hit(x,y){let best=null,bd=24;for(const n of this.graph.nodes){const p=this.screen.get(String(n.id));if(!p?.visible)continue;const d=Math.hypot(x-p.x,y-p.y);if(d<bd){bd=d;best=String(n.id)}}return best}
+    hit(x,y){let best=null,bd=24;for(const n of this.graph.nodes){const p=this.screen.get(String(n.id));if(!p?.visible||this.nodeAlpha(this.focusDistances.get(String(n.id)),String(n.id)===this.selectedId)<.05)continue;const d=Math.hypot(x-p.x,y-p.y);if(d<bd){bd=d;best=String(n.id)}}return best}
     bindCanvas(){
       const c=this.canvas;c.oncontextmenu=e=>{if(this.mode==='3d')e.preventDefault()};
       c.onpointerdown=e=>{this.pressNodeId=this.hit(e.offsetX,e.offsetY);this.dragMoved=false;this.drag={x:e.offsetX,y:e.offsetY,mode:(this.mode==='3d'&&(e.altKey||e.button===2))?'rotate':'pan'};c.setPointerCapture?.(e.pointerId)};
@@ -324,7 +338,11 @@
       c.onwheel=e=>{if(!(e.ctrlKey||e.metaKey))return;e.preventDefault();const cam=this.camera[this.mode],old=cam.zoom,next=clamp(old*Math.exp(-e.deltaY*.0015),.32,4.5);if(Math.abs(next-old)<1e-4)return;const rect=c.getBoundingClientRect(),cx=e.clientX-rect.left-rect.width/2,cy=e.clientY-rect.top-rect.height/2,localX=(cx-cam.panX)/old,localY=(cy-cam.panY)/old;cam.zoom=next;cam.panX=cx-localX*next;cam.panY=cy-localY*next;this.requestRender()};
     }
 
-    setStatus(text){const el=document.querySelector('#graph-engine-status');if(el)el.textContent=text+(this.layoutStats?.ms?` · 布局 ${this.layoutStats.ms} ms`:'')}
+    setStatus(text){
+      const el=document.querySelector('#graph-engine-status'),diagnostics=document.querySelector('#graph-diagnostics-text');
+      if(diagnostics)diagnostics.textContent=text+(this.layoutStats?.ms?` · 布局 ${this.layoutStats.ms} ms`:'');
+      if(el){const selected=this.nodeMap.get(this.selectedId);el.textContent=`${this.scopeProject?window.ERWResearchUI?.projectLabel(this.scopeProject)||this.scopeProject:'全部项目'} · ${this.graph.nodes.length} 个节点 · ${this.graph.edges.length} 条关系${selected?' · 当前主题：'+(selected.label||'已选主题'):''}`}
+    }
   }
   OptimizedKnowledgeGraph.layoutCache = new Map();
 

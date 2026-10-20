@@ -60,7 +60,7 @@ def retrievals_from_evidence(evidence: list[dict]) -> list[dict]:
                 continue
             excerpt = str(hit.get("excerpt") or "")
             source = hit.get("source") if isinstance(hit.get("source"), dict) else {}
-            source_cards.append({"id": hit.get("id"), "title": hit.get("title") or "未命名条目", "kind": hit.get("kind"), "retrieval": hit.get("retrieval"), "excerpt": excerpt[:1600], "excerpt_truncated": len(excerpt) > 1600, "source": {k: source[k] for k in ("type", "page", "offset", "end_offset") if k in source}})
+            source_cards.append({"id": hit.get("id"), "title": hit.get("title") or "未命名条目", "kind": hit.get("kind"), "evidence": hit.get("evidence") or {}, "paper_id": hit.get("paper_id"), "retrieval": hit.get("retrieval"), "excerpt": excerpt[:1600], "excerpt_truncated": len(excerpt) > 1600, "source": {k: source[k] for k in ("type", "page", "offset", "end_offset") if k in source}})
         retrievals.append({"call_id": item.get("tool_call_id"), "query": str(calls.get(item.get("tool_call_id"), {}).get("query") or ""), "mode": result["mode"], "requested_mode": result.get("requested_mode") or result["mode"], "warning": result.get("warning") or "", "count": result.get("count", len(source_cards)), "limit": result.get("limit"), "items": source_cards})
     return retrievals
 

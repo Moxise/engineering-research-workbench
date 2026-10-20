@@ -11,13 +11,13 @@
   let capabilities=null,capabilityLoad=null,settingsQueue=Promise.resolve(),savingSettings=0;
   const capabilityNames={rag_enabled:'RAG',memory_enabled:'记忆',skills_enabled:'Skill'};
   function capabilityControls(){
-    return `<div class="agent-capability-controls" aria-label="AI 能力开关">${Object.entries(capabilityNames).map(([key,label])=>`<button type="button" data-agent-capability="${key}" aria-pressed="false" disabled><span aria-hidden="true">●</span> ${label}</button>`).join('')}<button type="button" data-agent-rag-config title="配置 Embedding 接口与向量索引" aria-label="配置 RAG">⚙</button></div>`;
+    return `<div class="agent-capability-controls" aria-label="默认能力开关"><span class="agent-capability-label" title="本次实际使用的能力还会受提问要求与助手权限限制">默认能力</span>${Object.entries(capabilityNames).map(([key,label])=>`<button type="button" data-agent-capability="${key}" aria-pressed="false" disabled><span aria-hidden="true">●</span> ${label}</button>`).join('')}<button type="button" data-agent-rag-config title="配置 Embedding 接口与向量索引" aria-label="配置 RAG">⚙</button></div>`;
   }
   function paintCapabilities(){
     document.querySelectorAll('[data-agent-capability]').forEach(button=>{
       const enabled=capabilities?.[button.dataset.agentCapability]!==false;
       button.setAttribute('aria-pressed',String(!!capabilities&&enabled));button.disabled=!capabilities||savingSettings>0;
-      button.title=capabilities?`${capabilityNames[button.dataset.agentCapability]} ${enabled?'已开启，点击关闭':'已关闭，点击开启'}`:'正在加载能力设置';
+      button.title=capabilities?`默认能力：${capabilityNames[button.dataset.agentCapability]} ${enabled?'已开启，点击关闭':'已关闭，点击开启'}；本次任务可按你的要求限制`:'正在加载能力设置';
     });
     document.querySelectorAll('[data-capability]').forEach(input=>{if(capabilities&&!input.disabled)input.checked=capabilities[input.dataset.capability]!==false});
   }
@@ -189,7 +189,7 @@
     const anchor=event.target.closest?.('[data-agent-reference]');if(!anchor)return;
     event.preventDefault();if(anchor.getAttribute('aria-busy')==='true')return;
     anchor.setAttribute('aria-busy','true');
-    try{const response=await fetch('/api/docs/resolve?target='+encodeURIComponent(anchor.dataset.agentReference));const doc=await response.json();if(!response.ok)throw Error(doc.message||'未找到引用条目');await window.ERWNav.open(doc.kind,doc.id)}
+    try{const response=await fetch('/api/docs/resolve?target='+encodeURIComponent(anchor.dataset.agentReference));const doc=await response.json();if(!response.ok)throw Error(doc.message||'未找到引用条目');await window.ERWNav.open(doc.kind,doc.id,{note:anchor.dataset.agentView==='note'})}
     catch(error){window.ERWToast?.('引用无法打开：'+error.message,true)}finally{anchor.removeAttribute('aria-busy')}
   });
   async function syncDrafts(){const rows=await api('drafts?status=');let changed=false;for(const draft of rows){if(JSON.stringify(drafts[draft.id])!==JSON.stringify(draft)){drafts[draft.id]=draft;changed=true}}if(changed)notify('drafts',selected);return rows}
