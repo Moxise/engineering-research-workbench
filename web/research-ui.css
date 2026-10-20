@@ -5,6 +5,7 @@
 .reading-size-control select{color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px}
 .reading-size-help{display:block;padding:0 10px 10px;color:var(--muted);font-size:11px;line-height:1.6;max-width:240px}
 #md-preview,.agent-message-body,.agent-response-body,.fab-body{font-size:var(--reading-font-size,14px)!important}
+#editor-pane .md-input{font-size:calc(13px * var(--md-edit-scale,1))!important}
 #editor-pane .md-preview{font-size:calc(var(--reading-font-size,14px) * var(--md-preview-scale,1))!important}
 #editor-pane .md-preview h1{font-size:calc(var(--reading-font-size,14px) * 1.786 * var(--md-preview-scale,1))!important}
 #editor-pane .md-preview h2{font-size:calc(var(--reading-font-size,14px) * 1.429 * var(--md-preview-scale,1))!important}
@@ -23,6 +24,28 @@
 #main .meta-block.compact .field-help{display:none}
 #main .meta-block.compact .meta-head-title{font-size:12px}
 #main .meta-block.compact .meta-essential input,#main .meta-block.compact .meta-essential select{padding-block:6px}
+/* Keep document controls close to the text; reveal optional metadata explicitly. */
+#main .doc-editor{container:document-editor / inline-size;padding:8px 10px!important}
+#main .doc-editor .meta-head{min-height:28px;margin-bottom:4px}
+#main .doc-editor .form-grid{row-gap:5px;column-gap:10px}
+#main .doc-editor .field>label{margin-bottom:2px}
+#main .meta-block.compact{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start}
+#main .meta-block.compact .meta-head{grid-column:2;grid-row:1;margin:0;padding:0!important;background:transparent!important;min-height:30px}
+#main .meta-block.compact .meta-head-title,#main .meta-block.compact .meta-summary{display:none!important}
+#main .meta-block.compact .form-grid{grid-column:1;grid-row:1;gap:5px 8px;padding:0}
+#main .meta-block.compact .meta-essential{display:flex;align-items:center;gap:6px}
+#main .meta-block.compact .meta-essential>label,#main .meta-block.compact .field-label-row{flex:0 0 auto;margin:0;white-space:nowrap}
+#main .meta-block.compact .meta-essential>:is(input,select,.project-picker-row){flex:1;min-width:0}
+#main .meta-block.compact .meta-essential :is(input,select,.project-chip-box,.project-add-btn){height:30px!important;min-height:30px!important;padding-block:3px!important}
+#main .meta-block.compact .project-chip-box{min-width:0}
+#main .doc-editor .editor-wrap{margin-top:5px!important}
+@container document-editor (min-width:820px){
+  #main .meta-block.compact .form-grid{grid-template-columns:minmax(180px,1.6fr) minmax(160px,1fr) 116px}
+  #main .meta-block.compact .form-grid>.meta-essential:has(#f-title){grid-column:auto!important}
+}
+#main .doc-list[data-wheel-zoom-ready] .doc-item .title{font-size:calc(13px * var(--document-list-zoom,1))!important}
+#main .doc-list[data-wheel-zoom-ready] .doc-item .excerpt{font-size:calc(11px * var(--document-list-zoom,1))!important;line-height:1.6!important;max-height:none!important}
+#main .doc-list[data-wheel-zoom-ready] .doc-item :is(.badge,.doc-compact-meta,.doc-compact-project){font-size:calc(11px * var(--document-list-zoom,1))!important}
 .evidence-badge{display:inline-block;padding:2px 6px;border:1px solid var(--line);border-radius:5px;font-size:11px;color:var(--muted);white-space:nowrap;line-height:1.6;background:var(--surface-2)}
 .evidence-badge[data-evidence-level=verified]{color:var(--success,#17826d)}
 .evidence-badge[data-evidence-level=pdf]{color:var(--accent)}

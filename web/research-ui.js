@@ -21,6 +21,7 @@
   function remember(kind,value){try{localStorage.setItem('erwRecent:'+kind,JSON.stringify(value))}catch{}}
   function recent(kind){try{return JSON.parse(read('erwRecent:'+kind,'null'))}catch{return null}}
   function readingSize(size){const n=Math.max(12,Math.min(20,Number(size)||14));document.documentElement.style.setProperty('--reading-font-size',n+'px');try{localStorage.setItem('readingFontSize',String(n))}catch{}return n}
+  function wheelScale(current,event,min,max){const pixels=event.deltaY*(event.deltaMode===1?16:event.deltaMode===2?400:1);return Math.max(min,Math.min(max,current*Math.exp(-Math.max(-240,Math.min(240,pixels))*.0015)))}
   function init(){
     readingSize(read('readingFontSize','14'));
     const menu=document.querySelector('#zoom-menu');
@@ -29,6 +30,6 @@
       const select=menu.querySelector('select');select.value=String(readingSize(read('readingFontSize','14')));select.onchange=()=>readingSize(select.value);
     }
   }
-  window.ERWResearchUI={esc,projectLabel,setProjects,loadProjects,projectRecords:()=>projects,evidence,evidenceBadge,remember,recent,readingSize};
+  window.ERWResearchUI={esc,projectLabel,setProjects,loadProjects,projectRecords:()=>projects,evidence,evidenceBadge,remember,recent,readingSize,wheelScale};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

@@ -7,7 +7,7 @@
   const clampZoom = (value) => {
     const n = Number(value);
     if (!Number.isFinite(n)) return 100;
-    return Math.max(10, Math.min(200, Math.round(n / 10) * 10));
+    return Math.max(10, Math.min(300, Math.round(n * 10) / 10));
   };
   const readZoom = key => clampZoom(localStorage.getItem(key) || 100);
   const writeZoom = (key, value) => {
@@ -15,7 +15,7 @@
     localStorage.setItem(key, String(z));
     return z;
   };
-  const zoomOptions = current => Array.from({length:20}, (_,i)=>(i+1)*10)
+  const zoomOptions = current => [...new Set([...Array.from({length:30}, (_,i)=>(i+1)*10),current])].sort((a,b)=>a-b)
     .map(n=>`<option value="${n}" ${n===current?'selected':''}>${n}%</option>`).join('');
 
   function applyEditorZoom(){
@@ -24,17 +24,47 @@
     pane.style.setProperty('--md-edit-scale', String(edit/100));
     pane.style.setProperty('--md-preview-scale', String(preview/100));
     const a=qs('[data-editor-zoom="edit"]'), b=qs('[data-editor-zoom="preview"]');
-    if(a)a.value=String(edit); if(b)b.value=String(preview);
+    for(const [select,value] of [[a,edit],[b,preview]])if(select){if(![...select.options].some(option=>+option.value===value)){select.querySelector('[data-wheel-value]')?.remove();const option=new Option(value+'%',String(value));option.dataset.wheelValue='true';select.add(option)}select.value=String(value)}
   }
 
+  function bindWheelZoom(element,key,apply){
+    if(!element||element.dataset.wheelZoomReady)return;element.dataset.wheelZoomReady='true';
+    element.title='Ctrl + 滚轮缩放当前分栏；其他分栏保持不变';
+    let frame=0,next=0,point=0,anchor=null,release=0;
+    element.addEventListener('wheel',event=>{
+      if(!(event.ctrlKey||event.metaKey)||!event.deltaY)return;
+      event.preventDefault();event.stopPropagation();
+      const rect=element.getBoundingClientRect(),scale=rect.height/element.clientHeight||1;
+      point=Math.max(0,Math.min(element.clientHeight,(event.clientY-rect.top)/scale));
+      if(!frame)anchor=window.ERWEditorViewport?.capture(element,point)||{fraction:(element.scrollTop+point)/Math.max(1,element.scrollHeight)};
+      next=window.ERWResearchUI.wheelScale(next||readZoom(key),event,10,300);
+      clearTimeout(release);element.dataset.zooming='true';
+      if(!frame)frame=requestAnimationFrame(()=>{
+        frame=0;if(!element.isConnected)return;
+        writeZoom(key,next);apply();
+        if(window.ERWEditorViewport)window.ERWEditorViewport.restore(element,anchor,point);else element.scrollTop=anchor.fraction*element.scrollHeight-point;
+        next=0;release=setTimeout(()=>delete element.dataset.zooming,120);
+      });
+    },{passive:false});
+  }
+  window.ERWPaneZoom={bindText(element,key,base=13){
+    if(!element)return;const apply=()=>element.style.setProperty('font-size',base*readZoom(key)/100+'px','important');
+    apply();bindWheelZoom(element,key,apply);
+  }};
+
   function injectEditorZoomControls(){
+    for(const [selector,key] of [['.docs-layout .doc-list','erwDocumentListZoom'],['#lit-list','erwPdfListZoom']]){
+      const list=qs(selector);if(list){const apply=()=>list.style.setProperty('--document-list-zoom',readZoom(key)/100);apply();bindWheelZoom(list,key,apply)}
+    }
     const toolbar=qs('#doc-editor .toolbar');
     if(!toolbar){return;}
+    bindWheelZoom(qs('#md-input'),'erwEditorZoom',applyEditorZoom);
+    bindWheelZoom(qs('#md-preview'),'erwPreviewZoom',applyEditorZoom);
     if(toolbar.querySelector('.editor-zoom-controls')){applyEditorZoom();return;}
     const edit=readZoom('erwEditorZoom'), preview=readZoom('erwPreviewZoom');
     const box=document.createElement('div');
     box.className='editor-zoom-controls';
-    box.innerHTML=`<label class="editor-zoom-field" title="Markdown 编辑区缩放"><span>编辑</span><select data-editor-zoom="edit" aria-label="编辑区缩放">${zoomOptions(edit)}</select></label><label class="editor-zoom-field" title="Markdown 预览区缩放"><span>预览</span><select data-editor-zoom="preview" aria-label="预览区缩放">${zoomOptions(preview)}</select></label>`;
+    box.innerHTML=`<label class="editor-zoom-field" title="鼠标放在编辑栏，Ctrl + 滚轮缩放"><span>编辑</span><select data-editor-zoom="edit" aria-label="编辑区缩放">${zoomOptions(edit)}</select></label><label class="editor-zoom-field" title="鼠标放在预览栏，Ctrl + 滚轮缩放"><span>预览</span><select data-editor-zoom="preview" aria-label="预览区缩放">${zoomOptions(preview)}</select></label>`;
     const tabs=toolbar.querySelector('.editor-tabs');
     if(tabs)toolbar.insertBefore(box,tabs);else toolbar.appendChild(box);
     qsa('[data-editor-zoom]',box).forEach(sel=>sel.addEventListener('change',()=>{

@@ -60,6 +60,11 @@ html[data-window-hidden="true"] #main .overview-dashboard *::after{animation-pla
 
 /* Keep save actions visible; short windows scroll the whole content, never just metadata. */
 @media(min-width:821px){
+  #app.app-shell:has(>.main-shell>#main>:is(.docs-layout,.lit-shell)){height:var(--vh-px,100dvh)!important;min-height:0!important}
+  #app:has(>.main-shell>#main>:is(.docs-layout,.lit-shell))>.sidebar{height:var(--vh-px,100dvh)!important}
+  #app>.main-shell:has(>#main>:is(.docs-layout,.lit-shell)){height:var(--vh-px,100dvh)!important;min-height:0!important;display:flex!important;flex-direction:column!important}
+  #app>.main-shell:has(>#main>:is(.docs-layout,.lit-shell))>#main{flex:1 1 auto!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;padding-bottom:8px!important}
+  #main>:is(.docs-layout,.lit-shell){height:100%!important;min-height:0!important;flex:1 1 auto!important;overflow:hidden!important}
   html[data-desktop="true"] #app>.main-shell:has(.docs-layout,.lit-shell,.agent-layout){height:var(--vh-px)!important;min-height:0!important;display:flex!important;flex-direction:column!important}
   html[data-desktop="true"] #app>.main-shell:has(.docs-layout,.lit-shell,.agent-layout)>#main{flex:1 1 auto!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;padding-bottom:10px!important}
   html[data-desktop="true"] #main>.docs-layout,html[data-desktop="true"] #main>:is(.lit-shell,.agent-layout){height:100%!important;min-height:0!important;flex:1 1 auto!important;overflow:hidden!important}

@@ -1190,7 +1190,7 @@
     const tagsSpan=special||kind==='summary'?'span-4':(dateField?'span-2':'span-3');
     state.editorMode=doc.draft?'edit':(['split','edit','preview'].includes(localStorage.getItem('editorMode'))?localStorage.getItem('editorMode'):'preview');
     $('#doc-editor').dataset.reading=String(state.editorMode==='preview');
-    const metaFold=!doc.draft&&state.editorMode!=='edit'&&metaCollapsed(kind);
+    const metaFold=!doc.draft&&metaCollapsed(kind);
     window.ERWResearchUI?.remember('doc',{id:doc.id,title:doc.title,kind:doc.kind,projects:doc.projects||[]});
     $('#doc-editor').innerHTML=`<div class="doc-editor-content"><div class="meta-block${metaFold?' compact':''}" id="meta-block">
       <div class="meta-head"><span class="meta-head-title">条目信息</span><span class="meta-summary">${esc(metaSummary(doc))}</span><button type="button" class="ghost-btn meta-toggle" id="meta-toggle" aria-expanded="${!metaFold}" aria-controls="meta-fields">${metaFold?'更多资料':'精简信息'}</button></div>
@@ -1330,6 +1330,7 @@
      * 锁在回声事件到来前已失效 → 编辑器↔预览互相写入形成无限互滚（滚动条自动滑动）。
      * 事件驱动释放 + 150ms 兜底定时器（写入未引起滚动时防锁死）。 */
     const bindScrollSync=(src,dst,fn)=>src.addEventListener('scroll',()=>{
+      if(src.dataset.zooming||dst.dataset.zooming){syncLock=false;clearTimeout(syncLockTimer);return;}
       if(syncLock){syncLock=false;clearTimeout(syncLockTimer);return;}
       if(state.editorMode!=='split')return;
       if(src.scrollHeight-src.clientHeight<=1||dst.scrollHeight-dst.clientHeight<=1)return;
@@ -1340,7 +1341,7 @@
     ta.addEventListener('input',()=>{state.dirty=true;state._mdSyncVer=(state._mdSyncVer||0)+1;if(bib&&!syncingBib){const m=ta.value.match(/```bibtex\s*\n([\s\S]*?)```/i);if(m&&bib.value.trim()!==m[1].trim()){syncingBib=true;bib.value=m[1].trim();syncingBib=false;}}debouncedPreview();});
     if(bib)bib.addEventListener('input',()=>{if(syncingBib)return;syncingBib=true;const block='```bibtex\n'+bib.value.trim()+'\n```';if(/```bibtex\s*\n[\s\S]*?```/i.test(ta.value))ta.value=ta.value.replace(/```bibtex\s*\n[\s\S]*?```/i,block);else ta.value='## BibTeX\n\n'+block+'\n\n'+ta.value;syncingBib=false;state.dirty=true;debouncedPreview();});
     ta.addEventListener('paste',onPasteImage); ta.addEventListener('dragover',e=>e.preventDefault()); ta.addEventListener('drop',onDropImage);
-    $$('[data-edit-mode]').forEach(b=>b.onclick=()=>{state.editorMode=b.dataset.editMode;localStorage.setItem('editorMode',state.editorMode);$('#doc-editor').dataset.reading=String(state.editorMode==='preview');if(state.editorMode==='edit'){const meta=$('#meta-block');meta?.classList.remove('compact');const toggle=$('#meta-toggle');if(toggle){toggle.textContent='精简信息';toggle.setAttribute('aria-expanded','true')}} const p=$('#editor-pane');p.className='editor-pane '+(state.editorMode==='edit'?'edit-only':state.editorMode==='preview'?'preview-only':'');$$('[data-edit-mode]').forEach(x=>x.classList.toggle('active',x.dataset.editMode===state.editorMode)); if(state.editorMode!=='edit')renderMarkdownPreview();});
+    $$('[data-edit-mode]').forEach(b=>b.onclick=()=>{state.editorMode=b.dataset.editMode;localStorage.setItem('editorMode',state.editorMode);$('#doc-editor').dataset.reading=String(state.editorMode==='preview');const p=$('#editor-pane');p.className='editor-pane '+(state.editorMode==='edit'?'edit-only':state.editorMode==='preview'?'preview-only':'');$$('[data-edit-mode]').forEach(x=>x.classList.toggle('active',x.dataset.editMode===state.editorMode)); if(state.editorMode!=='edit')renderMarkdownPreview();});
     $$('[data-md]').forEach(b=>b.onclick=()=>applyMdCommand(b.dataset.md));
   }
   const debouncedPreview=debounce(renderMarkdownPreview,250);
@@ -1348,17 +1349,16 @@
   let _mdMeasureCtx=null;
   /* 用 canvas 逐行量宽，估算 textarea 软换行后的物理行累计表 cum[k] = 前 k 个逻辑行占用的物理行数 */
   function ensureMdSyncMap(ta){
-    const ver=state._mdSyncVer||0,c=state._mdSyncCache;
+    const ver=state._mdSyncVer||0,c=state._mdSyncCache,cs=getComputedStyle(ta),font=[cs.fontStyle,cs.fontWeight,cs.fontSize,cs.lineHeight,cs.fontFamily].join('|');
     /* v260924b · 缓存键含文本长度：setRangeText/直接赋值不触发 input 事件，长度变化时强制重建 */
-    if(c&&c.ver===ver&&c.w===ta.clientWidth&&c.len===ta.value.length)return c;
-    const cs=getComputedStyle(ta);
+    if(c&&c.ver===ver&&c.w===ta.clientWidth&&c.len===ta.value.length&&c.font===font)return c;
     const lineH=parseFloat(cs.lineHeight)||parseFloat(cs.fontSize)*1.65||21;
     const wrapW=Math.max(40,ta.clientWidth-parseFloat(cs.paddingLeft||0)-parseFloat(cs.paddingRight||0));
     if(!_mdMeasureCtx)_mdMeasureCtx=document.createElement('canvas').getContext('2d');
     try{_mdMeasureCtx.font=`${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight==='normal'?'normal':cs.lineHeight} ${cs.fontFamily}`;}catch(e){_mdMeasureCtx.font=`${cs.fontSize} ${cs.fontFamily}`;}
     const lines=ta.value.split('\n'),cum=[0];
     for(const ln of lines){const w=ln?_mdMeasureCtx.measureText(ln).width:0;cum.push(cum[cum.length-1]+(w<=0?1:Math.max(1,Math.ceil(w/wrapW))));}
-    state._mdSyncCache={ver,w:ta.clientWidth,len:ta.value.length,cum,lineH};
+    state._mdSyncCache={ver,w:ta.clientWidth,len:ta.value.length,cum,lineH,font};
     return state._mdSyncCache;
   }
   /* 物理行位置 → 逻辑行号（浮点） */
@@ -1416,6 +1416,21 @@
     }else target=pv.scrollTop/dh*sh;
     ta.scrollTop=Math.max(0,Math.min(sh,target));
   }
+  window.ERWEditorViewport={
+    capture(element,y){
+      if(element.id==='md-input'){const map=ensureMdSyncMap(element);return {line:mdPhysToLogical(map,(element.scrollTop+y)/map.lineH)}}
+      const bounds=element.getBoundingClientRect(),scale=bounds.height/element.clientHeight||1;
+      const blocks=[...element.querySelectorAll(':scope > .md-block')];
+      const block=blocks.find(node=>node.getBoundingClientRect().bottom>bounds.top+y*scale)||blocks.at(-1);
+      if(block){const rect=block.getBoundingClientRect();return {block,fraction:(bounds.top+y*scale-rect.top)/(rect.height||1)}}
+      return {fraction:(element.scrollTop+y)/Math.max(1,element.scrollHeight)};
+    },
+    restore(element,anchor,y){
+      if(anchor.line!=null){const map=ensureMdSyncMap(element);element.scrollTop=mdLogicalToPhys(map,anchor.line)*map.lineH-y}
+      else if(anchor.block?.isConnected){const rect=element.getBoundingClientRect(),block=anchor.block.getBoundingClientRect(),scale=rect.height/element.clientHeight||1;element.scrollTop+=(block.top-rect.top+anchor.fraction*block.height)/scale-y}
+      else element.scrollTop=anchor.fraction*element.scrollHeight-y;
+    }
+  };
   function normalizePreviewPaths(html){
     return html
       .replace(/(src|href)="\.\.\/Attachments\//g, '$1="/workspace-file/Knowledge/Attachments/')
@@ -1942,6 +1957,7 @@
     $$('[data-system-action]').forEach(b=>b.onclick=()=>{toggleReloadMenu(false);systemAction(b.dataset.systemAction)});
     $('#reload-btn').onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();toggleReloadMenu(true);$('#reload-menu button')?.focus()}};
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#reload-menu').classList.contains('hidden')){toggleReloadMenu(false);$('#reload-btn').focus()}});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#zoom-menu').classList.contains('hidden')){$('#zoom-menu').classList.add('hidden');$('#zoom-btn').focus()}});
     document.addEventListener('click',e=>{if(!e.target.closest('.reload-wrap'))toggleReloadMenu(false);if(!e.target.closest('.zoom-wrap'))$('#zoom-menu').classList.add('hidden')});
     window.addEventListener('beforeunload',e=>{if(editorDirty()||state.saving){e.preventDefault();e.returnValue=''}});
     window.addEventListener('hashchange',()=>{const r=location.hash.slice(1)||'overview';if(r!==state.route)navigate(r)});

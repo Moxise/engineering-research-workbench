@@ -6,6 +6,7 @@ const clamp=v=>Math.max(0,Math.min(1,v));
 const PDF_RENDER_RADIUS=4; /* v261009p · 仅保留当前页前后少量已渲染 canvas，防长 PDF 内存随滚动线性增长 */
 const PDF_DPR_CAP=2;       /* 高 DPI 屏限制离屏像素规模；视觉清晰度基本不变，显存/内存峰值显著下降 */
 const S={items:[],paper:null,pdf:null,scale:1.15,zoomMode:"fit",focus:false,libraryHidden:false,sideHidden:true,layoutObserver:null,layoutTimer:null,openSeq:0,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],annByPage:new Map(),trimTimer:null,ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
+let wheelFrame=0,wheelTimer=null,wheelTarget=null,wheelBase=1,wheelAnchor=null,zoomSerial=0;
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
 async function ensurePdfJs(){
@@ -42,7 +43,8 @@ function shell(){
  q("#lit-toggle-library").onclick=()=>{S.libraryHidden=!S.libraryHidden;S.focus=false;layout()};
  q("#lit-toggle-side").onclick=()=>{S.sideHidden=!S.sideHidden;S.focus=false;layout()};
  q("#lit-focus").onclick=()=>{S.focus=!S.focus;S.libraryHidden=S.focus;S.sideHidden=true;layout()};
- q("#lit-fit").onclick=()=>{S.zoomMode="fit";refit()};
+ q("#lit-fit").onclick=()=>{stopWheelZoom();S.zoomMode="fit";refit()};
+ q("#lit-scroll").addEventListener("wheel",pdfWheelZoom,{passive:false});
  S.layoutObserver=new ResizeObserver(()=>{clearTimeout(S.layoutTimer);S.layoutTimer=setTimeout(()=>{if(S.pdf&&S.zoomMode==="fit")refit()},120)});S.layoutObserver.observe(q(".lit-reader"));
  q("#lit-upload").onclick=()=>q("#lit-file").click();q("#lit-file").onchange=e=>upload(e.target.files?.[0]);
  q("#lit-back").onclick=()=>window.dispatchEvent(new Event("erw-lit-back")); /* v260929 · 返回文献列表：经事件通知 app.js 重新渲染列表页（hash 未变不触发路由） */
@@ -70,6 +72,7 @@ function releasePageCanvas(r){
  if(cv){cv.width=1;cv.height=1} /* 先主动释放 backing store，再移除 DOM，避免 GC 延迟占住几十 MB */
 }
 function reset(){
+ stopWheelZoom();
  S.generation++;S.observer?.disconnect();clearTimeout(S.trimTimer);
  S.pages.forEach(r=>releasePageCanvas(r));S.pages.clear();
  S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.areaResolver=null;
@@ -107,13 +110,15 @@ function scheduleTrim(center=S.current){
  clearTimeout(S.trimTimer);
  S.trimTimer=setTimeout(()=>trimRenderedPages(center),120);
 }
+function availablePdfWidth(){const scroll=q("#lit-scroll");if(!scroll)return 320;const style=getComputedStyle(scroll);return Math.max(1,scroll.clientWidth-parseFloat(style.paddingLeft||0)-parseFloat(style.paddingRight||0))}
 async function build(){
  const host=q("#lit-pages");if(!host||!S.pdf)return;S.pages.forEach(releasePageCanvas);host.innerHTML="";S.pages.clear();const gen=S.generation,pdf=S.pdf;
  /* v261009p · 旧实现为拿页面尺寸在打开 PDF 时串行 getPage(1..N)，长论文首屏会被 N 次异步解析阻塞。
     学术论文绝大多数页面同尺寸：只取第 1 页作为占位尺寸，真正进入视口时再按实际页面尺寸修正。 */
  const first=await pdf.getPage(1);if(gen!==S.generation||pdf!==S.pdf||!host.isConnected)return;
- if(S.zoomMode==="fit")S.scale=Math.max(.2,Math.min(2.4,(q("#lit-scroll").clientWidth-32)/first.getViewport({scale:1}).width));
+ if(S.zoomMode==="fit")S.scale=Math.max(.2,Math.min(2.4,availablePdfWidth()/first.getViewport({scale:1}).width));
  const baseVp=first.getViewport({scale:S.scale});
+ host.style.minWidth=baseVp.width+"px";
  const frag=document.createDocumentFragment();
  for(let n=1;n<=S.pdf.numPages;n++){
   const el=document.createElement("div");el.className="lit-page-shell";el.dataset.page=n;
@@ -398,7 +403,7 @@ function pageAtScroll(){
  if(a&&b){const da=Math.abs((a.el.offsetTop+a.el.offsetHeight/2)-y),db=Math.abs((b.el.offsetTop+b.el.offsetHeight/2)-y);if(db<da)best=best+1}
  return best;
 }
-function track(){const best=pageAtScroll();scheduleTrim(best);if(best===S.current)return;S.current=best;toolbar();dispatchPage();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)} /* v261009p · O(logN) 页定位 + 有界渲染缓存 */
+function track(){if(S.zooming)return;const best=pageAtScroll();scheduleTrim(best);if(best===S.current)return;S.current=best;toolbar();dispatchPage();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)} /* v261009p · O(logN) 页定位 + 有界渲染缓存 */
 async function savePos(page){if(!S.paper||!S.pdf)return;const st=S.paper.reading_status==="未读"?"在读":S.paper.reading_status;S.paper.last_page=page;S.paper.reading_status=st;try{await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({last_page:page,page_count:S.pdf.numPages,reading_status:st})})}catch{}}
 function dispatchPage(){document.dispatchEvent(new CustomEvent("erw-lit-page",{detail:{page:S.current}}))} /* v260930d · M5 翻页事件 */
 function go(n,smooth=true){
@@ -416,12 +421,52 @@ function layout(){
 function showSide(){S.sideHidden=false;S.focus=false;layout()}
 async function refit(){
  const pdf=S.pdf;if(!pdf||!q(".lit-shell"))return;const first=await pdf.getPage(1);if(pdf!==S.pdf||!q("#lit-scroll"))return;
- const target=Math.max(.2,Math.min(2.4,(q("#lit-scroll").clientWidth-32)/first.getViewport({scale:1}).width));
+ const target=Math.max(.2,Math.min(2.4,availablePdfWidth()/first.getViewport({scale:1}).width));
  if(S.pages.size&&Math.abs(target-S.scale)<.002)return;
  const keep=S.current,gen=++S.generation;S.observer?.disconnect();await build();if(gen===S.generation&&q(".lit-shell"))go(keep,false);
 }
-async function zoom(delta){if(!S.pdf)return;S.zoomMode="manual";const keep=S.current;S.scale=Math.max(.65,Math.min(2.4,S.scale+delta));S.generation++;S.observer?.disconnect();await build();requestAnimationFrame(()=>go(keep,false))}
-function toolbar(){if(!S.pdf)return;q(".lit-toolbar").dataset.selection=String(!!S.pending);q("#lit-focus").disabled=false;q("#lit-fit").disabled=false;q("#lit-toggle-side").disabled=false;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round(S.scale*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});qa("[data-ai]").forEach(b=>{b.disabled=!(S.pending?.kind==="text"&&S.pending?.text);b.classList.toggle("ready",!!(S.pending?.kind==="text"&&S.pending?.text))});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;const cp=q("#lit-copy");if(cp)cp.disabled=!(S.pending?.kind==="text"&&S.pending?.text)}
+function pdfAnchor(clientX,clientY){
+ const sc=q("#lit-scroll");if(!sc)return null;const view=sc.getBoundingClientRect(),scale=view.width/sc.clientWidth||1;
+ const x=clientX??(view.left+view.width/2),y=clientY??(view.top+view.height/2);
+ const rec=[...S.pages.entries()].find(([,r])=>{const b=r.el.getBoundingClientRect();return y>=b.top&&y<=b.bottom})||[S.current,S.pages.get(S.current)];
+ if(!rec[1])return null;const b=rec[1].el.getBoundingClientRect();
+ return {page:rec[0],x:(x-view.left)/scale,y:(y-view.top)/scale,u:Math.max(0,Math.min(1,(x-b.left)/(b.width||1))),v:Math.max(0,Math.min(1,(y-b.top)/(b.height||1)))};
+}
+function restorePdfAnchor(anchor){
+ const sc=q("#lit-scroll"),rec=anchor&&S.pages.get(anchor.page);if(!sc||!rec)return;
+ const view=sc.getBoundingClientRect(),page=rec.el.getBoundingClientRect(),scale=view.width/sc.clientWidth||1;
+ sc.scrollLeft+=(page.left+page.width*anchor.u-view.left)/scale-anchor.x;
+ sc.scrollTop+=(page.top+page.height*anchor.v-view.top)/scale-anchor.y;
+ S.current=anchor.page;
+}
+function stopWheelZoom(){
+ clearTimeout(wheelTimer);cancelAnimationFrame(wheelFrame);wheelFrame=0;wheelTarget=null;wheelAnchor=null;zoomSerial++;S.zooming=false;
+ const host=q("#lit-pages");if(host)host.style.zoom="";
+}
+function paintWheelZoom(){
+ wheelFrame=0;const host=q("#lit-pages");if(!host||wheelTarget==null)return;
+ host.style.zoom=String(wheelTarget/wheelBase);restorePdfAnchor(wheelAnchor);toolbar();
+}
+async function commitPdfZoom(target,anchor){
+ if(!S.pdf||!q("#lit-pages"))return;const serial=++zoomSerial,gen=++S.generation;
+ S.zooming=true;S.zoomMode="manual";S.scale=target;wheelTarget=null;q("#lit-pages").style.zoom="";S.observer?.disconnect();clearTimeout(track.t);
+ try{await build();if(gen!==S.generation||serial!==zoomSerial||!q("#lit-pages"))return;restorePdfAnchor(anchor);renderPage(S.current);toolbar();dispatchPage();scheduleTrim();
+  requestAnimationFrame(()=>{if(serial===zoomSerial)S.zooming=false});
+ }catch(error){if(serial===zoomSerial){S.zooming=false;toast("PDF 缩放失败："+error.message,true)}}
+}
+function pdfWheelZoom(event){
+ if(!(event.ctrlKey||event.metaKey)||!event.deltaY||!S.pdf)return;
+ event.preventDefault();event.stopPropagation();
+ const current=wheelTarget??S.scale,next=window.ERWResearchUI.wheelScale(current,event,.2,4);if(Math.abs(next-current)<.00001)return;
+ if(wheelTarget==null)wheelBase=S.scale;
+ wheelAnchor=pdfAnchor(event.clientX,event.clientY);wheelTarget=next;S.zoomMode="manual";S.zooming=true;zoomSerial++;clearTimeout(track.t);
+ if(!wheelFrame)wheelFrame=requestAnimationFrame(paintWheelZoom);
+ clearTimeout(wheelTimer);wheelTimer=setTimeout(()=>{if(wheelFrame){cancelAnimationFrame(wheelFrame);paintWheelZoom()}commitPdfZoom(wheelTarget,wheelAnchor)},160);
+}
+async function zoom(delta){
+ if(!S.pdf)return;const target=Math.max(.2,Math.min(4,(wheelTarget??S.scale)+delta)),anchor=pdfAnchor();stopWheelZoom();await commitPdfZoom(target,anchor);
+}
+function toolbar(){if(!S.pdf)return;q(".lit-toolbar").dataset.selection=String(!!S.pending);q("#lit-focus").disabled=false;q("#lit-fit").disabled=false;q("#lit-toggle-side").disabled=false;q("#lit-page-label").textContent=S.current+" / "+S.pdf.numPages;q("#lit-zoom-label").textContent=Math.round((wheelTarget??S.scale)*100)+"%";qa("[data-ann]").forEach(b=>{b.disabled=!S.pending;b.classList.toggle("ready",!!S.pending)});qa("[data-ai]").forEach(b=>{b.disabled=!(S.pending?.kind==="text"&&S.pending?.text);b.classList.toggle("ready",!!(S.pending?.kind==="text"&&S.pending?.text))});q("#lit-area").classList.toggle("active",S.area);q("#lit-area").textContent=S.area?"拖动选择区域…":"框选区域";q("#lit-undo").disabled=!S.undo.length;const cp=q("#lit-copy");if(cp)cp.disabled=!(S.pending?.kind==="text"&&S.pending?.text)}
 
 
 async function openAnnotation(page,id){
@@ -598,6 +643,7 @@ async function uploadNoteImage(file){
 async function note(){const root=q("#lit-side-body"),d=await api("/api/literature/"+S.paper.id+"/note");root.innerHTML='<textarea class="lit-note" id="lit-note" placeholder="Markdown 文献笔记…（与知识库条目正文同源，文献编辑器里看到的是同一份）">'+esc(d.content||"")+'</textarea><div class="lit-note-actions"><span>与知识库条目正文同源 · Ctrl+S 保存</span><span style="display:flex;gap:6px"><button type="button" class="secondary-btn" id="lit-note-img" title="上传图片到笔记图片目录，并在光标处插入 Markdown 图片引用">插入图片</button><input type="file" id="lit-note-img-file" accept="image/png,image/jpeg,image/webp" hidden><button type="button" class="secondary-btn" id="lit-note-ai" title="把当前笔记交给 AI 整理润色，结果在 AI 面板确认后写入">AI 整理</button><button class="primary-btn" id="lit-note-save">保存笔记</button></span></div>';q("#lit-note-save").onclick=saveNote;
  const imgBtn=q("#lit-note-img"),imgFile=q("#lit-note-img-file");
  if(imgBtn&&imgFile){imgBtn.onclick=()=>imgFile.click();imgFile.onchange=async()=>{const f=imgFile.files&&imgFile.files[0];imgFile.value="";if(!f)return;imgBtn.disabled=true;const old=imgBtn.textContent;imgBtn.textContent="上传中…";try{const r=await uploadNoteImage(f);insertAtCursor(q("#lit-note"),"!["+(r.filename||"图片")+"]("+(r.path||"")+")")}catch(e){toast(e?.message||String(e),true)}finally{imgBtn.disabled=false;imgBtn.textContent=old}}}
+ window.ERWPaneZoom?.bindText(q("#lit-note"),"erwPdfNoteZoom");
  q("#lit-note-ai").onclick=()=>{const t=q("#lit-note").value.trim();if(!t){S.ai={...S.ai,text:"",result:"",error:"笔记为空：先写点内容，或回到 PDF 选中段落用「AI 整理」生成。",busy:false};switchTab("ai");aiPanel();return}S.ai={...S.ai,text:t,instruction:"",result:"",error:"",busy:false};switchTab("ai");runAssist("polish","")}}
 async function saveNote(){await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:q("#lit-note").value})});loadList().catch(()=>{}) /* v260929 · 保存后刷新左栏（摘要取自同一份正文） */}
 function throttle(fn,ms){let wait=false;return(...a)=>{if(wait)return;wait=true;fn(...a);setTimeout(()=>wait=false,ms)}}
