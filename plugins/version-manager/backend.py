@@ -125,6 +125,57 @@ def register(ctx):
             return {"error": "bad_request", "message": str(exc)}
         return {"ok": True, **out}
 
+    def _cleanup_scan():
+        """扫描所有版本族：把变体分成「与基条内容一致」与「有实际改动」两类。"""
+        same, changed = [], []
+        for fam in core_api.version_overview().get("families") or []:
+            if not fam.get("variant_count"):
+                continue
+            try:
+                detail = core_api.variant_family(fam["base_id"], with_body=True)
+            except FileNotFoundError:
+                continue
+            base_body = (detail.get("base") or {}).get("body") or ""
+            same_ids, changed_ids = [], []
+            for variant in detail.get("variants") or []:
+                target = same_ids if (variant.get("body") or "") == base_body else changed_ids
+                target.append(variant["id"])
+            row = {"base_id": fam["base_id"], "title": fam.get("title") or "", "kind": fam.get("kind") or ""}
+            if same_ids:
+                same.append({**row, "ids": same_ids})
+            if changed_ids:
+                changed.append({**row, "ids": changed_ids})
+        return {
+            "same": same,
+            "changed": changed,
+            "same_count": sum(len(x["ids"]) for x in same),
+            "changed_count": sum(len(x["ids"]) for x in changed),
+        }
+
+    def route_cleanup(request):
+        return {"ok": True, **_cleanup_scan()}
+
+    def route_cleanup_archive(request):
+        body = request.get("body") or {}
+        mode = str(body.get("mode") or "same")
+        scan = _cleanup_scan()
+        rows = scan["same"] + scan["changed"] if mode == "all" else (
+            scan["changed"] if mode == "changed" else scan["same"])
+        archived, families, errors = 0, 0, []
+        for row in rows:
+            if not row.get("ids"):
+                continue
+            try:
+                result = core_api.archive_variants(row["base_id"], row["ids"])
+                archived += len(result.get("archived") or [])
+                families += 1
+            except Exception as exc:  # noqa: BLE001 —— 单族失败不影响其余
+                errors.append(f"{row['base_id']}: {exc}")
+        return {"ok": True, "archived": archived, "families": families,
+                "mode": mode, "errors": errors}
+
+    ctx.routes.get("cleanup", route_cleanup)
+    ctx.routes.post("cleanup-archive", route_cleanup_archive)
     ctx.routes.post("adopt", route_adopt)
     ctx.routes.get("history", route_history)
     ctx.routes.get("overview", route_overview)

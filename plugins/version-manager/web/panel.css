@@ -168,3 +168,16 @@ html[data-density="compact"] [data-plugin="version-manager"] .vm-layout{gap:8px;
 [data-plugin="version-manager"] .vm-auto-more{margin-top:6px}
 [data-plugin="version-manager"] .vm-auto-more>summary{cursor:pointer;font-size:11px;color:var(--muted)}
 [data-plugin="version-manager"] .vm-auto-more[open]>summary{margin-bottom:4px}
+
+/* v261020 · 批量清理快照 */
+[data-plugin="version-manager"] .vm-clean-card{border:1px solid color-mix(in srgb,var(--warning) 32%,var(--line));
+  background:color-mix(in srgb,var(--warning) 5%,transparent);border-radius:9px;padding:9px 10px;margin:0 0 10px}
+[data-plugin="version-manager"] .vm-clean-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px}
+[data-plugin="version-manager"] .vm-clean-total{font-size:10.5px;color:var(--warning);font-weight:600;white-space:nowrap}
+[data-plugin="version-manager"] .vm-clean-meta{font-size:10.5px;color:var(--muted);margin-top:3px}
+[data-plugin="version-manager"] .vm-clean-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+[data-plugin="version-manager"] .vm-clean-actions .secondary-btn{font-size:11px;padding:3px 8px;min-height:26px}
+[data-plugin="version-manager"] .vm-clean-hint{font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5}
+[data-plugin="version-manager"] .vm-clean-badge{font-size:9px;border-radius:999px;padding:0 5px;border:1px solid var(--line);color:var(--muted)}
+[data-plugin="version-manager"] .vm-clean-badge.changed{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 40%,var(--line))}
+[data-plugin="version-manager"] .vm-clean-badge.same{color:var(--muted)}

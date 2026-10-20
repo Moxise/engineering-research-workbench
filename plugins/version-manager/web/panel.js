@@ -7,8 +7,8 @@
   'use strict';
 
   var API = '/api/plugins/version-manager';
-  var STATE = { families: [], current: '', detail: null, picks: {}, archiveAfter: false,
-                filter: 'forked', keyword: '', autoInfo: null };
+  var STATE = { families: [], current: '', detail: null, picks: {}, archiveAfter: true,
+                filter: 'forked', keyword: '', autoInfo: null, clean: null };
 
   function esc(t) {
     return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
@@ -43,6 +43,7 @@
       +       '<p class="row-meta">同一笔记的不同版本会归成一条「版本族」——'
       +       '不论在工作台里改的，还是外部工具（MCP）塞进来的。</p></div>'
       +     '<div class="vm-stats" id="vm-stats"></div>'
+      +     '<div class="vm-clean" id="vm-clean"></div>'
       +     '<div class="vm-filter">'
       +       '<span class="vm-seg" id="vm-seg">'
       +         '<button type="button" data-vm-filter="forked" class="active">只看分叉中</button>'
@@ -69,6 +70,7 @@
     var search = main.querySelector('#vm-search');
     search.oninput = function () { STATE.keyword = search.value.trim().toLowerCase(); paintList(main); };
     loadFamilies(main);
+    loadCleanup(main);
   }
 
   function loadFamilies(main) {
@@ -122,6 +124,11 @@
   function paintList(main) {
     var list = main.querySelector('#vm-list');
     var rows = visible();
+    var sameMap = {}, changedMap = {};
+    if (STATE.clean) {
+      (STATE.clean.same || []).forEach(function (x) { sameMap[x.base_id] = (x.ids || []).length; });
+      (STATE.clean.changed || []).forEach(function (x) { changedMap[x.base_id] = (x.ids || []).length; });
+    }
     if (!rows.length) {
       list.innerHTML = '<div class="empty compact">'
         + (STATE.filter === 'forked'
@@ -135,6 +142,8 @@
         + '<span class="vm-item-main">' + esc(f.title || f.base_id) + '</span>'
         + '<span class="vm-item-meta">' + esc(KIND_LABEL[f.kind] || f.kind || '')
         + (f.variant_count ? ' · <b>' + f.variant_count + ' 个版本</b>' : '')
+        + (changedMap[f.base_id] ? ' · <span class="vm-clean-badge changed">有改动</span>' : '')
+        + (sameMap[f.base_id] ? ' · <span class="vm-clean-badge same">内容一致</span>' : '')
         + (f.updated ? ' · 改于 ' + esc(String(f.updated).replace('T', ' ').slice(5, 16)) : '')
         + '</span></button>';
     }).join('');
@@ -143,10 +152,68 @@
     });
   }
 
+  /* 批量清理：一次扫描所有版本族，把「内容一致」与「有改动」分开 */
+  function loadCleanup(main) {
+    var box = main.querySelector('#vm-clean');
+    if (!box) return;
+    api(API + '/cleanup').then(function (data) {
+      STATE.clean = data;
+      paintClean(main, data);
+      paintList(main);
+    }).catch(function (e) {
+      box.innerHTML = '<div class="vm-clean-hint">清理扫描失败：' + esc(e.message) + '</div>';
+    });
+  }
+
+  function paintClean(main, data) {
+    var box = main.querySelector('#vm-clean');
+    if (!box) return;
+    var total = (data.same_count || 0) + (data.changed_count || 0);
+    if (!total) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="vm-clean-card">'
+      + '<div class="vm-clean-head"><b>批量清理</b><span class="vm-clean-total">' + total + ' 个快照</span></div>'
+      + '<div class="vm-clean-meta">内容一致 ' + (data.same_count || 0)
+      + ' · 有改动 ' + (data.changed_count || 0) + '</div>'
+      + '<div class="vm-clean-actions">'
+      + ((data.same_count || 0)
+          ? '<button type="button" class="secondary-btn" data-vm-clean="same">归档内容一致的 ' + data.same_count + ' 个</button>'
+          : '')
+      + '<button type="button" class="secondary-btn" data-vm-clean="all">归档全部 ' + total + ' 个…</button>'
+      + '</div>'
+      + '<div class="vm-clean-hint">归档 = 移出主库到 System/Versions，可随时取回；基条内容不变。</div>'
+      + '</div>';
+    Array.prototype.forEach.call(box.querySelectorAll('[data-vm-clean]'), function (btn) {
+      btn.onclick = function () {
+        var mode = btn.dataset.vmClean;
+        var count = mode === 'all' ? total : (data.same_count || 0);
+        var ask = mode === 'all'
+          ? '把全部 ' + count + ' 个快照归档？它们会移到 System/Versions/<基条>/archived/，可随时取回；基条内容不变。'
+          : '归档 ' + count + ' 个「内容与基条一致」的快照？';
+        var confirmFn = (window.ERWDialog && window.ERWDialog.confirm)
+          ? window.ERWDialog.confirm(ask)
+          : window.confirm(ask);
+        Promise.resolve(confirmFn).then(function (ok) {
+          if (!ok) return;
+          btn.disabled = true;
+          btn.textContent = '归档中…';
+          post(API + '/cleanup-archive', { mode: mode }).then(function (out) {
+            toast('已归档 ' + out.archived + ' 个快照（' + out.families + ' 个族）');
+            loadFamilies(main);
+            loadCleanup(main);
+            if (STATE.current) loadDetail(STATE.current, main);
+          }).catch(function (e) {
+            toast('归档失败：' + e.message, true);
+            btn.disabled = false;
+          });
+        });
+      };
+    });
+  }
+
   function loadDetail(baseId, main) {
     STATE.current = baseId;
     STATE.picks = {};
-    STATE.archiveAfter = false;
+    STATE.archiveAfter = true;
     STATE.autoInfo = null;
     var pane = main.querySelector('#vm-pane');
     pane.innerHTML = '<div class="empty">正在读取版本族…</div>';
@@ -469,7 +536,7 @@
       + (variants.length
           ? '<div class="vm-block"><h4>② 需要确认的改动（一致的小节自动沿用基准）</h4>' + summary + autoBar + autoBanner + sectionRows
             + sameBlock
-            + '<label class="vm-check"><input type="checkbox" id="vm-archive-after"> 合并后把被替换的版本一并归档</label>'
+            + '<label class="vm-check"><input type="checkbox" id="vm-archive-after" checked> 合并后把被替换的版本一并归档</label>'
             + '<div class="vm-actions"><button class="primary-btn" id="vm-merge">应用 '
             + (changedCount || 0) + ' 处改动</button>'
             + '<button class="secondary-btn" id="vm-archive">归档勾选的版本</button></div></div>'

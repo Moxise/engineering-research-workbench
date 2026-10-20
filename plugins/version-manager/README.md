@@ -1,6 +1,6 @@
 # 版本管理（version-manager）
 
-同一笔记的不同版本：**查看版本族 → 逐版对照（含来源）→ Agent 自动确认 / 按小节合并 → 归档 / 取回**。
+同一笔记的不同版本：**查看版本族 → 批量清理快照 / Agent 自动确认 / 按小节合并 → 归档 / 取回**。
 
 - 入口：侧栏「研究 · 知识 → 版本」（停用本插件则入口消失）
 - 后端：`backend.py`（路由 `/api/plugins/version-manager/*`；工具 `versions` / `auto_merge_versions` / `merge_versions` / `archive_versions`）
@@ -21,6 +21,18 @@
 
 本插件只经 `core_api` 的版本窗口读写（`version_overview` / `variant_family` / `merge_variants` /
 `auto_merge_variants` / `archive_variants` / `restore_variant`），符合 I3（插件只许 `from core_api import …`）。
+
+## 批量清理
+
+版本页左侧顶部有「批量清理」卡片：一次扫描所有版本族，把快照分成两类——
+
+- **内容一致**（与基条正文完全相同，通常是外部写入只改了来源/元数据）：可直接归档；
+- **有改动**（写入前的内容，通常是外部工具改动正文时留下的旧版）：可逐族打开对照，也可确认后一键归档。
+
+「归档全部 N 个…」适合定期清理：快照会移到 `System/Versions/<基条>/archived/`，基条内容不变，
+随时可在族详情「③ 已归档」里取回。列表每行也会标出「有改动 / 内容一致」，方便挑着处理。
+
+> 合并时「合并后把被替换的版本一并归档」现在**默认勾选**，避免处理完又堆一批快照。
 
 ## Agent 自动确认
 
