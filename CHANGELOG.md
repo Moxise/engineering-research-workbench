@@ -1,5 +1,13 @@
 # Changelog
 
+## v261022.1 · 里程碑页接入甘特图（上游前端第 1 项）
+
+- 里程碑视图新增「甘特」tab（时间轴 / 甘特 / 列表 / 文档），接入上游 `ERWMilestoneGantt`：按项目分组，阶段条看周期、菱形看截止节点；支持全览 / 日 / 周 / 月缩放、定位今天、状态筛选（含逾期与待排期）、搜索与项目范围下拉。
+- 点击阶段条/节点在右侧修改起止日期、进度与状态，写回同一份 Markdown（`start_date` / `due` / `progress`）；有未保存修改时切换视图会先确认。数据来自 `/api/milestones/plan`（不受文档列表分页限制）。
+- **接缝改造**（相对上游原版）：网络请求改走 `window.erwFetch`；项目筛选去掉对未接入的 `ERWProjectScope` 的依赖，降级为原生下拉；移除对 `ERWResearchUI.projectLabel` 的引用；观察器仍是局部 `ResizeObserver`（非文档级 MutationObserver）。
+- 设置 → 界面 → 里程碑默认视图新增「甘特图」。
+- 验证：真实页面渲染 3 节点 / 1 已完成 / 0 逾期、0 console error；`web_check`、`web_manifest --check` 通过。
+
 ## v261022.0 · 合并上游 codex/agent-harness-cortex-memory（22 提交）
 
 - 合并上游分支的功能线：Agent harness（`agent_context` / `agent_mcp` / `agent_memory` / `agent_rag` / `agent_research` / `agent_runtime` / `agent_skills` / `evidence`）、CortexDB 风格记忆、统一文献工作区与稳定 PDF 绘制（离屏绘制、PDF.js 随客户端）、图谱范围全览与里程碑甘特图（`app/milestones.py`）、同步引擎（`sync_engine` / `sync_service`）、技能包（`app/skills/`）、用量文件竞争修复、SSE 终态与断线恢复。
