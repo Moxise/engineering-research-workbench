@@ -1,5 +1,12 @@
 # Changelog
 
+## v261022.8 · 本地 Embedding 服务与语义索引打通
+
+- 新增 `tools/embedding_server.py`：OpenAI 兼容的本地 Embedding 服务（`POST /v1/embeddings`、`GET /v1/models`、`GET /health`），基于 fastembed + **BAAI/bge-small-zh-v1.5**（24M 参数、512 维、中文优化、ONNX、无需 torch）。模型缓存固定在 `D:/Project/.models/fastembed`（约 91 MB，不随临时目录清理），首次启动自动下载。
+- 工作台 RAG 配置为 `hybrid`（关键词 + 语义）、`http://127.0.0.1:8800/v1`、512 维；连接检查通过，语义索引构建完成：**230 份来源 / 706 个分块**（约 30 秒），页面显示「语义索引可用」。
+- 检索实测：`红外暗弱目标检测方法` 返回 8 条（文献题录 + 知识条目，score 0.73–0.76）；`知识库条目怎么归类` 命中《知识-原理-知识库全局说明》（0.757）。
+- 新增 `docs/LOCAL_EMBEDDING.md`：选型理由、安装启动、工作台配置字段、验证命令、常驻与换模型注意事项。
+
 ## v261022.7 · 上游前端接入说明文档
 
 - 新增 `docs/UPSTREAM_FRONTEND_INTEGRATION.md`：逐项记录已接入的 6 个模块（甘特 / 同步 / AI 能力与 RAG / 引用补全 / 项目范围与科研界面 / Agent 系统面板）、每项的接缝改造、未接入模块及理由（文献面板已有等价实现、`v260922-*` 已改名替代、计费已插件化、无悬浮助手等）、新增的 6 个全局接缝、验证方式与后续可选任务。
