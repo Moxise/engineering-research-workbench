@@ -94,67 +94,71 @@ def main() -> int:
     check("非空归属保留名称", meta2["project"] == "P")
 
     # ---------- 4. 索引与关系 ----------
-    print("\n== 4. 索引与关系 ==")
+    # 干净检出（CI）没有 Workspace/索引：4~6 组依赖真实数据，跳过并说明原因，
+    # 1/2/3/7 组是纯逻辑断言，仍然执行——这是「内核可脱离数据运行」的最低保证。
     if not DB_PATH.exists():
-        check("索引存在", False, str(DB_PATH))
-        return 1
-    conn = sqlite3.connect(f"file:{DB_PATH.as_posix()}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    rels = {r["relation"]: r["n"] for r in conn.execute("select relation, count(*) n from graph_edges group by relation")}
-    for rel in ("uses-knowledge", "uses-data", "cites", "series", "wikilink"):
-        check(f"关系边 {rel} > 0", int(rels.get(rel, 0)) > 0, f"{rels.get(rel, 0)} 条")
-    roles = {r["role"]: r["n"] for r in conn.execute("select role, count(*) n from document_links group by role")}
-    check("document_links.role 有值", len(roles) >= 2, str(roles))
-    ghosts = conn.execute("select count(*) from document_projects where project_name='' and project_id<>''").fetchone()[0]
-    check("无幽灵归属", ghosts == 0, f"{ghosts} 条")
-    docs = conn.execute("select count(*) from documents").fetchone()[0]
-    kinds = dict(conn.execute("select kind, count(*) from documents group by kind"))
-    check("七类条目齐备", set(kinds) == set(C.KIND_ORDER), str(kinds))
-    conn.close()
+        print("\n== 4. 索引与关系 ==")
+        print(f"SKIP 4~6 组：无 Workspace 索引（{DB_PATH}），干净检出只跑纯逻辑断言")
+        docs, rels = 0, {}
+    else:
+        print("\n== 4. 索引与关系 ==")
+        conn = sqlite3.connect(f"file:{DB_PATH.as_posix()}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        rels = {r["relation"]: r["n"] for r in conn.execute("select relation, count(*) n from graph_edges group by relation")}
+        for rel in ("uses-knowledge", "uses-data", "cites", "series", "wikilink"):
+            check(f"关系边 {rel} > 0", int(rels.get(rel, 0)) > 0, f"{rels.get(rel, 0)} 条")
+        roles = {r["role"]: r["n"] for r in conn.execute("select role, count(*) n from document_links group by role")}
+        check("document_links.role 有值", len(roles) >= 2, str(roles))
+        ghosts = conn.execute("select count(*) from document_projects where project_name='' and project_id<>''").fetchone()[0]
+        check("无幽灵归属", ghosts == 0, f"{ghosts} 条")
+        docs = conn.execute("select count(*) from documents").fetchone()[0]
+        kinds = dict(conn.execute("select kind, count(*) from documents group by kind"))
+        check("七类条目齐备", set(kinds) == set(C.KIND_ORDER), str(kinds))
+        conn.close()
 
-    # ---------- 5. 通用基础知识 ----------
-    print("\n== 5. 通用基础知识 ==")
-    ws = config.workspace_root()
-    tagged, unowned = [], []
-    for _kind, rel in store.kind_dir_map().items():
-        for path in (ws / rel).glob("*.md"):
+        # ---------- 5. 通用基础知识 ----------
+        print("\n== 5. 通用基础知识 ==")
+        ws = config.workspace_root()
+        tagged, unowned = [], []
+        for _kind, rel in store.kind_dir_map().items():
+            for path in (ws / rel).glob("*.md"):
+                meta, _body = store._frontmatter_parse(path.read_text(encoding="utf-8"))
+                tags = [str(t) for t in (meta.get("tags") or [])]
+                projects = [str(p) for p in (meta.get("projects") or []) if str(p)]
+                if "通用基础" in tags:
+                    tagged.append(str(meta.get("title")))
+                if not projects:
+                    unowned.append(str(meta.get("title")))
+        check("通用基础标签已落地", len(tagged) >= 10, f"{len(tagged)} 条")
+        check("未归属条目可查", len(unowned) >= len(tagged), f"{len(unowned)} 条")
+        check("通用基础条目确实无项目", all(True for _ in tagged))
+
+        # ---------- 6. 工具与约束 ----------
+        print("\n== 6. 工具与约束 ==")
+        tree = load_tree_module()
+        conn = sqlite3.connect(f"file:{DB_PATH.as_posix()}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        tdocs = tree.load_docs(conn)
+        tedges = tree.load_edges(conn, tdocs)
+        conn.close()
+        inbound, outbound = tree.build(tdocs, tedges)
+        check("知识树视图可生成", len(tree.render_tree(tdocs, inbound, outbound)) > 5)
+        check("交叉使用清单可生成", len(tree.render_cross(tdocs, inbound)) > 3)
+        check("实验依赖视图可生成", len(tree.render_experiments(tdocs, inbound, outbound)) > 20)
+        check("系列/链条视图可生成", len(tree.render_chains(tdocs, tedges)) > 3)
+        check("通用基础清单可生成", len(tree.render_unowned(tdocs)) > 3)
+        kind_text = TK._constraint_text("kinds")
+        check("kinds 主题为七类矩阵", kind_text.startswith("## 七类条目矩阵"), kind_text.splitlines()[0])
+        check("relations 主题存在", "relations" in C.TOPICS and "uses-knowledge" in TK._constraint_text("relations"))
+        check("kb_change_kind 已注册", "kb_change_kind" in TK.HANDLERS)
+
+        # 迁移幂等：不应再有「实验」类别词的 note
+        legacy_notes = []
+        for path in (ws / "Knowledge" / "Notes").glob("*.md"):
             meta, _body = store._frontmatter_parse(path.read_text(encoding="utf-8"))
-            tags = [str(t) for t in (meta.get("tags") or [])]
-            projects = [str(p) for p in (meta.get("projects") or []) if str(p)]
-            if "通用基础" in tags:
-                tagged.append(str(meta.get("title")))
-            if not projects:
-                unowned.append(str(meta.get("title")))
-    check("通用基础标签已落地", len(tagged) >= 10, f"{len(tagged)} 条")
-    check("未归属条目可查", len(unowned) >= len(tagged), f"{len(unowned)} 条")
-    check("通用基础条目确实无项目", all(True for _ in tagged))
-
-    # ---------- 6. 工具与约束 ----------
-    print("\n== 6. 工具与约束 ==")
-    tree = load_tree_module()
-    conn = sqlite3.connect(f"file:{DB_PATH.as_posix()}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    tdocs = tree.load_docs(conn)
-    tedges = tree.load_edges(conn, tdocs)
-    conn.close()
-    inbound, outbound = tree.build(tdocs, tedges)
-    check("知识树视图可生成", len(tree.render_tree(tdocs, inbound, outbound)) > 5)
-    check("交叉使用清单可生成", len(tree.render_cross(tdocs, inbound)) > 3)
-    check("实验依赖视图可生成", len(tree.render_experiments(tdocs, inbound, outbound)) > 20)
-    check("系列/链条视图可生成", len(tree.render_chains(tdocs, tedges)) > 3)
-    check("通用基础清单可生成", len(tree.render_unowned(tdocs)) > 3)
-    kind_text = TK._constraint_text("kinds")
-    check("kinds 主题为七类矩阵", kind_text.startswith("## 七类条目矩阵"), kind_text.splitlines()[0])
-    check("relations 主题存在", "relations" in C.TOPICS and "uses-knowledge" in TK._constraint_text("relations"))
-    check("kb_change_kind 已注册", "kb_change_kind" in TK.HANDLERS)
-
-    # 迁移幂等：不应再有「实验」类别词的 note
-    legacy_notes = []
-    for path in (ws / "Knowledge" / "Notes").glob("*.md"):
-        meta, _body = store._frontmatter_parse(path.read_text(encoding="utf-8"))
-        if "-实验-" in str(meta.get("title") or ""):
-            legacy_notes.append(str(meta.get("title")))
-    check("实验迁移已幂等（无遗留 note）", not legacy_notes, str(legacy_notes[:3]))
+            if "-实验-" in str(meta.get("title") or ""):
+                legacy_notes.append(str(meta.get("title")))
+        check("实验迁移已幂等（无遗留 note）", not legacy_notes, str(legacy_notes[:3]))
 
     # ---------- 7. 写入期字段校验（v261009 · P16 根因）----------
     print("\n== 7. 写入期字段校验 ==")
@@ -199,8 +203,14 @@ def main() -> int:
           _rejects(lambda: store.create_doc("idea", {"title": "灵感-越界状态测试", "status": "进行中"})))
     check("store 建档路径补齐契约标记",
           "experiment" in store.prepare_doc("experiment", {"title": "实验-索引验证（1）"})["kind_marks"])
-    check("store 更新路径拒绝越界 status",
-          _rejects(lambda: store.update_doc("idea-20260924104458-90ee1b", {"status": "进行中"})))
+    # 更新路径需要一个真实存在的条目；干净检出（CI）没有数据，跳过而不是误报
+    idea_dir = config.workspace_root() / "Knowledge" / "Ideas"
+    idea_ids = [p.stem for p in idea_dir.glob("*.md")] if idea_dir.exists() else []
+    if idea_ids:
+        check("store 更新路径拒绝越界 status",
+              _rejects(lambda: store.update_doc(idea_ids[0], {"status": "进行中"})))
+    else:
+        print("SKIP store 更新路径：无条目可更新（干净检出）")
     check("MCP 建档工具消费同一校验器",
           "validate_write" in inspect.getsource(TK.t_create_entry)
           and "validate_write" in inspect.getsource(TK.t_update_entry))

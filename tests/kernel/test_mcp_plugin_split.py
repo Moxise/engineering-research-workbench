@@ -4,7 +4,7 @@
 因此**不动用户的插件开关**；只快照/还原仓库里的 `config/external-access.json`（授权文件）。
 
 覆盖：
-① 只启用 version-manager 时：它的 3 个工具在列表里，未启用插件（literature-reader）的工具**不在**；
+① 只启用 version-manager 时：它的工具在列表里，未启用插件（literature-reader）的工具**不在**；
 ② 改 plugins.json 启用 literature-reader → **不重启进程**，下次取目录就能看到它的工具（指纹感知）；
 ③ 停用后它的工具消失；
 ④ 调用插件工具能拿到结果（p_version-manager__versions → 版本族）；
@@ -88,8 +88,11 @@ def main() -> int:
               all(n in first for n in ("kb_create_entry", "kb_variants", "ws_list_projects")),
               str(first[:6]))
         kernel_n = len(S.KB_TOOLS) + len(S.WS_TOOLS)   # 动态：内核工具增删不该让夹具变红
-        check("①-4 工具面 = 内核 + 已启用插件 3", len(first) == kernel_n + 3,
-              f"实际 {len(first)}（内核 {kernel_n}）")
+        # 插件工具数也从清单读：v261020.6 给 version-manager 加了 auto_merge_versions（3→4），
+        # 写死 +3 会让夹具在功能正常演进时误报。
+        vm_tools = json.loads((ROOT / "plugins" / "version-manager" / "plugin.json").read_text(encoding="utf-8")).get("mcp_tools") or []
+        check("①-4 工具面 = 内核 + 已启用插件", len(first) == kernel_n + len(vm_tools),
+              f"实际 {len(first)}（内核 {kernel_n} + 插件 {len(vm_tools)}）")
 
         print("② 启用另一个插件 → 不重启也能看到（指纹感知）")
         set_enabled(["version-manager", "literature-reader"])

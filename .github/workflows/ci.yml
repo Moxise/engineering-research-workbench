@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: 知识库冒烟（会在临时目录建 Workspace 骨架）
+      - name: 知识库冒烟（无 Workspace 时自动跳过数据断言，只跑纯逻辑）
         run: python tools/kb_smoke.py
 
       - name: 前端静态体检（语法 / 装配清单 / 接缝 / 加载顺序）

@@ -1,5 +1,12 @@
 # Changelog
 
+## v261021.5 · 修复 CI：干净检出可跑
+
+- **`kb_smoke` 在无 Workspace 时降级而不是直接失败**：CI 的 checkout 没有 `Workspace/`，原脚本在“索引存在”处直接 `return 1`，连带 `plugin_check --assert-core-only` 也红。现在 4~6 组（索引/通用基础/工具视图，依赖真实数据）打印 SKIP，1/2/3/7 组（关系解析、命名、归属归一化、写入期校验）照常执行；“store 更新路径”一条在没有条目时也改判 SKIP，不再用写死的条目 id。
+- **两个依赖工作台服务的用例在无服务时 SKIP**：`test_plugin_assets`（路径穿越）与 `test_reader_plugin_tools`（文献插件）是常驻夹具，需要 `tools/run_tests.py` 起临时服务；CI 用 `--fast --no-server` 时它们连 8799 直接抛 `ConnectionRefused`。现在探测不到服务就打印 SKIP 并以 0 退出，完整档行为不变。
+- **工具面断言改为读插件清单**：`test_mcp_plugin_split` 写死“内核 + 3”，而 v261020.6 给 `version-manager` 加了 `auto_merge_versions`（`mcp_tools` 3→4），实际工具面 34 = 内核 30 + 4，断言过期。现在从 `plugin.json` 的 `mcp_tools` 读数量，插件增删工具不再让夹具误红。
+- 验证：把 HEAD 用 `git archive` 导出到仓库外的独立目录（无 `.git`、无 `Workspace`、无 `config/`）复现 CI：`kb_smoke` / `web_check` / `web_manifest --check` / `plugin_check --assert-core-only` / `core.plugins verify` / `mcp.server --selftest` 全部 0 退出；`run_tests.py --fast --no-server` 连续两轮 15/15 通过（121/121 断言）。
+
 ## v261021.4 · UI 设计说明文档 + compact 侧栏内边距收口
 
 - 新增 `docs/UI_DESIGN.md`：把当前实际生效的界面规则整理成可检索的一篇——设计原则、色彩三层变量（`--sc-*` 画布 / `--lux-*` 主题 / 旧变量兼容映射）、模块身份色与暗色值、字体字号层级、圆角阴影动效、布局骨架（可拖拽侧栏 52–200px 三档模式、顶栏、主内容、桌面外壳）、滚动规范（侧栏未铺满不滚、设置页两栏各自滚动）、组件规格（按钮/表单/卡片/列表/徽章/弹窗/Toast）、主题与密度与缩放、响应式断点、插件 UI 接缝、文件加载顺序、改界面验收清单与常见问题。README 顶部加了指引入口。

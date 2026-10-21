@@ -19,6 +19,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8799"
+
+# 没有服务时跳过：完整档由 tools/run_tests.py 起临时服务并传入 URL，
+# --no-server（CI 的纯逻辑档）下这里应安静跳过，而不是报连接失败。
+try:
+    urllib.request.urlopen(BASE.rstrip("/") + "/api/health", timeout=2)
+except Exception:
+    print(f"SKIP 需要工作台服务 {BASE}（用 tools/run_tests.py 完整档会自动起）")
+    raise SystemExit(0)
 FAILS = []
 
 

@@ -16,6 +16,16 @@ if _arg.startswith("http"):
 else:
     HOST, PORT = "127.0.0.1", int(_arg)
 
+# 没有服务时跳过而不是误报失败：完整档由 tools/run_tests.py 起临时服务并传入 URL，
+# --no-server（CI 的纯逻辑档）下这里应安静跳过。
+import socket
+
+try:
+    socket.create_connection((HOST, PORT), timeout=2).close()
+except OSError:
+    print(f"SKIP 需要工作台服务 {HOST}:{PORT}（用 tools/run_tests.py 完整档会自动起）")
+    raise SystemExit(0)
+
 CASES = [
     # (路径, 期望状态, 说明)
     ("/plugins-file/focus/web/panel.js", 200, "正常面板脚本"),
