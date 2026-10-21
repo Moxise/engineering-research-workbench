@@ -93,6 +93,12 @@
       "note": "v261022.2 · 同步页与顶栏同步按钮"
     },
     {
+      "file": "agent-system.css",
+      "v": "261022-ai",
+      "theme": "base",
+      "note": "v261022.3 · AI 能力 / RAG / 技能设置（上游并入）"
+    },
+    {
       "file": "vendor/github.min.css",
       "theme": "vendor",
       "cdn": "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css"
@@ -189,6 +195,18 @@
       "v": "261021-scroll",
       "theme": "base",
       "note": "v261020 · 分类标记：设置页内置模板一键添加（图标/颜色/用途）、分组图案面板与实时预览；自定义标记写入期校验放行；上版：v261019 · 待办可编辑（标题/截止日期+时间/项目/优先级，行内表单）与完成时间限制（逾期二次确认、completed_at 展示）；再上版：v261015c · 合并上游 UI 重设计 v3：移除重复页 research-overview（导航项/路由分支/渲染函数），保留旧书签别名"
+    },
+    {
+      "file": "agent-system.js",
+      "v": "261022-ai",
+      "theme": "base",
+      "note": "v261022.3 · AI 能力与 RAG 设置面板（window.ERWAgentSystem）；DOM 走 ERWDom"
+    },
+    {
+      "file": "agent-client.js",
+      "v": "261022-ai",
+      "theme": "base",
+      "note": "v261022.3 · Agent 会话/RAG 客户端（window.ERWAgentClient）；网络走 erwFetch"
     },
     {
       "file": "sync.js",

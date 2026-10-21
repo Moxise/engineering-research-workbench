@@ -1,5 +1,13 @@
 # Changelog
 
+## v261022.3 · 设置页接入「AI 能力」与「RAG」（上游前端第 3 项）
+
+- 设置新增 **「AI 能力」** tab：RAG 知识检索 / 记忆 / Skill 三个总开关（改动即时保存、后续工具调用生效），以及「管理技能」「配置 RAG」入口。
+- 设置新增 **「RAG」** tab：可用状态（关键词检索 / 语义索引是否就绪）、接口与检索设置（模式：关键词 / 混合 / 语义，Embedding Base URL、模型、密钥、分块与索引选项、PDF 正文索引、自动更新）、连接检查与更新索引、清除向量索引、检索试用。
+- **宿主适配**：`agent-system.js` / `agent-client.js` 的 `fetch` 改走 `window.erwFetch`，文档级观察改走 `ERWDom.onChildList`；本地 Agent 页结构不同，新增 `window.ERWAgentPage` / `ERWResearchUI` / `ERWFabTimeline` 三个最小适配（聊天跳转、项目名、证据徽章、悬浮时间线按空值降级），`ERWToast` 直接复用内核。
+- 运行环境补装 `PyYAML`（`requirements.txt` 早已声明；此前未安装导致 `/api/agent/skills` 报「读取 YAML 需要 PyYAML」）。安装后技能接口返回 5 个技能、0 错误。
+- 验证：AI 能力 tab 3 个开关 + 2 个入口正常、RAG tab 表单与「关键词检索可用」状态正常、0 console error；`web_check`、`web_manifest --check`、`ui_smoke`、`kb_smoke`、`plugin_check`、`mcp --selftest` 全过。
+
 ## v261022.2 · 设置页接入「同步」（上游前端第 2 项）
 
 - 设置新增 **「同步」tab**（排在「服务与存储」之后）：服务器地址 + 测试连接、同步方式（不同步 / 主动 / 自动）、自动检查间隔、五类同步内容（Markdown 文档 / PDF 与附件 / 项目待办文献与热力图 / 通用设置与界面偏好 / Agent 对话）多选、保存与立即同步。

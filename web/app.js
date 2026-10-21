@@ -287,6 +287,20 @@
      plugin-manager / floating-agent / literature），插件也没有稳定入口；内核这份从此对外可用，
      插件优先用它、缺失时自行兜底（ERWToast 缺席不该报错）。 */
   window.ERWToast = toast;
+  /* v261022.3 · 上游 Agent 系统模块（agent-system.js / agent-client.js）依赖的宿主接口：
+     本地 Agent 页用自己的实现、也没有悬浮助手时间线，这里给最小适配——
+     缺失的能力按空值降级（页面照常打开，只是少跳转/少渲染一段回复）。 */
+  window.ERWAgentPage = window.ERWAgentPage || {
+    sessionId:()=>state.agentSession||null,
+    refresh:async()=>{ if(state.route==='agent') await renderAgent(); },
+    quote:()=>{}, searchSelection:()=>{}
+  };
+  window.ERWResearchUI = window.ERWResearchUI || {
+    projectLabel:n=>n,
+    loadProjects:async()=>{ const rows=await api('/api/projects')||[]; return rows.map(p=>p.name||p); },
+    evidenceBadge:()=>''
+  };
+  window.ERWFabTimeline = window.ERWFabTimeline || { responses:()=>'', render:()=>'', retrievals:()=>'' };
 
   function modal(title, bodyHtml, footerHtml='') {
     $('#modal-title').textContent = title; $('#modal-body').innerHTML = bodyHtml; $('#modal-footer').innerHTML = footerHtml;
@@ -2055,7 +2069,7 @@
     /* v261009.4 · 设置页 tab 由两部分组成：内核自带 + **模块自登记**（ERWPanels.settingsTab）。
        这样「插件管理」这类页面不必在 app.js 里加分支——内核不认识具体功能（§6.3）。 */
     const extra=window.ERWPanels.settingsTabs();
-    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="sync">同步</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button>`
+    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="sync">同步</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="ai">AI 能力</button><button data-set-tab="rag">RAG</button><button data-set-tab="interface">界面</button>`
       +extra.map(t=>`<button data-set-tab="${esc(t.id)}">${esc(t.label)}</button>`).join('')
       +`</aside><section class="card settings-panel" id="settings-panel"></section></div>`;
     if(window.pywebview?.api?.desktop_set_close_action){const button=document.createElement('button');button.dataset.setTab='desktop';button.textContent='窗口';$('.settings-nav').append(button)}
@@ -2070,7 +2084,18 @@
       else {delete p.dataset.plugin; renderSettingsTab(b.dataset.setTab,cfg);}
     });renderSettingsTab('general',cfg);
   }
-  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='sync'){
+  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='ai'){
+      /* v261022.3 · AI 能力（RAG / 记忆 / Skill 总开关）由 agent-system.js 自渲染 */
+      if(window.ERWAgentSystem?.renderCapabilities)window.ERWAgentSystem.renderCapabilities(p);
+      else p.innerHTML='<div class="empty">Agent 系统模块未加载</div>';
+      return;
+    }
+    if(tab==='rag'){
+      if(window.ERWAgentSystem?.renderRag)window.ERWAgentSystem.renderRag(p);
+      else p.innerHTML='<div class="empty">Agent 系统模块未加载</div>';
+      return;
+    }
+    if(tab==='sync'){
       /* v261022.2 · 同步页由 sync.js 自渲染（它只依赖 window.ERWSyncUI 适配层） */
       if(window.ERWSync?.renderSettings)window.ERWSync.renderSettings(p);
       else p.innerHTML='<div class="empty">同步模块未加载</div>';
