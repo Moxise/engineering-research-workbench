@@ -97,7 +97,9 @@ html[data-theme="dark"] #main .billing-prices textarea{background:var(--sc-main)
    桌面模式又被 desktop.css 顶成 `height:calc(--vh-px - 20px)`，底部溢出视口、滚动时错位。
    现在给两栏一个相对视口的上限：内容少时卡片自然高，内容多时封顶并在卡片内部滚动；
    滚轮只作用于指针所在的那一栏（overscroll-behavior 阻断链式滚动到整页）。 */
-html body #main .settings-layout{align-items:stretch}
+/* v261021.8 · 设置页两栏改为「各自按内容收缩」：内容少时卡片就矮，不留大片空白；
+   内容多时由 max-height 封顶、在卡片内部滚动。不再强行等高（等高会在短内容下面留白）。 */
+html body #main .settings-layout{align-items:start}
 html body #main .settings-layout>.settings-nav{
   position:static!important;top:auto!important;height:auto!important;
   max-height:calc(100vh - 102px);overflow-y:auto;

@@ -1,5 +1,11 @@
 # Changelog
 
+## v261021.8 · 设置页两栏：按内容收缩，不强行填满
+
+- 设置页左右两栏从 `align-items: stretch` 改为 `start`：内容少时卡片高度就随内容收缩（不再被拉到与另一栏同高、在卡片内留大片空白），内容多时仍由 `max-height` 封顶在卡片内部滚动。典型对比：设置导航栏 414px 时不再被撑到 798px；「基础」tab 的右栏卡片 192px 就是 192px。
+- `docs/UI_DESIGN.md` 同步：§4.2 与 §5.5 改为"各自按内容收缩"，P4「并列元素等高」注明设置页两栏是例外。
+- 验证：知识条目 tab 左栏 414 / 右栏 798（内容 1048 封顶滚动）、基础 tab 右栏 192（内容 190）、`body.scrollHeight == innerHeight`、滚动仍只发生在内容卡片内；`web_check`、`web_manifest --check`、`kb_smoke`、`ui_smoke` 全部通过。
+
 ## v261021.7 · CI：失败用例输出 GitHub 注解
 
 - `tools/run_tests.py` 在 `GITHUB_ACTIONS` 环境下，把每个失败用例的尾部 8 行以 `::error title=…::` 输出。此前 job 日志需要登录才能看，Annotations 区块是公开的——失败原因直接进注解，排查不用再翻日志。
