@@ -50,6 +50,8 @@ BROWSER_EVENTS = {
     "lostpointercapture", "gotpointercapture",
     # v261022.2 · pagehide 是浏览器原生事件（同步页在页面隐藏时上报脏状态），无需派发方
     "pagehide", "beforeunload", "pageshow", "message",
+    # v261022.4 · 输入法组合事件（引用补全在中文输入时暂停）同样是原生事件
+    "compositionstart", "compositionend", "compositionupdate",
 }
 
 #: 派发自定义事件：`new CustomEvent("x")` 与 `new Event("x")` 两种写法都要认

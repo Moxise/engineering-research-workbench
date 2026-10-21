@@ -296,11 +296,14 @@
     quote:()=>{}, searchSelection:()=>{}
   };
   window.ERWResearchUI = window.ERWResearchUI || {
+    esc,
     projectLabel:n=>n,
     loadProjects:async()=>{ const rows=await api('/api/projects')||[]; return rows.map(p=>p.name||p); },
     evidenceBadge:()=>''
   };
   window.ERWFabTimeline = window.ERWFabTimeline || { responses:()=>'', render:()=>'', retrievals:()=>'' };
+  /* v261022.4 · 本地没有面板级文本缩放模块：给空实现，引用预览照常渲染、只是不能单独缩放正文 */
+  window.ERWPaneZoom = window.ERWPaneZoom || { bindText:()=>{} };
 
   function modal(title, bodyHtml, footerHtml='') {
     $('#modal-title').textContent = title; $('#modal-body').innerHTML = bodyHtml; $('#modal-footer').innerHTML = footerHtml;
@@ -1421,10 +1424,13 @@
 
   function wireEditor(){
     const ta=$('#md-input'); if(!ta)return;
+    /* v261022.4 · 引用补全/预览（[[ 补全、Ctrl+Shift+K 引用选择器、悬停预览、断链状态） */
+    window.ERWDocReferences?.bindEditor(ta);
     const bib=$('#f-bibtex'); let syncingBib=false;
     /* v260924b · 分屏滚动同步（精确版）：预览按 top-level 块渲染并记录源行号锚点（见 renderMarkdownPreview），
        编辑侧用 canvas 量宽估算软换行的物理行→逻辑行映射；两侧任一滚动，另一侧先落到所在块、再按块内比例对齐。 */
     const pv=$('#md-preview'); let syncLock=false, syncLockTimer=0;
+    window.ERWDocReferences?.bindPreview?.(pv);
     /* v260924g · 锁改由「被写侧的 scroll 事件」释放：旧实现用 rAF 解锁，但渲染帧内 rAF 回调先于 scroll 事件派发，
      * 锁在回声事件到来前已失效 → 编辑器↔预览互相写入形成无限互滚（滚动条自动滑动）。
      * 事件驱动释放 + 150ms 兜底定时器（写入未引起滚动时防锁死）。 */

@@ -1,5 +1,14 @@
 # Changelog
 
+## v261022.4 · 编辑器接入引用补全与预览（上游前端第 4 项）
+
+- 新增 **`document-references.js`**：编辑器里输入 `[[` 弹出引用候选（带类型/状态/项目，↑↓ 选择、Enter 插入、Esc 关闭）；`Ctrl/⌘ + Shift + K` 打开引用选择器；预览区点击引用弹出浮动预览（可返回上一跳、直接打开文档，PDF 条目提供「阅读 PDF」）；断链显示状态；中文输入法组合期间暂停补全。
+- **宿主适配**：`fetch` 走 `window.erwFetch`；复用本地已有的 `ERWMarkdown.renderInto`、`ERWNav.open`、`ERWCurrentDoc`、`ERWToast`；新增 `ERWResearchUI.esc` 与 `ERWPaneZoom` 空实现（本地无面板级文本缩放，预览照常渲染）。
+- 编辑器 `wireEditor()` 与预览区在渲染时自动绑定（幂等），无需改各页面的编辑流程。
+- `web_check` 的原生事件白名单再补 `compositionstart/end/update`（输入法组合事件）。
+- 关于 PDF：**文献阅读工作区本地面板已具备 PDF.js 阅读**（`plugins/literature-reader/web/panel.js`：本地/离线 PDF.js、按页渲染、批注与笔记）；上游的「离屏绘制保帧、左右分隔线拖动」等增强属于面板整体替换，与本地插件接缝冲突较大，本轮未移植，留作单独评估。
+- 验证：真实编辑器输入 `[[知识` 弹出 20 条候选、0 console error；`web_check`、`web_manifest --check`、`ui_smoke`（20 路由）、`kb_smoke`、`plugin_check` 全过。
+
 ## v261022.3 · 设置页接入「AI 能力」与「RAG」（上游前端第 3 项）
 
 - 设置新增 **「AI 能力」** tab：RAG 知识检索 / 记忆 / Skill 三个总开关（改动即时保存、后续工具调用生效），以及「管理技能」「配置 RAG」入口。
