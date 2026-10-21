@@ -27,6 +27,7 @@ fs.mkdirSync(output, {recursive:true});
   const overviewOnly=process.argv.includes('--overview-only');
   const pdfQualityOnly=process.argv.includes('--pdf-quality-only');
   const referencesOnly=process.argv.includes('--references-only');
+  const planningOnly=process.argv.includes('--planning-only');
   let browser;
   try{
     browser=await chromium.launch({headless:true,channel:process.env.UI_BROWSER||'msedge'});
@@ -136,6 +137,7 @@ fs.mkdirSync(output, {recursive:true});
         const pages=Math.max(1,Math.ceil(rows.length/size));
         return send({items:rows.slice((pageNum-1)*size,pageNum*size),total:rows.length,page:pageNum,pages,page_size:size,next_page:pageNum<pages?pageNum+1:null,prev_page:pageNum>1?pageNum-1:null});
       }
+      if(url.pathname==='/api/milestones/plan')return send({items:docRecords.filter(d=>d.kind==='milestone'&&!deletedDocs.has(d.id)),unavailable:0});
       if(url.pathname.startsWith('/api/docs/'))return send(docRecords.find(d=>d.id===decodeURIComponent(url.pathname.split('/').pop()))||journal);
       if(url.pathname==='/api/graph'){if(graphGate)await graphGate;return send({nodes:[{...journal,label:journal.title},{...milestone,label:milestone.title}],edges:[{source:journal.id,target:milestone.id,kind:'wikilink'}],meta:{total_documents:2,shown_documents:2}})}
       if(url.pathname==='/api/graph/bundle')return send({content:'# 关联资料汇总\n\n'+Array.from({length:80},(_,i)=>`## 研究条目 ${i+1}\n\n包含完整的研究记录与关联 Markdown 内容。\n`).join('\n')});
@@ -175,6 +177,91 @@ fs.mkdirSync(output, {recursive:true});
     const settleOverview=()=>page.waitForFunction(()=>{const e=document.querySelector('.overview-dashboard'),r=e.getBoundingClientRect(),key=[r.width,r.height,document.querySelector('.heatmap-card')?.style.cssText].join('|');if(e._testLayoutKey!==key){e._testLayoutKey=key;e._testLayoutSince=performance.now()}return performance.now()-e._testLayoutSince>=160});
     const smallText=()=>page.evaluate(()=>Array.from(document.querySelectorAll('body *')).filter(e=>e.children.length===0&&e.textContent.trim()&&e.getClientRects().length&&parseFloat(getComputedStyle(e).fontSize)<11).map(e=>({class:e.className,size:getComputedStyle(e).fontSize,text:e.textContent.slice(0,30)})));
     await page.goto(base);await ready();
+    if(planningOnly){
+      page.setDefaultTimeout(10000);
+      const projectA='物理信息引导思维树搜索的大模型负荷转供方法',projectB='Two-stage fine-tuning of large language models for distribution network service restoration via CoT reasoning';
+      const plans=[
+        ['phase-active','方法与基线复现','2026-10-05','2026-11-20','进行中',35],
+        ['phase-done','文献梳理与问题定义','2026-09-15','2026-10-03','完成',100],
+        ['phase-late','物理约束与潮流接口验收','2026-09-20','2026-10-01','进行中',75],
+        ['phase-blocked','消融与鲁棒性实验','2026-10-18','2026-11-25','受阻',20],
+        ['point-review','阶段组会评审',null,'2026-11-20','计划',null],
+        ['point-same-day','同日模型验收',null,'2026-11-20','计划',null],
+        ['phase-new-year','跨年论文整理','2026-12-10','2027-01-21','计划',null],
+        ['phase-undated','尚未排期的研究想法',null,null,'计划',null],
+        ['phase-invalid','外部日期错误的旧条目','2026-11-20','2026-10-01','计划',null],
+        ...Array.from({length:18},(_,i)=>['phase-generated-'+i,'验证实验 '+(i+1),'2026-10-'+String(5+i).padStart(2,'0'),'2026-11-'+String(5+i).padStart(2,'0'),['计划','进行中','受阻','完成'][i%4],i%4===3?100:i*4]),
+      ].map(([id,title,start_date,due,status,progress],i)=>({...doc('milestone',id,title),start_date:start_date||'',due:due||'',status,progress,project:i%2?projectB:projectA,projects:i===0?[projectA,projectB]:[i%2?projectB:projectA]}));
+      docRecords.splice(0,docRecords.length,...plans,journal);
+      fs.writeFileSync(path.join(output,'planning-fixture.json'),JSON.stringify(plans,null,2));
+      const graphNodes=[...plans.slice(0,10).map((d,i)=>({...d,kind:'note',label:d.title,id:'g'+i})),{id:'project-a',kind:'project',label:projectA,virtual:true},{id:'project-b',kind:'project',label:projectB,virtual:true},{id:'tag-a',kind:'tag',label:'电网恢复',virtual:true}];
+      const graphEdges=[...graphNodes.slice(0,10).map((n,i)=>({source:n.id,target:i%2?'project-b':'project-a',relation:'project'})),{source:'g0',target:'tag-a',relation:'tag'},{source:'g0',target:'g2',relation:'wikilink'}];
+      await page.route('**/api/graph?*',route=>route.fulfill({json:{nodes:graphNodes,edges:graphEdges,meta:{total_documents:10,shown_documents:10}}}));
+      await page.setViewportSize({width:2550,height:1233});await go('graph');await page.waitForFunction(()=>!!window.__knowledgeGraphEngine?.projectPicker);
+      assert.equal(await page.evaluate(()=>window.__knowledgeGraphEngine.selectedId),null);
+      const scope=page.locator('#graph-project-scope');await scope.locator('button.project-scope-trigger').click();
+      await scope.locator('input').fill('Two-stage');await scope.locator('input').press('Enter');
+      assert.equal(await page.evaluate(()=>window.__knowledgeGraphEngine.scopeProject),projectB);
+      assert.equal(await page.evaluate(()=>window.__knowledgeGraphEngine.selectedId),null,'switching projects never implicitly selects a recent node');
+      assert(await page.evaluate(()=>window.__knowledgeGraphEngine.graph.nodes.every(n=>window.__knowledgeGraphEngine.nodeAlpha(undefined,false)===1)),'scope overview shows all loaded project nodes');
+      await page.evaluate(()=>window.__knowledgeGraphEngine.selectNode('g1',true));
+      await scope.locator('button.project-scope-trigger').click();await scope.locator('input').fill('物理');await scope.locator('input').press('ArrowDown');await scope.locator('input').press('Enter');
+      await page.waitForTimeout(350);
+      const overview=await page.evaluate(()=>{const e=window.__knowledgeGraphEngine;return {selected:e.selectedId,scope:e.scopeProject,tags:e.graph.nodes.some(n=>n.id==='tag-a'),camera:e.camera['2d'],visible:e.graph.nodes.every(n=>e.screen.get(n.id)?.visible)}});
+      assert.equal(overview.scope,projectA);assert.equal(overview.selected,null);assert(overview.tags,'related tag nodes survive project scoping');assert(overview.visible,'scoped overview fits every node');
+      await page.locator('[data-graph-focus="0"]').click();assert.equal(await page.evaluate(()=>window.__knowledgeGraphEngine.scopeProject),projectA,'scope overview keeps chosen project');
+      assert.equal(await page.locator('#graph-wrap.preview-open').count(),0);
+      await shot('planning-graph-light');
+      await scope.locator('button.project-scope-trigger').click();await scope.locator('input').press('Escape');assert.equal(await scope.locator('button.project-scope-trigger').getAttribute('aria-expanded'),'false');
+      assert((await scope.boundingBox()).width<300,'long project names do not stretch the toolbar');
+      await go('milestones');await page.locator('[data-ms-view="gantt"]').click();await page.waitForSelector('[data-plan-id="phase-active"]');
+      assert.equal(await page.locator('.mg-row').count(),plans.length,'undated/invalid items remain visible');
+      assert.equal(await page.locator('.mg-diamond[data-plan-id="point-review"]').count(),1);
+      assert.equal(await page.locator('.mg-bar[data-plan-id="phase-active"]').count(),1);
+      assert.equal(await page.locator('.mg-row.is-late[data-milestone-id="phase-late"]').count(),1);
+      assert.equal(await page.locator('[data-milestone-id="phase-invalid"] .mg-pending').innerText(),'日期待修正');
+      await page.locator('[data-plan-id="phase-active"]').click();await page.waitForSelector('.mg-detail-form');
+      await page.locator('.mg-detail-form [name="progress"]').fill('62.5');await page.locator('.mg-detail-form [name="due"]').fill('2026-11-28');
+      failSave=true;await page.locator('.mg-detail-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('.mg-form-message').textContent.includes('保存失败'));
+      assert.equal(await page.locator('.mg-detail-form [name="progress"]').inputValue(),'62.5');failSave=false;
+      await page.locator('.mg-detail-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('.mg-form-message').textContent==='计划已保存');
+      assert.equal(docRecords.find(d=>d.id==='phase-active').progress,62.5);assert.equal(docRecords.find(d=>d.id==='phase-active').due,'2026-11-28');
+      await page.locator('.mg-detail-form [name="progress"]').fill('70');
+      const leaving=page.locator('[data-ms-view="timeline"]').click();await page.waitForSelector('#workbench-dialog');await page.locator('[data-dialog-result="cancel"]').click();await leaving;assert.equal(await page.locator('.milestone-gantt').count(),1,'cancel preserves unsaved plan');
+      await respond(()=>page.locator('.mg-detail-head button').click(),'discard');
+      await page.locator('.mg-search').fill('阶段组会');assert.equal(await page.locator('.mg-row').count(),1);await page.locator('.mg-search').fill('');
+      await page.locator('.mg-filter').selectOption('undated');assert.equal(await page.locator('.mg-row').count(),2);await page.locator('.mg-filter').selectOption('');
+      const picker=page.locator('.mg-controls .project-scope');await picker.locator('.project-scope-trigger').click();await picker.locator('input').fill('物理');await picker.locator('input').press('Enter');
+      assert.equal(await page.locator('.mg-group').count(),1);await picker.locator('.project-scope-trigger').click();await picker.locator('input').fill('全部项目');await picker.locator('input').press('Enter');
+      await page.locator('.mg-group-label').first().click();assert((await page.locator('.mg-row').count())<plans.length);await page.locator('.mg-group-label').first().click();
+      await page.locator('[data-gantt-scale="day"]').click();await page.locator('.mg-scroll').evaluate(e=>e.scrollLeft=450);
+      const pinned=await page.locator('.mg-scroll').evaluate(e=>{const l=e.querySelector('.mg-row-label'),s=e.getBoundingClientRect();return Math.abs(l.getBoundingClientRect().left-s.left)<2});assert(pinned,'row labels stay fixed during horizontal scroll');
+      await page.locator('.mg-scroll').evaluate(e=>e.scrollTop=240);assert(await page.locator('.mg-axis').evaluate(e=>Math.abs(e.getBoundingClientRect().top-e.closest('.mg-scroll').getBoundingClientRect().top)<2),'date header stays fixed during vertical scroll');
+      await page.locator('[data-gantt-scale="fit"]').click();
+      for(const theme of ['light','dark']){
+        await page.evaluate(t=>{localStorage.setItem('theme',t);document.documentElement.dataset.theme=t},theme);
+        for(const width of [2550,1920,1280,760]){
+          await page.setViewportSize({width,height:width>1900?1233:900});await page.waitForTimeout(200);
+          assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),'planning has no page-wide horizontal overflow at '+width);
+          const b=await page.locator('.mg-chart').boundingBox();assert(b.width>260,'chart remains usable at '+width);
+          if(width>=1280)assert(await page.locator('.mg-footer').evaluate(e=>e.getBoundingClientRect().bottom<=innerHeight-8),'chart and footer fit the viewport at '+width);
+          await shot('planning-gantt-'+theme+'-'+width);
+        }
+      }
+      await page.setViewportSize({width:1920,height:1080});await page.locator('#zoom-btn').click();await page.locator('[data-zoom="125"]').click();await page.waitForTimeout(200);
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),'planning fits 125% UI scale');await shot('planning-gantt-dark-125pct');
+      await page.locator('#zoom-btn').click();await page.locator('[data-zoom="100"]').click();
+      await page.setViewportSize({width:1920,height:1080});await page.locator('[data-plan-id="phase-active"]').click();await shot('planning-gantt-detail-dark');
+      await page.locator('.mg-detail-form [name="start_date"]').fill('');await page.locator('.mg-detail-form [name="progress"]').fill('');await page.locator('.mg-detail-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('.mg-form-message').textContent==='计划已保存');
+      assert.equal(await page.locator('.mg-diamond[data-plan-id="phase-active"]').count(),1,'clearing the start date turns a phase into a point');
+      await page.locator('.mg-detail-form .secondary-btn').click();await page.waitForSelector('#f-title');assert.equal(await page.locator('#f-title').inputValue(),'方法与基线复现');
+      await page.locator('#meta-toggle').click();await page.locator('#f-start-date').fill('2026-10-10');await page.locator('#f-progress').fill('40');await page.locator('#doc-save').click();await page.waitForFunction(()=>!window.ERWDesktop.hasUnsavedChanges());
+      assert.equal(docRecords.find(d=>d.id==='phase-active').progress,40,'document editor shares schedule fields');
+      await page.locator('[data-ms-view="gantt"]').click();await page.waitForSelector('.mg-bar[data-plan-id="phase-active"]');
+      docRecords.splice(0,docRecords.length);await page.locator('[data-ms-view="list"]').click();await page.locator('[data-ms-view="gantt"]').click();await page.waitForSelector('.mg-empty .primary-btn');
+      assert.equal(errors.length,0,errors.join('\n'));
+      console.log('PASS: scoped graph overview, searchable keyboard picker, tag context, cancelled camera animation; generated milestone phases/points, save/failure/clear, dirty guards, filters, sticky axes, dark/light at 2550/1920/1280/760, document roundtrip and empty state');return;
+    }
     if(referencesOnly){
       const source=doc('note','ref-source','知识-原理-GraphRAG 与电网物理图的区别');
       const referenced={...doc('literature','ref-paper','文献-物理信息引导思维树搜索的大模型负荷转供方法'),attachment:'Knowledge/Literature/PDF/ui-paper.pdf',body:'# 方法与原文\n\n这份文献提供真实的局部物理状态，先核对证据再选择动作。\n\n| 方法 | 依据 |\n| --- | --- |\n| 物理模型 | 状态计算 |\n\n参见 [[ref-child|结构化任务描述]] 或 [本地笔记文件](../Notes/ref-child.md)。\n\n`[[代码示例]]`'};
@@ -646,7 +733,8 @@ fs.mkdirSync(output, {recursive:true});
     await go('graph');await page.waitForSelector('#graph-smart-toolbar');
     assert.equal(graphRequests.length-beforeGraph,1,'Graph page should fetch data exactly once');
     assert.equal(await page.locator('#graph-smart-toolbar').count(),1);
-    assert.equal(await page.locator('#graph-project-scope').inputValue(),'示例项目');
+    assert.equal(await page.evaluate(()=>window.__knowledgeGraphEngine.scopeProject),'示例项目');
+    assert.equal(await page.evaluate(()=>window.__knowledgeGraphEngine.selectedId),null,'scope opens an overview without selecting a topic');
     assert.equal(await page.locator('.graph-diagnostics').getAttribute('open'),null,'graph diagnostics start collapsed');
     let releaseGraph;graphGate=new Promise(resolve=>releaseGraph=resolve);
     await go('todos');await page.waitForSelector('.todo-page');

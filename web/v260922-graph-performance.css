@@ -148,7 +148,7 @@
 }
 @media (max-width:720px){
   .graph-smart-toolbar{padding:8px}
-  .graph-focus-tools{overflow-x:auto;flex-wrap:nowrap;justify-content:flex-start}
+  .graph-focus-tools{overflow:visible;flex-wrap:wrap;justify-content:flex-start}
   .graph-focus-tools button{white-space:nowrap}
   .graph-smart-search kbd{display:none}
   .graph-smart-results{left:0;right:0;width:auto;max-width:none;max-height:min(300px,calc(100vh - 180px))}

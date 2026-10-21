@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '260922.1';
+  const VERSION = '261021.1';
   const MAX_FETCH_NODES = 500;
   const SEARCH_LIMIT = 10;
   const LAYOUT_CACHE_VERSION = 2;
@@ -83,12 +83,12 @@
       const graph = initialGraph || await api(`/api/graph?limit=${MAX_FETCH_NODES}`);
       if (this.destroyed || route() !== 'graph' || !this.canvas.isConnected) return;
       this.raw = graph || {nodes:[],edges:[],meta:{}};
-      const projects=[...new Set(this.raw.nodes.flatMap(n=>n.kind==='project'?[n.label]:(n.projects||[])))].filter(Boolean);
+      const projects=[...new Set(this.raw.nodes.flatMap(n=>n.kind==='project'?[n.label]:(n.projects?.length?n.projects:n.project?[n.project]:[])))].filter(Boolean);
       const saved=localStorage.getItem('erwGraphProjectScope'),preferred=window.ERWResearchUI?.recent('doc')?.projects?.[0];
       this.scopeProject=saved===null?(projects.includes(preferred)?preferred:projects[0]||''):(projects.includes(saved)?saved:'');
-      const selector=document.querySelector('#graph-project-scope');if(selector){selector.innerHTML='<option value="">全部项目</option>'+projects.map(name=>`<option value="${esc(name)}" title="${esc(name)}">${esc(window.ERWResearchUI?.projectLabel(name)||name)}</option>`).join('');selector.value=this.scopeProject}
 
-      this.refreshFilteredGraph(true);this.focusInitialTopic();
+      this.projectPicker=window.ERWProjectScope.mount(document.querySelector('#graph-project-scope'),{names:projects,value:this.scopeProject,onChange:name=>this.setProjectScope(name)});
+      this.refreshFilteredGraph(true);this.clearFocus(true);
       this.resizeObserver = new ResizeObserver(() => this.requestRender());
       this.resizeObserver.observe(this.canvas);
       this.requestRender();
@@ -99,6 +99,7 @@
     destroy() {
       this.destroyed = true;
       try { this.resizeObserver?.disconnect(); } catch (_) {}
+      this.projectPicker?.destroy();
       if(this.outsidePointerHandler)document.removeEventListener('pointerdown',this.outsidePointerHandler,{capture:true});
     }
 
@@ -112,10 +113,10 @@
             <div class="graph-smart-search"><span>⌕</span><input id="graph-smart-search" autocomplete="off" placeholder="搜索知识、标签或项目……"><kbd>↑↓ Enter</kbd></div>
             <div class="graph-smart-results hidden" id="graph-smart-results"></div>
           </div>
-          <div class="graph-focus-tools" aria-label="图谱聚焦"><label>项目范围 <select id="graph-project-scope" aria-label="图谱项目范围"></select></label>
+          <div class="graph-focus-tools" aria-label="图谱聚焦"><div id="graph-project-scope"></div>
             <button class="secondary-btn active" type="button" data-graph-focus="1">直接关系</button>
             <button class="secondary-btn" type="button" data-graph-focus="2">两级关系</button>
-            <button class="secondary-btn" type="button" data-graph-focus="0">恢复全图</button>
+            <button class="secondary-btn" type="button" data-graph-focus="0">范围全览</button>
             <span class="graph-tool-sep"></span>
             <button class="ghost-btn" type="button" data-graph-scope="docs">仅知识节点</button>
             <button class="ghost-btn" type="button" data-graph-scope="all">全部节点</button>
@@ -130,9 +131,8 @@
       this.outsidePointerHandler=e=>{if(this.destroyed)return;if(!toolbar.contains(e.target))results.classList.add('hidden')};
       document.addEventListener('pointerdown',this.outsidePointerHandler,{capture:true});
       toolbar.querySelectorAll('[data-graph-focus]').forEach(b=>b.onclick=()=>{
-        const d=Number(b.dataset.graphFocus||0); if(!d){this.setProjectScope('');this.clearFocus(true);return} this.focusDepth=d; this.updateFocus(); this.syncFocusButtons(); this.requestRender();
+        const d=Number(b.dataset.graphFocus||0); if(!d){this.clearFocus(true);return} this.focusDepth=d; this.updateFocus(); this.syncFocusButtons(); this.requestRender();
       });
-      toolbar.querySelector('#graph-project-scope').onchange=event=>this.setProjectScope(event.target.value);
       toolbar.querySelector('[data-graph-scope="docs"]').onclick=()=>this.setScope(true);
       toolbar.querySelector('[data-graph-scope="all"]').onclick=()=>this.setScope(false);
     }
@@ -167,7 +167,9 @@
     refreshFilteredGraph(rebuildLayout=false) {
       const kinds=new Set([...document.querySelectorAll('[data-graph-kind]:checked')].map(x=>x.dataset.graphKind));
       const relations=new Set([...document.querySelectorAll('[data-graph-relation]:checked')].map(x=>x.dataset.graphRelation));
-      const nodes=(this.raw.nodes||[]).filter(n=>kinds.has(n.kind)&&(!this.scopeProject||(n.projects||[]).includes(this.scopeProject)||n.project===this.scopeProject||(n.kind==='project'&&n.label===this.scopeProject))); const ids=new Set(nodes.map(n=>String(n.id)));
+      const scoped=new Set((this.raw.nodes||[]).filter(n=>(n.projects||[]).includes(this.scopeProject)||n.project===this.scopeProject).map(n=>String(n.id)));
+      const tags=new Set((this.raw.edges||[]).filter(e=>scoped.has(String(e.source))&&e.relation==='tag').map(e=>String(e.target)));
+      const nodes=(this.raw.nodes||[]).filter(n=>kinds.has(n.kind)&&(!this.scopeProject||scoped.has(String(n.id))||(n.kind==='project'&&n.label===this.scopeProject)||(n.kind==='tag'&&tags.has(String(n.id))))); const ids=new Set(nodes.map(n=>String(n.id)));
       const edges=(this.raw.edges||[]).filter(e=>relations.has(e.relation)&&ids.has(String(e.source))&&ids.has(String(e.target)));
       this.graph={nodes,edges}; this.nodeMap=new Map(nodes.map(n=>[String(n.id),n]));
       this.buildAdjacency(); this.buildSearchIndex();
@@ -178,12 +180,9 @@
     }
 
     setProjectScope(name){
-      this.scopeProject=name;localStorage.setItem('erwGraphProjectScope',name);const select=document.querySelector('#graph-project-scope');if(select)select.value=name;
-      this.selectedId=null;this.refreshFilteredGraph(true);this.focusInitialTopic();
-    }
-    focusInitialTopic(){
-      const recent=window.ERWResearchUI?.recent('doc'),node=this.nodeMap.get(recent?.id)||this.graph.nodes.find(n=>n.kind==='note')||this.graph.nodes.find(n=>!n.virtual);
-      if(!node)return;this.selectedId=String(node.id);this.focusDepth=1;this.updateFocus();this.syncFocusButtons();this.updateSidePanel(node);this.setStatus('主题已聚焦');this.animateCameraTo(this.selectedId);
+      this.scopeProject=name;localStorage.setItem('erwGraphProjectScope',name);this.projectPicker?.setValue(name);
+      const input=document.querySelector('#graph-smart-search');if(input)input.value='';document.querySelector('#graph-smart-results')?.classList.add('hidden');
+      this.selectedId=null;this.refreshFilteredGraph(true);this.clearFocus(true);
     }
     buildAdjacency() {
       this.adjacency=new Map(); this.degree=new Map(); this.edgeImportance=new Map(); this._degreeSorted=null;
@@ -265,13 +264,13 @@
     updateFocus(){
       this.focusDistances=new Map();if(!this.selectedId||!this.nodeMap.has(this.selectedId))return;this.focusDistances.set(this.selectedId,0);const q=[this.selectedId];for(let i=0;i<q.length;i++){const id=q[i],d=this.focusDistances.get(id);if(d>=2)continue;for(const nb of this.adjacency.get(id)||[]){if(!this.focusDistances.has(nb.id)){this.focusDistances.set(nb.id,d+1);q.push(nb.id)}}}
     }
-    syncFocusButtons(){document.querySelectorAll('[data-graph-focus]').forEach(b=>b.classList.toggle('active',Number(b.dataset.graphFocus||0)===this.focusDepth&&!!this.selectedId))}
+    syncFocusButtons(){document.querySelectorAll('[data-graph-focus]').forEach(b=>{const depth=Number(b.dataset.graphFocus||0);b.classList.toggle('active',depth?depth===this.focusDepth&&!!this.selectedId:!this.selectedId);b.disabled=!!depth&&!this.selectedId})}
 
     selectNode(id,animate=false){
       const node=this.nodeMap.get(String(id));if(!node)return;this.selectedId=String(id);this.focusDepth=this.focusDepth||1;this.updateFocus();this.syncFocusButtons();this.setSidePanel('detail');this.updateSidePanel(node);this.openPreview(node);this.setStatus('主题已聚焦');const bundle=document.querySelector('#graph-bundle');if(bundle)bundle.disabled=false;if(animate)this.animateCameraTo(id);else this.requestRender();
     }
     clearFocus(resetCamera=false){
-      this.setSidePanel('overview');this.selectedId=null;this.focusDistances.clear();this.searchHits.clear();this.syncFocusButtons();const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info'),bundle=document.querySelector('#graph-bundle');if(title)title.textContent='选择节点';if(info)info.textContent='搜索或点击节点，查看相关主题；需要浏览全部资料时点击“恢复全图”。';if(bundle)bundle.disabled=true;this.hidePreview();this.setStatus('项目概览');if(resetCamera){const c=this.camera[this.mode];c.panX=0;c.panY=0;c.zoom=1;if(this.mode==='3d'){c.rotX=.25;c.rotY=0}}this.requestRender();
+      this.setSidePanel('overview');this.selectedId=null;this.focusDistances.clear();this.searchHits.clear();this.syncFocusButtons();const title=document.querySelector('#graph-node-title'),info=document.querySelector('#graph-node-info'),bundle=document.querySelector('#graph-bundle');if(title)title.textContent='选择节点';if(info)info.textContent='搜索或点击节点，查看相关主题；需要浏览全部资料时点击“范围全览”。';if(bundle)bundle.disabled=true;this.hidePreview();this.setStatus('项目概览');if(resetCamera){this.cameraAnimation=(this.cameraAnimation||0)+1;const c=this.camera[this.mode],rect=this.canvas.getBoundingClientRect(),points=[...this.layout.values()];c.panX=0;c.panY=0;c.zoom=1;if(points.length){const xs=points.map(p=>p.x),ys=points.map(p=>p.y),minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);c.zoom=clamp(Math.min((rect.width-110)/Math.max(120,maxX-minX),(rect.height-100)/Math.max(120,maxY-minY)),.08,1.8);c.panX=-(minX+maxX)/2*c.zoom;c.panY=-(minY+maxY)/2*c.zoom;}}this.requestRender();
     }
 
     updateSidePanel(n){
@@ -293,7 +292,7 @@
     }
 
     animateCameraTo(id){
-      const p=this.layout.get(String(id));if(!p){this.requestRender();return}const c=this.camera[this.mode],start={...c},target={...c,zoom:Math.max(c.zoom,1.55)};const projected=this.projectBase(p,target);target.panX=-projected.x;target.panY=-projected.y;const t0=now(),dur=320;const tick=()=>{if(this.destroyed)return;const u=clamp((now()-t0)/dur,0,1),ease=1-Math.pow(1-u,3);c.panX=start.panX+(target.panX-start.panX)*ease;c.panY=start.panY+(target.panY-start.panY)*ease;c.zoom=start.zoom+(target.zoom-start.zoom)*ease;this.requestRender();if(u<1)requestAnimationFrame(tick)};requestAnimationFrame(tick)
+      const animation=this.cameraAnimation=(this.cameraAnimation||0)+1,p=this.layout.get(String(id));if(!p){this.requestRender();return}const c=this.camera[this.mode],start={...c},target={...c,zoom:Math.max(c.zoom,1.55)};const projected=this.projectBase(p,target);target.panX=-projected.x;target.panY=-projected.y;const t0=now(),dur=320;const tick=()=>{if(this.destroyed||this.cameraAnimation!==animation)return;const u=clamp((now()-t0)/dur,0,1),ease=1-Math.pow(1-u,3);c.panX=start.panX+(target.panX-start.panX)*ease;c.panY=start.panY+(target.panY-start.panY)*ease;c.zoom=start.zoom+(target.zoom-start.zoom)*ease;this.requestRender();if(u<1)requestAnimationFrame(tick)};requestAnimationFrame(tick)
     }
 
     projectBase(p,c){
@@ -342,6 +341,7 @@
       const el=document.querySelector('#graph-engine-status'),diagnostics=document.querySelector('#graph-diagnostics-text');
       if(diagnostics)diagnostics.textContent=text+(this.layoutStats?.ms?` · 布局 ${this.layoutStats.ms} ms`:'');
       if(el){const selected=this.nodeMap.get(this.selectedId);el.textContent=`${this.scopeProject?window.ERWResearchUI?.projectLabel(this.scopeProject)||this.scopeProject:'全部项目'} · ${this.graph.nodes.length} 个节点 · ${this.graph.edges.length} 条关系${selected?' · 当前主题：'+(selected.label||'已选主题'):''}`}
+      const metrics=document.querySelectorAll('.graph-overview-metrics strong');if(metrics.length){metrics[0].textContent=this.graph.nodes.length;metrics[1].textContent=this.graph.edges.length;metrics[2].textContent=new Set(this.graph.nodes.map(n=>n.kind)).size}
     }
   }
   OptimizedKnowledgeGraph.layoutCache = new Map();

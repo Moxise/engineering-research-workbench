@@ -147,11 +147,16 @@ def _update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     kind = str(row["kind"])
     text = path.read_text(encoding="utf-8")
     meta, body = store._frontmatter_parse(text)
+    schedule_changed = kind == "milestone" and bool({"start_date", "due", "progress"} & payload.keys())
     payload = normalize_project_update(meta, payload)
+    if schedule_changed:
+        payload.update(store.normalize_milestone_schedule(payload))
     allowed = {
         "title", "status", "project", "projects", "project_id", "project_ids", "tags", "kind_marks", "pinned",
         "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key", "attachment",
     }
+    if kind == "milestone":
+        allowed.update({"start_date", "progress"})
     for key in allowed:
         if key in payload:
             meta[key] = payload[key]

@@ -24,6 +24,7 @@ from app import agent
 from app import agent_tools  # v260930 · M1 Agent 工具调用层
 from app import agent_memory, agent_runtime, agent_skills, agent_mcp, agent_rag
 from app import projects
+from app import milestones
 from app import indexer
 from app.paths import ASSET_ROOT, DATA_ROOT
 from app import literature
@@ -337,6 +338,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(indexer.workspace_children(rel))
         if path == "/api/system/index":
             return self.send_json(indexer.status())
+        if path == "/api/milestones/plan":
+            return self.send_json(milestones.plan())
         if path == "/api/docs":
             kind = (q.get("kind") or [""])[0] or None
             query = (q.get("q") or [""])[0]

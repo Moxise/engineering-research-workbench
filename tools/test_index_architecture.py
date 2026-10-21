@@ -20,6 +20,44 @@ from app import activity
 
 
 class IndexArchitectureTests(unittest.TestCase):
+    def test_milestone_schedule_roundtrip_validation_and_clear(self):
+        from app import milestones
+        doc = indexer.create_doc("milestone", {"title": "跨月实验阶段", "projects": ["测试项目"], "body": "验收条件保持不变", "start_date": "2026-10-25", "due": "2026-11-20", "progress": 37.5})
+        self.assertEqual(doc["progress"], 37.5)
+        path = self.root / doc["path"]
+        original = path.read_bytes()
+        for payload in ({"due": "2026-10-01"}, {"start_date": "2026-02-30"}, {"progress": -1}, {"progress": 101}, {"progress": float("nan")}, {"progress": True}):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                indexer.update_doc(doc["id"], payload)
+            self.assertEqual(path.read_bytes(), original, "invalid plans must not overwrite Markdown")
+        indexer.update_doc(doc["id"], {"title": "修改标题"})
+        self.assertEqual(indexer.get_doc(doc["id"])["progress"], 37.5)
+        cleared = indexer.update_doc(doc["id"], {"start_date": "", "progress": None})
+        self.assertEqual(cleared["start_date"], "")
+        self.assertIsNone(cleared["progress"])
+        self.assertEqual(cleared["body"].strip(), "验收条件保持不变")
+        planned = milestones.plan()["items"][0]
+        self.assertIsNone(planned["progress"])
+        self.assertNotIn("body", planned)
+        indexer.update_doc(doc["id"], {"due": ""})
+        self.assertEqual(milestones.plan()["items"][0]["due"], "")
+
+    def test_milestone_plan_includes_all_pages_and_legacy_points(self):
+        from app import milestones
+        directory = self.root / "Knowledge/Milestones"
+        for number in range(205):
+            meta = {"id": f"plan-{number}", "kind": "milestone", "title": f"测试节点 {number}", "due": "2026-11-01", "status": "计划", "projects": ["合成评测项目"]}
+            (directory / f"plan-{number}.md").write_text(store._frontmatter_dump(meta) + "# 测试\n", encoding="utf-8")
+        indexer.sync(immediate=True)
+        self.assertEqual(len(indexer.list_docs("milestone", page_size=200)), 200)
+        plan = milestones.plan()
+        self.assertEqual(plan["total"], 205)
+        self.assertEqual(plan["unavailable"], 0)
+        self.assertEqual(len({d["id"] for d in plan["items"]}), 205)
+        self.assertTrue(all(d["start_date"] == "" and d["progress"] is None for d in plan["items"]))
+        indexer.delete_doc("plan-204")
+        self.assertEqual(milestones.plan()["total"], 204)
+
     def test_retrieval_prioritizes_exact_source_over_newer_project_matches(self):
         title = "物理信息引导思维树搜索的大模型负荷转供方法"
         source = indexer.create_doc("literature", {"title": "文献-" + title, "body": "世界模型使用确定性物理求解器更新状态。", "projects": [title]})
