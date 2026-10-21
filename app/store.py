@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import re
 import shutil
@@ -395,6 +396,16 @@ def _doc_from_path(kind: str, path: Path, include_body: bool = True, root: Path 
     meta.setdefault("project", "")
     meta.setdefault("projects", [])
     meta.setdefault("tags", [])
+    if kind == "milestone":
+        meta.setdefault("start_date", "")
+        meta.setdefault("due", "")
+        meta.setdefault("progress", None)
+        if meta["progress"] is not None:
+            try:
+                progress = float(meta["progress"])
+                meta["progress"] = progress if math.isfinite(progress) and 0 <= progress <= 100 else None
+            except (TypeError, ValueError):
+                meta["progress"] = None
     if isinstance(meta.get("kind_marks"), str):
         meta["kind_marks"] = [x.strip() for x in re.split(r"[,，]", meta["kind_marks"]) if x.strip()]
     if not isinstance(meta.get("kind_marks"), list):
@@ -413,7 +424,7 @@ def _doc_from_path(kind: str, path: Path, include_body: bool = True, root: Path 
         doc["body"] = body
     if kind == "literature":
         bib = BIBTEX_BLOCK_RE.search(body)
-        doc["bibtex"] = bib.group(1).strip() if bib else ""
+        doc["bibtex"] = str(meta["bibtex"] or "") if "bibtex" in meta else (bib.group(1).strip() if bib else "")
     return doc
 
 
@@ -691,6 +702,8 @@ def prepare_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     date_field = DATE_FIELDS.get(kind)
     if date_field:
         meta[date_field] = payload.get(date_field) or _today()
+    if kind == "milestone":
+        meta.update(normalize_milestone_schedule({"due": _today(), **payload}))
     if kind == "summary":
         meta["summary_type"] = payload.get("summary_type") or "阶段总结"
     if kind == "literature":
@@ -701,8 +714,36 @@ def prepare_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     _normalize_projects(meta)
     body = str(payload["body"]) if payload.get("body") is not None else _make_default_body(kind, title, payload)
     bibtex = BIBTEX_BLOCK_RE.search(body) if kind == "literature" else None
+    citation = str(payload["bibtex"] or "") if "bibtex" in payload else (bibtex.group(1).strip() if bibtex else "")
     return {**meta, "body": body, "path": "", "draft": True,
-            "bibtex": payload.get("bibtex") or (bibtex.group(1).strip() if bibtex else "")}
+            "bibtex": citation}
+
+
+def normalize_milestone_schedule(payload: dict[str, Any]) -> dict[str, Any]:
+    """An optional start makes a milestone a planned phase; never infer dates/progress."""
+    result: dict[str, Any] = {}
+    for key, label in (("start_date", "开始日期"), ("due", "截止日期")):
+        raw = str(payload.get(key) or "").strip()
+        try:
+            if raw and (not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw) or date.fromisoformat(raw).isoformat() != raw):
+                raise ValueError
+        except ValueError:
+            raise ValueError(f"{label}须为有效的 YYYY-MM-DD 日期") from None
+        result[key] = raw
+    if result["start_date"] and result["due"] and result["start_date"] > result["due"]:
+        raise ValueError("截止日期不能早于开始日期")
+    progress = payload.get("progress")
+    if progress is None or progress == "":
+        result["progress"] = None
+    else:
+        try:
+            number = float(progress)
+            if isinstance(progress, bool) or not math.isfinite(number) or not 0 <= number <= 100:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("完成进度须为 0–100 的数字，或留空") from None
+        result["progress"] = round(number, 1)
+    return result
 
 
 def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None = None,
@@ -710,8 +751,10 @@ def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None
     """新建条目。`origin` 记录来源（ui/agent/mcp/plugin/cli + 工具名 + 外部客户端名）。"""
     meta = prepare_doc(kind, payload)
     body = meta.pop("body")
-    for key in ("path", "draft", "bibtex"):
+    for key in ("path", "draft"):
         meta.pop(key)
+    if kind != "literature":
+        meta.pop("bibtex", None)
     doc_id, title, now = meta["id"], meta["title"], meta["created"]
     # v261009.41 · 来源追踪 + 版本归族（写入收口点：界面 / Agent / MCP / 插件四条路径一视同仁）
     _origin = dict(origin or _versions.origin("cli"))

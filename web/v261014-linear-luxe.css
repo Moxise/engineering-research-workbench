@@ -1027,7 +1027,7 @@ th{
 }
 td{color:var(--lux-ink)!important}
 tbody tr{transition:background-color .12s}
-tbody tr:hover{background:#f8f9fc}
+tbody tr:hover{background:var(--table-row-hover,var(--surface-2,#f8f9fc))}
 
 /* ---------- Responsive ---------- */
 @media (min-width:1101px){

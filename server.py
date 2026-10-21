@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import mimetypes
 import os
 import socket
@@ -9,6 +10,8 @@ import threading
 import time
 import webbrowser
 import tempfile
+from functools import wraps
+from contextlib import nullcontext
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -22,15 +25,30 @@ from app import todos
 from app import workspace
 from app import agent
 from app import agent_tools  # v260930 · M1 Agent 工具调用层
+from app import agent_memory, agent_runtime, agent_skills, agent_mcp, agent_rag
 from app import projects
+from app import milestones
 from app import indexer
 from app.paths import ASSET_ROOT, DATA_ROOT
 from app import literature
 from app import scratch  # v261008 · 操作临时空间 .scratch
+from app import sync_service
+from app.sync_engine import mutation_lock, CHUNK
 
 # v260923 · 打包 exe 后：只读资源（web/、VERSION）在 PyInstaller 解压目录；可写数据在 exe 同级
 ROOT = DATA_ROOT
 WEB = ASSET_ROOT / "web"
+
+
+def serialized_write(fn):
+    @wraps(fn)
+    def call(self, *args, **kwargs):
+        path = args[0] if args else urlparse(self.path).path
+        # Agent/lookup requests can wait on external APIs; never lock during those waits.
+        locked = not path.startswith(("/api/sync/", "/api/agent/", "/api/literature/lookup"))
+        with mutation_lock if locked else nullcontext():
+            return fn(self, *args, **kwargs)
+    return call
 
 
 def json_bytes(data) -> bytes:
@@ -80,12 +98,37 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = (sys.platform != "win32")
 
     def server_close(self):
+        from app import agent_rag_updates
+        agent_rag_updates.stop()
         super().server_close()
+        sync_service.stop()
         indexer.stop_background_sync()
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "Workbench/260922-perf"
+
+    @property
+    def sync_engine(self):
+        return getattr(self.server, "sync_engine", None) or sync_service.get()
+
+    def do_PUT(self):
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/sync/blob":
+            return self.send_json({"error": "not_found"}, 404)
+        try:
+            q = parse_qs(parsed.query)
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 <= length <= CHUNK:
+                raise ValueError("附件分块大小无效")
+            result = self.sync_engine.receive_blob(q["hash"][0], self.rfile.read(length), int(q["offset"][0]), int(q["total"][0]))
+            self.send_json(result)
+        except (ValueError, KeyError) as exc:
+            self.send_json({"message": str(exc)}, 400)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+        except Exception as exc:
+            self.send_json({"message": str(exc)}, 500)
 
     def log_message(self, fmt, *args):
         sys.stdout.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
@@ -119,33 +162,56 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw.body)
 
     def _send_agent_stream(self, payload):  # v260930k · 方案 A：Agent 对话 SSE 流式端点。
-        """事件序列：round(新一轮 LLM 请求) → delta*(文本片段) → ... → done(完整响应,与旧 JSON 同构) / error。
-        长回答的等待被拆成「相邻片段之间 ≤timeout」，不再出现整段 120s 超时。"""
+        """Replay durable background events using the existing chat SSE contract.
+        A disconnected viewer leaves the job running; cancellation is explicit.
+        """
+        run = agent_runtime.submit(payload)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close")  # v260930m · SSE 用短连接：done 后关闭，前端 EOF 立即到达（keep-alive 会让 read() 永久挂起、UI 卡「停止」）
         self.send_header("X-Accel-Buffering", "no")
+        self.send_header("X-Agent-Run-ID", run["id"])
         self.end_headers()
 
-        def emit(event: str, data) -> None:
+        def emit(event: str, data, seq=None) -> None:
             try:
-                self.wfile.write(f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
+                event_id = f"id: {seq}\n" if seq is not None else ""
+                self.wfile.write(f"event: {event}\n{event_id}data: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8"))
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-                raise  # v260930k · 客户端断开：让 send_message 中止写出（会话已落盘部分不受影响）
+                raise  # The background job continues after this viewer disconnects.
 
         try:
-            result = agent.send_message(
-                str(payload.get("session_id") or ""), str(payload.get("message") or ""),
-                payload.get("refs") or [], payload.get("images") or [], str(payload.get("request_preset") or ""),
-                payload.get("context") if isinstance(payload.get("context"), dict) else None,
-                str(payload.get("persona_id") or ""),
-                on_delta=lambda t: emit("delta", {"text": t}),
-                on_round=lambda i: emit("round", {"i": i}),
-                on_tool=lambda name, r: emit("tool", {"name": name, "ok": bool(r.get("ok")), "ms": r.get("tool_ms", 0), "pending": bool(r.get("pending")), "doc_id": r.get("doc_id") or ""}),  # v260930l · 工具进度实时可见
-            )
-            emit("done", {"ok": True, "assistant": result.get("assistant")})  # v260930m · 负载瘦身：只回 assistant，不再附带全量 session（前端未用，300KB+ 单行 JSON）
+            emit("run", {"run_id": run["id"], "session_id": run["session_id"]})
+            cursor = 0
+            terminal_sent = False
+            heartbeat = time.monotonic()
+            while True:
+                batch = agent_memory.events(run["id"], cursor)
+                for item in batch:
+                    cursor = item["seq"]
+                    if item["event"] in ("round", "delta", "response", "tool", "done", "error", "plan", "status", "compaction", "skill", "retrieval", "capabilities"):
+                        emit(item["event"], item["data"], item["seq"])
+                        terminal_sent |= item["event"] in ("done", "error")
+                current = agent_memory.get_run(run["id"])
+                if current["status"] in agent_runtime.TERMINAL and not batch:
+                    # Status/result can commit between the events query and this
+                    # snapshot, before the worker appends its final event.
+                    if not terminal_sent and (current.get("result") or {}).get("assistant"):
+                        emit("done", current["result"])
+                    elif not terminal_sent and current["status"] == "failed":
+                        emit("error", {"message": current.get("error") or "任务执行失败", "run_id": run["id"]})
+                    elif not terminal_sent and current["status"] in ("paused", "cancelled", "interrupted"):
+                        emit("error", {"message": "任务已暂停或停止，可在任务中心查看并继续", "run_id": run["id"]})
+                    elif not terminal_sent:
+                        emit("error", {"message": "任务已结束，但未取得保存的回复，请查看任务记录", "run_id": run["id"]})
+                    break
+                if time.monotonic() - heartbeat > 10:
+                    self.wfile.write(b": heartbeat\n\n")
+                    self.wfile.flush()
+                    heartbeat = time.monotonic()
+                time.sleep(.1)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass  # 客户端已断开：无需再写
         except Exception as e:
@@ -200,7 +266,8 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         try:
             if path == "/api/literature/import":
-                return self.handle_literature_import()
+                with mutation_lock:
+                    return self.handle_literature_import()
             # v261009.4 · 插件管理（内核自己的接口，用独立命名空间以免和插件路由撞车）：
             #   POST /api/plugin-manager/<id>/enabled  {enabled: bool}
             if path.startswith("/api/plugin-manager/"):
@@ -224,6 +291,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self.send_json({"error": type(e).__name__, "message": str(e)}, 500)
 
+    @serialized_write
     def do_DELETE(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -263,6 +331,32 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": type(e).__name__, "message": str(e)}, 500)
 
     def handle_api_get(self, path, q):
+        if path.startswith("/api/sync/"):
+            engine = self.sync_engine
+            if path == "/api/sync/status":
+                return self.send_json(engine.status())
+            if path == "/api/sync/manifest":
+                scopes = q.get("scopes", [""])[0]
+                return self.send_json(engine.manifest(scopes.split(",") if scopes else None))
+            if path == "/api/sync/blob-info":
+                return self.send_json(engine.blob_info(q.get("hash", [""])[0]))
+            if path == "/api/sync/conflict":
+                return self.send_json(engine.conflict_detail(q.get("key", [""])[0]))
+            if path == "/api/sync/blob":
+                source = engine._blob_path(q.get("hash", [""])[0])
+                size = source.stat().st_size
+                offset = int(q.get("offset", ["0"])[0])
+                if not 0 <= offset <= size:
+                    raise ValueError("附件断点无效")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(size - offset))
+                self.end_headers()
+                with source.open("rb") as handle:
+                    handle.seek(offset)
+                    while chunk := handle.read(CHUNK):
+                        self.wfile.write(chunk)
+                return
         if path == "/api/health":
             return self.send_json({
                 "ok": True,
@@ -283,6 +377,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(indexer.workspace_children(rel))
         if path == "/api/system/index":
             return self.send_json(indexer.status())
+        if path == "/api/milestones/plan":
+            return self.send_json(milestones.plan())
         if path == "/api/docs":
             kind = (q.get("kind") or [""])[0] or None
             query = (q.get("q") or [""])[0]
@@ -298,6 +394,8 @@ class Handler(BaseHTTPRequestHandler):
                 kind, query, status, project, mark, tag=tag, unowned=unowned,
                 page=page, page_size=page_size, paged=paged,
             ))
+        if path == "/api/docs/resolve":
+            return self.send_json(indexer.resolve_doc((q.get("target") or [""])[0]))
         if path == "/api/docs/draft":
             return self.send_json(store.prepare_doc((q.get("kind") or ["note"])[0], {}))
         # v260923 · 文献 PDF 附件下载：/api/docs/<id>/attachment，路径须置于 /api/docs/ 泛匹配之前
@@ -363,23 +461,45 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(literature.list_items(
                 (q.get("q") or [""])[0], (q.get("status") or [""])[0], (q.get("category") or [""])[0],
                 _q_int(q, "page", 1, 1, 1000000), _q_int(q, "page_size", 60, 10, 200),
-                (q.get("mark") or [""])[0],
+                (q.get("mark") or [""])[0], (q.get("pdf") or [""])[0],
             ))
         if path == "/api/literature/storage":  # v260929 · 设置页：PDF 存放目录概况
             return self.send_json(literature.storage_info())
+        if path.startswith("/api/literature/document/"):
+            return self.send_json(literature.item_for_document(unquote(path[len("/api/literature/document/"):])))
         if path.startswith("/api/literature/") and path.endswith("/annotations"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
             page_raw = (q.get("page") or [""])[0]
             return self.send_json(literature.get_annotations(paper_id, int(page_raw) if page_raw else None))
         if path.startswith("/api/literature/") and path.endswith("/note"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/note",1)[0])
-            return self.send_json({"content": literature.get_note(paper_id)})
+            content = literature.get_note(paper_id)
+            return self.send_json({"content": content, "revision": hashlib.sha256(content.encode("utf-8")).hexdigest()})
         if path.startswith("/api/literature/") and path.endswith("/pdf"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/pdf",1)[0])
             return self.serve_file_range(literature.pdf_path(paper_id), "application/pdf")
         if path.startswith("/api/literature/"):
             paper_id = unquote(path.split("/api/literature/",1)[1])
             return self.send_json(literature.get_item(paper_id))
+        if path == "/api/agent/system":
+            agent_runtime.recover()
+            return self.send_json({"settings": agent_runtime.settings(), "brain": agent_memory.statistics(), "skills": agent_skills.discover()})
+        if path == "/api/agent/rag":
+            return self.send_json(agent_rag.status())
+        if path == "/api/agent/skills":
+            return self.send_json(agent_skills.discover())
+        if path == "/api/agent/memories":
+            return self.send_json(agent_memory.list_memories(session_id=str((q.get("session_id") or [""])[0]), project_id=str((q.get("project_id") or [""])[0]), include_inactive=str((q.get("all") or [""])[0]) == "1"))
+        if path == "/api/agent/memory/graph":
+            return self.send_json(agent_memory.graph_data(session_id=str((q.get("session_id") or [""])[0]), project_id=str((q.get("project_id") or [""])[0])))
+        if path == "/api/agent/runs":
+            agent_runtime.recover()
+            return self.send_json([agent_runtime.public_run(r) for r in agent_memory.list_runs(str((q.get("session_id") or [""])[0]))])
+        if path.startswith("/api/agent/runs/"):
+            tail = path.split("/api/agent/runs/", 1)[1]
+            if tail.endswith("/events"):
+                return self.send_json(agent_memory.events(tail[:-len("/events")], _q_int(q, "after", 0, 0, 1000000000)))
+            return self.send_json(agent_runtime.public_run(agent_memory.get_run(tail)))
         if path == "/api/agent/sessions":
             return self.send_json(agent.list_sessions())
         if path.startswith("/api/agent/sessions/"):
@@ -391,9 +511,25 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(agent_tools.list_drafts(str((q.get("status") or ["pending"])[0])))
         return self.send_json({"error": "not_found"}, 404)
 
+    @serialized_write
     def handle_api_post(self, path, payload):
         if path == "/api/external-access":
             return self.send_json(external_access.save(payload if isinstance(payload, dict) else {}))
+        if path.startswith("/api/sync/"):
+            engine = self.sync_engine
+            actions = {
+                "/api/sync/config": lambda: engine.configure(payload),
+                "/api/sync/test": lambda: engine.test_connection(payload.get("url")),
+                "/api/sync/run": lambda: engine.launch(),
+                "/api/sync/check": lambda: engine.launch(check_only=True),
+                "/api/sync/apply": lambda: engine.apply_many(payload.get("changes")),
+                "/api/sync/preferences": lambda: engine.save_preferences(payload),
+                "/api/sync/guard": lambda: engine.guard_editor(payload.get("client"), payload.get("doc_id"), payload.get("dirty")),
+                "/api/sync/resolve": lambda: engine.resolve(payload),
+            }
+            if path in actions:
+                return self.send_json(actions[path]())
+            return self.send_json({"error": "not_found"}, 404)
         if path == "/api/config/app":
             return self.send_json(config.save_app(payload))
         if path == "/api/knowledge-marks/cleanup":
@@ -433,6 +569,7 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("name") or ""),
                 str(payload.get("description") or ""),
                 str(payload.get("status") or "进行中"),
+                display_name=str(payload.get("display_name") or ""),
             )
             return self.send_json(result)
         if path == "/api/project-records":
@@ -440,6 +577,7 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("name") or ""),
                 str(payload.get("description") or ""),
                 str(payload.get("status") or "进行中"),
+                display_name=str(payload.get("display_name") or ""),
             )
             return self.send_json(result, 201)
         if path.startswith("/api/projects/"):
@@ -510,10 +648,53 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(literature.save_annotation(paper_id, payload), 201)
         if path.startswith("/api/literature/") and path.endswith("/note"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/note",1)[0])
-            return self.send_json(literature.save_note(paper_id, str(payload.get("content") or "")))
+            return self.send_json(literature.save_note(paper_id, str(payload.get("content") or ""), payload.get("expected_revision")))
         if path.startswith("/api/literature/"):
             paper_id = unquote(path.split("/api/literature/",1)[1])
             return self.send_json(literature.update_item(paper_id, payload))
+        if path == "/api/agent/settings":
+            return self.send_json(agent_runtime.save_settings(payload))
+        if path == "/api/agent/rag/settings":
+            return self.send_json(agent_rag.save_settings(payload))
+        if path == "/api/agent/rag/test":
+            return self.send_json(agent_rag.test_connection())
+        if path == "/api/agent/rag/index":
+            return self.send_json(agent_rag.build_index(), 202)
+        if path == "/api/agent/rag/cancel":
+            return self.send_json(agent_rag.cancel_build())
+        if path == "/api/agent/rag/clear":
+            return self.send_json(agent_rag.clear_index())
+        if path == "/api/agent/rag/search":
+            return self.send_json(agent_rag.search(payload.get("query", ""), kind=payload.get("kind"), limit=payload.get("limit")))
+        if path == "/api/agent/skills/install":
+            return self.send_json(agent_skills.install(str(payload.get("name") or ""), str(payload.get("content") or ""), payload.get("files")), 201)
+        if path == "/api/agent/skills/import":
+            return self.send_json(agent_skills.install_zip(payload.get("base64")), 201)
+        if path == "/api/agent/skills/resources":
+            return self.send_json(agent_skills.diagnostics(str(payload.get("name") or "")))
+        if path == "/api/agent/skills/read":
+            return self.send_json(agent_skills.read(str(payload.get("name") or ""), str(payload.get("path") or "SKILL.md"), payload.get("offset", 0), payload.get("limit", 12000)))
+        if path == "/api/agent/mcp/refresh":
+            return self.send_json(agent_mcp.discover())
+        if path == "/api/agent/memory/remember":
+            allowed = {k: payload[k] for k in ("scope", "scope_id", "namespace", "kind", "importance", "ttl_seconds", "memory_key", "supersedes", "entities", "relations", "embedding") if k in payload}
+            return self.send_json(agent_memory.remember(str(payload.get("content") or ""), source=payload.get("source") or {"type": "user"}, **allowed), 201)
+        if path == "/api/agent/memory/recall":
+            allowed = {k: payload[k] for k in ("namespace", "session_id", "project_id", "limit", "max_chars", "query_embedding", "graph") if k in payload}
+            return self.send_json(agent_memory.recall(str(payload.get("query") or ""), **allowed))
+        if path == "/api/agent/memory/forget":
+            return self.send_json(agent_memory.forget(str(payload.get("id") or "")))
+        if path == "/api/agent/backup":
+            destination = agent_memory.root() / "Backups" / ("brain-" + time.strftime("%Y%m%d-%H%M%S") + ".sqlite")
+            agent_memory.backup(destination)
+            relative = destination.relative_to(workspace.ensure_workspace()).as_posix()
+            return self.send_json({"ok": True, "path": relative, "url": "/workspace-file/" + relative})
+        if path == "/api/agent/runs":
+            return self.send_json(agent_runtime.submit(payload), 202)
+        if path.startswith("/api/agent/runs/"):
+            tail = path.split("/api/agent/runs/", 1)[1]
+            run_id, _, action = tail.partition("/")
+            return self.send_json(agent_runtime.control(run_id, action))
         if path == "/api/agent/sessions":
             return self.send_json(agent.create_session(str(payload.get("title") or "")), 201)
         if path == "/api/agent/session/rename":
@@ -585,7 +766,10 @@ class Handler(BaseHTTPRequestHandler):
                     chunk = self.rfile.read(min(1024 * 1024, remaining))
                     if not chunk: break
                     out.write(chunk); remaining -= len(chunk)
-            item = literature.import_pdf(filename, Path(tmp_name))
+            if remaining:
+                raise ValueError("PDF 上传未完成，请重试")
+            binding = unquote(self.headers.get("X-Bind-Paper") or "")
+            item = literature.import_pdf(filename, Path(tmp_name), {"bind_paper_id": binding} if binding else None)
             return self.send_json(item, 201)
         finally:
             try: os.unlink(tmp_name)
@@ -1008,6 +1192,9 @@ def build_server(port_override: int | None = None, auto_open_browser: bool | Non
     host = str(cfg.get("host") or "127.0.0.1")
     port = int(port_override or cfg.get("port") or 8765)
     server = WorkbenchHTTPServer((host, port), Handler)
+    from app import agent_rag_updates
+    agent_rag_updates.start()
+    sync_service.get()
     url = f"http://{host}:{port}"
     print(f"Engineering Research Workbench running at {url}")
     print(f"Workspace: {workspace.ensure_workspace()}")

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import store
+from . import activity, store
 from . import perf_index_db as db
 from .perf_index_db import (
     SCHEMA_VERSION, WORKSPACE_SCHEMA_VERSION, SYNC_INTERVAL_SECONDS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE,
@@ -361,6 +361,8 @@ def _activity_path(root: Path | None = None) -> Path:
 
 def _reset_activity_conn(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM activity_daily")
+    conn.execute("DELETE FROM activity_seen")
+    conn.execute("DELETE FROM activity_legacy")
     conn.execute(
         "INSERT INTO meta(key,value) VALUES('activity_offset','0') "
         "ON CONFLICT(key) DO UPDATE SET value='0'"
@@ -393,7 +395,7 @@ def _sync_activity_conn(conn: sqlite3.Connection, force: bool = False, root: Pat
                 f.seek(-len(raw), 1)
                 break
             try:
-                item = json.loads(raw.decode("utf-8"))
+                item = json.loads(raw.decode("utf-8-sig"))
                 if not isinstance(item, dict):
                     continue
                 ts = str(item.get("timestamp") or "")
@@ -401,6 +403,17 @@ def _sync_activity_conn(conn: sqlite3.Connection, force: bool = False, root: Pat
                 day = datetime.fromisoformat(ts.replace("Z", "+00:00")).date().isoformat()
                 count = max(1, int(item.get("weight") or 1))
             except Exception:
+                continue
+            identity = item.get("id")
+            if not identity:
+                sha = activity.fingerprint(item)
+                old_count = conn.execute("SELECT count FROM activity_legacy WHERE fingerprint=?", (sha,)).fetchone()
+                occurrence = int(old_count[0]) + 1 if old_count else 1
+                conn.execute("INSERT OR REPLACE INTO activity_legacy VALUES(?,?)", (sha, occurrence))
+                identity = activity.legacy_id(sha, occurrence)
+            if not isinstance(identity, str):
+                continue
+            if not conn.execute("INSERT OR IGNORE INTO activity_seen VALUES(?)", (identity,)).rowcount:
                 continue
             conn.execute(
                 """
@@ -446,7 +459,7 @@ def _scan(root: Path, force: bool, reset: bool = False) -> None:
         pending = conn.execute("SELECT value FROM meta WHERE key='index_rebuild_required'").fetchone()
         force = force or bool(pending and pending[0] == "1")
         if reset:
-            for table in ("documents_fts", "documents", "graph_edges", "todos_index", "activity_daily"):
+            for table in ("documents_fts", "documents", "graph_edges", "todos_index", "activity_daily", "activity_seen", "activity_legacy"):
                 conn.execute(f"DELETE FROM {table}")
             conn.execute("DELETE FROM meta WHERE key IN ('activity_offset','todos_signature')")
         existing = {
@@ -615,7 +628,7 @@ def _row_doc(row: sqlite3.Row, check_attachment: bool = True) -> dict[str, Any]:
         if not att_path.is_absolute():
             att_path = _root() / att
         att_ok = att_path.suffix.lower() == ".pdf" and att_path.is_file()
-    return {
+    doc = {
         "id": row["id"], "path": row["path"], "filename": Path(row["path"]).name,
         "kind": row["kind"], "title": row["title"], "status": row["status"],
         "created": row["created"], "updated": row["updated"], "excerpt": row["excerpt"],
@@ -626,6 +639,10 @@ def _row_doc(row: sqlite3.Row, check_attachment: bool = True) -> dict[str, Any]:
         "venue": row["venue"], "doi": row["doi"], "url": row["url"], "cite_key": row["cite_key"],
         "attachment": att, "attachment_exists": att_ok,
     }
+
+    from .evidence import describe
+    doc["evidence"] = describe(doc)
+    return doc
 
 
 def _registry() -> list[dict[str, Any]]:

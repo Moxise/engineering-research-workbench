@@ -95,6 +95,7 @@ class DesktopController:
         self._tray_ready = threading.Event()
         self._window_ready = threading.Event()
         self._native_frame = None
+        self._resize_borders = None
         self._exit_event = threading.Event()
         self._exit_token: str | None = None
         self._exit_approved = False
@@ -242,18 +243,41 @@ class DesktopController:
         threading.Thread(target=self.request_close, name="desktop-close-action", daemon=True).start()
         return False
 
-    def resize_from_edge(self, edge: str) -> bool:
-        # Borderless WinForms has no native resize border. Enter Windows' size
-        # loop so DPI, minimum size and mouse capture remain native behavior.
+    def resize_from_edge(self, edge: str, *, mouse: bool = False) -> bool:
+        # The bridge runs on a worker. Release WebView's mouse capture and enter
+        # the native sizing loop on the window's owning thread.
         edges = {"w": 1, "e": 2, "n": 3, "nw": 4, "ne": 5, "s": 6, "sw": 7, "se": 8}
         if sys.platform != "win32" or edge not in edges or self.state.get("maximized"):
             return False
         from ctypes import wintypes
+        from System import Action
+        native = self.window.native
+        if native is None or native.IsDisposed:
+            return False
         user = ctypes.WinDLL("user32", use_last_error=True)
         user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-        hwnd = int(self.window.native.Handle.ToInt64())
-        user.ReleaseCapture()
-        return bool(user.PostMessageW(hwnd, 0x0112, 0xF000 | edges[edge], 0))
+        user.SendMessageW.argtypes = user.PostMessageW.argtypes
+        user.SendMessageW.restype = ctypes.c_ssize_t
+        user.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+        user.GetAsyncKeyState.argtypes = [ctypes.c_int]
+        user.GetAsyncKeyState.restype = ctypes.c_short
+        user.IsZoomed.argtypes = [wintypes.HWND]
+        def resize():
+            if native.IsDisposed:
+                return
+            hwnd = int(native.Handle.ToInt64())
+            if user.IsZoomed(hwnd) or (mouse and not user.GetAsyncKeyState(0x01) & 0x8000):
+                return  # A released click must not leave keyboard sizing active.
+            user.ReleaseCapture()
+            if mouse:
+                point = wintypes.POINT()
+                user.GetCursorPos(ctypes.byref(point))
+                position = (point.x & 0xffff) | ((point.y & 0xffff) << 16)
+                user.SendMessageW(hwnd, 0x00A1, edges[edge] + 9, position)  # WM_NCLBUTTONDOWN
+            else:
+                user.PostMessageW(hwnd, 0x0112, 0xF000 | edges[edge], 0)  # SC_SIZE
+        native.BeginInvoke(Action(resize))
+        return True
 
     def on_minimized(self):
         self.publish()
@@ -359,15 +383,19 @@ class DesktopController:
 
     def set_theme(self, theme: str) -> None:
         self.theme = "dark" if theme == "dark" else "light"
+        if self._resize_borders:
+            self._resize_borders.set_theme(self.theme)
         if self.focus_reminder:
             self.focus_reminder.set_theme(self.theme)
 
     def apply_native_appearance(self):
         if sys.platform != "win32":
             return
-        from .windows_frame import WindowsFrame
+        from .windows_frame import WindowsFrame, NativeResizeBorders
         hwnd = int(self.window.native.Handle.ToInt64())
         self._native_frame = WindowsFrame(hwnd)
+        self._resize_borders = NativeResizeBorders(self.window.native, self.resize_from_edge, self._native_frame.user)
+        self._resize_borders.set_theme(self.theme)
         try:
             from ctypes import wintypes
             dwm = ctypes.WinDLL("dwmapi")
@@ -409,7 +437,7 @@ class DesktopBridge:
         return self._controller.resolve_exit(token, approved)
 
     def desktop_resize(self, edge: str):
-        return self._controller.resize_from_edge(edge)
+        return self._controller.resize_from_edge(edge, mouse=True)
 
     def desktop_focus_state(self):
         return self._controller.focus_timer.snapshot()

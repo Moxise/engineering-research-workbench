@@ -1,5 +1,7 @@
 # Architecture
 
+Agent runtime, scoped SQLite memory, Skills, tools, migration and validation: [AGENT_SYSTEM.md](AGENT_SYSTEM.md).
+
 Current performance details and validation: [PERFORMANCE_ARCHITECTURE.md](PERFORMANCE_ARCHITECTURE.md). Markdown remains authoritative; all document-facing features use the shared `indexer` service. External file reconciliation runs in the background while read requests use SQLite snapshots.
 
 桌面标题栏复用页面标题与工具控件的 DOM，保留原有事件与偏好；浏览器版继续使用页内工具栏。`theme-dark.css` 集中提供暗色语义色板和旧模块的背景覆盖。关联 Markdown 弹窗按固定尺寸布局并限制在可用视口内，文本区域独立滚动，避免单行输入框样式压缩文本域。启动并发读取使用 8 秒超时、最多 3 次重试；HTTP 连接队列为 32，避免资源加载高峰挤占初始化请求。

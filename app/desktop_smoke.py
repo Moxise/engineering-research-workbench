@@ -108,6 +108,57 @@ def run(controller, url: str, output: Path, data_root: Path) -> None:
         user.PostMessageW(hwnd, 0x0100, 0x0D, 0)  # VK_RETURN commits sizing
         wait_until(lambda: window.width != width)
         check("borderless native edge resizing changes width", True)
+        # A keyboard size command can work while WebView still captures mouse
+        # drags. Exercise the HTML hit targets with real held-button movement.
+        user.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+        user.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
+        user.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+        user.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+        user.mouse_event.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_size_t]
+        original_cursor = wintypes.POINT()
+        user.GetCursorPos(ctypes.byref(original_cursor))
+        window.evaluate_js("window.__resizeCalls=[];window.__resizePointer=null;document.addEventListener('pointerdown',e=>window.__resizePointer={x:e.clientX,y:e.clientY,edge:e.target.dataset.desktopResize},true);const originalResize=pywebview.api.desktop_resize;pywebview.api.desktop_resize=(edge)=>{window.__resizeCalls.push(edge);return originalResize(edge)}")
+        def mouse_resize(edge, dx, dy, *, outer=False):
+            target = window.evaluate_js("(()=>{const e=document.querySelector('[data-desktop-resize=" + edge + "]'),r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return {x,y,width:innerWidth,height:innerHeight,dpr:devicePixelRatio,hit:document.elementFromPoint(x,y)?.dataset.desktopResize,zoom:document.documentElement.style.zoom,maximized:document.documentElement.dataset.windowMaximized}})()")
+            rect, origin, before = wintypes.RECT(), wintypes.POINT(), wintypes.RECT()
+            user.GetClientRect(hwnd, ctypes.byref(rect))
+            from System.Drawing import Point
+            browser_origin = window.native.webview.PointToScreen(Point(0,0))
+            origin.x, origin.y = browser_origin.X, browser_origin.Y
+            user.GetWindowRect(hwnd, ctypes.byref(before))
+            scale = target["dpr"]
+            x, y = round(origin.x + target["x"] * scale), round(origin.y + target["y"] * scale)
+            if outer:
+                inset = max(6,round(6 * scale)) if len(edge) == 2 else 2
+                x = before.left + inset if "w" in edge else before.right - 1 - inset if "e" in edge else (before.left + before.right) // 2
+                y = before.top + inset if "n" in edge else before.bottom - 1 - inset if "s" in edge else (before.top + before.bottom) // 2
+            user.SetCursorPos(x, y)
+            user.mouse_event(0x0002, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
+            try:
+                time.sleep(.2)
+                for step in range(1, 9):
+                    user.SetCursorPos(x + round(dx * step / 8), y + round(dy * step / 8))
+                    time.sleep(.025)
+            finally:
+                user.mouse_event(0x0004, 0, 0, 0, 0)
+            after = wintypes.RECT()
+            time.sleep(.15)
+            user.GetWindowRect(hwnd, ctypes.byref(after))
+            result.setdefault("resize_attempts", []).append({"edge":edge,"target":target,"position":[x,y],"before":[before.left,before.top,before.right,before.bottom],"after":[after.left,after.top,after.right,after.bottom],"events":window.evaluate_js("({calls:window.__resizeCalls,pointer:window.__resizePointer})")})
+            check("mouse drag resizes " + ("outer " if outer else "") + edge + " edge", (not dx or abs((after.right-after.left)-(before.right-before.left)) >= 15) and (not dy or abs((after.bottom-after.top)-(before.bottom-before.top)) >= 15))
+        try:
+            for edge, dx, dy in [("e",40,0),("w",40,0),("n",0,30),("s",0,30),
+                                  ("ne",30,20),("nw",30,-20),("se",30,20),("sw",30,-20)]:
+                mouse_resize(edge, dx, dy)
+            for edge, dx, dy in [("e",30,0),("w",30,0),("n",0,20),("s",0,20),
+                                  ("ne",20,20),("nw",20,-20),("se",20,20),("sw",20,-20)]:
+                mouse_resize(edge, dx, dy, outer=True)
+            window.evaluate_js("document.querySelector('#zoom-btn').click();document.querySelector('[data-zoom=\"125\"]').click()")
+            mouse_resize("e",30,0)
+            mouse_resize("s",0,20)
+            window.evaluate_js("document.querySelector('#zoom-btn').click();document.querySelector('[data-zoom=\"100\"]').click()")
+        finally:
+            user.SetCursorPos(original_cursor.x, original_cursor.y)
         # Shorten only the test deadline; exercise a real persistent native reminder.
         reminder = controller.focus_reminder
         window.evaluate_js("document.querySelector('[data-route=focus]').click()")

@@ -49,9 +49,10 @@ def _build_registry() -> list[Migration]:
     from . import m0001_documents_attachment as m1
     from . import m0002_document_links_role as m2
     from . import m0003_todos_completed_at as m3
+    from . import m0004_activity_seen as m4
 
     out: list[Migration] = []
-    for mod in (m1, m2, m3):
+    for mod in (m1, m2, m3, m4):
         out.append(Migration(
             id=mod.ID, title=mod.TITLE,
             from_version=mod.FROM_VERSION, to_version=mod.TO_VERSION,
@@ -73,4 +74,5 @@ KNOWN_VERSIONS: dict[int, str] = {
     2: "v260923 · documents 增加 attachment",
     3: "v261008.2 · document_links 增加 role（类型化关系）",
     4: "v261019 · todos_index 增加 completed_at（完成时间限制）",
+    5: "v261022 · 新增 activity_seen（同步按活动 id 去重）",
 }

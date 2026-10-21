@@ -16,9 +16,148 @@ sys.path.insert(0, str(ROOT))
 
 from app import config, indexer, store, workspace, agent_tools, literature
 from app import perf_index_core as core, perf_index_db as db
+from app import activity
 
 
 class IndexArchitectureTests(unittest.TestCase):
+    def test_unified_literature_preserves_missing_pdf_records_and_binds_in_place(self):
+        document = indexer.create_doc("literature", {"title": "原始文献", "body": "# 原笔记\n\n真实内容与引用 [[Alpha]]", "authors": "原作者", "projects": ["研究项目"]})
+        paper = literature.item_for_document(document["id"])
+        self.assertFalse(paper["pdf_available"])
+        self.assertEqual(literature.list_items(pdf="missing")["total"], 1)
+        source = self.root / "test.pdf"
+        source.write_bytes(b"%PDF-1.4\n% disposable import fixture\n")
+        linked = literature.import_pdf("原论文.pdf", source, {"bind_paper_id": paper["id"]})
+        self.assertEqual(linked["id"], paper["id"])
+        self.assertEqual(linked["doc_id"], document["id"])
+        self.assertTrue(linked["pdf_available"])
+        self.assertEqual(literature.get_note(linked["id"]).strip(), document["body"].strip())
+        self.assertEqual(literature.list_items()["total"], 1)
+        self.assertEqual(literature.list_items(pdf="available")["total"], 1)
+        self.assertEqual(literature.list_items(pdf="missing")["total"], 0)
+        literature.update_item(linked["id"], {"authors": "修改后的作者", "projects": [], "favorite": True, "reading_status": "已读", "url": "https://example.invalid/source", "added_date": "2026-10-21"})
+        saved = indexer.get_doc(document["id"])
+        self.assertEqual(saved["authors"], "修改后的作者")
+        self.assertEqual(saved["projects"], [])
+        self.assertEqual(saved["status"], "已精读")
+        self.assertTrue(saved["pinned"])
+        self.assertEqual(literature.item_for_document(document["id"])["id"], paper["id"])
+        before = set(literature._pdf_dir().iterdir())
+        with self.assertRaises(ValueError):
+            literature.import_pdf("duplicate.pdf", source, {"bind_paper_id": paper["id"]})
+        self.assertEqual(set(literature._pdf_dir().iterdir()), before)
+
+    def test_literature_note_revision_rejects_overwrite_without_losing_draft(self):
+        import hashlib
+        document = indexer.create_doc("literature", {"title": "笔记并发测试", "body": "原笔记"})
+        paper = literature.item_for_document(document["id"])
+        original = literature.get_note(paper["id"])
+        revision = hashlib.sha256(original.encode()).hexdigest()
+        first = literature.save_note(paper["id"], "新笔记", revision)
+        with self.assertRaises(ValueError):
+            literature.save_note(paper["id"], "旧客户端的草稿", revision)
+        self.assertEqual(literature.get_note(paper["id"]).strip(), "新笔记")
+        literature.save_note(paper["id"], "再更新", first["revision"])
+        self.assertEqual(literature.get_note(paper["id"]).strip(), "再更新")
+
+    def test_literature_note_replacement_preserves_legacy_bibtex_metadata(self):
+        bib = '@article{original, title={Original source}}'
+        document = indexer.create_doc("literature", {"title": "原始文献", "body": f"# 阅读笔记\n\n```bibtex\n{bib}\n```\n\n原文摘记"})
+        path = self.root / document["path"]
+        meta, body = store._frontmatter_parse(path.read_text(encoding="utf-8"))
+        meta.pop("bibtex", None)
+        path.write_text(store._frontmatter_dump(meta) + body, encoding="utf-8")
+        paper = literature.item_for_document(document["id"])
+        literature.save_note(paper["id"], "# AI 整理后的新笔记")
+        self.assertEqual(literature.get_item(paper["id"])["bibtex"], bib)
+        self.assertEqual(literature.get_note(paper["id"]).strip(), "# AI 整理后的新笔记")
+        literature.update_item(paper["id"], {"bibtex": "@article{updated}"})
+        self.assertEqual(literature.get_note(paper["id"]).strip(), "# AI 整理后的新笔记")
+        self.assertEqual(literature.get_item(paper["id"])["bibtex"], "@article{updated}")
+
+    def test_milestone_schedule_roundtrip_validation_and_clear(self):
+        from app import milestones
+        doc = indexer.create_doc("milestone", {"title": "跨月实验阶段", "projects": ["测试项目"], "body": "验收条件保持不变", "start_date": "2026-10-25", "due": "2026-11-20", "progress": 37.5})
+        self.assertEqual(doc["progress"], 37.5)
+        path = self.root / doc["path"]
+        original = path.read_bytes()
+        for payload in ({"due": "2026-10-01"}, {"start_date": "2026-02-30"}, {"progress": -1}, {"progress": 101}, {"progress": float("nan")}, {"progress": True}):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                indexer.update_doc(doc["id"], payload)
+            self.assertEqual(path.read_bytes(), original, "invalid plans must not overwrite Markdown")
+        indexer.update_doc(doc["id"], {"title": "修改标题"})
+        self.assertEqual(indexer.get_doc(doc["id"])["progress"], 37.5)
+        cleared = indexer.update_doc(doc["id"], {"start_date": "", "progress": None})
+        self.assertEqual(cleared["start_date"], "")
+        self.assertIsNone(cleared["progress"])
+        self.assertEqual(cleared["body"].strip(), "验收条件保持不变")
+        planned = milestones.plan()["items"][0]
+        self.assertIsNone(planned["progress"])
+        self.assertNotIn("body", planned)
+        indexer.update_doc(doc["id"], {"due": ""})
+        self.assertEqual(milestones.plan()["items"][0]["due"], "")
+
+    def test_milestone_plan_includes_all_pages_and_legacy_points(self):
+        from app import milestones
+        directory = self.root / "Knowledge/Milestones"
+        for number in range(205):
+            meta = {"id": f"plan-{number}", "kind": "milestone", "title": f"测试节点 {number}", "due": "2026-11-01", "status": "计划", "projects": ["合成评测项目"]}
+            (directory / f"plan-{number}.md").write_text(store._frontmatter_dump(meta) + "# 测试\n", encoding="utf-8")
+        indexer.sync(immediate=True)
+        self.assertEqual(len(indexer.list_docs("milestone", page_size=200)), 200)
+        plan = milestones.plan()
+        self.assertEqual(plan["total"], 205)
+        self.assertEqual(plan["unavailable"], 0)
+        self.assertEqual(len({d["id"] for d in plan["items"]}), 205)
+        self.assertTrue(all(d["start_date"] == "" and d["progress"] is None for d in plan["items"]))
+        indexer.delete_doc("plan-204")
+        self.assertEqual(milestones.plan()["total"], 204)
+
+    def test_retrieval_prioritizes_exact_source_over_newer_project_matches(self):
+        title = "物理信息引导思维树搜索的大模型负荷转供方法"
+        source = indexer.create_doc("literature", {"title": "文献-" + title, "body": "世界模型使用确定性物理求解器更新状态。", "projects": [title]})
+        indexer.update_doc(source["id"], {"updated": "2000-01-01"})
+        for i in range(12):
+            indexer.create_doc("literature", {"title": f"文献-同项目其他资料{i}", "body": "其他研究内容", "projects": [title]})
+        result = indexer.retrieve_docs(title, kind="literature", limit=8)
+        self.assertEqual(result["total"], 13)
+        self.assertEqual(result["items"][0]["id"], source["id"])
+        self.assertEqual(indexer.resolve_doc("[[文献-" + title + "|组会原文]]")["id"], source["id"])
+        self.assertEqual(indexer.resolve_doc(title)["id"], source["id"])
+        self.assertEqual(indexer.resolve_doc(source["id"])["id"], source["id"])
+        self.assertEqual(indexer.retrieve_docs(source["id"])["items"][0]["id"], source["id"])
+        self.assertEqual(agent_tools.execute("kb_read", {"title": "文献-" + title})["id"], source["id"])
+        with self.assertRaises(FileNotFoundError):
+            indexer.resolve_doc("不存在的引用")
+
+    def test_retrieval_splits_concepts_and_prefers_content_over_project_only(self):
+        self.doc("项目导航", projects=["世界模型 world model"])
+        wanted = self.doc("世界模型", body="world model 用于规划；确定性求解器负责状态计算。")
+        result = indexer.retrieve_docs("世界模型 world model", limit=8)
+        self.assertEqual(result["items"][0]["id"], wanted["id"])
+        self.assertIn("world", result["terms"])
+        self.assertEqual(indexer.retrieve_docs("职责 求解器")["items"][0]["id"], wanted["id"])
+        self.assertTrue(indexer.retrieve_docs("\"world\" OR 'model' OR")['items'])
+
+    def test_activity_index_deduplicates_imports_and_preserves_legacy_multiplicity(self):
+        path = self.root / 'System/activity.jsonl'
+        event = {'timestamp':'2026-10-01T09:00:00', 'type':'doc_update', 'ref':'old', 'weight':3}
+        line = json.dumps(event) + '\n'
+        path.write_text(line * 2, encoding='utf-8')
+        indexer.sync(immediate=True)
+        legacy = activity.list_events(root=self.root)
+        activity.record('doc_create', timestamp='2026-10-02T09:00:00', weight=2, root=self.root)
+        imported = activity.list_events(root=self.root)[-1]
+        with path.open('a', encoding='utf-8') as target:
+            for item in [*legacy, imported, imported]:
+                target.write(json.dumps(item) + '\n')
+        indexer.sync(immediate=True)
+        with db._connect() as conn:
+            self.assertEqual(conn.execute('SELECT SUM(count) FROM activity_daily').fetchone()[0], 8)
+        indexer.sync(force=True)
+        with db._connect() as conn:
+            self.assertEqual(conn.execute('SELECT SUM(count) FROM activity_daily').fetchone()[0], 8)
+
     def test_unmodified_draft_creates_no_files_activity_or_index_rows(self):
         before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
         with patch.object(store.activity, 'record') as record:
@@ -190,7 +329,9 @@ class IndexArchitectureTests(unittest.TestCase):
         result = agent_tools._t_kb_create_entry({"kind": "note", "title": "知识-方法-稀疏重构", "body": "agentunique"}, {"write_mode": "direct"})
         self.assertTrue(result["ok"], result)
         self.assertEqual(indexer.search_docs("agentunique")[0]["id"], result["doc_id"])
-        agent_tools._t_kb_update_entry({"doc_id": result["doc_id"], "body": "agentupdated"}, {"write_mode": "direct"})
+        read = agent_tools._t_kb_read({"doc_id": result["doc_id"]}, {})
+        update = agent_tools._t_kb_update_entry({"doc_id": result["doc_id"], "body": "agentupdated", "expected_version": read["version"]}, {"write_mode": "direct"})
+        self.assertTrue(update["ok"], update)
         self.assertTrue(indexer.search_docs("agentupdated"))
 
     def test_literature_batch_uses_index_metadata_without_reading_bodies(self):
@@ -281,6 +422,19 @@ class IndexArchitectureTests(unittest.TestCase):
         updated = indexer.update_doc(doc["id"], {"project_id": first["id"]})
         self.assertEqual(updated["projects"], ["First"])
         self.assertIn((doc["id"], "project:" + first["id"], "project"), self.edges())
+
+    def test_paper_title_project_keeps_full_name_and_single_association(self):
+        from app import projects
+        name = "Two-stage fine-tuning of large language models for distribution network service restoration via CoT reasoning"
+        project = projects.create_project(name)
+        doc = self.doc(projects=[name])
+        projects.ensure_registry()
+        self.assertEqual(project["name"], name)
+        self.assertEqual(indexer.get_doc(doc["id"])["projects"], [name])
+        self.assertEqual(indexer.get_doc(doc["id"])["project_ids"], [project["id"]])
+        self.assertEqual([p["name"] for p in indexer.project_records()], [name])
+        self.assertTrue((self.root / "Projects" / name).is_dir())
+        self.assertFalse((self.root / "Projects" / name[:100]).exists())
 
     def test_file_is_reconciled_after_failed_index_write(self):
         doc = self.doc(body="beforefailure")

@@ -256,6 +256,9 @@ def _initialize_schema(conn: sqlite3.Connection) -> bool:
             count INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(date, type)
         );
+        -- v261022.0 · 上游同步引擎：按活动 id 去重（合并两端历史时不重复累计）+ 旧日志指纹计数
+        CREATE TABLE IF NOT EXISTS activity_seen (id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS activity_legacy (fingerprint TEXT PRIMARY KEY, count INTEGER NOT NULL);
         """
     )
 

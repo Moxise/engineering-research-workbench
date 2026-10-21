@@ -70,6 +70,8 @@
       const reload=document.querySelector('.reload-wrap');
       const slot=document.getElementById('desktop-reload-slot');
       if(reload&&reload.parentElement!==slot)slot.append(reload);
+      const sync=document.querySelector('.sync-wrap'),syncSlot=document.getElementById('desktop-sync-slot');
+      if(sync&&syncSlot&&sync.parentElement!==syncSlot)syncSlot.append(sync);
     };
     mountTools();
     window.ERWDom.onChildList(mountTools,{root:topbar});
@@ -79,9 +81,10 @@
       const handle = document.createElement('div');
       handle.dataset.desktopResize = edge;
       handle.setAttribute('aria-hidden', 'true');
-      handle.onmousedown = event => {
-        if (event.button !== 0) return;
+      handle.onpointerdown = event => {
+        if (event.button !== 0 || nativeState.maximized) return;
         event.preventDefault();
+        event.stopPropagation();
         call('desktop_resize', edge);
       };
       borders.append(handle);

@@ -311,6 +311,10 @@ button.fab-rel-cap:hover .fab-rel-chev{color:var(--accent)}
 .fab-body pre{max-width:100%}
 .fab-body img{max-width:100%;height:auto}
 .fab-body a{overflow-wrap:anywhere}
+.agent-response-part{margin:12px 0 16px;min-width:0}
+.agent-response-label{font-size:12px;color:var(--muted);margin:8px 0 6px}
+.agent-response-part .fab-body{max-width:100%;overflow-wrap:anywhere}
+.agent-live-note{margin-top:10px}
 .fab-context{min-width:0}
 .fab-context .ctx-chip{min-width:0}
 .fab-context .ctx-chip b{max-width:min(250px,52vw)}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import re
 from datetime import date, timedelta
 from typing import Any
 
@@ -108,7 +109,84 @@ def get_doc(doc_id: str) -> dict[str, Any]:
     if not path.exists():
         remove_doc(doc_id)
         raise FileNotFoundError(doc_id)
-    return store.doc_from_path(str(row["kind"]), path, include_body=True)
+    doc = store.doc_from_path(str(row["kind"]), path, include_body=True)
+    from .evidence import describe
+    doc["evidence"] = describe(doc)
+    return doc
+
+
+def resolve_doc(target: str) -> dict[str, Any]:
+    """Resolve a citation by ID or exact title, independently of list pagination."""
+    target = str(target or "").strip().removeprefix("[[").removesuffix("]]")
+    target = target.split("|", 1)[0].split("#", 1)[0].strip()
+    if not target or len(target) > 1000:
+        raise ValueError("引用须为有效的条目 ID 或标题")
+    ensure_ready()
+    with _connect() as conn:
+        rows = conn.execute("SELECT id FROM documents WHERE id=? OR title=? COLLATE NOCASE", (target, target)).fetchall()
+        if not rows:
+            rows = conn.execute("SELECT id FROM documents WHERE title=? COLLATE NOCASE", ("文献-" + target,)).fetchall()
+    if not rows:
+        raise FileNotFoundError("未找到对应条目：" + target)
+    if len(rows) > 1:
+        raise ValueError("存在同名条目，请使用条目 ID 引用")
+    return get_doc(rows[0]["id"])
+
+
+def retrieval_terms(query: str) -> list[str]:
+    # Spaces separate concepts, rather than making one impossible FTS phrase.
+    raw = re.findall(r"[a-zA-Z0-9_]+(?:[-.][a-zA-Z0-9_]+)*|[\u3400-\u9fff]+", query)
+    terms = []
+    for token in raw:
+        parts = re.split(r"(?:如何|为什么|是什么|怎样|以及|是否|和|与|的)", token) if re.search(r"[\u3400-\u9fff]", token) else [token]
+        terms.extend(part for part in parts if len(part) >= 2 and part not in {"什么", "哪些", "一个", "这个"})
+    return list(dict.fromkeys(t.casefold() for t in terms))[:24]
+
+
+def retrieve_docs(query: str, kind: str | None = None, limit: int = 8) -> dict[str, Any]:
+    """Rank research evidence; ordinary document lists retain their sort order."""
+    ensure_ready()
+    query = str(query or "").strip()
+    limit = max(1, min(int(limit), 200))
+    terms = retrieval_terms(query)
+    if not query:
+        return {"items": [], "total": 0, "terms": terms}
+    with _connect() as conn:
+        direct = conn.execute("SELECT * FROM documents WHERE id=?" + (" AND kind=?" if kind else ""), [query, kind] if kind else [query]).fetchone()
+        if direct:
+            return {"items": [_row_doc(direct)], "total": 1, "terms": terms}
+        tokenizer = db._SCHEMA_READY.get(str(db._db_path()), db._FTS_TOKENIZER)
+        phrase = lambda text: '"' + text.replace('"', '""') + '"'
+        parts = list(dict.fromkeys([query.casefold(), *terms]))
+        params = []
+        kind_clause = " AND d.kind=?" if kind else ""
+        rank_params = []
+        if tokenizer == "trigram" and all(len(p) >= 3 for p in parts):
+            match = " OR ".join(phrase(p) for p in parts)
+            source = "documents_fts f JOIN documents d ON d.id=f.doc_id"
+            where = "documents_fts MATCH ?" + kind_clause
+            params = [match] + ([kind] if kind else [])
+            rank = "bm25(documents_fts,0,12,1,3,0.02)"
+        else:
+            source = "documents_fts f JOIN documents d ON d.id=f.doc_id"
+            clauses = []
+            for part in parts:
+                like = "%" + part.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+                clauses.append("(lower(f.title) LIKE ? ESCAPE '\\' OR lower(f.body) LIKE ? ESCAPE '\\' OR lower(f.tags) LIKE ? ESCAPE '\\' OR lower(f.projects) LIKE ? ESCAPE '\\')")
+                params.extend([like] * 4)
+            where = "(" + " OR ".join(clauses) + ")" + kind_clause
+            params += [kind] if kind else []
+            weights = []
+            for part in parts:
+                weights.append("CASE WHEN instr(lower(f.title),?)>0 THEN 12 ELSE 0 END + CASE WHEN instr(lower(f.body),?)>0 THEN 1 ELSE 0 END + CASE WHEN instr(lower(f.tags),?)>0 THEN 3 ELSE 0 END")
+                rank_params.extend([part] * 3)
+            rank = "-(" + " + ".join(weights) + ")"
+        # Exact title wins even if hundreds of papers carry that project name.
+        exact = "CASE WHEN lower(d.title)=? OR lower(d.title)=? OR d.id=? THEN 0 ELSE 1 END"
+        exact_params = [query.casefold(), "文献-" + query.casefold(), query]
+        total = conn.execute(f"SELECT COUNT(*) FROM {source} WHERE {where}", params).fetchone()[0]
+        rows = conn.execute(f"SELECT d.*, {rank} AS retrieval_score FROM {source} WHERE {where} ORDER BY {exact}, retrieval_score, d.id LIMIT ?", [*rank_params, *params, *exact_params, limit]).fetchall()
+    return {"items": [_row_doc(r) for r in rows], "total": total, "terms": terms}
 
 
 def search_docs(query: str, limit: int = 60) -> list[dict[str, Any]]:

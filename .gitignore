@@ -33,6 +33,8 @@
 !app/**/*.py
 !core/**/*.py
 !/core_api.py
+!app/skills/**/*.md
+!app/skills/**/agents/openai.yaml
 !tools/**/*.py
 # 常驻测试（v261009.36 起：原 .scratch/tmp 里的深度夹具，7 天会被清掉，必须入库）
 !tests/**/*.py
@@ -48,9 +50,11 @@
 !web/**/*.html
 !web/**/*.css
 !web/**/*.json
+!web/vendor/pdfjs-LICENSE.txt
 !web/favicon.png
 !web/workbench-mark.svg
 !tools/ui_usability_check.js
+!tools/agent_system_ui_check.js
 
 
 # ==========================================================

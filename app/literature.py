@@ -95,14 +95,26 @@ def _safe_name(name: str) -> str:
     stem = re.sub(r"[^\w\-. ()\[\]]+", "_", Path(base).stem, flags=re.UNICODE).strip(" ._")[:120] or "paper"
     return stem + ".pdf"
 
-def list_items(query: str = "", status: str = "", category: str = "", page: int = 1, page_size: int = 60, mark: str = "") -> dict[str, Any]:
-    rows = list(_load_registry().get("items") or [])
+def _document_item(doc: dict[str, Any]) -> dict[str, Any]:
+    item = {"id": "entry-" + doc["id"], "doc_id": doc["id"], "filename": "", "stored_filename": "", "last_page": 1,
+            "page_count": 0, "created_at": doc.get("created", ""), "updated_at": doc.get("updated", ""), "legacy": True}
+    _apply_doc_meta(item, doc)
+    return item
+
+
+def list_items(query: str = "", status: str = "", category: str = "", page: int = 1, page_size: int = 60, mark: str = "", pdf: str = "") -> dict[str, Any]:
+    from . import indexer, store
+    rows = [dict(item) for item in (_load_registry().get("items") or [])]
     _join_doc_meta_batch(rows)  # v260929 · 批量归一 md 真值后再过滤/排序，保证检索与展示口径一致
+    linked = {item.get("doc_id") for item in rows}
+    rows.extend(_document_item(doc) for doc in indexer.document_metadata() if doc["kind"] == "literature" and doc["id"] not in linked)
+    for item in rows:
+        item["pdf_available"] = _item_pdf_path(item).is_file() if item.get("stored_filename") else bool(store.resolve_attachment(item))
     q = str(query or "").strip().lower()
     if q:
         rows = [x for x in rows if q in " ".join([
             str(x.get("title") or ""), str(x.get("authors") or ""), str(x.get("venue") or ""),
-            " ".join(x.get("tags") or []), " ".join(x.get("categories") or [])
+            " ".join(x.get("tags") or []), " ".join(x.get("categories") or []), " ".join(x.get("projects") or [])
         ]).lower()]
     if status:
         rows = [x for x in rows if x.get("reading_status") == status]
@@ -110,13 +122,15 @@ def list_items(query: str = "", status: str = "", category: str = "", page: int 
         rows = [x for x in rows if category in (x.get("categories") or [])]
     if mark:  # v260929 · 分类标记筛选（与文献列表页口径一致：分类即 kind_marks）
         rows = [x for x in rows if mark in (x.get("kind_marks") or [])]
-    rows.sort(key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True)
+    if pdf in ("available", "missing"):
+        rows = [item for item in rows if item["pdf_available"] == (pdf == "available")]
+    rows.sort(key=lambda x: (bool(x.get("pinned")), bool(x.get("pdf_available")), str(x.get("updated_at") or x.get("created_at") or "")), reverse=True)
     total = len(rows)
     page = max(1, int(page)); page_size = max(10, min(200, int(page_size)))
     start = (page - 1) * page_size
     return {"items": rows[start:start+page_size], "total": total, "page": page, "page_size": page_size}
 
-_DOC_META_KEYS = ("title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex")
+_DOC_META_KEYS = ("title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex", "attachment", "status", "added_date", "pinned")
 
 def _apply_doc_meta(item: dict[str, Any], doc: dict[str, Any]) -> None:
     """v261009 · 用 md doc 的元数据覆盖 library 字段。
@@ -134,6 +148,10 @@ def _apply_doc_meta(item: dict[str, Any], doc: dict[str, Any]) -> None:
             item[key] = list(value) if isinstance(value, list) else []
     if "excerpt" in doc:  # 摘要仅供列表展示（与文献列表页同源同款），不回写
         item["excerpt"] = str(doc.get("excerpt") or "")
+    if "status" in doc:
+        item["reading_status"] = {"已精读": "已读", "已归档": "已读", "阅读中": "在读", "待阅读": "未读"}.get(doc["status"], item.get("reading_status", "未读"))
+    if "pinned" in doc:
+        item["favorite"] = bool(doc["pinned"] or item.get("favorite"))
 
 
 def _join_doc_meta_batch(rows: list[dict[str, Any]]) -> None:
@@ -170,14 +188,41 @@ def _join_doc_meta(item: dict[str, Any]) -> dict[str, Any]:
 def get_item(paper_id: str) -> dict[str, Any]:
     for item in _load_registry().get("items") or []:
         if item.get("id") == paper_id:
-            return _join_doc_meta(dict(item))
+            result = _join_doc_meta(dict(item))
+            result["pdf_available"] = _item_pdf_path(result).is_file()
+            return result
+    if paper_id.startswith("entry-"):
+        from . import indexer, store
+        doc = indexer.get_doc(paper_id[len("entry-"):])
+        if doc["kind"] != "literature":
+            raise FileNotFoundError(paper_id)
+        result = _document_item(doc)
+        result["pdf_available"] = bool(store.resolve_attachment(doc))
+        return result
     raise FileNotFoundError(paper_id)
 
-_MD_SYNC_KEYS = {"title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex", "tags", "projects", "kind_marks"}  # v260929 · 分类标记同样以 md 为真值
+
+def item_for_document(doc_id: str) -> dict[str, Any]:
+    for item in _load_registry().get("items") or []:
+        if item.get("doc_id") == doc_id:
+            return get_item(item["id"])
+    return get_item("entry-" + doc_id)
+
+_MD_SYNC_KEYS = {"title", "authors", "year", "venue", "doi", "url", "cite_key", "bibtex", "tags", "projects", "kind_marks", "status", "added_date", "pinned"}
 
 def update_item(paper_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+    patch = dict(patch)
+    if "reading_status" in patch:
+        patch["status"] = {"未读": "待阅读", "在读": "阅读中", "已读": "已精读"}.get(patch["reading_status"], "待阅读")
+    if "favorite" in patch:
+        patch["pinned"] = bool(patch["favorite"])
     data = _load_registry()
-    allowed = {"title","authors","year","venue","doi","url","cite_key","bibtex","reading_status","categories","tags","projects","favorite","last_page","page_count","kind_marks"}
+    allowed = {"title","authors","year","venue","doi","url","cite_key","bibtex","reading_status","categories","tags","projects","favorite","last_page","page_count","kind_marks","status","added_date","pinned"}
+    if paper_id.startswith("entry-") and not any(item.get("id") == paper_id for item in data["items"]):
+        from . import indexer
+        item = get_item(paper_id)
+        indexer.update_doc(item["doc_id"], {key: value for key, value in patch.items() if key in _MD_SYNC_KEYS})
+        return get_item(paper_id)
     for item in data.get("items") or []:
         if item.get("id") != paper_id:
             continue
@@ -201,7 +246,10 @@ def update_item(paper_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         doc_id = str(item.get("doc_id") or "")
         if doc_id and md_patch:
             from . import indexer
-            indexer.update_doc(doc_id, md_patch)
+            current = indexer.get_doc(doc_id)
+            md_patch = {key: value for key, value in md_patch.items() if current.get(key) != value}
+            if md_patch:
+                indexer.update_doc(doc_id, md_patch)
 
         for key, value in normalized.items():
             item[key] = value
@@ -214,6 +262,9 @@ def update_item(paper_id: str, patch: dict[str, Any]) -> dict[str, Any]:
 def delete_item(paper_id: str) -> dict[str, Any]:
     data = _load_registry()
     item = next((x for x in data.get("items") or [] if x.get("id") == paper_id), None)
+    if not item and paper_id.startswith("entry-"):
+        from . import indexer
+        return indexer.delete_doc(get_item(paper_id)["doc_id"])
     if not item: raise FileNotFoundError(paper_id)
     doc_id = str(item.get("doc_id") or "")  # v260929 · 删除前留存关联，供联动清理 md 条目
     pdf = (_pdf_dir() / str(item.get("stored_filename") or "")).resolve()
@@ -234,7 +285,13 @@ def delete_item(paper_id: str) -> dict[str, Any]:
 
 def import_pdf(filename: str, source_path: Path, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     metadata = metadata or {}
-    paper_id = uuid.uuid4().hex
+    binding = get_item(str(metadata["bind_paper_id"])) if metadata.get("bind_paper_id") else None
+    if binding and binding.get("pdf_available"):
+        raise ValueError("该文献已有 PDF，请先选择待补充 PDF 的文献")
+    paper_id = str(binding["id"]) if binding else uuid.uuid4().hex
+    with source_path.open("rb") as source:
+        if source.read(5) != b"%PDF-":
+            raise ValueError("仅支持有效 PDF 文件")
     name = _safe_name(filename)
     dest = _pdf_dir() / f"{paper_id}-{name}"
     h = hashlib.sha256()
@@ -258,9 +315,14 @@ def import_pdf(filename: str, source_path: Path, metadata: dict[str, Any] | None
         "sha256": h.hexdigest(), "last_page": 1, "page_count": 0,
         "created_at": now, "updated_at": now,
     }
-    data = _load_registry(); data["items"].append(item); _save_registry(data)
-    _ensure_doc_entry(item)  # v260929 · 数据互认：上传即同步创建 literature md 条目（真值载体，正文即文献笔记）
-    return item
+    if binding:
+        from . import indexer
+        item.update({key: value for key, value in binding.items() if key not in {"filename", "stored_filename", "size", "sha256", "legacy", "pdf_available"}})
+        item.update(last_page=1, page_count=0, updated_at=now)
+        indexer.update_doc(item["doc_id"], {"attachment": _attachment_rel(dest)})
+    data = _load_registry();data["items"] = [row for row in data["items"] if row.get("id") != paper_id];data["items"].append(item); _save_registry(data)
+    _ensure_doc_entry(item)
+    return get_item(paper_id)
 
 
 def _ensure_doc_entry(item: dict[str, Any]) -> str:
@@ -285,6 +347,7 @@ def _ensure_doc_entry(item: dict[str, Any]) -> str:
             "url": item.get("url") or "",
             "cite_key": item.get("cite_key") or "",
             "attachment": _attachment_rel(_pdf_dir() / item["stored_filename"]),
+            "body": "# " + str(item.get("title") or "阅读笔记") + "\n\n## 阅读笔记\n\n",
         }
 
         legacy_note = note_path(str(item.get("id") or ""))
@@ -647,12 +710,22 @@ def lookup_metadata(identifier: str) -> dict[str, Any]:
         }
     raise ValueError("无法识别：请输入 DOI（10.… 开头）或 arXiv 编号（如 2401.02345）")
 
-def pdf_path(paper_id: str) -> Path:
-    item = get_item(paper_id)
+def _item_pdf_path(item: dict[str, Any]) -> Path:
+    from . import store
     root = _pdf_dir().resolve()
-    p = (root / str(item.get("stored_filename") or "")).resolve()
-    if root not in p.parents: raise ValueError("Invalid PDF path")
-    return p
+    name = str(item.get("stored_filename") or "")
+    if name:
+        p = (root / name).resolve()
+        if root not in p.parents:
+            raise ValueError("Invalid PDF path")
+        if p.is_file():
+            return p
+    attachment = store.resolve_attachment(item)
+    return attachment if attachment else root / (name or "__missing_pdf__")
+
+
+def pdf_path(paper_id: str) -> Path:
+    return _item_pdf_path(get_item(paper_id))
 
 def annotation_path(paper_id: str) -> Path:
     return _root() / "Annotations" / f"{paper_id}.json"
@@ -781,8 +854,13 @@ def get_note(paper_id: str) -> str:
     from . import indexer
     return str(indexer.get_doc(_note_doc_id(paper_id)).get("body") or "")
 
-def save_note(paper_id: str, content: str) -> dict[str, Any]:
+def save_note(paper_id: str, content: str, expected_revision: str | None = None) -> dict[str, Any]:
     from . import indexer
     doc_id = _note_doc_id(paper_id)
+    if expected_revision is not None:
+        current = str(indexer.get_doc(doc_id).get("body") or "")
+        if hashlib.sha256(current.encode("utf-8")).hexdigest() != expected_revision:
+            raise ValueError("笔记已在其他位置更新，当前输入已保留，请重新载入后合并")
     indexer.update_doc(doc_id, {"body": str(content or "")})  # 经 indexer 写回 md 并刷新索引，文献编辑器读取同一份正文
-    return {"ok": True, "doc_id": doc_id}
+    saved = str(indexer.get_doc(doc_id).get("body") or "")
+    return {"ok": True, "doc_id": doc_id, "revision": hashlib.sha256(saved.encode("utf-8")).hexdigest()}
