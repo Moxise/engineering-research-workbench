@@ -1941,7 +1941,7 @@ html[data-sidebar-mode="compact"] .brand h1{
   line-height:1.1!important;
 }
 html[data-sidebar-mode="compact"] .brand p{display:none!important}
-html[data-sidebar-mode="compact"] .sidebar-nav{padding:7px 4px 54px!important}
+html[data-sidebar-mode="compact"] .sidebar-nav{padding:7px 4px 12px!important}
 html[data-sidebar-mode="compact"] .nav-group{margin-bottom:5px!important}
 html[data-sidebar-mode="compact"] .nav-group-head{
   height:26px!important;
