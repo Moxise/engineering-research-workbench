@@ -2054,6 +2054,8 @@
       $$('[data-set-tab]').forEach(x=>x.classList.toggle('active',x===b));
       const tab=window.ERWPanels.settingsTabs().find(t=>t.id===b.dataset.setTab);
       const p=$('#settings-panel');
+      /* v261021.2 · 设置内容改为面板内部滚动：切 tab 时回到顶部，避免停在上一页的滚动位置 */
+      p.scrollTop=0;
       /* v261009.22 · 插件自登记的设置 tab 也带 data-plugin=<id>（与导航页、槽位一致）；内核 tab 清掉 */
       if(tab){p.innerHTML='';p.dataset.plugin=tab.id;try{tab.render(p)}catch(e){p.innerHTML=`<div class="rss-alert danger"><strong>该设置页渲染失败</strong><span>${esc(e.message)}</span></div>`}}
       else {delete p.dataset.plugin; renderSettingsTab(b.dataset.setTab,cfg);}

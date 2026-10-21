@@ -1,5 +1,12 @@
 # Changelog
 
+## v261021.2 · 设置页滚动：外壳固定，只滚内容区
+
+- 设置页（含插件自登记的设置 tab）从**整页滚动**改为**内容区内部滚动**：滚动时顶栏、侧栏、左栏标签零位移，滚动条只出现在右栏卡片内。此前是 body 滚动——滚动条贴窗口右缘、拖动时整页位移；桌面模式又被 `desktop.css` 顶成 `height:calc(--vh-px - 20px)`，左栏比视口还高、滚动时错位。
+- 两栏各自封顶 `calc(100vh - 102px)`（桌面模式 `calc(--vh-px - 96px)`）：内容少时卡片自然高，内容多时封顶并在内部滚动，同时保持两栏等高；`≤820px` 窄屏恢复整页滚动。
+- 滚动体验：10px 细滚动条 + 半透明圆角滑块（WebKit 与 Firefox 双口径）；`overscroll-behavior:contain` 阻断滚到边界后的链式整页滚动；`scrollbar-gutter:stable` 避免滚动条出现/消失时内容横向跳动；切换设置 tab 时内容区回到顶部。
+- 验证：`body.scrollHeight == innerHeight`（页面不再整体滚动）、`#settings-panel` scrollH 1048 / clientH 796，滚动前后 topbar / sidebar / settings-nav 的 `top` 完全不变，切 tab 后 `scrollTop=0`，0 console error；`web_check`、`web_manifest --check`、`kb_smoke`、`ui_smoke`（20 路由）全部通过。
+
 ## v261021.1 · Agent 接入 OpenCode 免费档（本地 CLI 桥）
 
 - 新增 `tools/opencode_cli_bridge.py`：把 OpenAI Chat Completions 请求（含 SSE 流式）摊平成一段文本交给本机 `opencode run --format json`，再把 `text` 事件聚合为回答、把 `step_finish.tokens` 回填 `usage`；`GET /v1/models`、`/v1/health` 供设置页「测试连接」使用。默认监听 `127.0.0.1:9357`，CLI 路径优先取 npm 包内 `opencode.exe`（`.cmd` 经 `cmd /c` 中转会把中文提示词打成乱码，已实测踩过）。

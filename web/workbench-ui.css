@@ -91,3 +91,42 @@ html[data-theme="dark"] #main .billing-table tr:hover td{background:var(--sc-flo
 html[data-theme="dark"] #main .billing-tabs button.active{background:var(--sc-task-soft)!important;color:var(--sc-task)!important;border-color:var(--sc-line-strong)!important}
 html[data-theme="dark"] #main .billing-warn{color:var(--sc-milestone)!important}
 html[data-theme="dark"] #main .billing-prices textarea{background:var(--sc-main)!important;color:var(--sc-text)!important;border-color:var(--sc-line-strong)!important}
+
+/* v261021.2 · 设置页滚动：外壳不滚，只让左右两栏各自在自己的框内滚动。
+   之前是整页（body）滚动：滚动条贴窗口右边，拖动时整页位移，左侧标签卡靠 sticky 硬撑，
+   桌面模式又被 desktop.css 顶成 `height:calc(--vh-px - 20px)`，底部溢出视口、滚动时错位。
+   现在给两栏一个相对视口的上限：内容少时卡片自然高，内容多时封顶并在卡片内部滚动；
+   滚轮只作用于指针所在的那一栏（overscroll-behavior 阻断链式滚动到整页）。 */
+html body #main .settings-layout{align-items:stretch}
+html body #main .settings-layout>.settings-nav{
+  position:static!important;top:auto!important;height:auto!important;
+  max-height:calc(100vh - 102px);overflow-y:auto;
+  scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--muted) 32%,transparent) transparent;
+}
+html body #main .settings-layout>.settings-panel{
+  max-height:calc(100vh - 102px);overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--muted) 32%,transparent) transparent;
+}
+html[data-desktop="true"] body #main .settings-layout>.settings-nav,
+html[data-desktop="true"] body #main .settings-layout>.settings-panel{
+  max-height:calc(var(--vh-px,100vh) - 96px);
+}
+html body #main .settings-layout>.settings-nav::-webkit-scrollbar,
+html body #main .settings-layout>.settings-panel::-webkit-scrollbar{width:10px;height:10px}
+html body #main .settings-layout>.settings-nav::-webkit-scrollbar-track,
+html body #main .settings-layout>.settings-panel::-webkit-scrollbar-track{background:transparent}
+html body #main .settings-layout>.settings-nav::-webkit-scrollbar-thumb,
+html body #main .settings-layout>.settings-panel::-webkit-scrollbar-thumb{
+  background:color-mix(in srgb,var(--muted) 30%,transparent);
+  border:3px solid transparent;background-clip:padding-box;border-radius:999px;
+}
+html body #main .settings-layout>.settings-nav::-webkit-scrollbar-thumb:hover,
+html body #main .settings-layout>.settings-panel::-webkit-scrollbar-thumb:hover{
+  background:color-mix(in srgb,var(--muted) 52%,transparent);background-clip:padding-box;
+}
+@media (max-width:820px){
+  /* 窄屏恢复单列自然高度：两栏摘掉上限，交还给整页滚动 */
+  html body #main .settings-layout>.settings-nav,
+  html body #main .settings-layout>.settings-panel{max-height:none;overflow:visible}
+}
