@@ -1,5 +1,10 @@
 # Changelog
 
+## v261021.7 · CI：失败用例输出 GitHub 注解
+
+- `tools/run_tests.py` 在 `GITHUB_ACTIONS` 环境下，把每个失败用例的尾部 8 行以 `::error title=…::` 输出。此前 job 日志需要登录才能看，Annotations 区块是公开的——失败原因直接进注解，排查不用再翻日志。
+- 本地运行不受影响（该分支只在 CI 生效）。
+
 ## v261021.6 · CI：Windows 静态闸门设置 UTF-8 输出
 
 - `static-gates` 的 Windows 任务在 job 级加 `PYTHONIOENCODING: utf-8`：Windows runner 默认 stdout 编码是 cp1252，`kb_smoke` 第 7 组会打印 `⚗` 等符号，编码失败直接 `UnicodeEncodeError` 让整步 red（ubuntu 同一工作流已绿，差异只在编码）。

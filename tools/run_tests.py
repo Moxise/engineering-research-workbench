@@ -161,6 +161,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n✗ {item['name']}（{item['passed']}/{item['total']}，exit {item['code']}"
               f"{'，超时' if item['timeout'] else ''}）")
         print("  " + "\n  ".join(item["tail"].strip().splitlines()[-12:]))
+        # CI 里日志要登录才能看；注解是公开的，把失败尾部塞进 ::error:: 便于直接定位。
+        if os.environ.get("GITHUB_ACTIONS"):
+            tail = "\n".join(item["tail"].strip().splitlines()[-8:])
+            escaped = tail.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+            print(f"::error title={item['name']} 失败::{escaped}")
     print("\n" + "=" * 68)
     print(f"用例 {len(results)} 个：通过 {len(results) - len(failed)} · 失败 {len(failed)}"
           f" · 断言 {total_pass}/{total_cases} · 用时 {sum(r['took'] for r in results):.0f}s")
