@@ -1,5 +1,10 @@
 # Changelog
 
+## v261021.6 · CI：Windows 静态闸门设置 UTF-8 输出
+
+- `static-gates` 的 Windows 任务在 job 级加 `PYTHONIOENCODING: utf-8`：Windows runner 默认 stdout 编码是 cp1252，`kb_smoke` 第 7 组会打印 `⚗` 等符号，编码失败直接 `UnicodeEncodeError` 让整步 red（ubuntu 同一工作流已绿，差异只在编码）。
+- 全工作流统一该变量（`logic-tests` 原本就有），避免以后新增脚本打印中文符号时再踩。
+
 ## v261021.5 · 修复 CI：干净检出可跑
 
 - **`kb_smoke` 在无 Workspace 时降级而不是直接失败**：CI 的 checkout 没有 `Workspace/`，原脚本在“索引存在”处直接 `return 1`，连带 `plugin_check --assert-core-only` 也红。现在 4~6 组（索引/通用基础/工具视图，依赖真实数据）打印 SKIP，1/2/3/7 组（关系解析、命名、归属归一化、写入期校验）照常执行；“store 更新路径”一条在没有条目时也改判 SKIP，不再用写死的条目 id。
