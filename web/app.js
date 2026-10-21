@@ -2055,7 +2055,7 @@
     /* v261009.4 · 设置页 tab 由两部分组成：内核自带 + **模块自登记**（ERWPanels.settingsTab）。
        这样「插件管理」这类页面不必在 app.js 里加分支——内核不认识具体功能（§6.3）。 */
     const extra=window.ERWPanels.settingsTabs();
-    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button>`
+    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="sync">同步</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button>`
       +extra.map(t=>`<button data-set-tab="${esc(t.id)}">${esc(t.label)}</button>`).join('')
       +`</aside><section class="card settings-panel" id="settings-panel"></section></div>`;
     if(window.pywebview?.api?.desktop_set_close_action){const button=document.createElement('button');button.dataset.setTab='desktop';button.textContent='窗口';$('.settings-nav').append(button)}
@@ -2070,7 +2070,13 @@
       else {delete p.dataset.plugin; renderSettingsTab(b.dataset.setTab,cfg);}
     });renderSettingsTab('general',cfg);
   }
-  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='general'){
+  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='sync'){
+      /* v261022.2 · 同步页由 sync.js 自渲染（它只依赖 window.ERWSyncUI 适配层） */
+      if(window.ERWSync?.renderSettings)window.ERWSync.renderSettings(p);
+      else p.innerHTML='<div class="empty">同步模块未加载</div>';
+      return;
+    }
+    if(tab==='general'){
       p.innerHTML=`<div class="card-head"><div><h3>基础设置</h3></div></div><div class="form-grid"><div class="field span-2"><label>工作台名称</label><input id="set-app-name" value="${esc(app.app_name)}"></div><div class="field span-2"><label>副标题</label><input id="set-subtitle" value="${esc(app.subtitle)}"></div></div><div class="field-help" style="margin-top:10px">运行端口、监听地址、Workspace 路径和启动行为已移动到“服务与存储”，均可在页面中配置。</div><div style="margin-top:14px"><button class="primary-btn" id="save-settings">保存</button></div>`;$('#save-settings').onclick=async()=>{app.app_name=$('#set-app-name').value.trim()||'科研工作台';app.subtitle=$('#set-subtitle').value.trim();const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;toast('基础设置已保存');await loadBootstrap();};
     }
     else if(tab==='knowledge'){renderKnowledgeTypesSettings(p,app,cfg);}
@@ -2222,11 +2228,46 @@
     window.addEventListener('erw-lit-back',()=>renderDocsPage('literature'));
   }
 
+  /* v261022.2 · 同步页宿主适配层：上游 sync.js 只认 window.ERWSyncUI，
+     这里用本地 #modal / toast / 导航 / 设置页能力实现，不引入上游 app.js 的大改。 */
+  function syncCloseModal(){
+    $('#modal-backdrop').classList.add('hidden');
+    $('#modal-body').innerHTML='';$('#modal-footer').innerHTML='';
+    $('#modal').classList.remove('sync-conflict-modal');
+  }
+  function syncModal(title,html,footer){
+    $('#modal-title').textContent=title||'同步';
+    $('#modal-body').innerHTML=html||'';
+    $('#modal-footer').innerHTML=footer||'';
+    $('#modal-close').onclick=()=>syncCloseModal();
+    $('#modal-backdrop').classList.remove('hidden');
+    $('#modal-backdrop').onclick=e=>{if(e.target===$('#modal-backdrop'))syncCloseModal()};
+  }
+  window.ERWSyncUI={
+    modal:syncModal, closeModal:syncCloseModal, toast,
+    openSettings:async()=>{if(await navigate('settings'))setTimeout(()=>$('[data-set-tab="sync"]')?.click(),40)},
+    applyPreferences(values){
+      for(const [k,v] of Object.entries(values||{}))localStorage.setItem(k,String(v));
+      if(values?.theme)applyTheme(values.theme);
+      if(values?.uiScale)applyUiScale(values.uiScale);
+      if(values?.pageDensity){localStorage.setItem('pageDensityManual','1');applyDensity(values.pageDensity)}
+      for(const k of ['sidebarPinned','sidebarOpen'])if(values?.[k]){try{state[k]=new Set(JSON.parse(values[k]));renderSidebar()}catch{}}
+    },
+    refresh:async()=>{
+      if(editorDirty()||state.saving||state.draft)return false;
+      await loadBootstrap();renderSidebar();
+      return await navigate(state.route);
+    }
+  };
+
   async function init(){ try{bindGlobal();
     /* v261009 · 先等插件宿主把面板挂进来（面板在 eval 期自登记 ERWPanels），
        再构建侧栏——否则插件的导航项要等下一次渲染才出现。 */
     try{ await window.ERWPluginHost?.ready; }catch(e){ console.warn('plugin host failed', e); }
     mountSlots();   /* v261009 · 插件槽位（顶栏等）在导航构建前挂好 */
-    await loadBootstrap();renderSidebar();const route=location.hash.slice(1)||'overview';await navigate(route);}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
+    await loadBootstrap();renderSidebar();const route=location.hash.slice(1)||'overview';await navigate(route);
+    /* v261022.2 · 通知外部模块（同步页等）可以开始贴附/轮询；只派发一次 */
+    try{ window.dispatchEvent(new Event('workbench:ready')); }catch(e){ console.warn('workbench:ready', e); }
+    }catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
   window.addEventListener('load',init);
 })();

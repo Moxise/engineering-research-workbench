@@ -1,5 +1,13 @@
 # Changelog
 
+## v261022.2 · 设置页接入「同步」（上游前端第 2 项）
+
+- 设置新增 **「同步」tab**（排在「服务与存储」之后）：服务器地址 + 测试连接、同步方式（不同步 / 主动 / 自动）、自动检查间隔、五类同步内容（Markdown 文档 / PDF 与附件 / 项目待办文献与热力图 / 通用设置与界面偏好 / Agent 对话）多选、保存与立即同步。
+- 同时接入 sync.js 的完整状态能力：顶栏同步按钮与变化计数（不同步时隐藏）、文档列表上的 A/M/D/↓/! 变更徽章、冲突处理弹窗（使用本地 / 服务器版本、保留两份、手动合并），以及「同步状态与变化」列表。
+- **接缝改造**：网络走 `window.erwFetch`；文档级 DOM 变更改走 `ERWDom.onChildList`（不再自建 MutationObserver）；宿主能力（弹窗/吐司/打开设置/应用偏好/刷新）由新增的 **`window.ERWSyncUI`** 适配层提供，复用本地 `#modal` 与 toast；`app.js` 初始化完成后派发一次 `workbench:ready`，sync.js 在此之后才贴附与轮询。
+- `web_check` 的原生事件白名单补上 `pagehide` / `pageshow` / `beforeunload` / `message`——此前会把浏览器原生事件误报成「没人派发的自定义事件」。
+- 验证：同步设置页渲染正常（5 个范围、状态栏、0 console error）、`/api/sync/status` 200；`web_check`、`web_manifest --check`、`ui_smoke`（20 路由）、`kb_smoke`、`mcp --selftest` 全过。
+
 ## v261022.1 · 里程碑页接入甘特图（上游前端第 1 项）
 
 - 里程碑视图新增「甘特」tab（时间轴 / 甘特 / 列表 / 文档），接入上游 `ERWMilestoneGantt`：按项目分组，阶段条看周期、菱形看截止节点；支持全览 / 日 / 周 / 月缩放、定位今天、状态筛选（含逾期与待排期）、搜索与项目范围下拉。
