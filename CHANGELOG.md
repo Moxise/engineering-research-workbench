@@ -1,5 +1,13 @@
 # Changelog
 
+## v261022.6 · Agent 页接入系统面板（上游前端第 6 项）
+
+- Agent 页右侧新增**系统面板**：顶部六个 tab「对话 / 任务 / 记忆 / 技能 / RAG / 设置」，由 `agent-system.js` 渲染进 `#agent-system-panel`；对话区包进 `#agent-chat-panel`，切 tab 时两者互斥显示（对话 tab 回到原聊天界面）。
+- 「任务」显示当前会话的任务进度、待确认草稿（确认/拒绝）、运行日志与结果；「记忆」「技能」「RAG」「设置」分别复用第 3 项接入的同一套面板。
+- `ERWAgentPage.refresh` 改为只刷新当前会话消息（不再整页重渲染），避免 `mount → refresh → renderAgent` 循环。
+- 说明：本地对话走自己的发送链路，不创建上游的 task run，所以「任务」列表在纯聊天下为空——这是预期降级，一旦主循环走 `agent_runtime` 就会记录。
+- 验证：六个 tab 渲染、点击「任务」出现面板、0 console error；`web_check`、`ui_smoke`、`kb_smoke` 通过。
+
 ## v261022.5 · 接入项目范围选择器与科研界面适配层（上游前端第 5 项）
 
 - 新增 **`research-ui.js`**（`window.ERWResearchUI`）：项目显示名（`display_name`）、资料证据徽章（题录 / 公开摘要 / 有 PDF 全文 / 已核对原文，按正文声明与附件推断）、阅读字号（12–20px，写进缩放菜单）、`wheelScale` 滚轮缩放辅助。项目记录在首屏后预取，失败不阻塞页面。
