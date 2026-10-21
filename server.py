@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import mimetypes
 import os
 import sys
@@ -414,17 +415,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(literature.list_items(
                 (q.get("q") or [""])[0], (q.get("status") or [""])[0], (q.get("category") or [""])[0],
                 _q_int(q, "page", 1, 1, 1000000), _q_int(q, "page_size", 60, 10, 200),
-                (q.get("mark") or [""])[0],
+                (q.get("mark") or [""])[0], (q.get("pdf") or [""])[0],
             ))
         if path == "/api/literature/storage":  # v260929 · 设置页：PDF 存放目录概况
             return self.send_json(literature.storage_info())
+        if path.startswith("/api/literature/document/"):
+            return self.send_json(literature.item_for_document(unquote(path[len("/api/literature/document/"):])))
         if path.startswith("/api/literature/") and path.endswith("/annotations"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/annotations",1)[0])
             page_raw = (q.get("page") or [""])[0]
             return self.send_json(literature.get_annotations(paper_id, int(page_raw) if page_raw else None))
         if path.startswith("/api/literature/") and path.endswith("/note"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/note",1)[0])
-            return self.send_json({"content": literature.get_note(paper_id)})
+            content = literature.get_note(paper_id)
+            return self.send_json({"content": content, "revision": hashlib.sha256(content.encode("utf-8")).hexdigest()})
         if path.startswith("/api/literature/") and path.endswith("/pdf"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/pdf",1)[0])
             return self.serve_file_range(literature.pdf_path(paper_id), "application/pdf")
@@ -606,7 +610,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(literature.save_annotation(paper_id, payload), 201)
         if path.startswith("/api/literature/") and path.endswith("/note"):
             paper_id = unquote(path.split("/api/literature/",1)[1].rsplit("/note",1)[0])
-            return self.send_json(literature.save_note(paper_id, str(payload.get("content") or "")))
+            return self.send_json(literature.save_note(paper_id, str(payload.get("content") or ""), payload.get("expected_revision")))
         if path.startswith("/api/literature/"):
             paper_id = unquote(path.split("/api/literature/",1)[1])
             return self.send_json(literature.update_item(paper_id, payload))
@@ -718,7 +722,10 @@ class Handler(BaseHTTPRequestHandler):
                     chunk = self.rfile.read(min(1024 * 1024, remaining))
                     if not chunk: break
                     out.write(chunk); remaining -= len(chunk)
-            item = literature.import_pdf(filename, Path(tmp_name))
+            if remaining:
+                raise ValueError("PDF 上传未完成，请重试")
+            binding = unquote(self.headers.get("X-Bind-Paper") or "")
+            item = literature.import_pdf(filename, Path(tmp_name), {"bind_paper_id": binding} if binding else None)
             return self.send_json(item, 201)
         finally:
             try: os.unlink(tmp_name)

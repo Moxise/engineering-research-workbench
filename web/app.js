@@ -133,9 +133,10 @@
   }
   function editorDirty(){
     if(state.editorBaseline!==null&&state.selectedDoc&&$('#md-input'))state.dirty=JSON.stringify(editorPayload(state.selectedDoc))!==state.editorBaseline;
-    return state.dirty||!!window.ERWMilestoneGantt?.dirty();
+    return state.dirty||!!window.ERWMilestoneGantt?.dirty()||!!window.ERWLiterature?.dirty();
   }
   async function guardEditor(action='离开当前文档'){
+    if(window.ERWLiterature&&!await window.ERWLiterature.guard())return false;
     if(window.ERWMilestoneGantt&&!await window.ERWMilestoneGantt.guard())return false;
     if(state.saving){try{await state.saving}catch{return false}}
     if(!editorDirty())return true;
@@ -203,6 +204,7 @@
     if (!await guardEditor('离开当前页面')){if(location.hash.slice(1)!==state.route)location.replace('#'+state.route);return false}
     window.ERWDocReferences?.close();
     window.ERWKnowledgeGraph?.destroy();
+    window.ERWLiterature?.destroy();
     window.ERWMilestoneGantt?.destroy();
     if(route!=='milestones')window.ERWMilestoneTimeline?.destroy?.(); /* v260930g9c · 返回 false 供 ERWNav 等调用方感知取消 */
     state.dirty=false;state.editorBaseline=null;state.draft=null;state.selectedDoc=null;window.ERWCurrentDoc='';++state.docSelectSeq;
@@ -644,11 +646,12 @@
     $$('[data-overview-check]').forEach(x=>x.onchange=()=>confirmTodoCompletion(x,x.dataset.overviewCheck,renderOverview));
   }
 
-  async function openDocRoute(route,id){
+  async function openDocRoute(route,id,options={}){
     const oldView=state.milestoneView;
     if(route==='milestones')state.milestoneView='docs';
     const ok=await navigate(route);
     if(ok===false){state.milestoneView=oldView;return false}
+    if(route==='literature')return window.ERWLiterature.openByDocument(id,options);
     await selectDoc(id);
     return true;
   }
@@ -1021,8 +1024,13 @@
   }
 
   async function renderDocsPage(kind,syncRefresh=false){
+    if(kind==='literature'&&syncRefresh){await window.ERWLiterature?.refresh();return true}
     const activeId=syncRefresh?state.selectedDoc?.id:null,navSeq=state.navSeq;
     if(!syncRefresh&&!await guardEditor('重新载入文档列表'))return;
+    if(kind==='literature'){
+      state.selectedDoc=null;state.draft=null;state.editorBaseline=null;state.dirty=false;
+      return window.ERWLiterature.start();
+    }
     /* v260929 · 文献页保留原有列表/编辑器（BibTeX 同步、自动 cite_key、元数据表单均在此），
        PDF 阅读工作区不整体接管，改由列表页头部按钮进入（openLiteratureWorkspace），两套 UI 共存 */
     const [docs,projects] = await Promise.all([api('/api/docs?kind='+encodeURIComponent(kind)), api('/api/projects')]);
@@ -1084,12 +1092,8 @@
   window.ERWLLMReady = () => state.config?.app?.llm?.enabled === true;
   /* v260930d · M5 阅读中知识关联：悬浮球/气泡跳转到指定知识条目（导航+选中跨脚本桥） */
   /* v260930g9c · 关联知识「打开条目」跳转：六类→对应路由并选中；literature 额外自动进 PDF 阅读工作区（引用跳文献即看原文） */
-  window.ERWNav = { open: async (kind, id, options={}) => {
-    const ok=await openDocRoute(routeForKind(kind),id);
-    if(ok===false)return; /* 用户在未保存确认框点了取消：中止，不在旧页面执行 selectDoc */
-    const doc=state.selectedDoc;
-    if(kind==='literature'&&doc?.id===id&&doc.attachment&&!options.note)await openAttachmentInWorkspace(doc);
-  } };
+  window.ERWNav = {open:(kind,id,options={})=>openDocRoute(routeForKind(kind),id,options)};
+
   /* v260923 · 分类标记 chips 渲染 / 事件 / 重渲染（含「＋ 自定义」入口） */
   function markChipsHtml(selected){return allMarks().map(k=>`<button type="button" class="mark-chip${(selected||[]).includes(k.id)?' on':''}" data-mark="${esc(k.id)}" style="--mark-color:${esc(k.color)}" title="点击标记为${esc(k.label)}，可多选">${esc(k.icon)} ${esc(k.label)}</button>`).join('')}
   function wireMarkChips(){
@@ -1287,14 +1291,17 @@
   }
   function openEditorTagPicker(){ openTagPicker(editorTags(), ()=>[...new Set(state.docs.flatMap(d=>d.tags||[]))], list=>{paintEditorTags(list);state.dirty=true}) }
   window.ERWTagPicker = openTagPicker;
-  function openEditorProjectPicker(){
-    const selected=new Set(editorProjects());
+  function openEditorProjectPicker(){openProjectPicker(editorProjects(),list=>{paintEditorProjects(list);state.dirty=true})}
+  function openProjectPicker(current,onApply){
+    const selected=new Set(current);
     modal('添加已有项目',`<div class="row-meta" style="margin-bottom:10px">勾选要关联到当前条目的已有项目。项目本身请在概览“项目推进”或资源页创建。</div><div class="project-pick-list">${state.projects.length?state.projects.map(p=>`<label class="bundle-item"><input type="checkbox" data-project-pick="${esc(p)}" ${selected.has(p)?'checked':''}><span><strong>${esc(p)}</strong></span></label>`).join(''):'<div class="empty">暂无已有项目，请先新建项目。</div>'}</div>`,`<button class="secondary-btn" id="project-pick-new">＋ 新建项目</button><button class="secondary-btn" id="project-pick-cancel">取消</button><button class="primary-btn" id="project-pick-done">应用</button>`);
     $('#project-pick-cancel').onclick=closeModal;
-    $('#project-pick-new').onclick=()=>openCreateProjectModal(async()=>{state.projects=await api('/api/projects');openEditorProjectPicker()});
-    $('#project-pick-done').onclick=()=>{const list=$$('[data-project-pick]:checked').map(x=>x.dataset.projectPick);paintEditorProjects(list);state.dirty=true;closeModal()};
+    $('#project-pick-new').onclick=()=>openCreateProjectModal(async()=>{state.projects=await api('/api/projects');openProjectPicker(current,onApply)});
+    $('#project-pick-done').onclick=()=>{const list=$$('[data-project-pick]:checked').map(x=>x.dataset.projectPick);onApply(list);closeModal()};
   }
 
+  window.ERWProjectPicker=openProjectPicker;
+  window.ERWBibtexFields=parseBibtexFields;
   function literatureFields(d){return `<div class="field span-4"><div class="field-label-row"><label>自动填写</label><span class="field-help">粘贴 DOI 或 arXiv 编号联网抓取；直接粘贴一段 BibTeX 则本地解析回填。抓取/解析后请核对再保存。</span></div><div class="field-input-row"><input id="f-lookup" placeholder="如 10.1109/TGRS.2023.1234567、2401.02345 或 @article{…}"><button type="button" class="secondary-btn" id="f-lookup-btn">填写</button></div></div><div class="field span-2"><label>作者</label><input id="f-authors" value="${esc(d.authors||'')}"></div><div class="field"><label>年份</label><input id="f-year" value="${esc(d.year||'')}"></div><div class="field"><label>引用键 Cite Key</label><input id="f-cite-key" value="${esc(d.cite_key||'')}"></div><div class="field span-2"><label>期刊 / 会议</label><input id="f-venue" value="${esc(d.venue||'')}"></div><div class="field"><label>DOI</label><input id="f-doi" value="${esc(d.doi||'')}"></div><div class="field"><label>URL</label><input id="f-url" value="${esc(d.url||'')}"></div><div class="field span-2"><div class="field-label-row"><label>PDF 附件路径</label><span class="field-help">绝对路径或相对 Workspace 的路径，仅 .pdf；文件存在时列表会显示附件图标。</span></div><input id="f-attachment" value="${esc(d.attachment||'')}" placeholder="如 Knowledge/Attachments/xxx.pdf"></div><div class="field span-4"><label>BibTeX（会与正文中的 bibtex 代码块同步）</label><textarea id="f-bibtex" class="mono bibtex-input" placeholder="@article{...}">${esc(d.bibtex||'')}</textarea></div>`}
   /* v260929 · 自动填写（阶段 4）：DOI/arXiv 走后端 lookup（CrossRef/arXiv API），
      BibTeX 文本则前端本地解析；回填仅覆盖非空字段，不动用户已填内容 */

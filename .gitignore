@@ -41,6 +41,7 @@
 !web/**/*.js
 !web/**/*.html
 !web/**/*.css
+!web/vendor/pdfjs-LICENSE.txt
 !web/favicon.png
 !web/workbench-mark.svg
 !tools/ui_usability_check.js

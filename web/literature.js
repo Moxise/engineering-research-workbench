@@ -7,64 +7,89 @@ const PDF_RENDER_RADIUS=4; /* v261009p · 仅保留当前页前后少量已渲�
 const PDF_PAGE_PIXEL_LIMIT=12*1024*1024, PDF_CACHE_PIXEL_LIMIT=40*1024*1024, PDF_CANVAS_SIDE_LIMIT=8192;
 const S={items:[],paper:null,pdf:null,scale:1.15,zoomMode:"fit",focus:false,libraryHidden:false,sideHidden:true,layoutObserver:null,layoutTimer:null,openSeq:0,current:1,pages:new Map(),observer:null,pending:null,undo:[],area:false,generation:0,selectedAnn:null,selectionOrigin:null,dragSel:null,annotations:[],annByPage:new Map(),trimTimer:null,ai:{text:"",image:"",result:"",error:"",busy:false,instruction:""}};
 let wheelFrame=0,wheelTimer=null,wheelTarget=null,wheelBase=1,wheelAnchor=null,zoomSerial=0;
+Object.assign(S,{listPage:1,listSeq:0,noteState:null,infoDraft:null,infoBase:null,sideTab:"info",noteMode:"edit",bindPaper:null});
+function toast(message,error=false){if(window.ERWToast)return window.ERWToast(message,error);const stack=q("#toast-stack");if(!stack)return;const item=document.createElement("div");item.className="toast"+(error?" error":"");item.textContent=message;stack.append(item);setTimeout(()=>item.remove(),3500)}
+function captureNote(){const ta=q("#lit-note");if(ta&&S.noteState?.id===S.paper?.id)S.noteState.text=ta.value}
+function infoPayload(){
+ if(!q("#li-title"))return S.infoDraft;
+ const value=id=>q("#"+id)?.value||"";
+ return {title:value("li-title"),authors:value("li-authors"),year:value("li-year"),reading_status:value("li-status"),tags:liTags(),projects:liProjects(),venue:value("li-venue"),doi:value("li-doi"),url:value("li-url"),cite_key:value("li-cite"),added_date:value("li-added"),bibtex:value("li-bibtex"),favorite:!!q("#li-favorite")?.checked,kind_marks:qa("#li-marks .mark-chip.on").map(b=>b.dataset.mark)};
+}
+function captureInfo(){if(q("#li-title"))S.infoDraft=infoPayload()}
+function dirty(){if(!q(".lit-shell"))return false;captureNote();captureInfo();return !!(S.noteState&&S.noteState.text!==S.noteState.base||S.infoBase&&JSON.stringify(S.infoDraft)!==S.infoBase)}
+async function guard(){
+ if(S.noteState?.saving&&!await S.noteState.saving)return false;if(S.infoSaving&&!await S.infoSaving)return false;
+ if(!dirty())return true;if(S.guardPending)return S.guardPending;
+ S.guardPending=(async()=>{const answer=await window.ERWDialog.choose("文献信息或阅读笔记有未保存的修改，是否保存后继续？",{title:"保存文献修改？",buttons:[{value:"cancel",label:"继续编辑"},{value:"discard",label:"不保存"},{value:"save",label:"保存并继续",primary:true}]});if(answer==="cancel")return false;if(answer==="save"){if(S.infoBase&&JSON.stringify(S.infoDraft)!==S.infoBase&&!await saveInfo())return false;if(S.noteState&&S.noteState.text!==S.noteState.base&&!await saveNote())return false;return !dirty()}if(S.noteState){S.noteState.text=S.noteState.base;const ta=q("#lit-note");if(ta)ta.value=S.noteState.base}if(S.infoBase){S.infoDraft=JSON.parse(S.infoBase);if(q("#li-title"))sideTab("info")}return true})();
+ try{return await S.guardPending}finally{S.guardPending=null}
+}
+async function loadNote(){
+ const id=S.paper?.id;if(!id)throw Error("请先选择文献");if(S.noteState?.id===id&&S.noteState.loaded)return S.noteState;
+ const state=S.noteState?.id===id?S.noteState:{id,text:"",base:"",loaded:false,revision:null};S.noteState=state;
+ if(!state.loading)state.loading=api("/api/literature/"+encodeURIComponent(id)+"/note").then(data=>{state.text=state.base=String(data.content||"");state.revision=data.revision??null;state.loaded=true;return state}).finally(()=>state.loading=null);
+ return state.loading;
+}
+function noteStatus(message){const status=q("#lit-note-status");if(status)status.textContent=message;window.dispatchEvent(new Event("workbench:editor-state"))}
 
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.message||d.error||("HTTP "+r.status));return d}
+let pdfJsLoading=null;
 async function ensurePdfJs(){
  if(window.pdfjsLib)return;
- await new Promise((ok,bad)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";s.onload=ok;s.onerror=bad;document.head.appendChild(s)});
+ if(!pdfJsLoading)pdfJsLoading=new Promise((ok,bad)=>{const s=document.createElement("script");s.src="/vendor/pdf.min.js?v=3.11.174";s.onload=ok;s.onerror=()=>{pdfJsLoading=null;bad(Error("PDF 渲染组件加载失败，请更新客户端后重试"))};document.head.appendChild(s)});
+ await pdfJsLoading;
  if(!window.pdfjsLib)throw new Error("PDF.js 加载失败");
- window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+ window.pdfjsLib.GlobalWorkerOptions.workerSrc="/vendor/pdf.worker.min.js?v=3.11.174";
 }
 /* v260929 · 阅读区列表条目统一为文献列表页风格（.doc-item 同构）：标题→摘要→徽章行→项目+日期
    徽章行 = 阅读状态 + 收藏 + 分类标记；附件徽章去掉（点击条目本身即打开 PDF，徽章冗余）
    分类统一走「分类标记」（kind_marks），原 categories 徽章已移除（与标记重复） */
 function item(x){
- const act=S.paper?.id===x.id?" active":"";
- const favB=x.favorite?'<span class="badge" title="已收藏">★</span>':"";
- const summ=x.excerpt?esc(x.excerpt):((x.authors||"")+(x.year?(" · "+x.year):""));
- const markB=window.ERWMarkBadges?window.ERWMarkBadges(x):"";
- const projBadges=(x.projects||[]).slice(0,1).map(p=>'<span class="badge accent proj-badge"><span class="proj-text">'+esc(p)+"</span></span>").join("");
- const dateB=x.updated_at?'<span class="badge mono">'+esc(String(x.updated_at).slice(0,10))+"</span>":"";
- const projRow=(projBadges||dateB)?'<div class="doc-projects">'+projBadges+dateB+"</div>":"";
- return '<article class="doc-item lit-item'+act+'" data-paper="'+esc(x.id)+'"><div class="title">'+esc(x.title)+'</div><div class="excerpt">'+summ+'</div><div class="tags"><span class="badge lit-status '+(x.reading_status==="已读"?"done":x.reading_status==="在读"?"reading":"")+'">'+esc(x.reading_status||"未读")+"</span>"+favB+markB+"</div>"+projRow+"</article>";
+ const meta=[x.year,(x.authors||"").split(/[;；]/)[0],x.pdf_available===false?"待补充 PDF":x.reading_status||"未读"].filter(Boolean).join(" · ");
+ return '<article class="doc-item lit-item'+(S.paper?.id===x.id?' active':'')+'" data-paper="'+esc(x.id)+'" tabindex="0" role="button" aria-label="打开 '+esc(x.title)+'"><div class="lit-item-heading"><span class="lit-pdf-icon '+(x.pdf_available===false?'missing':'')+'">'+(x.pdf_available===false?'＋':'PDF')+'</span><div class="title" title="'+esc(x.title)+'">'+esc(x.title)+'</div>'+(x.favorite?'<span class="lit-item-star">★</span>':'')+'</div><div class="lit-item-meta" title="'+esc(meta)+'">'+esc(meta)+'</div></article>';
+}
+async function loadList(){
+ const list=q("#lit-list");if(!list)return;const seq=++S.listSeq;
+ const url='/api/literature?q='+encodeURIComponent(q('#lit-search')?.value||'')+'&status='+encodeURIComponent(q('#lit-status')?.value||'')+'&mark='+encodeURIComponent(q('#lit-mark')?.value||'')+'&pdf='+encodeURIComponent(q('#lit-pdf-filter')?.value||'')+'&page_size=60&page='+S.listPage;
+ try{const d=await api(url);if(seq!==S.listSeq||!list.isConnected)return;S.items=d.items||[];S.listTotal=+d.total||0;S.listPage=+d.page||1;
+ list.innerHTML=S.items.length?S.items.map(item).join(''):'<div class="lit-empty">没有匹配的文献<br>上传 PDF 或调整筛选条件</div>';
+ const c=q('#lit-mark'),old=c.value;c.innerHTML='<option value="">全部分类</option>'+(window.ERWMarkList?window.ERWMarkList():[]).map(k=>'<option value="'+esc(k.id)+'"'+(k.id===old?' selected':'')+'>'+esc(k.icon)+' '+esc(k.label)+'</option>').join('');
+ qa('[data-paper]',list).forEach(e=>{e.onclick=()=>openPaper(e.dataset.paper).catch(error=>toast(error.message,true));e.onkeydown=event=>{if(['Enter',' '].includes(event.key)){event.preventDefault();e.click()}}});
+ const pager=q('#lit-pager');if(pager){const pages=Math.max(1,Math.ceil(S.listTotal/(+d.page_size||60)));pager.innerHTML='<button type="button" '+(S.listPage<=1?'disabled':'')+' data-lit-page="-1" aria-label="上一页">‹</button><span>'+S.listPage+' / '+pages+' · '+S.listTotal+' 篇</span><button type="button" '+(S.listPage>=pages?'disabled':'')+' data-lit-page="1" aria-label="下一页">›</button>';qa('[data-lit-page]',pager).forEach(b=>b.onclick=()=>{S.listPage+=+b.dataset.litPage;loadList()})}
+ }catch(error){if(seq===S.listSeq&&list.isConnected){list.innerHTML='<div class="lit-empty">文献加载失败：'+esc(error.message)+'<br><button id="lit-list-retry" type="button">重试</button></div>';q('#lit-list-retry').onclick=loadList}}
 }
 
-async function loadList(){
- const d=await api("/api/literature?q="+encodeURIComponent(q("#lit-search")?.value||"")+"&status="+encodeURIComponent(q("#lit-status")?.value||"")+"&mark="+encodeURIComponent(q("#lit-mark")?.value||"")+"&page_size=100");
- S.items=d.items||[];
- q("#lit-list").innerHTML=S.items.length?S.items.map(item).join(""):'<div class="lit-empty">暂无文献<br>点击“上传 PDF”开始</div>';
- const c=q("#lit-mark"),old=c.value;c.innerHTML='<option value="">全部分类</option>'+(window.ERWMarkList?window.ERWMarkList():[]).map(k=>'<option value="'+esc(k.id)+'"'+(k.id===old?" selected":"")+">"+esc(k.icon)+" "+esc(k.label)+"</option>").join("");
- qa("[data-paper]").forEach(e=>e.onclick=()=>openPaper(e.dataset.paper));
-}
 function shell(){
  S.openSeq++;reset();S.paper=null;clearTimeout(S.layoutTimer);
- q("#main").innerHTML='<div class="lit-shell side-hidden"><div class="lit-layout-toolbar"><button type="button" id="lit-toggle-library" aria-expanded="true">文献列表</button><button type="button" id="lit-focus" aria-pressed="false" disabled>专注阅读</button><button type="button" id="lit-fit" disabled>适应宽度</button><button type="button" id="lit-toggle-side" aria-expanded="false" disabled>资料与笔记</button></div><aside class="card doc-list-panel lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><div class="lit-head-actions"><button class="ghost-btn" id="lit-back">← 返回文献列表</button><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><div class="doc-filter"><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-mark"><option value="">全部分类</option></select></div></div><div class="doc-list lit-list" id="lit-list"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-copy" disabled title="Ctrl+C">复制</button><span class="lit-sep"></span><button data-ai="translate" disabled title="将选中文本交给 AI 翻译为中文">AI 翻译</button><button data-ai="summarize" disabled title="将选中文本交给 AI 总结要点">AI 总结</button><button data-ai="organize" disabled title="将选中文本交给 AI 整理为知识笔记">AI 整理</button><span class="lit-sep"></span><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
- S.layoutObserver?.disconnect();S.libraryHidden=false;S.sideHidden=true;S.focus=false;
+ q("#main").innerHTML='<div class="lit-shell side-hidden"><div class="lit-layout-toolbar"><button type="button" id="lit-toggle-library" aria-expanded="true">文献列表</button><button type="button" id="lit-focus" aria-pressed="false" disabled>专注阅读</button><button type="button" id="lit-fit" disabled>适应宽度</button><button type="button" id="lit-toggle-side" aria-expanded="false" disabled>资料与笔记</button></div><aside class="card doc-list-panel lit-library"><div class="lit-library-head"><div><div class="card-kicker">LITERATURE LIBRARY</div><h3>文献库</h3></div><div class="lit-head-actions"><button class="ghost-btn" id="lit-export">导出引用</button><button class="primary-btn" id="lit-upload">＋ 上传 PDF</button></div></div><input id="lit-file" type="file" accept="application/pdf,.pdf" hidden><div class="doc-filter"><input class="search-input" id="lit-search" placeholder="搜索题名、作者、标签、分类…"><div class="lit-filters"><select class="search-input" id="lit-status"><option value="">全部进度</option><option>未读</option><option>在读</option><option>已读</option></select><select class="search-input" id="lit-mark"><option value="">全部分类</option></select></div></div><select class="search-input" id="lit-pdf-filter" aria-label="PDF 状态筛选"><option value="">全部文献</option><option value="available">已有 PDF</option><option value="missing">待补充 PDF</option></select><div class="doc-list lit-list" id="lit-list"></div><div id="lit-pager" class="lit-pager"></div></aside><section class="card lit-reader"><div id="lit-reader-empty" class="lit-empty lit-reader-empty">选择一篇文献开始阅读</div><div id="lit-reader-live" hidden><div class="lit-toolbar"><button data-ann="highlight" disabled>高亮</button><button data-ann="underline" disabled>下划线</button><button data-ann="strikeout" disabled>删除线</button><button id="lit-copy" disabled title="Ctrl+C">复制</button><span class="lit-sep"></span><button data-ai="translate" disabled title="将选中文本交给 AI 翻译为中文">AI 翻译</button><button data-ai="summarize" disabled title="将选中文本交给 AI 总结要点">AI 总结</button><button data-ai="organize" disabled title="将选中文本交给 AI 整理为知识笔记">AI 整理</button><span class="lit-sep"></span><button id="lit-area">框选区域</button><span class="lit-sep"></span><button id="lit-undo" disabled title="Ctrl+Z">↶ 撤销</button><span class="lit-sep"></span><span id="lit-page-label">1 / 1</span><button id="lit-zoom-out">−</button><span id="lit-zoom-label">115%</span><button id="lit-zoom-in">＋</button></div><div class="lit-canvas-scroll" id="lit-scroll"><div id="lit-pages" class="lit-pages"></div></div></div></section><aside class="card lit-side" id="lit-side"><div class="lit-empty">文献信息、批注和笔记将在这里显示</div></aside></div>';
+ S.layoutObserver?.disconnect();S.libraryHidden=false;S.sideHidden=true;S.focus=false;installSplitters();
  q("#lit-toggle-library").onclick=()=>{S.libraryHidden=!S.libraryHidden;S.focus=false;layout()};
  q("#lit-toggle-side").onclick=()=>{S.sideHidden=!S.sideHidden;S.focus=false;layout()};
  q("#lit-focus").onclick=()=>{S.focus=!S.focus;S.libraryHidden=S.focus;S.sideHidden=true;layout()};
  q("#lit-fit").onclick=()=>{stopWheelZoom();S.zoomMode="fit";refit()};
  q("#lit-scroll").addEventListener("wheel",pdfWheelZoom,{passive:false});
  S.layoutObserver=new ResizeObserver(schedulePdfLayout);S.layoutObserver.observe(q(".lit-reader"));
- q("#lit-upload").onclick=()=>q("#lit-file").click();q("#lit-file").onchange=e=>upload(e.target.files?.[0]);
- q("#lit-back").onclick=()=>window.dispatchEvent(new Event("erw-lit-back")); /* v260929 · 返回文献列表：经事件通知 app.js 重新渲染列表页（hash 未变不触发路由） */
- let t;q("#lit-search").oninput=()=>{clearTimeout(t);t=setTimeout(loadList,160)};q("#lit-status").onchange=loadList;q("#lit-mark").onchange=loadList;
+ q("#lit-upload").onclick=()=>{S.bindPaper=null;q("#lit-file").click()};q("#lit-file").onchange=e=>upload(e.target.files?.[0]);
+ q("#lit-export").onclick=exportReferences; /* v260929 · 返回文献列表：经事件通知 app.js 重新渲染列表页（hash 未变不触发路由） */
+ let t;const filter=()=>{S.listPage=1;loadList()};q("#lit-search").oninput=()=>{clearTimeout(t);t=setTimeout(filter,160)};q("#lit-status").onchange=filter;q("#lit-mark").onchange=filter;q("#lit-pdf-filter").onchange=filter;
  qa("[data-ann]").forEach(b=>b.onclick=()=>commit(b.dataset.ann));qa("[data-ai]").forEach(b=>b.onclick=()=>aiFromSelection(b.dataset.ai));q("#lit-copy").onclick=copyPendingText;q("#lit-area").onclick=toggleArea;q("#lit-undo").onclick=undo;q("#lit-zoom-in").onclick=()=>zoom(.15);q("#lit-zoom-out").onclick=()=>zoom(-.15);
 }
-async function upload(file){if(!file)return;try{const r=await fetch("/api/literature/import",{method:"POST",headers:{"Content-Type":"application/pdf","X-Filename":encodeURIComponent(file.name)},body:file});const d=await r.json();if(!r.ok)throw new Error(d.message||"上传失败");await loadList();await openPaper(d.id)}catch(e){window.ERWDialog.alert(e.message)}finally{q("#lit-file").value=""}}
+async function upload(file){if(!file)return;if(!await guard())return;const binding=S.bindPaper;S.bindPaper=null;try{const r=await fetch("/api/literature/import",{method:"POST",headers:{"Content-Type":"application/pdf","X-Filename":encodeURIComponent(file.name),...(binding?{"X-Bind-Paper":encodeURIComponent(binding)}:{})},body:file});const d=await r.json();if(!r.ok)throw new Error(d.message||"上传失败");await loadList();await openPaper(d.id)}catch(e){window.ERWDialog.alert(e.message)}finally{q("#lit-file").value=""}}
 
 async function openPaper(id){
- const openSeq=++S.openSeq;reset();
+ if(S.paper?.id!==id&&!await guard())return false;
+ const openSeq=++S.openSeq;reset();S.noteState=null;S.infoDraft=null;S.infoBase=null;
  const enc=encodeURIComponent(id);
  const [paper,annotations]=await Promise.all([
   api("/api/literature/"+enc),
   api("/api/literature/"+enc+"/annotations")
  ]);
  if(openSeq!==S.openSeq||!q(".lit-shell"))return;
- S.paper=paper;window.ERWResearchUI?.remember("pdf",{id:paper.id,title:paper.title});S.annotations=Array.isArray(annotations)?annotations:[];rebuildAnnotationIndex();
+ S.paper=paper;window.ERWCurrentDoc=paper.doc_id||paper.id;localStorage.setItem("erwLitRecentPaper",paper.id);window.ERWResearchUI?.remember("pdf",{id:paper.id,title:paper.title});S.annotations=Array.isArray(annotations)?annotations:[];rebuildAnnotationIndex();
+ q("#lit-toggle-side").disabled=false;
+ if(paper.pdf_available===false){q("#lit-reader-empty").hidden=false;q("#lit-reader-live").hidden=true;q("#lit-reader-empty").innerHTML='<div><strong>这篇文献尚未附上 PDF</strong><p>信息与历史笔记已保留，上传 PDF 后即可在这里阅读。</p><button type="button" class="primary-btn" id="lit-bind-pdf">＋ 为此文献添加 PDF</button></div>';q("#lit-bind-pdf").onclick=()=>{S.bindPaper=paper.id;q("#lit-file").click()};side();showSide();await loadList();return true}
  q("#lit-reader-empty").hidden=true;q("#lit-reader-live").hidden=false;side();loadList().catch(()=>{}) /* v260929 · 列表刷新仅更新徽章，不阻塞 PDF 加载 */;
  try{
-  await ensurePdfJs();const pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024}).promise;
+  await ensurePdfJs();const pdf=await window.pdfjsLib.getDocument({url:"/api/literature/"+enc+"/pdf",rangeChunkSize:4*1024*1024,isEvalSupported:false,enableXfa:false}).promise;
   if(openSeq!==S.openSeq||!q(".lit-shell")){pdf.destroy?.();return}
   S.pdf=pdf;S.zoomMode="fit";layout();
   const target=Math.max(1,Math.min(pdf.numPages,+S.paper.last_page||1));S.current=target;
@@ -80,9 +105,9 @@ function releasePageCanvas(r){
 }
 function reset(){
  stopWheelZoom();
- S.generation++;S.observer?.disconnect();clearTimeout(S.trimTimer);clearTimeout(track.t);
+ S.generation++;S.aiRequest=(S.aiRequest||0)+1;S.buildKey=(S.buildKey||0)+1;S.observer?.disconnect();clearTimeout(S.trimTimer);clearTimeout(track.t);q("#lit-pages")?.replaceChildren();
  const scroll=q("#lit-scroll");if(scroll)scroll.onscroll=null;
- S.pages.forEach(r=>releasePageCanvas(r));S.pages.clear();
+ S.pages.forEach(r=>releasePageCanvas(r));S.pages.clear();S.pdf?.destroy?.();
  S.pending=null;S.undo=[];S.area=false;S.pdf=null;S.selectedAnn=null;S.selectionOrigin=null;S.dragSel=null;S.areaResolver=null;
  S.annotations=[];S.annByPage.clear();S.ai={text:"",image:"",result:"",error:"",busy:false,instruction:""}
 } /* v261009p · 切文献时主动释放 PDF canvas / 文本几何 */
@@ -103,12 +128,14 @@ function removeAnnotationLocal(id,page){
  const r=S.pages.get(+page);if(r)r.annotations=annotationsForPage(page);
 }
 function unloadPage(n){
- const r=S.pages.get(+n);if(!r||!r.rendered||r.rendering)return;
+ const r=S.pages.get(+n);if(!r||r.rendering||!q("canvas",r.el))return false;
  if(S.pending?.page===+n||S.selectedAnn?.page===+n)return; /* 正在编辑/选择的页不回收 */
  if(pageIsVisible(r))return;
- releasePageCanvas(r);
+ const old=q("canvas",r.el);r.renderTask?.cancel?.();
  r.el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>";
+ if(old){old.width=1;old.height=1}
  r.rendered=false;r.textItems=null;r.annotations=annotationsForPage(n);
+ return true;
 }
 function trimRenderedPages(center=S.current){
  if(!S.pdf)return;
@@ -119,14 +146,14 @@ function trimRenderedPages(center=S.current){
  for(const item of cached.sort((a,b)=>Math.abs(b.n-center)-Math.abs(a.n-center))){
   if(pixels<=PDF_CACHE_PIXEL_LIMIT)break;
   if(item.n===+center)continue;
-  unloadPage(item.n);if(!item.r.rendered&&!item.r.rendering)pixels-=item.pixels;
+  if(unloadPage(item.n))pixels-=item.pixels;
  }
 }
 function pageIsVisible(r){const sc=q("#lit-scroll");if(!sc||!r.el.isConnected)return false;const view=sc.getBoundingClientRect(),page=r.el.getBoundingClientRect();return page.bottom>view.top&&page.top<view.bottom}
 /* Render vector text above screen resolution, including CSS/app zoom. Bound each
    backing store instead of capping native DPR, so high-DPI screens stay sharp. */
 function pdfPixelSize(width,height,element){
- const cssZoom=element.getBoundingClientRect().width/width||1;
+ const cssZoom=element.getBoundingClientRect().width/(parseFloat(element.style.width)||width)||1;
  const density=Math.max(2,window.devicePixelRatio||1)*cssZoom;
  const scale=Math.min(density,Math.sqrt(PDF_PAGE_PIXEL_LIMIT/(width*height)),PDF_CANVAS_SIDE_LIMIT/width,PDF_CANVAS_SIDE_LIMIT/height);
  return {width:Math.max(1,Math.floor(width*scale)),height:Math.max(1,Math.floor(height*scale))};
@@ -138,7 +165,7 @@ function refreshPdfResolution(){
   const cv=q("canvas",r.el);if(!cv)return;
   const size=pdfPixelSize(parseFloat(cv.style.width),parseFloat(cv.style.height),r.el);
   if(size.width===cv.width&&size.height===cv.height)return;
-  releasePageCanvas(r);r.rendered=false;renderPage(n);
+  r.rendered=false;renderPage(n);
  });
 }
 function schedulePdfLayout(){
@@ -155,45 +182,50 @@ function scheduleTrim(center=S.current){
 }
 function availablePdfWidth(){const scroll=q("#lit-scroll");if(!scroll)return 320;const style=getComputedStyle(scroll);return Math.max(1,scroll.clientWidth-parseFloat(style.paddingLeft||0)-parseFloat(style.paddingRight||0))}
 async function build(){
- const host=q("#lit-pages");if(!host||!S.pdf)return;S.pages.forEach(releasePageCanvas);host.innerHTML="";S.pages.clear();const gen=S.generation,pdf=S.pdf;
- /* v261009p · 旧实现为拿页面尺寸在打开 PDF 时串行 getPage(1..N)，长论文首屏会被 N 次异步解析阻塞。
-    学术论文绝大多数页面同尺寸：只取第 1 页作为占位尺寸，真正进入视口时再按实际页面尺寸修正。 */
- const first=await pdf.getPage(1);if(gen!==S.generation||pdf!==S.pdf||!host.isConnected)return;
+ const host=q("#lit-pages"),pdf=S.pdf;if(!host||!pdf)return;
+ const gen=S.generation,buildKey=S.buildKey=(S.buildKey||0)+1;
+ S.observer?.disconnect();
+ const first=await pdf.getPage(1);if(gen!==S.generation||pdf!==S.pdf||buildKey!==S.buildKey||!host.isConnected)return;
  if(S.zoomMode==="fit")S.scale=Math.max(.2,Math.min(2.4,availablePdfWidth()/first.getViewport({scale:1}).width));
- const baseVp=first.getViewport({scale:S.scale});
- host.style.minWidth=baseVp.width+"px";
- const frag=document.createDocumentFragment();
- for(let n=1;n<=S.pdf.numPages;n++){
-  const el=document.createElement("div");el.className="lit-page-shell";el.dataset.page=n;
-  el.style.width=baseVp.width+"px";el.style.height=baseVp.height+"px";
-  el.innerHTML='<div class="lit-page-placeholder">第 '+n+" 页</div>";
-  frag.appendChild(el);S.pages.set(n,{el,rendered:false,rendering:false,annotations:annotationsForPage(n)});
+ const baseVp=first.getViewport({scale:S.scale});host.style.minWidth=baseVp.width+"px";
+ const previous=S.pages,next=new Map(),frag=document.createDocumentFragment();
+ for(let n=1;n<=pdf.numPages;n++){
+  let r=previous.get(n);
+  if(!r){const el=document.createElement("div");el.className="lit-page-shell";el.dataset.page=n;el.innerHTML='<div class="lit-page-placeholder">第 '+n+' 页</div>';r={el,annotations:annotationsForPage(n)}}
+  r.renderKey=(r.renderKey||0)+1;r.renderTask?.cancel?.();r.renderTask=null;r.rendered=false;r.rendering=false;r.renderPromise=null;
+  r.el.style.width=baseVp.width+"px";r.el.style.height=baseVp.height+"px";
+  const old=q(".lit-page",r.el);if(old){old.style.width=baseVp.width+"px";old.style.height=baseVp.height+"px";const canvas=q("canvas",old);if(canvas){canvas.style.width=baseVp.width+"px";canvas.style.height=baseVp.height+"px"}}
+  next.set(n,r);frag.append(r.el);
  }
- host.appendChild(frag);
+ S.pages=next;host.replaceChildren(frag);
  S.observer=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)renderPage(+e.target.dataset.page)}),{root:q("#lit-scroll"),rootMargin:"700px 0px",threshold:.01});
- S.pages.forEach(r=>S.observer.observe(r.el));q("#lit-scroll").onscroll=throttle(track,80);toolbar();
+ S.pages.forEach(r=>S.observer.observe(r.el));q("#lit-scroll").onscroll=throttle(track,80);toolbar();renderPage(S.current);
 }
-async function renderPage(n){
- const r=S.pages.get(n);if(!r||r.rendered||r.rendering||!S.pdf||wheelTarget!=null)return;r.rendering=true;const gen=S.generation;
- try{
-  const p=await S.pdf.getPage(n),vp=p.getViewport({scale:S.scale});if(gen!==S.generation)return;
-  r.el.style.width=vp.width+"px";r.el.style.height=vp.height+"px";r.el.innerHTML='<div class="lit-page" data-page="'+n+'" style="width:'+vp.width+'px;height:'+vp.height+'px"><canvas></canvas><svg class="lit-annotation-layer" viewBox="0 0 1 1" preserveAspectRatio="none"></svg><div class="lit-selection-layer"></div><div class="lit-interaction-layer" title="拖动选择文字"></div></div>';
-  const cv=q("canvas",r.el),size=pdfPixelSize(vp.width,vp.height,r.el);cv.width=size.width;cv.height=size.height;cv.style.width=vp.width+"px";cv.style.height=vp.height+"px";
-  const ctx=cv.getContext("2d",{alpha:false});ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
-  r.renderTask=p.render({canvasContext:ctx,viewport:vp,transform:[cv.width/vp.width,0,0,cv.height/vp.height,0,0]});
-  await r.renderTask.promise;if(gen!==S.generation)return;
-  const text=await p.getTextContent();if(gen!==S.generation)return;
-  r.textItems=buildPdfTextGeometry(text,vp);
-  r.annotations=annotationsForPage(n);r.rendered=true;
-  try{p.cleanup()}catch{} /* 释放 PDF.js 当前页 operator/display 资源；需要时可再次惰性渲染 */
-  const pageEl=q(".lit-page",r.el),hit=q(".lit-interaction-layer",r.el);
-  hit.onmousedown=e=>beginPdfGeometrySelection(n,e);
-  hit.onclick=e=>handlePageAnnotationClick(n,e);
-  paint(n);scheduleTrim(S.current);
- }catch(e){if(gen===S.generation&&e.name!=="RenderingCancelledException")r.el.innerHTML='<div class="lit-page-error">第 '+n+" 页渲染失败："+esc(e.message)+"</div>"}finally{
-  r.rendering=false;r.renderTask=null;
-  if(gen===S.generation){trimRenderedPages();const cv=q("canvas",r.el);if(r.rendered&&cv){const size=pdfPixelSize(parseFloat(cv.style.width),parseFloat(cv.style.height),r.el);if(size.width!==cv.width||size.height!==cv.height)schedulePdfLayout()}}
- }
+function renderPage(n){
+ const r=S.pages.get(n);if(!r||r.rendered||!S.pdf||wheelTarget!=null)return Promise.resolve();if(r.rendering)return r.renderPromise;
+ const gen=S.generation,pdf=S.pdf,scale=S.scale,renderKey=r.renderKey=(r.renderKey||0)+1;r.rendering=true;
+ const valid=()=>gen===S.generation&&pdf===S.pdf&&r===S.pages.get(n)&&r.renderKey===renderKey&&r.el.isConnected;
+ r.renderPromise=(async()=>{
+  let cv=null;
+  try{
+   const p=await pdf.getPage(n),vp=p.getViewport({scale});if(!valid())return;
+   /* Paint off-screen. An opaque canvas starts black in WebView2; never expose
+      it until PDF.js has finished, and retain the previous frame during zoom. */
+   cv=document.createElement("canvas");const size=pdfPixelSize(vp.width,vp.height,r.el);cv.width=size.width;cv.height=size.height;cv.style.width=vp.width+"px";cv.style.height=vp.height+"px";cv.style.background="#fff";
+   const ctx=cv.getContext("2d",{alpha:false});ctx.fillStyle="#fff";ctx.fillRect(0,0,cv.width,cv.height);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
+   r.renderTask=p.render({canvasContext:ctx,viewport:vp,background:"#ffffff",transform:[cv.width/vp.width,0,0,cv.height/vp.height,0,0]});
+   await r.renderTask.promise;if(!valid())return;
+   const text=await p.getTextContent();if(!valid())return;
+   const old=q("canvas",r.el),pageEl=document.createElement("div");pageEl.className="lit-page";pageEl.dataset.page=n;pageEl.style.width=vp.width+"px";pageEl.style.height=vp.height+"px";
+   pageEl.innerHTML='<svg class="lit-annotation-layer" viewBox="0 0 1 1" preserveAspectRatio="none"></svg><div class="lit-selection-layer"></div><div class="lit-interaction-layer" title="拖动选择文字"></div>';
+   cv.dataset.ready="true";pageEl.prepend(cv);r.el.style.width=vp.width+"px";r.el.style.height=vp.height+"px";r.el.replaceChildren(pageEl);cv=null;
+   if(old){old.width=1;old.height=1}
+   r.textItems=buildPdfTextGeometry(text,vp);r.annotations=annotationsForPage(n);r.rendered=true;
+   const hit=q(".lit-interaction-layer",pageEl);hit.onmousedown=e=>beginPdfGeometrySelection(n,e);hit.onclick=e=>handlePageAnnotationClick(n,e);
+   paint(n);paintPending();scheduleTrim(S.current);try{p.cleanup()}catch{}
+  }catch(e){if(valid()&&e.name!=="RenderingCancelledException"){if(!q("canvas",r.el))r.el.innerHTML='<div class="lit-page-error">第 '+n+' 页渲染失败：'+esc(e.message)+'</div>';toast("PDF 第 "+n+" 页绘制失败："+e.message,true)}}
+  finally{if(cv){cv.width=1;cv.height=1}if(r.renderKey===renderKey){r.rendering=false;r.renderTask=null;if(valid()){trimRenderedPages();const front=q("canvas",r.el);if(r.rendered&&front){const size=pdfPixelSize(parseFloat(front.style.width),parseFloat(front.style.height),r.el);if(size.width!==front.width||size.height!==front.height)schedulePdfLayout()}}}}
+ })();return r.renderPromise;
 }
 
 function buildPdfTextGeometry(text,viewport){
@@ -452,7 +484,7 @@ function pageAtScroll(){
  return best;
 }
 function track(){if(S.zooming)return;const best=pageAtScroll();/* 回收的预读页可能仍在 observer 边界内，滚动时重新预热当前页和相邻页。 */for(let n=Math.max(1,best-1);n<=Math.min(S.pdf?.numPages||0,best+1);n++)renderPage(n);scheduleTrim(best);if(best===S.current)return;S.current=best;toolbar();dispatchPage();clearTimeout(track.t);track.t=setTimeout(()=>savePos(best),400)} /* v261009p · O(logN) 页定位 + 有界渲染缓存 */
-async function savePos(page){if(!S.paper||!S.pdf)return;const st=S.paper.reading_status==="未读"?"在读":S.paper.reading_status;S.paper.last_page=page;S.paper.reading_status=st;try{await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({last_page:page,page_count:S.pdf.numPages,reading_status:st})})}catch{}}
+async function savePos(page){if(!S.paper||!S.pdf)return;const st=S.paper.reading_status==="未读"?"在读":S.paper.reading_status;S.paper.last_page=page;S.paper.reading_status=st;if(S.infoBase&&JSON.stringify(S.infoDraft)===S.infoBase){S.infoDraft.reading_status=st;const select=q("#li-status");if(select)select.value=st;S.infoBase=JSON.stringify(S.infoDraft)}try{await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({last_page:page,page_count:S.pdf.numPages,reading_status:st})})}catch{}}
 function dispatchPage(){document.dispatchEvent(new CustomEvent("erw-lit-page",{detail:{page:S.current}}))} /* v260930d · M5 翻页事件 */
 function go(n,smooth=true){
  const rec=S.pages.get(n),sc=q("#lit-scroll");if(!rec||!sc)return;
@@ -553,38 +585,52 @@ async function annToNote(){
   /* v260929w · 截图复制到笔记图片目录（设置指定的位置）：Previews 缩略图会随批注删除被清理，笔记引用须独立文件 */
   let shotPath=String(a.preview_path||"");
   if(withShot){try{const cp=await api("/api/literature/note-image-copy",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({paper_id:S.paper.id,preview_path:a.preview_path})});if(cp?.path)shotPath=cp.path}catch{}}
-  const d=await api("/api/literature/"+S.paper.id+"/note");
-  const cur=String(d.content||"");
+  const state=await loadNote();
+  const cur=state.text;
   const tag="P."+a.page+(a.no?" · #"+a.no:"");
   let block="**批注 "+tag+"**\n";
   if(text)block+="> "+text.replace(/\r?\n/g,"\n> ")+"\n";
   if(withShot)block+="![批注 "+tag+" 截图]("+shotPath+")\n";
   if(comment)block+=comment+"\n";
   const next=cur.replace(/\s+$/,"")+(cur.trim()?"\n\n":"")+block;
-  await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:next})});
+  state.text=next;switchTab("notes");noteStatus("批注已加入草稿，请保存笔记");
   if(btn){btn.textContent="已写入 ✓";setTimeout(()=>btn&&(btn.textContent="加入笔记"),1200)}
   loadList().catch(()=>{});
  }catch(e){if(btn){btn.textContent="失败";setTimeout(()=>btn&&(btn.textContent="加入笔记"),1500)}toast(e?.message||String(e),true)}
 }
-function side(){const p=S.paper;q("#lit-side").innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button><button data-tab="ai" title="AI 翻译 / 总结 / 整理 / 笔记润色">AI</button></div><div id="lit-side-body"></div>';qa("[data-tab]").forEach(b=>b.onclick=()=>{if(b.dataset.tab!=="annotations")S.selectedAnn=null;qa("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));sideTab(b.dataset.tab)});sideTab("info")}
-function sideTab(tab){
- const root=q("#lit-side-body"),p=S.paper;
- if(tab==="info"){root.innerHTML='<div class="lit-info"><label>题名<input id="li-title" value="'+esc(p.title)+'"></label><label>作者<input id="li-authors" value="'+esc(p.authors||"")+'"></label><div class="lit-two"><label>年份<input id="li-year" value="'+esc(p.year||"")+'"></label><label>阅读状态<select id="li-status"><option '+(p.reading_status==="未读"?"selected":"")+'>未读</option><option '+(p.reading_status==="在读"?"selected":"")+'>在读</option><option '+(p.reading_status==="已读"?"selected":"")+'>已读</option></select></label></div><label class="lit-marks-label">分类标记</label><div class="mark-chip-box" id="li-marks"></div><label class="lit-marks-label">标签</label><div class="project-picker-row"><div class="project-chip-box" id="li-tags"></div><button type="button" class="secondary-btn project-add-btn" id="li-tag-add" title="添加标签：可勾选已有或输入新标签">＋</button></div><label>期刊 / 会议<input id="li-venue" value="'+esc(p.venue||"")+'"></label><div class="lit-two"><label>DOI<input id="li-doi" value="'+esc(p.doi||"")+'"></label><label>Cite Key<input id="li-cite" value="'+esc(p.cite_key||"")+'"></label></div><label class="lit-favorite"><input type="checkbox" id="li-favorite" '+(p.favorite?"checked":"")+'> 收藏此文献</label><button class="primary-btn" id="li-save">保存信息</button></div>';q("#li-save").onclick=saveInfo;renderLiMarks();paintLiTags(p.tags||[])}
- else if(tab==="annotations")annList();else if(tab==="ai")aiPanel();else note();
+function side(){
+ q('#lit-side').innerHTML='<div class="lit-side-tabs"><button class="active" data-tab="info">信息</button><button data-tab="annotations">批注</button><button data-tab="notes">笔记</button><button data-tab="ai">AI</button></div><div id="lit-side-body"></div>';
+ qa('#lit-side [data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));S.sideTab='info';sideTab('info');
 }
+function sideTab(tab){
+ const root=q('#lit-side-body');if(!root||!S.paper)return;root.dataset.litTab=tab;
+ if(tab==='info'){
+  const p=S.infoDraft||S.paper;
+  const field=(label,id,value,type='text')=>'<label>'+label+'<input id="'+id+'" type="'+type+'" value="'+esc(value||'')+'"></label>';
+  root.innerHTML='<div class="lit-info">'+field('题名','li-title',p.title)+field('作者','li-authors',p.authors)+'<div class="lit-two">'+field('年份','li-year',p.year)+'<label>阅读状态<select id="li-status">'+['未读','在读','已读'].map(x=>'<option '+(x===(p.reading_status||'未读')?'selected':'')+'>'+x+'</option>').join('')+'</select></label></div><label>关联项目</label><div class="project-picker-row"><div class="project-chip-box" id="li-projects"></div><button type="button" class="secondary-btn project-add-btn" id="li-project-add" aria-label="选择关联项目">＋</button></div><label>分类标记</label><div class="mark-chip-box" id="li-marks"></div><label>标签</label><div class="project-picker-row"><div class="project-chip-box" id="li-tags"></div><button type="button" class="secondary-btn project-add-btn" id="li-tag-add" aria-label="添加标签">＋</button></div>'+field('期刊 / 会议','li-venue',p.venue)+field('DOI','li-doi',p.doi)+field('来源 URL','li-url',p.url)+'<div class="lit-two">'+field('引用键','li-cite',p.cite_key)+field('加入日期','li-added',p.added_date,'date')+'</div><details class="lit-info-extra"><summary>BibTeX 与自动填写</summary><div class="lit-lookup"><input id="li-lookup" placeholder="DOI、arXiv 或 BibTeX"><button type="button" id="li-lookup-run">填写</button></div><label>BibTeX<textarea id="li-bibtex" rows="6">'+esc(p.bibtex||'')+'</textarea></label></details><label class="lit-favorite"><input type="checkbox" id="li-favorite" '+(p.favorite?'checked':'')+'> 收藏 / 置顶</label><div class="lit-info-message" id="li-message" role="status"></div><div class="lit-info-actions"><button type="button" class="primary-btn" id="li-save">保存信息</button><button type="button" class="ghost-btn danger" id="li-delete">删除文献</button></div></div>';
+  renderLiMarks();paintLiTags(p.tags||[]);paintLiProjects(p.projects||[]);q('#li-save').onclick=saveInfo;q('#li-delete').onclick=deletePaper;
+  q('#li-lookup-run').onclick=async()=>{const value=q('#li-lookup').value.trim(),button=q('#li-lookup-run');if(!value)return;button.disabled=true;try{const data=value.startsWith('@')?window.ERWBibtexFields(value):await api('/api/literature/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifier:value})});for(const [key,id] of Object.entries({title:'li-title',authors:'li-authors',year:'li-year',venue:'li-venue',doi:'li-doi',url:'li-url',cite_key:'li-cite',bibtex:'li-bibtex'}))if(data[key])q('#'+id).value=data[key];captureInfo();q('#li-message').textContent='已填写，请核对后保存'}catch(e){q('#li-message').textContent=e.message}finally{button.disabled=false}};
+  S.infoDraft=infoPayload();if(!S.infoBase)S.infoBase=JSON.stringify(S.infoDraft);
+  root.oninput=()=>{captureInfo();window.dispatchEvent(new Event('workbench:editor-state'))};
+ }else{root.oninput=null;if(tab==='annotations')annList();else if(tab==='ai')aiPanel();else note()}
+}
+function switchTab(tab){captureNote();captureInfo();if(tab!=='annotations')S.selectedAnn=null;S.sideTab=tab;qa('#lit-side [data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));sideTab(tab)}
+function liProjects(){const box=q('#li-projects');try{return JSON.parse(box?.dataset.projects||'[]')}catch{return []}}
+function paintLiProjects(names){const box=q('#li-projects');if(!box)return;box.dataset.projects=JSON.stringify(names);box.innerHTML=names.length?names.map((name,index)=>'<span class="project-chip" title="'+esc(name)+'"><span class="project-chip-label">'+esc(window.ERWResearchUI?.projectLabel(name)||name)+'</span><button type="button" data-li-project-remove="'+index+'" aria-label="移除项目">×</button></span>').join(''):'<span class="row-meta">未关联项目</span>';qa('[data-li-project-remove]',box).forEach(b=>b.onclick=()=>{const values=liProjects();values.splice(+b.dataset.liProjectRemove,1);paintLiProjects(values);captureInfo()});q('#li-project-add').onclick=()=>window.ERWProjectPicker?.(liProjects(),values=>{paintLiProjects(values);captureInfo()})}
 /* v260929 · PDF 阅读区 AI 助手：选中文本 → 翻译/总结/整理/自定义指令，结果可追加/替换到文献笔记（条目正文同源） */
-function switchTab(tab){qa("[data-tab]").forEach(x=>x.classList.toggle("active",x.dataset.tab===tab))}
+
 function aiFromSelection(action){if(!(S.pending?.kind==="text"&&S.pending?.text))return;switchTab("ai");runAssist(action,"")}
 const AI_LABELS={translate:"AI 翻译中…",summarize:"AI 总结中…",organize:"AI 整理中…",polish:"AI 润色笔记中…",custom:"AI 处理中…"};
-async function runAssist(action,instruction,label){ /* v260929b · label：按钮文字，自定义动作据此显示「AI xxx中…」；v260929c · image：截图代替/伴随文本 */
+async function runAssist(action,instruction,label,explicitSource){ /* v260929b · label：按钮文字，自定义动作据此显示「AI xxx中…」；v260929c · image：截图代替/伴随文本 */
  if(S.ai.busy)return;
  const fresh=S.pending?.kind==="text"?String(S.pending.text||""):"";
- const src=fresh||S.ai.text||"";
- const img=S.ai.image||"";
+ const src=explicitSource!==undefined?explicitSource:fresh||S.ai.text||"";
+ const img=explicitSource!==undefined?"":S.ai.image||"";
  if(!src&&!img){S.ai={...S.ai,text:"",result:"",busy:false,error:"没有可处理的内容：请先在 PDF 中选中文字、截取页面/框选区域，或在「笔记」页用 AI 整理已有笔记。"};aiPanel();return}
+ const paperId=S.paper?.id,requestKey=S.aiRequest=(S.aiRequest||0)+1;
  S.ai={...S.ai,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):"",result:"",error:"",busy:true,busyLabel:AI_LABELS[action]||(label?"AI "+label+"中…":"AI 处理中…")};aiPanel();
- try{const d=await api("/api/agent/assist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):"",...(img?{image:img}:{})})});S.ai={...S.ai,result:String(d.content||""),error:"",busy:false}}
- catch(e){S.ai={...S.ai,error:String(e?.message||e),result:"",busy:false}}
+ try{const d=await api("/api/agent/assist",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,text:src,instruction:action==="custom"?(instruction||S.ai.instruction):"",...(img?{image:img}:{})})});if(paperId!==S.paper?.id||requestKey!==S.aiRequest)return;S.ai={...S.ai,result:String(d.content||""),error:"",busy:false}}
+ catch(e){if(paperId!==S.paper?.id||requestKey!==S.aiRequest)return;S.ai={...S.ai,error:String(e?.message||e),result:"",busy:false}}
  aiPanel();
 }
 function mdLite(s){ /* 结果区轻量 Markdown 渲染：所有模型输出先转义，再拼受控标签，避免同源 XSS */
@@ -606,7 +652,7 @@ function mdLite(s){ /* 结果区轻量 Markdown 渲染：所有模型输出先�
  return out;
 }
 function aiPanel(){
- const root=q("#lit-side-body");if(!root)return;const a=S.ai;
+ const root=q("#lit-side-body");if(!root||S.sideTab!=="ai")return;const a=S.ai;
  const cas=window.ERWAssistCustomActions?window.ERWAssistCustomActions():[]; /* v260929b · 设置中维护的自定义阅读动作，与固定四动作并列 */
  const vis=window.ERWVisionEnabled?window.ERWVisionEnabled():false; /* v260929c · 多模态开关：开启才显示截图入口 */
  const srcHtml=a.image?'<img class="lit-ai-img" src="'+esc(a.image)+'" alt="待处理截图">'+(a.text?'<div class="lit-ai-src-text">'+esc(a.text.slice(0,600))+(a.text.length>600?"…":"")+'</div>':"")
@@ -629,24 +675,24 @@ function aiPanel(){
  const rp=q("#lit-ai-replace");if(rp)rp.onclick=()=>noteApply("replace");
  const cp=q("#lit-ai-copy");if(cp)cp.onclick=async()=>{try{await navigator.clipboard.writeText(S.ai.result||"");cp.textContent="已复制";setTimeout(()=>cp&&(cp.textContent="复制"),900)}catch{}};
 }
-async function noteApply(mode){ /* AI 结果写入文献笔记（= 条目 md 正文）：append 追加 / replace 整体替换 */
+async function noteApply(mode){
  if(!S.paper||!S.ai.result)return;
- const btn=q(mode==="replace"?"#lit-ai-replace":"#lit-ai-append");if(btn){btn.disabled=true;btn.textContent="写入中…"}
- try{
-  const d=await api("/api/literature/"+S.paper.id+"/note");
-  const cur=String(d.content||"");
-  const next=mode==="replace"?S.ai.result:cur.replace(/\s+$/,"")+(cur.trim()?"\n\n":"")+S.ai.result+"\n";
-  await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:next})});
-  if(btn){btn.textContent="已写入 ✓";setTimeout(()=>btn&&(btn.textContent=mode==="replace"?"替换笔记":"追加到笔记"),1200)}
-  loadList().catch(()=>{});
- }catch(e){if(btn){btn.textContent="失败";setTimeout(()=>btn&&(btn.textContent=mode==="replace"?"替换笔记":"追加到笔记"),1500)}window.ERWDialog.alert(e?.message||e)}
+ try{const state=await loadNote();if(state.id!==S.paper?.id)return;captureNote();if(mode==='replace'&&state.text.trim()&&!await window.ERWDialog.confirm('用 AI 结果替换当前笔记草稿？保存前仍可继续编辑。',{title:'替换笔记草稿'}))return;
+ if(state.id!==S.paper?.id)return;state.text=mode==='replace'?S.ai.result:state.text.replace(/\s+$/,'')+(state.text.trim()?'\n\n':'')+S.ai.result+'\n';switchTab('notes');noteStatus('AI 结果已放入草稿，请核对并保存')
+ }catch(e){toast(e.message,true)}
 }
-async function saveInfo(){const p={title:q("#li-title").value,authors:q("#li-authors").value,year:q("#li-year").value,reading_status:q("#li-status").value,tags:liTags(),venue:q("#li-venue").value,doi:q("#li-doi").value,cite_key:q("#li-cite").value,favorite:q("#li-favorite").checked,kind_marks:qa("#li-marks .mark-chip.on").map(b=>b.dataset.mark)};S.paper=await api("/api/literature/"+S.paper.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(p)});await loadList()}
+async function saveInfo(){
+ captureInfo();if(S.infoSaving)return S.infoSaving;const payload=S.infoDraft,id=S.paper?.id;if(!payload||!id)return false;const requestBody={...payload};if(payload.bibtex===JSON.parse(S.infoBase||"{}").bibtex)delete requestBody.bibtex;
+ if(S.noteState&&S.noteState.text!==S.noteState.base&&!await saveNote())return false;
+ const button=q('#li-save'),message=q('#li-message');if(button)button.disabled=true;if(message)message.textContent='正在保存…';
+ S.infoSaving=(async()=>{try{const paper=await api('/api/literature/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(requestBody)});if(S.paper?.id===id){S.paper=paper;S.infoBase=JSON.stringify(payload);if("bibtex" in requestBody&&S.noteState?.text===S.noteState?.base)S.noteState=null;if(message)message.textContent='信息已保存';await loadList();window.dispatchEvent(new Event('workbench:editor-state'))}return true}catch(e){if(message)message.textContent='保存失败：'+e.message;toast('文献信息保存失败：'+e.message,true);return false}finally{if(button)button.disabled=false;S.infoSaving=null}})();return S.infoSaving;
+}
+async function deletePaper(){if(!S.paper||!await guard())return;if(!await window.ERWDialog.confirm('删除这篇文献、PDF 与笔记？本地文件将移入回收区。'))return;const id=S.paper.id;try{await api('/api/literature/'+encodeURIComponent(id),{method:'DELETE'});S.noteState=null;S.infoBase=null;S.infoDraft=null;reset();S.paper=null;shell();await loadList()}catch(e){toast(e.message,true)}}
 /* v260929 · 阅读区信息栏「分类标记」chips：与编辑区同款渲染（复用 app.js 的 ERWMarkChips），保存时随 saveInfo 写回条目 md */
 function renderLiMarks(){
  const box=q("#li-marks"); if(!box||!window.ERWMarkChips)return;
  const on=qa("#li-marks .mark-chip.on").map(b=>b.dataset.mark);
- const saved=(S.paper&&S.paper.kind_marks)||[];
+ const saved=(S.infoDraft||S.paper)?.kind_marks||[];
  box.innerHTML=window.ERWMarkChips.html([...new Set([...on,...saved])]);
  qa("#li-marks .mark-chip:not(.add-mark)").forEach(b=>b.onclick=()=>b.classList.toggle("on"));
  const add=q("#li-marks .mark-chip.add-mark");
@@ -683,20 +729,44 @@ function annList(){
  qa("[data-del]").forEach(b=>b.onclick=async()=>{const page=+b.dataset.page;await api("/api/literature/"+S.paper.id+"/annotations/"+b.dataset.del,{method:"DELETE"});removeAnnotationLocal(b.dataset.del,page);paint(page);if(S.selectedAnn?.id===b.dataset.del)S.selectedAnn=null;annList()});
 }
 /* v260929f · 笔记插图：选本地图片 → 落盘笔记图片目录 → 光标处插入 Markdown 图片引用（路径口径与附件一致） */
-function insertAtCursor(ta,text){if(!ta)return;const s=ta.selectionStart??ta.value.length,e=ta.selectionEnd??s;ta.value=ta.value.slice(0,s)+text+ta.value.slice(e);const p=s+text.length;ta.focus();ta.setSelectionRange(p,p)}
+function insertAtCursor(ta,text){if(!ta)return;const s=ta.selectionStart??ta.value.length,e=ta.selectionEnd??s;ta.value=ta.value.slice(0,s)+text+ta.value.slice(e);const p=s+text.length;ta.focus();ta.setSelectionRange(p,p);ta.dispatchEvent(new Event("input",{bubbles:true}))}
 async function uploadNoteImage(file){
  const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result));r.onerror=()=>rej(new Error("读取图片失败"));r.readAsDataURL(file)});
  return api("/api/literature/note-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({paper_id:S.paper.id,data_url:dataUrl})});
 }
-async function note(){const root=q("#lit-side-body"),d=await api("/api/literature/"+S.paper.id+"/note");root.innerHTML='<textarea class="lit-note" id="lit-note" placeholder="Markdown 文献笔记…（与知识库条目正文同源，文献编辑器里看到的是同一份）">'+esc(d.content||"")+'</textarea><div class="lit-note-actions"><span>与知识库条目正文同源 · Ctrl+S 保存</span><span style="display:flex;gap:6px"><button type="button" class="secondary-btn" id="lit-note-img" title="上传图片到笔记图片目录，并在光标处插入 Markdown 图片引用">插入图片</button><input type="file" id="lit-note-img-file" accept="image/png,image/jpeg,image/webp" hidden><button type="button" class="secondary-btn" id="lit-note-ai" title="把当前笔记交给 AI 整理润色，结果在 AI 面板确认后写入">AI 整理</button><button class="primary-btn" id="lit-note-save">保存笔记</button></span></div>';q("#lit-note-save").onclick=saveNote;
- const imgBtn=q("#lit-note-img"),imgFile=q("#lit-note-img-file");
- if(imgBtn&&imgFile){imgBtn.onclick=()=>imgFile.click();imgFile.onchange=async()=>{const f=imgFile.files&&imgFile.files[0];imgFile.value="";if(!f)return;imgBtn.disabled=true;const old=imgBtn.textContent;imgBtn.textContent="上传中…";try{const r=await uploadNoteImage(f);insertAtCursor(q("#lit-note"),"!["+(r.filename||"图片")+"]("+(r.path||"")+")")}catch(e){toast(e?.message||String(e),true)}finally{imgBtn.disabled=false;imgBtn.textContent=old}}}
- window.ERWPaneZoom?.bindText(q("#lit-note"),"erwPdfNoteZoom");
- q("#lit-note-ai").onclick=()=>{const t=q("#lit-note").value.trim();if(!t){S.ai={...S.ai,text:"",result:"",error:"笔记为空：先写点内容，或回到 PDF 选中段落用「AI 整理」生成。",busy:false};switchTab("ai");aiPanel();return}S.ai={...S.ai,text:t,instruction:"",result:"",error:"",busy:false};switchTab("ai");runAssist("polish","")}}
-async function saveNote(){await api("/api/literature/"+S.paper.id+"/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:q("#lit-note").value})});loadList().catch(()=>{}) /* v260929 · 保存后刷新左栏（摘要取自同一份正文） */}
+async function note(){
+ const root=q('#lit-side-body'),id=S.paper?.id;if(!root||!id)return;root.innerHTML='<div class="lit-empty">正在载入笔记…</div>';
+ try{const state=await loadNote();if(S.paper?.id!==id||S.sideTab!=='notes'||!root.isConnected)return;
+ root.innerHTML='<div class="lit-note-tools"><strong>阅读笔记</strong><button type="button" id="lit-note-mode">'+(S.noteMode==='preview'?'编辑':'预览')+'</button><button type="button" id="lit-note-reference">引用</button></div><div class="lit-note-editor"><textarea class="lit-note" id="lit-note" placeholder="写下阅读笔记，支持 Markdown 和 [[引用]]…">'+esc(state.text)+'</textarea><div class="md-preview lit-note-preview" id="lit-note-preview" hidden></div></div><div class="lit-note-actions"><span id="lit-note-status" role="status">'+(state.text===state.base?'已保存 · Ctrl+S':'有未保存的修改')+'</span><div class="lit-note-buttons"><button type="button" class="secondary-btn" id="lit-note-img">插入图片</button><input type="file" id="lit-note-img-file" accept="image/png,image/jpeg,image/webp" hidden><button type="button" class="secondary-btn" id="lit-note-ai">AI 整理</button><button type="button" class="primary-btn" id="lit-note-save">保存笔记</button></div></div>';
+ const ta=q('#lit-note');ta.oninput=()=>{state.text=ta.value;noteStatus(state.text===state.base?'已保存 · Ctrl+S':'有未保存的修改')};
+ const mode=()=>{captureNote();const preview=q('#lit-note-preview');ta.hidden=S.noteMode==='preview';preview.hidden=S.noteMode!=='preview';q('#lit-note-mode').textContent=S.noteMode==='preview'?'编辑':'预览';if(S.noteMode==='preview'){const raw=state.text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(_,target,label)=>'<a data-agent-reference="'+esc(target)+'" href="#">'+esc(label||target)+'</a>');preview.innerHTML=window.DOMPurify?.sanitize(window.marked?.parse(raw)||mdLite(raw))||esc(raw);window.ERWDocReferences?.bindPreview(preview)}};
+ q('#lit-note-mode').onclick=()=>{S.noteMode=S.noteMode==='edit'?'preview':'edit';mode()};q('#lit-note-reference').onclick=()=>{if(S.noteMode!=='edit'){S.noteMode='edit';mode()}window.ERWDocReferences?.openPicker(ta)};mode();window.ERWDocReferences?.bindEditor(ta);window.ERWPaneZoom?.bindText(ta,'erwPdfNoteZoom');
+ q('#lit-note-save').onclick=saveNote;q('#lit-note-ai').onclick=()=>{captureNote();const text=state.text.trim();if(!text){noteStatus('笔记为空，请先输入内容');return}S.ai={...S.ai,text,image:'',result:'',error:'',busy:false};switchTab('ai');runAssist('polish','',undefined,text)};
+ q('#lit-note-img').onclick=()=>q('#lit-note-img-file').click();q('#lit-note-img-file').onchange=async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const data=await uploadNoteImage(file);if(S.paper?.id!==id)return;const ta=q('#lit-note');const markdown='!['+(data.filename||'图片')+']('+(data.path||'')+')';if(ta)insertAtCursor(ta,markdown);else state.text+='\n'+markdown;captureNote();noteStatus('图片已插入，请保存笔记')}catch(error){toast(error.message,true)}};
+ }catch(e){if(S.paper?.id===id&&S.sideTab==='notes'&&root.isConnected){root.innerHTML='<div class="lit-empty">笔记加载失败：'+esc(e.message)+'<br><button type="button" id="lit-note-retry">重试</button></div>';q('#lit-note-retry').onclick=note}}
+}
+async function saveNote(){
+ captureNote();let state;try{state=await loadNote()}catch(e){toast('笔记加载失败：'+e.message,true);return false}if(state.saving)return state.saving;
+ const text=state.text,button=q('#lit-note-save');if(button)button.disabled=true;noteStatus('正在保存…');
+ state.saving=(async()=>{try{const saved=await api('/api/literature/'+encodeURIComponent(state.id)+'/note',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:text,...(state.revision!==null?{expected_revision:state.revision}:{})})});state.base=text;state.revision=saved.revision??null;if(S.paper?.id===state.id){noteStatus(state.text===text?'笔记已保存 · Ctrl+S':'已保存，仍有新的修改');loadList()}return true}catch(e){if(S.paper?.id===state.id)noteStatus('保存失败：'+e.message);toast('笔记保存失败：'+e.message,true);return false}finally{if(button)button.disabled=false;state.saving=null}})();return state.saving;
+}
 function throttle(fn,ms){let wait=false;return(...a)=>{if(wait)return;wait=true;fn(...a);setTimeout(()=>wait=false,ms)}}
 
-async function start(){shell();await loadList()}
+function installSplitters(){
+ const shell=q('.lit-shell');
+ for(const [name,selector,fallback,min,max] of [['library','.lit-library',244,160,440],['side','.lit-reader',340,270,620]]){
+  const key='erwLitWidth:'+name,stored=Number(localStorage.getItem(key)),width=Number.isFinite(stored)&&stored>=min?stored:fallback;
+  shell.style.setProperty('--lit-'+name+'-width',Math.max(min,Math.min(max,width))+'px');
+  const bar=document.createElement('div');bar.className='lit-splitter lit-splitter-'+name;bar.tabIndex=0;bar.setAttribute('role','separator');bar.setAttribute('aria-orientation','vertical');bar.setAttribute('aria-label',name==='library'?'调整文献列表宽度':'调整资料与笔记宽度');bar.setAttribute('aria-valuemin',min);bar.setAttribute('aria-valuemax',max);bar.setAttribute('aria-valuenow',width);q(selector,shell).after(bar);
+  const apply=(value,persist=false)=>{const available=shell.clientWidth-(name==='library'&&!S.sideHidden?parseFloat(shell.style.getPropertyValue('--lit-side-width'))||340:name==='side'&&!S.libraryHidden?parseFloat(shell.style.getPropertyValue('--lit-library-width'))||244:0)-290;const next=Math.max(min,Math.min(max,available,value));shell.style.setProperty('--lit-'+name+'-width',next+'px');bar.setAttribute('aria-valuenow',Math.round(next));if(persist)localStorage.setItem(key,String(next));};
+  let drag=null;bar.onpointerdown=e=>{if(e.button!==0)return;e.preventDefault();drag={x:e.clientX,width:parseFloat(shell.style.getPropertyValue('--lit-'+name+'-width')),zoom:shell.getBoundingClientRect().width/shell.clientWidth};bar.setPointerCapture(e.pointerId);shell.classList.add('is-resizing')};bar.onpointermove=e=>{if(drag)apply(drag.width+(e.clientX-drag.x)/(drag.zoom||1)*(name==='library'?1:-1))};
+  const finish=()=>{if(!drag)return;drag=null;shell.classList.remove('is-resizing');apply(parseFloat(shell.style.getPropertyValue('--lit-'+name+'-width')),true);schedulePdfLayout()};bar.onpointerup=finish;bar.onpointercancel=finish;bar.onlostpointercapture=finish;
+  bar.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();apply(e.key==='Home'?min:e.key==='End'?max:parseFloat(shell.style.getPropertyValue('--lit-'+name+'-width'))+(e.key==='ArrowRight'?16:-16)*(name==='library'?1:-1),true)}};
+  bar.ondblclick=()=>apply(fallback,true);
+ }
+}
+async function exportReferences(){try{const ids=S.items.map(item=>item.doc_id).filter(Boolean);if(!ids.length){toast('当前页没有可导出的引用');return}const result=await api('/api/literature/export-bibtex',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});const url=URL.createObjectURL(new Blob([result.content||''],{type:'application/x-bibtex;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='literature.bib';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){toast(e.message,true)}}
+async function start(options={}){if(!await guard())return false;shell();S.listPage=1;await loadList();if(options.autoOpen!==false&&q('.lit-shell')){const saved=localStorage.getItem('erwLitRecentPaper'),hit=S.items.find(item=>item.id===saved)||S.items.find(item=>item.pdf_available!==false);if(hit)await openPaper(hit.id)}return true}
 /* v260929 · 由文献条目附件徽章进入：按 attachment 路径尾段匹配库内 PDF 文件名（stored_filename 唯一），
    命中则进工作区并直接打开该论文；未登记（如手动填写附件路径的旧条目）抛错，由调用方退回新窗口直开 */
 async function openByAttachment(att){
@@ -712,9 +782,10 @@ async function openByAttachment(att){
   page++;
  }while((page-1)*200<total);
  if(!hit)throw new Error("该附件未登记到 PDF 工作区");
- await start();await openPaper(hit.id);
+ if(await start({autoOpen:false})!==false)await openPaper(hit.id);
 }
-window.ERWLiterature={start,openByAttachment,openById:async id=>{await start();await openPaper(id)},context:()=>({paper_id:S.paper?.id||"",title:S.paper?.title||"",page:S.current||1,selection:S.pending?.kind==="text"?String(S.pending.text||""):"",page_text:pageText(S.current||1)})}; /* v260930 · M2 悬浮球上下文桥：当前文献/页码/PDF 选中文本；v260930c · M4 增加当前页文本层正文（术语提取输入） */
+function destroy(){S.openSeq++;S.listSeq++;S.layoutObserver?.disconnect();clearTimeout(S.layoutTimer);reset();S.paper=null;S.noteState=null;S.infoDraft=null;S.infoBase=null;window.ERWDocReferences?.close()}
+window.ERWLiterature={start,guard,dirty,destroy,refresh:loadList,openByAttachment,openById:async id=>{if(await start({autoOpen:false})!==false)return openPaper(id)},openByDocument:async(id,options={})=>{const paper=await api('/api/literature/document/'+encodeURIComponent(id));if(!q('.lit-shell')&&await start({autoOpen:false})===false)return false;const result=await openPaper(paper.id);if(options.note&&result!==false){showSide();switchTab('notes')}return result},context:()=>({paper_id:S.paper?.id||"",title:S.paper?.title||"",page:S.current||1,selection:S.pending?.kind==="text"?String(S.pending.text||""):"",page_text:pageText(S.current||1)})};
 /* v260930e · 悬浮球截图桥：page()=截当前整页；area()=进入框选模式，resolve 框选区域截图（外部接管联动） */
 window.ERWCapture={
  page:()=>S.pdf?pageDataUrl():"",
@@ -734,5 +805,5 @@ function pageText(n){ /* v260930c · M4 · 取渲染页缓存的文本几何拼�
  const r=S.pages.get(+n);if(!r||!Array.isArray(r.textItems))return "";
  return r.textItems.map(i=>i.text).join(" ").replace(/\s+/g," ").trim().slice(0,6000);
 }
-document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"&&q("#lit-note")){e.preventDefault();saveNote()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="c"&&S.pending?.kind==="text"&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();copyPendingText()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&S.paper&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();undo()}else if(e.key==="Escape"&&(S.pending||S.area)){S.pending=null;paintPending();if(S.area)toggleArea();else toolbar();document.dispatchEvent(new CustomEvent("erw-lit-selection",{detail:{kind:"",page:S.current||1,length:0}}))} /* v261009 · Esc 同步清空悬浮 Agent 选区 chip */});
+document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"&&q(".lit-shell")&&S.paper){e.preventDefault();if(S.sideTab==="info")saveInfo();else saveNote()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="c"&&S.pending?.kind==="text"&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();copyPendingText()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&S.paper&&!/input|textarea/i.test(document.activeElement?.tagName||"")){e.preventDefault();undo()}else if(e.key==="Escape"&&(S.pending||S.area)){S.pending=null;paintPending();if(S.area)toggleArea();else toolbar();document.dispatchEvent(new CustomEvent("erw-lit-selection",{detail:{kind:"",page:S.current||1,length:0}}))} /* v261009 · Esc 同步清空悬浮 Agent 选区 chip */});
 })();

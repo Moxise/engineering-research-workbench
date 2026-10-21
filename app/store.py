@@ -336,7 +336,7 @@ def _doc_from_path(kind: str, path: Path, include_body: bool = True) -> dict[str
         doc["body"] = body
     if kind == "literature":
         bib = BIBTEX_BLOCK_RE.search(body)
-        doc["bibtex"] = bib.group(1).strip() if bib else ""
+        doc["bibtex"] = str(meta["bibtex"] or "") if "bibtex" in meta else (bib.group(1).strip() if bib else "")
     return doc
 
 
@@ -536,8 +536,9 @@ def prepare_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     _normalize_projects(meta)
     body = str(payload["body"]) if payload.get("body") is not None else _make_default_body(kind, title, payload)
     bibtex = BIBTEX_BLOCK_RE.search(body) if kind == "literature" else None
+    citation = str(payload["bibtex"] or "") if "bibtex" in payload else (bibtex.group(1).strip() if bibtex else "")
     return {**meta, "body": body, "path": "", "draft": True,
-            "bibtex": payload.get("bibtex") or (bibtex.group(1).strip() if bibtex else "")}
+            "bibtex": citation}
 
 
 def normalize_milestone_schedule(payload: dict[str, Any]) -> dict[str, Any]:
@@ -572,7 +573,8 @@ def create_doc(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     body = draft.pop("body")
     draft.pop("path")
     draft.pop("draft")
-    draft.pop("bibtex")
+    if kind != "literature":
+        draft.pop("bibtex")
     meta = draft
     doc_id, title = meta["id"], meta["title"]
     for project_name in meta.get("projects", []):

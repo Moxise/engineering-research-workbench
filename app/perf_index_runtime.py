@@ -147,6 +147,14 @@ def _update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     kind = str(row["kind"])
     text = path.read_text(encoding="utf-8")
     meta, body = store._frontmatter_parse(text)
+    if kind == "literature":
+        # Keep citation metadata when a user or AI replaces the note body.
+        # Legacy BibTeX blocks remain in the original note until explicitly edited.
+        legacy_bib = store.BIBTEX_BLOCK_RE.search(body)
+        if "bibtex" in payload:
+            meta["bibtex"] = str(payload.get("bibtex") or "").strip()
+        elif "bibtex" not in meta:
+            meta["bibtex"] = legacy_bib.group(1).strip() if legacy_bib else ""
     schedule_changed = kind == "milestone" and bool({"start_date", "due", "progress"} & payload.keys())
     payload = normalize_project_update(meta, payload)
     if schedule_changed:
@@ -163,13 +171,6 @@ def _update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     meta["updated"] = datetime.now().isoformat(timespec="seconds")
     if "body" in payload:
         body = str(payload.get("body") or "")
-    if kind == "literature" and "bibtex" in payload:
-        bib = str(payload.get("bibtex") or "").strip()
-        block = f"```bibtex\n{bib}\n```" if bib else "```bibtex\n\n```"
-        if store.BIBTEX_BLOCK_RE.search(body):
-            body = store.BIBTEX_BLOCK_RE.sub(lambda _m: block, body, count=1)
-        else:
-            body = f"## BibTeX\n\n{block}\n\n" + body
     if hasattr(store, "_normalize_projects"):
         store._normalize_projects(meta)
     for project_name in meta.get("projects", []) or []:

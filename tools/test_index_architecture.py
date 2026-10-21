@@ -20,6 +20,61 @@ from app import activity
 
 
 class IndexArchitectureTests(unittest.TestCase):
+    def test_unified_literature_preserves_missing_pdf_records_and_binds_in_place(self):
+        document = indexer.create_doc("literature", {"title": "原始文献", "body": "# 原笔记\n\n真实内容与引用 [[Alpha]]", "authors": "原作者", "projects": ["研究项目"]})
+        paper = literature.item_for_document(document["id"])
+        self.assertFalse(paper["pdf_available"])
+        self.assertEqual(literature.list_items(pdf="missing")["total"], 1)
+        source = self.root / "test.pdf"
+        source.write_bytes(b"%PDF-1.4\n% disposable import fixture\n")
+        linked = literature.import_pdf("原论文.pdf", source, {"bind_paper_id": paper["id"]})
+        self.assertEqual(linked["id"], paper["id"])
+        self.assertEqual(linked["doc_id"], document["id"])
+        self.assertTrue(linked["pdf_available"])
+        self.assertEqual(literature.get_note(linked["id"]).strip(), document["body"].strip())
+        self.assertEqual(literature.list_items()["total"], 1)
+        self.assertEqual(literature.list_items(pdf="available")["total"], 1)
+        self.assertEqual(literature.list_items(pdf="missing")["total"], 0)
+        literature.update_item(linked["id"], {"authors": "修改后的作者", "projects": [], "favorite": True, "reading_status": "已读", "url": "https://example.invalid/source", "added_date": "2026-10-21"})
+        saved = indexer.get_doc(document["id"])
+        self.assertEqual(saved["authors"], "修改后的作者")
+        self.assertEqual(saved["projects"], [])
+        self.assertEqual(saved["status"], "已精读")
+        self.assertTrue(saved["pinned"])
+        self.assertEqual(literature.item_for_document(document["id"])["id"], paper["id"])
+        before = set(literature._pdf_dir().iterdir())
+        with self.assertRaises(ValueError):
+            literature.import_pdf("duplicate.pdf", source, {"bind_paper_id": paper["id"]})
+        self.assertEqual(set(literature._pdf_dir().iterdir()), before)
+
+    def test_literature_note_revision_rejects_overwrite_without_losing_draft(self):
+        import hashlib
+        document = indexer.create_doc("literature", {"title": "笔记并发测试", "body": "原笔记"})
+        paper = literature.item_for_document(document["id"])
+        original = literature.get_note(paper["id"])
+        revision = hashlib.sha256(original.encode()).hexdigest()
+        first = literature.save_note(paper["id"], "新笔记", revision)
+        with self.assertRaises(ValueError):
+            literature.save_note(paper["id"], "旧客户端的草稿", revision)
+        self.assertEqual(literature.get_note(paper["id"]).strip(), "新笔记")
+        literature.save_note(paper["id"], "再更新", first["revision"])
+        self.assertEqual(literature.get_note(paper["id"]).strip(), "再更新")
+
+    def test_literature_note_replacement_preserves_legacy_bibtex_metadata(self):
+        bib = '@article{original, title={Original source}}'
+        document = indexer.create_doc("literature", {"title": "原始文献", "body": f"# 阅读笔记\n\n```bibtex\n{bib}\n```\n\n原文摘记"})
+        path = self.root / document["path"]
+        meta, body = store._frontmatter_parse(path.read_text(encoding="utf-8"))
+        meta.pop("bibtex", None)
+        path.write_text(store._frontmatter_dump(meta) + body, encoding="utf-8")
+        paper = literature.item_for_document(document["id"])
+        literature.save_note(paper["id"], "# AI 整理后的新笔记")
+        self.assertEqual(literature.get_item(paper["id"])["bibtex"], bib)
+        self.assertEqual(literature.get_note(paper["id"]).strip(), "# AI 整理后的新笔记")
+        literature.update_item(paper["id"], {"bibtex": "@article{updated}"})
+        self.assertEqual(literature.get_note(paper["id"]).strip(), "# AI 整理后的新笔记")
+        self.assertEqual(literature.get_item(paper["id"])["bibtex"], "@article{updated}")
+
     def test_milestone_schedule_roundtrip_validation_and_clear(self):
         from app import milestones
         doc = indexer.create_doc("milestone", {"title": "跨月实验阶段", "projects": ["测试项目"], "body": "验收条件保持不变", "start_date": "2026-10-25", "due": "2026-11-20", "progress": 37.5})

@@ -28,6 +28,7 @@ fs.mkdirSync(output, {recursive:true});
   const pdfQualityOnly=process.argv.includes('--pdf-quality-only');
   const referencesOnly=process.argv.includes('--references-only');
   const planningOnly=process.argv.includes('--planning-only');
+  const literatureOnly=process.argv.includes('--literature-only');
   let browser;
   try{
     browser=await chromium.launch({headless:true,channel:process.env.UI_BROWSER||'msedge'});
@@ -63,7 +64,7 @@ fs.mkdirSync(output, {recursive:true});
     const recentDocs=['idea','note','summary'].flatMap(kind=>Array.from({length:5},(_,i)=>({...doc(kind,'ui-recent-'+kind+i,({idea:'灵感',note:'笔记',summary:'工作总结'}[kind])+'·'+longTitle+' '+i),project:['模型推理优化','联邦学习系统','科研工作台性能测试'][i%3],status:({idea:['探索中','已采纳','已归档','待整理','探索中'],note:['稳定','整理中','草稿','已归档','稳定'],summary:['已定稿','草稿','已归档','已定稿','草稿']}[kind])[i]})));
     const literatureEditor={...doc('literature','ui-lit-editor','完整元数据的文献'),authors:'Research Team',year:'2026',venue:'Research Conference',doi:'10.0000/test',url:'https://example.invalid/paper',cite_key:'qa_paper',bibtex:'@article{qa_paper,\n'+Array.from({length:12},(_,i)=>`  field${i} = {value},`).join('\n')+'\n}'};
     const docRecords=[...milestoneRows,...otherJournals,...recentDocs,literatureEditor];
-    const paper={id:'ui-paper',title:'Dark workspace readability',authors:'Research Team',year:2026,reading_status:'在读',kind_marks:['knowledge','method'],tags:[],stored_filename:'ui-paper.pdf',last_page:1};
+    const paper={...literatureEditor,doc_id:literatureEditor.id,pdf_available:true,id:'ui-paper',title:'Dark workspace readability',authors:'Research Team',year:2026,reading_status:'在读',kind_marks:['knowledge','method'],tags:[],stored_filename:'ui-paper.pdf',last_page:1};
     const agentSession={id:'ui-agent-session',title:'实验设计与结果分析',updated:date,message_count:2,messages:[
       {role:'user',content:'请分析这组实验结果，检查 **可复现性**。',created:date},
       {role:'assistant',content:'## 分析建议\n\n先对照基线，再检查实验参数。\n\n`seed = 42`\n\n| 指标 | 结果 |\n| --- | --- |\n| 准确率 | 93% |',reasoning:'核对数据和参数，再比较结果。',created:date},
@@ -78,6 +79,8 @@ fs.mkdirSync(output, {recursive:true});
       localStorage.setItem('sidebarOpen',JSON.stringify(['core','research','resources','system']));
       localStorage.setItem('sidebarPinned',JSON.stringify(['core']));
       localStorage.setItem('uiScale','100');
+      const page={getViewport:({scale})=>({width:600*scale,height:840*scale,scale,transform:[scale,0,0,-scale,0,840*scale]}),render:({canvasContext:ctx})=>{ctx.fillStyle='#fff';ctx.fillRect(0,0,ctx.canvas.width,ctx.canvas.height);return {promise:Promise.resolve()}},getTextContent:async()=>({items:[]}),cleanup(){}};
+      window.pdfjsLib={getDocument:()=>({promise:Promise.resolve({numPages:3,getPage:async()=>page,destroy(){}})})};
       localStorage.setItem('fabBallPos',JSON.stringify({x:1548,y:300}));
       localStorage.setItem('erwRecent:doc',JSON.stringify({id:'ui-note',kind:'note',title:'知识-方法-物理状态计算与大模型决策的职责分离'}));
       localStorage.setItem('erwRecent:pdf',JSON.stringify({id:'ui-paper',title:'文献-物理信息引导思维树搜索的大模型负荷转供方法'}));
@@ -143,6 +146,7 @@ fs.mkdirSync(output, {recursive:true});
       if(url.pathname==='/api/graph/bundle')return send({content:'# 关联资料汇总\n\n'+Array.from({length:80},(_,i)=>`## 研究条目 ${i+1}\n\n包含完整的研究记录与关联 Markdown 内容。\n`).join('\n')});
       if(url.pathname==='/api/agent/sessions')return send([agentSession]);
       if(url.pathname==='/api/agent/sessions/'+agentSession.id)return send(agentSession);
+      if(url.pathname.startsWith('/api/literature/document/'))return send({...paper,doc_id:decodeURIComponent(url.pathname.split('/').pop())});
       if(url.pathname==='/api/literature')return send({items:[paper],total:1});
       if(url.pathname==='/api/literature/'+paper.id){if(method==='POST')Object.assign(paper,request.postDataJSON());return send(paper)}
       if(url.pathname==='/api/literature/'+paper.id+'/annotations')return send([]);
@@ -177,6 +181,61 @@ fs.mkdirSync(output, {recursive:true});
     const settleOverview=()=>page.waitForFunction(()=>{const e=document.querySelector('.overview-dashboard'),r=e.getBoundingClientRect(),key=[r.width,r.height,document.querySelector('.heatmap-card')?.style.cssText].join('|');if(e._testLayoutKey!==key){e._testLayoutKey=key;e._testLayoutSince=performance.now()}return performance.now()-e._testLayoutSince>=160});
     const smallText=()=>page.evaluate(()=>Array.from(document.querySelectorAll('body *')).filter(e=>e.children.length===0&&e.textContent.trim()&&e.getClientRects().length&&parseFloat(getComputedStyle(e).fontSize)<11).map(e=>({class:e.className,size:getComputedStyle(e).fontSize,text:e.textContent.slice(0,30)})));
     await page.goto(base);await ready();
+    if(literatureOnly){
+      page.setDefaultTimeout(12000);await page.setViewportSize({width:2550,height:1369});
+      const longProject='Two-stage fine-tuning of large language models for distribution network service restoration via CoT reasoning';
+      const papers=[{...paper,doc_id:'unified-doc',title:'文献-物理信息引导思维树搜索的大模型负荷转供方法',pdf_available:true,projects:[longProject],tags:['研究方法'],bibtex:'@article{original}',url:'https://example.invalid/source',added_date:date},{...paper,id:'entry-unified-missing',doc_id:'unified-missing',title:'未附 PDF 的旧文献',pdf_available:false,projects:['示例项目']}];
+      const notes=new Map(papers.map(p=>[p.id,{content:'# 历史阅读笔记\n\n保留已有 Markdown、引用与图片。',revision:'revision-1'}]));
+      let failNote=false,failNoteLoad=false,assistCalls=[],noteWrites=0,paperWrites=0,importBinding='';
+      await page.route('**/api/agent/assist',async route=>{assistCalls.push(route.request().postDataJSON());return route.fulfill({json:{content:'# AI 整理后的笔记\n\n仅使用当前笔记原文。'}})});
+      await page.route('**/api/literature**',async route=>{
+        const request=route.request(),url=new URL(request.url()),method=request.method(),send=json=>route.fulfill({json});
+        if(url.pathname==='/api/literature'){const pdf=url.searchParams.get('pdf'),query=url.searchParams.get('q')||'',items=papers.filter(p=>(!pdf||p.pdf_available===(pdf==='available'))&&p.title.includes(query));return send({items,total:items.length,page:1,page_size:60})}
+        if(url.pathname==='/api/literature/import'){importBinding=decodeURIComponent(request.headers()['x-bind-paper']||'');const p=papers.find(p=>p.id===importBinding);p.pdf_available=true;return send(p)}
+        if(url.pathname.startsWith('/api/literature/document/'))return send(papers.find(p=>p.doc_id===decodeURIComponent(url.pathname.split('/').pop()))||papers[0]);
+        const match=url.pathname.match(/^\/api\/literature\/([^/]+)(?:\/(note|annotations|pdf))?$/);if(!match)return route.fallback();const id=decodeURIComponent(match[1]),p=papers.find(p=>p.id===id);if(!p)return route.fallback();
+        if(match[2]==='annotations')return send([]);
+        if(match[2]==='note'){
+          if(method==='POST'){if(failNote)return route.fulfill({status:500,json:{message:'模拟磁盘保存失败'}});noteWrites++;const data=request.postDataJSON();notes.set(id,{content:data.content,revision:'revision-'+(noteWrites+1)});return send({ok:true,revision:notes.get(id).revision})}
+          if(failNoteLoad)return route.fulfill({status:500,json:{message:'模拟读取失败'}});return send(notes.get(id));
+        }
+        if(!match[2]){if(method==='POST'){Object.assign(p,request.postDataJSON());paperWrites++}return send(p)}return route.fallback();
+      });
+      await page.evaluate(()=>{
+        window.__pdfDelay=170;window.__pdfRenders=0;window.__pdfCancels=0;window.__frontViolations=[];
+        const sample=()=>{for(const cv of document.querySelectorAll('.lit-page canvas')){if(cv.dataset.ready!=='true'||cv.width<2||cv.height<2)window.__frontViolations.push('unfinished canvas');else{const pixel=cv.getContext('2d').getImageData(0,0,1,1).data;if(pixel[0]<240||pixel[1]<240||pixel[2]<240)window.__frontViolations.push('black front buffer')}}requestAnimationFrame(sample)};requestAnimationFrame(sample);
+        const transform=(a,b)=>[a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];
+        const pdfPage={getViewport:({scale})=>({width:600*scale,height:800*scale,scale,transform:[scale,0,0,-scale,0,800*scale]}),render:({canvasContext:ctx,viewport:v})=>{window.__pdfRenders++;ctx.fillStyle='#000';ctx.fillRect(0,0,ctx.canvas.width,ctx.canvas.height);let reject,timer;const promise=new Promise((resolve,fail)=>{reject=fail;timer=setTimeout(()=>{ctx.fillStyle='#fff';ctx.fillRect(0,0,ctx.canvas.width,ctx.canvas.height);ctx.fillStyle='#151c2b';ctx.font='35px serif';ctx.fillText('PDF completed vector frame',50,100);resolve()},window.__pdfDelay)});return {promise,cancel(){clearTimeout(timer);window.__pdfCancels++;reject(Object.assign(Error('cancelled'),{name:'RenderingCancelledException'}))}}},getTextContent:async()=>({items:[{str:'PDF 选中的原文段落',width:350,transform:[20,0,0,20,30,480]}]}),cleanup(){}};
+        window.pdfjsLib={Util:{transform},getDocument:()=>({promise:Promise.resolve({numPages:15,getPage:async()=>pdfPage,destroy(){}})})};
+      });
+      await go('literature');await page.waitForSelector('.lit-page canvas[data-ready=true]');
+      assert.equal(await page.locator('#open-lit-workspace,#lit-back,#f-title').count(),0,'literature has a single workspace');
+      assert.equal(await page.locator('.lit-item').count(),2);assert((await page.locator('.lit-item').first().boundingBox()).height<78,'PDF cards are compact');
+      const left=page.locator('.lit-library'),oldWidth=(await left.boundingBox()).width,splitter=page.locator('.lit-splitter-library'),handle=await splitter.boundingBox();
+      await page.mouse.move(handle.x+handle.width/2,handle.y+180);await page.mouse.down();await page.mouse.move(handle.x+100,handle.y+180,{steps:6});await page.mouse.up();assert((await left.boundingBox()).width>oldWidth+70,'left list width changes with drag');
+      await page.locator('#lit-toggle-side').click();await page.locator('.lit-splitter-side').focus();const sideBefore=(await page.locator('.lit-side').boundingBox()).width;await page.keyboard.press('ArrowLeft');assert((await page.locator('.lit-side').boundingBox()).width>sideBefore,'right pane supports keyboard resizing');
+      await page.locator('[data-tab=notes]').click();await page.waitForSelector('#lit-note');const draft='# 用户的未保存笔记\n\n包含新内容和 [[本地引用]]。';await page.locator('#lit-note').fill(draft);
+      await page.locator('[data-tab=info]').click();await page.locator('[data-tab=notes]').click();await page.waitForSelector('#lit-note');assert.equal(await page.locator('#lit-note').inputValue(),draft,'tab switches retain note drafts');
+      failNote=true;await page.locator('#lit-note-save').click();await page.waitForFunction(()=>document.querySelector('#lit-note-status').textContent.includes('保存失败'));assert.equal(await page.locator('#lit-note').inputValue(),draft);failNote=false;
+      await page.locator('#lit-note-save').click();await page.waitForFunction(()=>document.querySelector('#lit-note-status').textContent.includes('笔记已保存'));assert.equal(notes.get(papers[0].id).content,draft);assert.equal(noteWrites,1);
+      // The note source must win over any PDF selection left in the reader.
+      const hit=page.locator('.lit-interaction-layer').first(),bounds=await hit.boundingBox();await page.mouse.move(bounds.x+bounds.width*.06,bounds.y+bounds.height*.3875);await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.61,bounds.y+bounds.height*.3875,{steps:6});await page.mouse.up();
+      await page.locator('#lit-note').fill(draft+'\n\n正在整理的草稿');await page.locator('#lit-note-ai').click();await page.waitForSelector('#lit-ai-append');assert.equal(assistCalls.at(-1).text,draft+'\n\n正在整理的草稿','AI receives the latest note draft');assert.equal(noteWrites,1,'AI never writes a note without applying/saving');
+      await page.locator('#lit-ai-append').click();await page.waitForSelector('#lit-note');assert((await page.locator('#lit-note').inputValue()).includes('\n\n# AI 整理后的笔记'),'AI appends real Markdown newlines');assert.equal(noteWrites,1);await page.locator('#lit-note-save').click();await page.waitForFunction(()=>document.querySelector('#lit-note-status').textContent.includes('笔记已保存'));
+      await page.locator('#lit-note').fill('离开前的草稿');const leave=page.locator('#sidebar-nav [data-route=overview]').click();await page.waitForSelector('#workbench-dialog');await page.locator('[data-dialog-result=cancel]').click();await leave;assert.equal(await page.locator('#lit-note').inputValue(),'离开前的草稿');
+      await respond(()=>page.locator('[data-paper="'+papers[1].id+'"]').click(),'discard');await page.waitForSelector('#lit-bind-pdf');await page.locator('[data-tab=notes]').click();await page.waitForSelector('#lit-note');assert((await page.locator('#lit-note').inputValue()).includes('历史阅读笔记'),'legacy metadata notes remain reachable without a PDF');
+      await page.locator('#lit-bind-pdf').click();await page.locator('#lit-file').setInputFiles({name:'绑定文献.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\nfixture')});await page.waitForSelector('.lit-page canvas[data-ready=true]');assert.equal(importBinding,papers[1].id,'binding uses the old record identity');
+      await page.locator('[data-tab=info]').click();await page.locator('#li-title').fill('修改后的文献题名');await page.locator('#li-url').fill('https://example.invalid/updated');await page.locator('#li-save').click();await page.waitForFunction(()=>document.querySelector('#li-message').textContent==='信息已保存');assert.equal(papers[1].url,'https://example.invalid/updated');assert(await page.locator('#li-projects').count());
+      await page.locator('#lit-toggle-side').click();await page.waitForTimeout(300);
+      const before=await page.locator('.lit-page canvas').first().evaluate(e=>{e.dataset.frontIdentity='retained';return e.width});await page.locator('#lit-zoom-in').click();
+      assert.equal(await page.locator('canvas[data-front-identity=retained]').count(),1,'zoom retains the completed old frame while rendering');
+      await page.waitForFunction(()=>!document.querySelector('#lit-pages').style.zoom&&document.querySelector('.lit-page canvas')?.dataset.frontIdentity!=='retained');
+      for(let i=0;i<3;i++){await page.locator('#lit-zoom-out').click();await page.waitForTimeout(30)}await page.waitForTimeout(500);assert.equal(await page.locator('.lit-page-error').count(),0);assert.deepEqual(await page.evaluate(()=>window.__frontViolations),[],'no black/unfinished canvas is ever displayed');
+      await page.locator('#lit-toggle-side').click();await page.locator('[data-tab=notes]').click();await page.waitForSelector('#lit-note');
+      for(const theme of ['light','dark']){await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);for(const width of [2550,1920,1280,760]){await page.setViewportSize({width,height:1100});await page.waitForTimeout(180);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),'workspace stays in viewport '+width);const metrics=await page.locator('.lit-note-actions').evaluate(e=>{const r=e.getBoundingClientRect(),p=e.closest('.lit-side').getBoundingClientRect();return {inside:r.bottom<=p.bottom+1,buttons:[...e.querySelectorAll('button')].every(b=>getComputedStyle(b).whiteSpace==='nowrap')}});assert(metrics.inside&&metrics.buttons,'note actions remain readable and visible at '+width);assert((await page.locator('.lit-side').boundingBox()).width>=230,'overlay retains usable width at '+width);await shot('unified-literature-'+theme+'-'+width,{fullPage:false})}}
+      await page.setViewportSize({width:1920,height:1080});await page.locator('[data-tab=info]').click();await page.locator('#zoom-btn').click();await page.locator('[data-zoom="125"]').click();await page.waitForTimeout(220);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),'125% layout');await shot('unified-literature-info-125',{fullPage:false});
+      assert.deepEqual(errors,[]);console.log('PASS: single PDF workspace, compact cards, pointer/keyboard pane resizing, retained white render frames, zoom cancellation, draft/save/failure guards, note AI source/approval, legacy PDF binding, complete metadata, 2550/1920/1280/760 light/dark and 125% UI scale; no real model calls');return;
+    }
     if(planningOnly){
       page.setDefaultTimeout(10000);
       const projectA='物理信息引导思维树搜索的大模型负荷转供方法',projectB='Two-stage fine-tuning of large language models for distribution network service restoration via CoT reasoning';
@@ -361,10 +420,10 @@ fs.mkdirSync(output, {recursive:true});
     if(pdfQualityOnly){
       const longProject='Two-stage fine-tuning of large language models for distribution network service restoration via CoT reasoning';
       const longTag='结构化输出与供电恢复的物理约束 <RAG> "测试"';
-      literatureEditor.projects=[longProject,'短项目'];literatureEditor.tags=[longTag,'RAG'];paper.tags=[longTag,'RAG'];
+      const chipDoc=recentDocs.find(d=>d.kind==='note');chipDoc.projects=[longProject,'短项目'];chipDoc.tags=[longTag,'RAG'];paper.tags=[longTag,'RAG'];
       await page.setViewportSize({width:2550,height:1233});
       if(await page.locator('html').getAttribute('data-theme')!=='dark')await page.locator('#theme-btn').click();
-      await page.evaluate(()=>window.ERWNav.open('literature','ui-lit-editor'));await page.waitForSelector('#f-projects .project-chip-label');
+      await page.evaluate(id=>window.ERWNav.open('note',id),chipDoc.id);await page.waitForSelector('#f-projects .project-chip-label');
       const chips=async(selector,width)=>{
         const values=await page.locator(selector+' .project-chip').evaluateAll(es=>es.map(e=>{const r=e.getBoundingClientRect(),label=e.querySelector('.project-chip-label'),b=e.querySelector('button').getBoundingClientRect();return {width:e.offsetWidth,height:e.offsetHeight,title:e.title,text:label.textContent,ellipsis:getComputedStyle(label).textOverflow,nowrap:getComputedStyle(label).whiteSpace,clipped:label.scrollWidth>label.clientWidth,buttonInside:b.left>=r.left&&b.right<=r.right+1&&b.top>=r.top&&b.bottom<=r.bottom+1}}));
         assert.equal(values.length,2);assert(values.every(v=>v.width===width&&v.height===22&&v.buttonInside&&v.ellipsis==='ellipsis'&&v.nowrap==='nowrap'),'equal-sized chips preserve accessible remove buttons: '+JSON.stringify(values));assert(values[0].clipped,'long labels are truncated instead of wrapping');return values;
@@ -382,7 +441,7 @@ fs.mkdirSync(output, {recursive:true});
       await page.locator('#meta-toggle').click();assert.equal((await chips('#f-tags',120))[0].title,longTag);
       await page.locator('[data-project-remove="1"]').click();assert.deepEqual(JSON.parse(await page.locator('#f-projects').getAttribute('data-projects')),[longProject]);
       await page.locator('#f-tags [data-tag-remove="1"]').click();assert.deepEqual(JSON.parse(await page.locator('#f-tags').getAttribute('data-tags')),[longTag]);
-      await respond(()=>go('literature'),'discard');await page.locator('#open-lit-workspace').waitFor();
+      await respond(()=>go('overview'),'discard');
       const installMock=()=>page.evaluate(()=>{
         window.__qualityRenders=0;window.__qualityCancels=0;
         const pdfPage={getViewport:({scale})=>({width:960*scale,height:540*scale,scale,transform:[scale,0,0,-scale,0,540*scale]}),render:({canvasContext:ctx,viewport:v,transform})=>{
@@ -391,7 +450,7 @@ fs.mkdirSync(output, {recursive:true});
         },getTextContent:async()=>({items:[]}),cleanup:()=>{}};
         window.pdfjsLib={getDocument:()=>({promise:Promise.resolve({numPages:20,getPage:async()=>pdfPage})})};
       });
-      await installMock();await page.locator('#open-lit-workspace').click();await page.locator('[data-paper="ui-paper"]').click();
+      await installMock();await go('literature');await page.locator('[data-paper="ui-paper"]').click();
       const rendered=()=>page.waitForFunction(()=>{const sc=document.querySelector('#lit-scroll'),v=sc.getBoundingClientRect(),visible=[...document.querySelectorAll('.lit-page-shell')].filter(e=>{const r=e.getBoundingClientRect();return r.bottom>v.top&&r.top<v.bottom});return !document.querySelector('#lit-pages').style.zoom&&visible.length&&visible.every(e=>e.querySelector('canvas')?.width>1&&e.querySelector('.lit-interaction-layer')?.onmousedown)&&!document.querySelector('.lit-page-error')});
       await rendered();await page.locator('#lit-toggle-side').click();await chips('#li-tags',120);
       await shot('project-chips-fullscreen',{fullPage:false});
@@ -609,13 +668,13 @@ fs.mkdirSync(output, {recursive:true});
     await page.locator('#zoom-btn').click();await page.locator('[data-zoom="100"]').click();await page.setViewportSize({width:1600,height:1000});
     await page.locator('[data-editor-zoom=edit]').selectOption('100');await page.locator('[data-editor-zoom=preview]').selectOption('100');
     await page.evaluate(()=>localStorage.setItem('erwDocumentListZoom','100'));
-    await go('literature');await page.locator('#open-lit-workspace').waitFor();
+    await go('literature');await page.locator('.lit-shell').waitFor();
     await page.evaluate(()=>{
       window.__readingPdfRenders=0;
       const page={getViewport:({scale})=>({width:600*scale,height:840*scale,scale,transform:[scale,0,0,-scale,0,840*scale]}),render:({canvasContext:ctx,viewport:v})=>{window.__readingPdfRenders++;ctx.fillStyle='#fff';ctx.fillRect(0,0,v.width,v.height);return {promise:Promise.resolve()}},getTextContent:async()=>({items:[]}),cleanup:()=>{}};
       window.pdfjsLib={getDocument:()=>({promise:Promise.resolve({numPages:3,getPage:async()=>page})})};
     });
-    await page.locator('#open-lit-workspace').click();await page.locator('[data-paper="ui-paper"]').click();await page.locator('.lit-page canvas').first().waitFor();
+    await page.locator('[data-paper="ui-paper"]').click();await page.locator('.lit-page canvas').first().waitFor();
     const pdfLayout=await page.locator('.lit-shell').boundingBox();assert(1000-pdfLayout.y-pdfLayout.height<=12,'browser PDF also fills the bottom');
     await page.locator('#lit-scroll').hover({position:{x:240,y:180}});
     const pdfPoint=await page.locator('#lit-scroll').evaluate(e=>{const r=e.getBoundingClientRect();return {x:r.left+240,y:r.top+180}});
@@ -983,36 +1042,20 @@ fs.mkdirSync(output, {recursive:true});
       },selectors);
       assert.deepEqual(light,[],'module surfaces must not retain a light background');
     };
-    await go('literature');await page.waitForSelector('#f-bibtex',{state:'attached'});
-    if((await page.locator('#meta-toggle').getAttribute('aria-expanded'))==='false')await page.locator('#meta-toggle').click();
+    await go('literature');await page.waitForSelector('.lit-page canvas');await page.locator('#lit-toggle-side').click();
     for(const density of ['compact','cozy']){
       if(await page.evaluate(d=>document.documentElement.dataset.density!==d,density))await page.locator('#density-btn').click();
       for(const [width,height,zoom] of [[1600,1000,100],[1100,720,100],[1600,1000,125],[1100,720,125]]){
-        await page.setViewportSize({width,height});await page.locator('#zoom-btn').click();await page.locator(`[data-zoom="${zoom}"]`).click();
-        await page.waitForTimeout(120);
-        const sizes=await page.evaluate(()=>{const box=s=>document.querySelector(s).getBoundingClientRect().toJSON();return {editor:box('.doc-editor'),list:box('.doc-list-panel'),footer:box('.editor-actions'),pane:box('.editor-pane'),height:innerHeight}});
-        assert(sizes.height-sizes.editor.bottom<=18&&sizes.height-sizes.editor.bottom>=5,'document workspace uses bottom area: '+JSON.stringify({density,width,height,zoom,sizes}));
-        assert(Math.abs(sizes.editor.bottom-sizes.list.bottom)<2,'document columns end together');
-        assert(sizes.footer.bottom<=sizes.editor.bottom+1&&sizes.footer.top>=sizes.editor.top,'save actions remain inside the visible editor');
-        assert(sizes.pane.height>=50,'long literature metadata leaves usable editing space');
-        assert(await page.locator('.meta-block').evaluate(e=>e.scrollHeight<=e.clientHeight+1&&getComputedStyle(e).overflowY==='visible'),'metadata expands to its complete natural height');
-        const fieldsFit=await page.locator('.meta-block').evaluate(e=>{const box=e.getBoundingClientRect();return [...e.querySelectorAll('.field')].every(f=>{const r=f.getBoundingClientRect();return r.top>=box.top&&r.bottom<=box.bottom+1})});
-        assert(fieldsFit,'all metadata fields stay inside the expanded block');
-        await page.locator('.doc-editor-content').evaluate(e=>e.scrollTop=e.scrollHeight);
-        await page.locator('#meta-toggle').click();
-        assert.equal(await page.locator('#meta-toggle').getAttribute('aria-expanded'),'false');
-        assert.equal(await page.locator('#f-title').isVisible(),true,'compact metadata keeps the title available');assert.equal(await page.locator('#f-authors').isVisible(),false);
-        const collapsed=await page.evaluate(()=>{const box=s=>document.querySelector(s).getBoundingClientRect().toJSON();return {meta:box('.meta-block'),button:box('#meta-toggle'),content:box('.doc-editor-content'),scroll:document.querySelector('.doc-editor-content').scrollTop}});
-        assert(collapsed.scroll===0&&collapsed.button.top>=collapsed.meta.top&&collapsed.button.bottom<=collapsed.meta.bottom&&collapsed.button.bottom<=collapsed.content.bottom,'collapsed Expand button is fully visible: '+JSON.stringify(collapsed));
-        assert(collapsed.button.height>=27*zoom/100,'Expand button keeps its full height');
-        await page.locator('#meta-toggle').click();
-        assert.equal(await page.locator('#meta-toggle').getAttribute('aria-expanded'),'true');
-        assert.equal(await page.locator('#f-title').inputValue(),literatureEditor.title,'folding preserves metadata');
+        await page.setViewportSize({width,height});await page.locator('#zoom-btn').click();await page.locator(`[data-zoom="${zoom}"]`).click();await page.waitForTimeout(140);
+        await page.locator('.lit-info-extra summary').click();await page.locator('#li-bibtex').scrollIntoViewIfNeeded();assert.equal(await page.locator('#li-bibtex').inputValue(),paper.bibtex);
+        await page.locator('#li-save').scrollIntoViewIfNeeded();assert(await page.locator('#li-save').isVisible(),'all metadata can scroll to its save action');assert.equal(await page.locator('#li-title').inputValue(),paper.title);
+        await page.locator('.lit-info-extra summary').click();
+        assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'unified metadata retains a bounded workspace');
       }
     }
     await page.setViewportSize({width:1600,height:1000});await page.locator('#zoom-btn').click();await page.locator('[data-zoom="100"]').click();
     if(await page.evaluate(()=>document.documentElement.dataset.density!=='compact'))await page.locator('#density-btn').click();
-    await shot('literature-editor-full-height-dark');
+    await shot('literature-unified-metadata-dark');
     for(const density of ['compact','cozy']){
       if(await page.evaluate(d=>document.documentElement.dataset.density!==d,density))await page.locator('#density-btn').click();
       for(const zoom of [100,125]){
@@ -1023,7 +1066,7 @@ fs.mkdirSync(output, {recursive:true});
           assert(Math.abs(bounds.main.left-bounds.sidebar.right)<1&&Math.abs(bounds.main.right-bounds.width)<2,'canvas fills available width: '+JSON.stringify({route,density,zoom,bounds}));
           assert(bounds.child.left-bounds.main.left<=17*zoom/100&&bounds.main.right-bounds.child.right<=17*zoom/100,'workspace retains only its normal edge padding: '+JSON.stringify({route,density,zoom,bounds}));
           assert(bounds.scroll<=bounds.width+1,'wide canvas has no horizontal page overflow');
-          if(['journals','notes','summaries','literature'].includes(route)){
+          if(['journals','notes','summaries'].includes(route)){
             if((await page.locator('#meta-toggle').getAttribute('aria-expanded'))==='false')await page.locator('#meta-toggle').click();
             assert(await page.locator('.meta-block').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'all document kinds expand metadata without internal scrolling');
             if(density==='compact'&&zoom===100){
@@ -1075,7 +1118,7 @@ fs.mkdirSync(output, {recursive:true});
     await darkSurfaces(['.agent-side-head','.agent-chat-head','.agent-messages','.agent-bubble','.agent-composer']);
     await readable(['.agent-side-head h3','#agent-chat-title','.agent-session strong','.agent-session small','.agent-message-body p','.agent-message-body h2','.agent-message-body code','.agent-msg-meta','.agent-reasoning summary','.agent-reasoning-body','#agent-input','.agent-preset-label','.agent-avatar']);
     await shot('agent-dark');
-    await go('literature');await page.waitForSelector('#open-lit-workspace');
+    await go('literature');await page.waitForSelector('.lit-shell');
     // The actual reader controller and UI run with a deterministic in-memory page renderer.
     // This avoids a CDN dependency and tests workspace colors without modifying real PDFs.
     await page.evaluate(()=>{
@@ -1084,7 +1127,7 @@ fs.mkdirSync(output, {recursive:true});
         getTextContent:async()=>({items:[]}),cleanup:()=>{}};
       window.pdfjsLib={getDocument:()=>({promise:Promise.resolve({numPages:1,getPage:async()=>page})})};
     });
-    await page.locator('#open-lit-workspace').click();await page.waitForSelector('[data-paper="ui-paper"]');
+    await page.waitForSelector('[data-paper="ui-paper"]');
     await page.locator('[data-paper="ui-paper"]').click();await page.waitForSelector('.lit-page canvas');
     assert.equal(await page.locator('.lit-side').isVisible(),false,'empty information sidebar stays closed by default');
     const fitted=()=>page.locator('#lit-scroll').evaluate(e=>e.scrollWidth<=e.clientWidth+2);

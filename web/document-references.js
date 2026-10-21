@@ -73,13 +73,13 @@
   }
   function positionPreview(){
     if(!peek)return;if(!peek.layout.isConnected){closePreview(false);return}
-    const {layout,panel}=peek,docked=layout.clientWidth>=1250;
+    const {layout,panel}=peek,docked=layout.classList.contains('docs-layout')&&layout.clientWidth>=1250;
     layout.dataset.referenceDocked=String(docked);
     const zoom=parseFloat(document.documentElement.style.zoom)||1,chrome=document.documentElement.dataset.desktop==='true'?48:0;
     panel.style.setProperty('--reference-top',Math.max(chrome+8,Math.min(layout.getBoundingClientRect().top,innerHeight-240))/zoom+'px');
   }
   function createPreview(trigger){
-    const layout=q('#doc-editor')?.closest('.docs-layout');if(!layout)return null;
+    const layout=trigger?.closest('.lit-shell')||q('#doc-editor')?.closest('.docs-layout');if(!layout)return null;
     const panel=document.createElement('aside');panel.className='document-reference-preview';panel.setAttribute('aria-label','引用文档预览');
     panel.innerHTML='<header><div><span>引用预览</span><h3 id="reference-preview-title"></h3></div><button type="button" data-reference-back disabled title="返回上一个引用" aria-label="返回上一个引用">←</button><button type="button" data-reference-close title="关闭引用预览 · Esc" aria-label="关闭引用预览">×</button></header><div class="reference-preview-meta"></div><div class="md-preview reference-preview-body" tabindex="0" aria-label="引用正文"></div><footer><span>Ctrl/⌘ + 点击引用可直接打开</span><div><button type="button" data-reference-pdf hidden>阅读 PDF</button><button type="button" data-reference-open disabled>打开文档 ↗</button></div></footer>';
     layout.append(panel);
