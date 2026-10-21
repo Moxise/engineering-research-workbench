@@ -1,5 +1,12 @@
 # Changelog
 
+## v261021.9 · CI 纯逻辑用例：两个夹具不再依赖真实 Workspace
+
+- 用 v261021.7 加的注解定位到最后两处红点：
+  - `test_doctor_bloat.py` 直接 `shutil.copy2(Workspace/System/Cache/index.sqlite, …)`，干净检出没有这个文件 → `FileNotFoundError`。现在无真实库时改用 `app.perf_index_db._init_db()` 建一个「当前结构」的空库再制造膨胀，测的仍是「doctor 能识别膨胀」，不依赖用户数据。
+  - `test_migrations.py` 第 8 组「真实库只读 dry-run」在库不存在时断言失败；改为打印 SKIP（与第 8 组原有的「库被占用」分支同一口径）。
+- 验证：干净副本（无 `Workspace/`、无 `config/`、无 `.scratch/`）`run_tests.py --fast --no-server` **15/15 通过**（121 断言）；本地有真实库时两个用例仍 PASS（膨胀 49% / 只读 dry-run current=4）。
+
 ## v261021.8 · 设置页两栏：按内容收缩，不强行填满
 
 - 设置页左右两栏从 `align-items: stretch` 改为 `start`：内容少时卡片高度就随内容收缩（不再被拉到与另一栏同高、在卡片内留大片空白），内容多时仍由 `max-height` 封顶在卡片内部滚动。典型对比：设置导航栏 414px 时不再被撑到 798px；「基础」tab 的右栏卡片 192px 就是 192px。

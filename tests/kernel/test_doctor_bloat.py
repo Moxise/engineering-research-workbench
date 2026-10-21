@@ -14,7 +14,23 @@ DB = WS / "System" / "Cache" / "index.sqlite"
 DB.parent.mkdir(parents=True, exist_ok=True)
 if DB.exists():
     DB.unlink()
-shutil.copy2(ROOT / "Workspace" / "System" / "Cache" / "index.sqlite", DB)
+SRC = ROOT / "Workspace" / "System" / "Cache" / "index.sqlite"
+if SRC.is_file():
+    shutil.copy2(SRC, DB)
+else:
+    # 干净检出（CI）没有真实库：用索引层建一个「当前结构」的空库再制造膨胀。
+    # 这里测的是「doctor 能识别膨胀」，不需要真实条目，别让夹具依赖用户数据。
+    import app.perf_index_db as pdb
+    _orig_db_path = pdb._db_path
+    pdb._db_path = lambda root=None: DB
+    try:
+        _seed = pdb._connect()
+        pdb._init_db(_seed)
+        _seed.commit()
+        _seed.close()
+    finally:
+        pdb._db_path = _orig_db_path
+        pdb._SCHEMA_READY.pop(str(DB), None)
 
 c = sqlite3.connect(str(DB))
 c.execute("CREATE TABLE junk(x TEXT)")

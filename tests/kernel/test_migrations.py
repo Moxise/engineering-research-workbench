@@ -152,7 +152,7 @@ if real.is_file():
     except sqlite3.Error as exc:
         print(f"SKIP 真实库当前不可读：{exc}")
 else:
-    check("真实库存在", False, str(real))
+    print("SKIP 真实库不存在（干净检出）：第 8 组需要用户 Workspace 才能只读 dry-run")
 
 print("\n== 9. 服务侧 _init_db 集成（全新库 / 版本护栏）==")
 import app.perf_index_db as pdb  # noqa: E402
