@@ -1,5 +1,13 @@
 # Changelog
 
+## v261022.5 · 接入项目范围选择器与科研界面适配层（上游前端第 5 项）
+
+- 新增 **`research-ui.js`**（`window.ERWResearchUI`）：项目显示名（`display_name`）、资料证据徽章（题录 / 公开摘要 / 有 PDF 全文 / 已核对原文，按正文声明与附件推断）、阅读字号（12–20px，写进缩放菜单）、`wheelScale` 滚轮缩放辅助。项目记录在首屏后预取，失败不阻塞页面。
+- 新增 **`project-scope.js`**（`window.ERWProjectScope`）：可搜索、键盘可用的项目范围选择器（↑↓/Home/End 选择、Enter 确认、Esc 关闭、输入法组合保护、点外部关闭）。
+- 甘特图的项目范围从「原生下拉」换回该选择器；项目名统一走显示名。未加载该模块时仍自动降级为原生下拉。
+- 网络统一走 `window.erwFetch`；本地 `app.js` 的 `ERWResearchUI` 桩只在实际模块缺失时生效（先加载真实模块）。
+- 验证：甘特项目选择器展开 3 个选项、搜索框可用、阅读字号控件出现在缩放菜单、0 console error；`web_check`、`web_manifest --check`、`ui_smoke`、`kb_smoke` 通过。
+
 ## v261022.4 · 编辑器接入引用补全与预览（上游前端第 4 项）
 
 - 新增 **`document-references.js`**：编辑器里输入 `[[` 弹出引用候选（带类型/状态/项目，↑↓ 选择、Enter 插入、Esc 关闭）；`Ctrl/⌘ + Shift + K` 打开引用选择器；预览区点击引用弹出浮动预览（可返回上一跳、直接打开文档，PDF 条目提供「阅读 PDF」）；断链显示状态；中文输入法组合期间暂停补全。

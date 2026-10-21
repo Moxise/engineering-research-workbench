@@ -2297,6 +2297,8 @@
     try{ await window.ERWPluginHost?.ready; }catch(e){ console.warn('plugin host failed', e); }
     mountSlots();   /* v261009 · 插件槽位（顶栏等）在导航构建前挂好 */
     await loadBootstrap();renderSidebar();const route=location.hash.slice(1)||'overview';await navigate(route);
+    /* v261022.5 · 项目名显示名/证据徽章需要项目记录：一次预取，失败不阻塞首屏 */
+    window.ERWResearchUI?.loadProjects?.().catch(()=>{});
     /* v261022.2 · 通知外部模块（同步页等）可以开始贴附/轮询；只派发一次 */
     try{ window.dispatchEvent(new Event('workbench:ready')); }catch(e){ console.warn('workbench:ready', e); }
     }catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }

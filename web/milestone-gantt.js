@@ -47,12 +47,15 @@
       controls.append(scope,search,filter);toolbar.append(intro,controls);page.append(toolbar);
       const scopeNames=[...new Set(this.docs.flatMap(projects))];
       const onScope=name=>{this.project=name;this.window=null;this.draw()};
-      /* 本地没有独立的 project-scope 模块：直接用一个原生下拉（同样支持搜索后的范围切换） */
-      const sel=node('select','mg-filter project-scope');sel.setAttribute('aria-label','项目范围');
-      const opt=(v,l)=>{const o=node('option','',l);o.value=v;sel.append(o)};
-      opt('','全部项目');for(const n of scopeNames)opt(n,n);
-      sel.value=this.project;sel.onchange=()=>onScope(sel.value);scope.append(sel);
-      this.picker={destroy(){sel.remove()}};
+      this.picker = window.ERWProjectScope?.mount
+        ? window.ERWProjectScope.mount(scope,{names:scopeNames,value:this.project,onChange:onScope})
+        : (()=>{                                  /* 未加载 project-scope 时降级为原生下拉 */
+            const sel=node('select','mg-filter project-scope');sel.setAttribute('aria-label','项目范围');
+            const opt=(v,l)=>{const o=node('option','',l);o.value=v;sel.append(o)};
+            opt('','全部项目');for(const n of scopeNames)opt(n,n);
+            sel.value=this.project;sel.onchange=()=>onScope(sel.value);scope.append(sel);
+            return {destroy(){sel.remove()}};
+          })();
       this.summary=node('div','mg-summary');page.append(this.summary);
       const tools=node('div','mg-time-tools'),legend=node('div','mg-legend');
       for(const [value,label] of [['fit','全览'],['day','日'],['week','周'],['month','月']]){const b=node('button','',label);b.type='button';b.dataset.ganttScale=value;b.onclick=()=>{this.scale=value;this.window=null;localStorage.setItem('milestoneGanttScale',value);this.draw()};tools.append(b)}
