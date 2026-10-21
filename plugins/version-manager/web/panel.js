@@ -716,8 +716,10 @@
   if (!window.ERWPanels) return;
   window.ERWPanels.register({
     id: 'version-manager',
-    group: 'research',
-    before: 'graph',
+    /* v261021 · 按用户要求从「研究 · 知识」移到「系统」：版本是全局维护动作，
+       与具体研究条目并列在知识组里并不合语义；排在「设置」之前。 */
+    group: 'system',
+    before: 'settings',
     label: '版本',
     icon: '⑂',
     eyebrow: 'VERSIONS',

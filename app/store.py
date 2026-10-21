@@ -93,11 +93,23 @@ def knowledge_type_registry() -> list[dict[str, Any]]:
     cfg = _knowledge_cfg()
     hidden = {str(x) for x in (cfg.get("hidden") or [])}
     custom = {x["id"]: x for x in custom_kind_records()}
-    default_order = ["idea", "journal", "note", "milestone", "summary", "literature", *custom.keys()]
+    # 内置七类的默认顺序与侧栏一致：实验在里程碑之前（侧栏 NAV_GROUPS 也是这个次序）。
+    # 此前这里漏了 experiment，导致「设置 → 知识条目」看不到实验、无法与其它类型一并管理。
+    default_order = ["idea", "journal", "note", "experiment", "milestone", "summary", "literature", *custom.keys()]
     order = [str(x) for x in (cfg.get("order") or []) if str(x)]
-    order = list(dict.fromkeys([*order, *default_order]))
+    if not order:
+        order = list(default_order)
+    else:
+        # 旧配置的 order 可能缺后来新增的内置类型（如 experiment）。按 default_order 的
+        # 相对位置补齐，而不是一律追加到末尾——否则实验会排到「文献」之后。
+        for i, kind in enumerate(default_order):
+            if kind in order:
+                continue
+            prev = next((k for k in reversed(default_order[:i]) if k in order), None)
+            order.insert(order.index(prev) + 1 if prev else 0, kind)
+        order = list(dict.fromkeys([*order, *custom.keys()]))
     rows: list[dict[str, Any]] = []
-    builtin_icons = {"idea":"✦","journal":"▤","note":"▧","milestone":"⚑","summary":"▣","literature":"◫"}
+    builtin_icons = {"idea":"✦","journal":"▤","note":"▧","experiment":"⚗","milestone":"⚑","summary":"▣","literature":"◫"}
     for kind in order:
         if kind in contracts.kind_dir_map():
             rows.append({

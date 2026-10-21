@@ -1,5 +1,17 @@
 # Changelog
 
+## v261021.1 · Agent 接入 OpenCode 免费档（本地 CLI 桥）
+
+- 新增 `tools/opencode_cli_bridge.py`：把 OpenAI Chat Completions 请求（含 SSE 流式）摊平成一段文本交给本机 `opencode run --format json`，再把 `text` 事件聚合为回答、把 `step_finish.tokens` 回填 `usage`；`GET /v1/models`、`/v1/health` 供设置页「测试连接」使用。默认监听 `127.0.0.1:9357`，CLI 路径优先取 npm 包内 `opencode.exe`（`.cmd` 经 `cmd /c` 中转会把中文提示词打成乱码，已实测踩过）。
+- 新增 Agent 档案 `profile-opencode-free-cli`（`http://127.0.0.1:9357/v1` · `deepseek-v4.1-flash-free`），并在 `prices.json` 的 `plans` 里登记为 `mode=free`。该模型只在 Zen 通用网关 `/zen/v1`，Go 网关 `/zen/go/v1` 没有它。
+- 为什么必须走 CLI：上游对免费档做客户端识别，非 OpenCode 客户端直连一律 `403 FreeTierError`。实测系统提示词、UA、`Authorization: Bearer public` 都不构成判别依据，**请求里的 opencode 工具集**才是（`bash` 单独不够，`bash+read` 的原版 schema 即可放行）。因此不伪造签名直连，而是交给官方 CLI 出网。
+- 安全边界：桥为每次调用生成 `config/opencode-cli-bridge.json`（`bash/edit/write/webfetch/websearch` 全部 `deny`），并在独立临时目录运行，模型无法在工作区执行命令。
+- 能力边界：只做纯文本问答——工作台的原生 function calling 不下发，工具循环退化为普通回答；免费档限速紧，429 原样透出为 HTTP 502/429 并显示原文。
+- 验证：桥非流式与 SSE 双路径实测；`GET /api/agent/test` 返回 `连接成功`；`POST /api/agent/send` 端到端得到 `round → delta → done`，正文与 `usage` 正常。
+- **设置页补上「实验」类型**：内置类型从 6 类恢复为契约里的 7 类，默认顺序 `idea → journal → note → experiment → milestone → summary → literature`（与侧栏一致，实验在里程碑之前）。此前 `knowledge_type_registry()` 的 `default_order` 漏了 `experiment`，导致设置页看不到实验、无法调顺序/隐藏/改模板；`app/config.py`、`app/store.py`、`web/app.js` 三处同时补齐，并对旧配置里缺 `experiment` 的 `order` 按**相对位置插入**而不是一律追加到末尾，避免它被排到文献之后。
+- **版本页入口移到「系统」**：`version-manager` 的面板注册从 `group:'research'` / `before:'graph'` 改为 `group:'system'` / `before:'settings'`，侧栏显示为「系统 → 版本 → 设置」；插件 README、`plugin.json` 的 `where` 与手册 02 同步。版本是全局维护动作，与具体研究条目并列在「研究 · 知识」组里不合语义。
+- 验证：重启主实例后 `/api/knowledge-types` 返回 7 类且 `experiment` 在 `note` 与 `milestone` 之间；真浏览器走查侧栏 `system` 组为「使用手册 / 用量 / 版本 / 设置」、设置页知识条目 7 行顺序正确、分类标记 3/24 与 7 个内置模板恢复（`/api/knowledge-marks` 500 已修）、0 console error。
+
 ## v261020.7 · 版本页：批量清理快照
 
 - 版本页左侧新增「批量清理」卡片：一次扫描所有版本族，把变体分成**内容一致**（与基条正文相同，通常是外部写入只改来源/元数据）与**有改动**（写入前的旧内容）两类，支持「归档内容一致的 N 个」和「归档全部 N 个…」；归档走原有 `archive_variants`，移到 `System/Versions/<基条>/archived/`，可随时取回，基条内容不变。

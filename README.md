@@ -2,7 +2,7 @@
 
 > 一个面向科研人员的本地优先、Markdown-first 工科科研工作台：项目管理、研究笔记、文献卡片、知识图谱、科研时间线、全文检索、RSS 资讯与可引用本地知识的 LLM Agent，统一在一个轻量 Web 界面中完成。
 
-**当前版本：`v261020.7`**
+**当前版本：`v261021.1`**
 
 **Windows 桌面版**：默认单文件便携版，将发布 ZIP 解压到可写目录后双击 `ResearchWorkbench.exe`；无需同级运行库目录，缺少同名 `.exe.config` 时会自动补建。支持右侧窗口控制、可配置关闭行为、托盘后台运行和重复启动唤回。最大化保留 Windows 任务栏。源码构建执行 `build_client.bat`，操作与数据位置见 [Windows 使用说明](docs/WINDOWS.md)。
 
@@ -342,8 +342,17 @@ Agent 是工作台中的本地会话层，用于把外部 LLM 与本地研究资
 | OpenCode Go · 本地代理 | `http://127.0.0.1:9355/zen/go/v1` | `deepseek-v4.1-flash` |
 | OpenCode Go · 直连 Zen | `https://opencode.ai/zen/go/v1` | `deepseek-v4.1-flash` |
 | 火山方舟 · Agent Plan | `https://ark.cn-beijing.volces.com/api/plan/v3` | `deepseek-v4.1-flash` |
+| OpenCode 免费档 · 本地 CLI 桥 | `http://127.0.0.1:9357/v1` | `deepseek-v4.1-flash-free` |
 
 每套配置可带多个请求模式（模型 / 思考开关 / 温度 / 附加参数），在对话框里逐轮切换；切换整套配置用 Agent 页顶部的「API 配置」下拉，或在设置页中「设为当前配置」。两套 OpenCode Go 分别是「走本机反代理」与「直连 `opencode.ai`」；直连一套靠配置里的**自定义请求头**满足上游的 `x-opencode-session` 要求（设置页「Agent API 配置」里可直接编辑 JSON）。
+
+**免费档要经本机 CLI**：`deepseek-v4.1-flash-free` 只在 Zen 通用网关（`/zen/v1`），且上游按「请求里的 opencode 工具集」识别客户端，非 OpenCode 客户端直连一律 `403 FreeTierError`。所以工作台不直连，而是把请求交给本机官方 CLI：
+
+```bash
+python tools/opencode_cli_bridge.py          # 起本地桥：127.0.0.1:9357
+```
+
+桥把 OpenAI Chat Completions 请求摊平成一段文本交给 `opencode run --format json`，再把 `text` 事件与 token 用量包回工作台。代价与边界：只做纯文本问答（拿不到原生 function calling，工具循环退化为普通回答）；CLI 侧工具全部拒权（`config/opencode-cli-bridge.json`），并跑在独立临时目录；免费档限速很紧，偶发 429 会原样显示。
 
 ### 手动引用本地知识
 

@@ -103,7 +103,8 @@ DEFAULT_APP_CONFIG = {
     # v261009 · “研究 · 知识”条目类型注册表。内置类型只保存显示/排序偏好；
     # 自定义类型由用户定义 label/icon/statuses/template，文件固定落在 Knowledge/Custom/<id>/。
     "knowledge_types": {
-        "order": ["idea", "journal", "note", "milestone", "summary", "literature"],
+        # 内置七类的默认顺序与侧栏一致（实验在里程碑之前）；v261021 起把 experiment 纳入默认值。
+        "order": ["idea", "journal", "note", "experiment", "milestone", "summary", "literature"],
         "hidden": [],
         "custom": [],
         "templates": {},
@@ -655,7 +656,7 @@ def _merge_profiles_from_public(incoming_llm: dict[str, Any], current_secret: di
 
 def _clean_knowledge_types(value: Any) -> dict[str, Any]:
     raw = value if isinstance(value, dict) else {}
-    builtin = {"idea", "journal", "note", "milestone", "summary", "literature"}
+    builtin = {"idea", "journal", "note", "experiment", "milestone", "summary", "literature"}
     custom: list[dict[str, Any]] = []
     seen = set(builtin)
     for item in (raw.get("custom") or []):
@@ -680,7 +681,18 @@ def _clean_knowledge_types(value: Any) -> dict[str, Any]:
         seen.add(kind)
     valid = builtin | {x["id"] for x in custom}
     order = [str(x) for x in (raw.get("order") or []) if str(x) in valid]
-    order = list(dict.fromkeys(order + ["idea","journal","note","milestone","summary","literature"] + [x["id"] for x in custom]))
+    # 旧配置的 order 可能缺后来新增的内置类型（如 experiment）：按默认顺序的相对位置补齐，
+    # 而不是一律追加到末尾——否则「设置 → 知识条目」里实验会排到「文献」之后。
+    default_order = ["idea", "journal", "note", "experiment", "milestone", "summary", "literature"]
+    if not order:
+        order = list(default_order)
+    else:
+        for i, kind in enumerate(default_order):
+            if kind in order:
+                continue
+            prev = next((k for k in reversed(default_order[:i]) if k in order), None)
+            order.insert(order.index(prev) + 1 if prev else 0, kind)
+        order = list(dict.fromkeys(order + [x["id"] for x in custom]))
     hidden = [str(x) for x in (raw.get("hidden") or []) if str(x) in valid]
     templates_raw = raw.get("templates") if isinstance(raw.get("templates"), dict) else {}
     templates: dict[str, str] = {}

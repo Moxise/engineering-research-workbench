@@ -1725,9 +1725,22 @@
     renderSidebar();toast(message);
     return saved;
   }
+  /* 内置七类的默认顺序，与侧栏及 core/contracts 的 KIND 顺序一致（实验在里程碑之前）。 */
+  const BUILTIN_KIND_ORDER=['idea','journal','note','experiment','milestone','summary','literature'];
   function knowledgeConfig(app){
     const raw=app.knowledge_types&&typeof app.knowledge_types==='object'?app.knowledge_types:{};
-    if(!Array.isArray(raw.order))raw.order=['idea','journal','note','milestone','summary','literature'];
+    if(!Array.isArray(raw.order))raw.order=[...BUILTIN_KIND_ORDER];
+    else{
+      /* 旧配置的 order 可能缺后来新增的内置类型（如 experiment）。按默认顺序的相对位置补齐，
+         而不是让它在设置页里被当成「额外类型」排到最后。 */
+      for(let i=0;i<BUILTIN_KIND_ORDER.length;i++){
+        const kind=BUILTIN_KIND_ORDER[i];
+        if(raw.order.includes(kind))continue;
+        let prev=null;
+        for(let j=i-1;j>=0;j--){if(raw.order.includes(BUILTIN_KIND_ORDER[j])){prev=BUILTIN_KIND_ORDER[j];break}}
+        raw.order.splice(prev?raw.order.indexOf(prev)+1:0,0,kind);
+      }
+    }
     if(!Array.isArray(raw.hidden))raw.hidden=[];
     if(!Array.isArray(raw.custom))raw.custom=[];
     if(!raw.templates||typeof raw.templates!=='object'||Array.isArray(raw.templates))raw.templates={};
@@ -1936,7 +1949,7 @@
       const id=(editing?item.id:$('#kt-id').value.trim().toLowerCase());
       const label=$('#kt-label').value.trim();
       if(!/^[a-z][a-z0-9_-]{0,47}$/.test(id)){toast('ID 需以小写字母开头，只能包含小写字母、数字、-、_',true);return}
-      if(['idea','journal','note','milestone','summary','literature'].includes(id)){toast('该 ID 为内置类型，请换一个',true);return}
+      if(['idea','journal','note','experiment','milestone','summary','literature'].includes(id)){toast('该 ID 为内置类型，请换一个',true);return}
       if(!label){toast('请填写显示名称',true);return}
       if(!editing&&custom.some(x=>x.id===id)){toast('该 ID 已存在',true);return}
       const statuses=$('#kt-statuses').value.split(/[\n,，]+/).map(x=>x.trim()).filter(Boolean);

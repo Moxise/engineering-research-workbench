@@ -160,6 +160,9 @@ Agent 只依赖一种协议——OpenAI-compatible **Chat Completions**，所以
 | `profile-opencode-go` | OpenCode Go · 本地代理 | `http://127.0.0.1:9355/zen/go/v1` | `deepseek-v4.1-flash` |
 | `profile-opencode-go-direct` | OpenCode Go · 直连 Zen | `https://opencode.ai/zen/go/v1` | `deepseek-v4.1-flash` |
 | `profile-ark-agent-plan` | 火山方舟 · Agent Plan | `https://ark.cn-beijing.volces.com/api/plan/v3` | `deepseek-v4.1-flash` |
+| `profile-opencode-free-cli` | OpenCode 免费档 · 本地 CLI 桥 | `http://127.0.0.1:9357/v1` | `deepseek-v4.1-flash-free` |
+
+- **免费档一套**（`profile-opencode-free-cli`，v261021.1）跑 `python tools/opencode_cli_bridge.py`，由它把 OpenAI Chat Completions 转成 `opencode run --format json`。不直连的原因：`deepseek-v4.1-flash-free` 只在 Zen 通用网关 `/zen/v1`，且上游按**请求里的 opencode 工具集**识别客户端（实测 `bash` 单独不够、`bash+read` 的原版 schema 即可放行；系统提示词与 UA 不参与判别），非客户端直连返回 `403 FreeTierError`。桥侧工具全拒权并在临时目录运行；代价是没有原生 function calling。
 
 - **代理一套**（`profile-opencode-go`）依赖本机 `D:\Project\opencode-go-proxy-for-trae.py` 反代理（监听 `127.0.0.1:9355`）在跑，由代理注入 `x-opencode-session / x-opencode-request / x-opencode-client / x-opencode-project` 四个头；工作台侧填真实模型名即可（`proxy-` 前缀也会被代理剥掉，两种写法都通）。
 - **直连一套**（`profile-opencode-go-direct`）不经任何本地进程，直接打 `opencode.ai`。上游要求 `x-opencode-session`（缺它返回 400 `Request is missing x-opencode-session and cannot be routed efficiently`），故新增**档案级自定义请求头**能力承载：`profiles[].headers` 经 `config._clean_headers()` 白名单化（头名须 RFC 7230 token、值禁 CR/LF、单值 ≤512 字符、最多 20 条），由 `agent._api_headers(api_key, extra)` 合并进所有请求路径——普通补全、SSE 流式、`/models` 探针、对话探针都带。实测**只有 session 是硬要求**，`x-opencode-request/client/project` 可省（保留是为了与官方 CLI 同形）；`Content-Type` 与 `Authorization` 由工作台接管、自定义头覆盖不了，`User-Agent` 允许改写。设置页「Agent API 配置」已加「自定义请求头（JSON）」输入框。

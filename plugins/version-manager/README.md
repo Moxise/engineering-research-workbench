@@ -2,7 +2,7 @@
 
 同一笔记的不同版本：**查看版本族 → 批量清理快照 / Agent 自动确认 / 按小节合并 → 归档 / 取回**。
 
-- 入口：侧栏「研究 · 知识 → 版本」（停用本插件则入口消失）
+- 入口：侧栏「系统 → 版本」（停用本插件则入口消失）
 - 后端：`backend.py`（路由 `/api/plugins/version-manager/*`；工具 `versions` / `auto_merge_versions` / `merge_versions` / `archive_versions`）
 - 前端：`web/panel.js` + `web/panel.css`
 - 权限：`ui:panel`、`config:own`、**`llm:use`**（自动确认会调用已配置的模型；可用 `strategy="rule"` 跳过模型）
