@@ -14,7 +14,7 @@
   .brand-mark{width:28px;height:28px;align-self:center}.brand-mark:before{width:38px;left:-6px}.brand-mark:after{height:38px;top:-6px}.brand-mark span{width:11px;height:11px;box-shadow:0 0 0 4px var(--accent-soft)}
   .brand-copy{display:flex;flex-direction:column;justify-content:center;min-height:0}
   .brand h1{font-size:17px;line-height:1.15}.brand p{margin-top:2px;font-size:8px;line-height:1.3}
-  .sidebar-nav{padding:10px 8px 64px}.nav-group{margin-bottom:5px}.nav-group-head{height:31px;padding:0 7px}.nav-items{gap:1px}.nav-item{height:38px;gap:9px;padding:0 10px;border-radius:8px}
+  .sidebar-nav{padding:10px 8px 12px}.nav-group{margin-bottom:5px}.nav-group-head{height:31px;padding:0 7px}.nav-items{gap:1px}.nav-item{height:38px;gap:9px;padding:0 10px;border-radius:8px}
   .nav-group[data-group="core"] .nav-group-head,.nav-group[data-group="research"] .nav-group-head{height:34px;margin-bottom:3px;padding:0 8px;border-radius:8px}
   .sidebar-footer{padding:9px 13px}
 

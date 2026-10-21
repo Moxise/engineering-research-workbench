@@ -190,7 +190,7 @@ a:hover{color:var(--lux-primary-hover)}
   color:var(--lux-ink-subtle)!important;
   text-transform:none!important;
 }
-.sidebar-nav{padding:9px 8px 60px!important}
+.sidebar-nav{padding:9px 8px 12px!important}
 .nav-group{margin-bottom:8px!important}
 .nav-group-head{
   height:28px !important;

@@ -4,7 +4,7 @@
   "css": [
     {
       "file": "styles.css",
-      "v": "261010b",
+      "v": "261021-sidebar",
       "theme": "base",
       "note": "v261010b · 条目卡片统一高度：标题固定两行（超出省略 + title 悬停）、摘要固定两行、徽章行固定单行（放不下时右端淡出）；列宽锁定面板宽（.doc-list minmax(0,1fr)、.doc-item/.proj-text min-width:0）修多项目卡片撑宽网格轨道；上版：笔记卡片的时间标签默认右对齐（无项目名时也贴右）；再上版：天气样式搬出内核"
     },
@@ -16,7 +16,7 @@
     },
     {
       "file": "layout-compact.css",
-      "v": "261009ac",
+      "v": "261021-sidebar",
       "theme": "layout",
       "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009o · 紧凑密度下 PDF 阅读区高度那条 `html[data-density=\"c"
     },
@@ -58,7 +58,7 @@
     },
     {
       "file": "v261014-linear-luxe.css",
-      "v": "261016-v3",
+      "v": "261021-sidebar",
       "theme": "base",
       "note": "v261014o · 线性奢华版壳层（v3 UI 重设计）"
     },

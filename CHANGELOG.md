@@ -1,5 +1,11 @@
 # Changelog
 
+## v261021.3 · 侧栏：内容未铺满时不再可滚
+
+- 左栏导航（`#sidebar-nav`）底部内边距从 56/64/60px 收到 **12px**。真实生效的是 `v261014-linear-luxe.css` 里 `padding:9px 8px 60px!important` 那条（`styles.css` 与 `layout-compact.css` 的 56/64px 一直被它覆盖）；60px 的底部内边距被计入 `scrollHeight`，于是内容只到 828px、容器 886px 时仍能滚 27px——滚轮在侧栏上会被这 27px 截走，而不是滚页面。
+- 现在：内容未铺满时 `scrollHeight == clientHeight`、`maxScroll = 0`，滚轮直接作用于页面；窗口变矮、导航真正溢出时照常滚动，末尾保留 12px 留白 + 组间距，不贴 footer。
+- 验证：视口 1113 / 1000 高时侧栏 `maxScroll = 0`，640 高时 `maxScroll = 339`（正常滚动）；`web_check`、`web_manifest --check`、`kb_smoke`、`ui_smoke`（20 路由）全部通过。
+
 ## v261021.2 · 设置页滚动：外壳固定，只滚内容区
 
 - 设置页（含插件自登记的设置 tab）从**整页滚动**改为**内容区内部滚动**：滚动时顶栏、侧栏、左栏标签零位移，滚动条只出现在右栏卡片内。此前是 body 滚动——滚动条贴窗口右缘、拖动时整页位移；桌面模式又被 `desktop.css` 顶成 `height:calc(--vh-px - 20px)`，左栏比视口还高、滚动时错位。
