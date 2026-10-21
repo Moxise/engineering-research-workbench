@@ -2,7 +2,7 @@
 
 > 一个面向科研人员的本地优先、Markdown-first 工科科研工作台：项目管理、研究笔记、文献卡片、知识图谱、科研时间线、全文检索、RSS 资讯与可引用本地知识的 LLM Agent，统一在一个轻量 Web 界面中完成。
 
-**当前版本：`v261022.6`**
+**当前版本：`v261022.7`**
 
 **Windows 桌面版**：默认单文件便携版，将发布 ZIP 解压到可写目录后双击 `ResearchWorkbench.exe`；无需同级运行库目录，缺少同名 `.exe.config` 时会自动补建。支持右侧窗口控制、可配置关闭行为、托盘后台运行和重复启动唤回。最大化保留 Windows 任务栏。源码构建执行 `build_client.bat`，操作与数据位置见 [Windows 使用说明](docs/WINDOWS.md)。
 
@@ -15,6 +15,9 @@
 >
 > 🎨 **改界面之前先读 [`docs/UI_DESIGN.md`](docs/UI_DESIGN.md)**——视觉语言（色彩/字体/圆角/阴影）、
 > 布局骨架、滚动规范、组件规格、主题与密度、插件 UI 接缝，以及改界面的验收清单。
+>
+> 🧩 **上游前端接了什么、没接什么**：[`docs/UPSTREAM_FRONTEND_INTEGRATION.md`](docs/UPSTREAM_FRONTEND_INTEGRATION.md)
+> ——逐项列出接入点、接缝改造、未接入模块的理由与后续可选任务。
 >
 > 🚀 **要发布到 GitHub**：看 [`docs/PUBLISH.md`](docs/PUBLISH.md)（上线前检查清单、上传命令、
 > 以及"清掉历史里的用户数据"的可回滚步骤）。
