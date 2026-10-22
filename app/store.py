@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
 import os
@@ -183,6 +184,27 @@ BIBTEX_BLOCK_RE = re.compile(r"```bibtex\s*\n(.*?)```", re.S | re.I)
 _LOCK = threading.RLock()
 
 
+def document_revision(text: str) -> str:
+    """Include metadata and body, independent of timestamp precision."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+class RevisionConflict(ValueError):
+    def __init__(self, current: dict[str, Any]):
+        super().__init__("条目已被其他客户端修改，请比较当前值后重新合并保存")
+        self.current = current
+
+
+def milestone_status_class(raw: Any) -> str:
+    # Unknown/custom labels remain visible and count as pending/planned.
+    value = str(raw or "").strip()
+    if value in ("完成", "已完成"):
+        return "done"
+    if value in ("受阻", "阻塞"):
+        return "blocked"
+    return "active" if value == "进行中" else "planned"
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -329,6 +351,9 @@ def _doc_from_path(kind: str, path: Path, include_body: bool = True) -> dict[str
     if isinstance(meta.get("tags"), str):
         meta["tags"] = [t.strip() for t in meta["tags"].split(",") if t.strip()]
     doc = dict(meta)
+    doc["revision"] = document_revision(text)
+    if kind == "milestone":
+        doc["status_class"] = milestone_status_class(doc.get("status"))
     doc["filename"] = path.name
     doc["path"] = str(path.relative_to(ensure_workspace())).replace("\\", "/")
     doc["excerpt"] = _excerpt(body)

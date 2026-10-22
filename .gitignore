@@ -46,6 +46,8 @@
 !web/workbench-mark.svg
 !tools/ui_usability_check.js
 !tools/agent_system_ui_check.js
+!tools/functional_regression_ui_check.js
+!tools/planning_regression_ui_check.js
 
 # ==========================================================
 # 文档

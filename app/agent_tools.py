@@ -49,7 +49,7 @@ def _draft_path(draft_id: str) -> Path:
     return _drafts_root() / f"{draft_id}.json"
 
 
-def save_draft(tool: str, args: dict[str, Any], ctx: dict | None = None) -> dict[str, Any]:
+def save_draft(tool: str, args: dict[str, Any], ctx: dict | None = None, *, changes: list[dict] | None = None) -> dict[str, Any]:
     draft = {
         "id": "draft-" + uuid.uuid4().hex[:10],
         "tool": tool,
@@ -59,6 +59,8 @@ def save_draft(tool: str, args: dict[str, Any], ctx: dict | None = None) -> dict
         "result": None,
         "context": {k: v for k, v in (ctx or {}).items() if k in ("session_id", "project_id", "run_id", "tools")},
     }
+    if changes is not None:
+        draft["changes"] = changes
     with _LOCK:
         path = _draft_path(draft["id"])
         from . import agent_memory
@@ -178,7 +180,9 @@ def _t_kb_read(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         except (FileNotFoundError, ValueError):
             links.append({"title": target, "resolved": False})
     return {"id": doc["id"], "title": doc.get("title"), "display_title": doc.get("title"), "citation": f"[[{doc.get('title') or '未命名条目'}]]", "kind": doc.get("kind"), "paper_id": papers.get(doc["id"], {}).get("id"), "links": links,
-            "projects": doc.get("projects") or [], "body": body[offset:offset + limit],
+            "projects": doc.get("projects") or [],
+            **{key: doc[key] for key in ("start_date", "due", "progress", "status", "status_class", "revision") if key in doc},
+            "body": body[offset:offset + limit],
             "version": hashlib.sha256(body.encode()).hexdigest(), "total_chars": len(body), "read_scope": "full_body" if offset == 0 and len(body) <= limit else "body_slice",
             "next_offset": offset + limit if offset + limit < len(body) else None,
             "user_message": f"已读取《{doc.get('title') or '知识条目'}》" + ("的完整正文。" if offset == 0 and len(body) <= limit else "的正文节选。")}
@@ -205,24 +209,59 @@ def _t_kb_create_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
         "projects": [str(x) for x in (args.get("projects") or []) if str(x).strip()][:6],
         "kind_marks": [str(x) for x in (args.get("kind_marks") or []) if str(x).strip()][:6],
     }
+    schedule_keys = {"start_date", "due", "progress"}
+    if kind != "milestone" and schedule_keys & args.keys():
+        raise ValueError("排期字段仅支持 milestone 条目")
+    if "status" in args:
+        if not args["status"].strip():
+            raise ValueError("status 不能为空")
+        payload["status"] = args["status"].strip()
+    changes = None
+    if kind == "milestone":
+        # An undated Agent milestone is explicitly unscheduled, never 'today'.
+        payload.update(store.normalize_milestone_schedule({"due": "", **args}))
+        payload.setdefault("status", "计划")
+        changes = [{"field": key, "before": None, "after": payload.get(key)}
+                   for key in ("start_date", "due", "progress", "status", "projects", "body", "tags", "kind_marks")]
     marks = kb_naming.category_mark(kind, title)
     for m in marks:  # 类别词推断的内置标记去重合并
         if m not in payload["kind_marks"]:
             payload["kind_marks"].append(m)
     if ctx.get("write_mode") == "direct":
         doc = indexer.create_doc(kind, payload)
-        return {"ok": True, "doc_id": doc["id"], "title": doc.get("title"), "user_message": f"已创建《{doc.get('title') or title}》。", "validation": validation}
-    draft = save_draft("kb_create_entry", {"kind": kind, **payload}, ctx)
+        return {"ok": True, "doc_id": doc["id"], "title": doc.get("title"),
+                "plan": {key: doc.get(key) for key in ("start_date", "due", "progress", "status", "projects", "revision", "status_class")} if kind == "milestone" else None,
+                "user_message": f"已创建《{doc.get('title') or title}》。" + ("尚未设置截止日期，仍待排期。" if kind == "milestone" and not doc.get("due") else ""), "validation": validation}
+    draft = save_draft("kb_create_entry", {"kind": kind, **payload}, ctx, changes=changes)
     return {"pending": True, "draft_id": draft["id"], "message": "建档草稿已生成，等待用户确认后写入知识库",
             "draft": {"tool": "kb_create_entry", "kind": kind, "title": title}, "validation": validation}
 
 
 def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    if args.get("append") and "body" not in args:
+        raise ValueError("append 需要提供 body")
     doc_id = str(args.get("doc_id") or "").strip()
     if not doc_id:
         raise ValueError("doc_id 不能为空")
     from . import indexer
     doc = indexer.get_doc(doc_id)
+    metadata = {key: args[key] for key in ("start_date", "due", "progress", "status", "projects") if key in args}
+    expected_revision = args.get("expected_revision")
+    if metadata and not expected_revision:
+        raise ValueError("修改排期或元数据需要先 kb_read，再提供其 revision 作为 expected_revision")
+    if expected_revision and expected_revision != doc.get("revision"):
+        return {"ok": False, "conflict": True, "error": "条目排期或内容已变化，请重新读取后生成草稿", "current": doc}
+    if doc.get("kind") != "milestone" and {"start_date", "due", "progress"} & metadata.keys():
+        raise ValueError("排期字段仅支持 milestone 条目")
+    if "status" in metadata:
+        if not metadata["status"].strip():
+            raise ValueError("status 不能为空")
+        metadata["status"] = metadata["status"].strip()
+    if {"start_date", "due", "progress"} & metadata.keys():
+        normalized = store.normalize_milestone_schedule({**doc, **metadata})
+        metadata.update({key: normalized[key] for key in metadata if key in normalized})
+    if not metadata and "body" not in args:
+        raise ValueError("请提供正文或实际需要修改的计划字段")
     original = str(doc.get("body") or "")
     version = hashlib.sha256(original.encode()).hexdigest()
     expected = str(args.get("expected_version") or "")
@@ -230,23 +269,33 @@ def _t_kb_update_entry(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, A
         return {"ok": False, "conflict": True, "title": doc.get("title"), "error": "条目已变化，请重新读取正文后生成更新", "version": version}
     body = str(args.get("body") or "")
     append = bool(args.get("append"))
-    if ctx.get("write_mode") == "direct" and not append and not expected:
+    if "body" in args and ctx.get("write_mode") == "direct" and not append and not expected:
         return {"ok": False, "error": "整体覆盖需要 kb_read 返回的 expected_version；也可使用 append=true"}
     if append:
         body = str(doc.get("body") or "").rstrip() + "\n\n" + body.strip() + "\n"
         args = {**args, "body": body, "append": False}
-    if not body.strip() and not ctx.get("allow_empty_restore"):
+    if "body" in args and not body.strip() and not ctx.get("allow_empty_restore"):
         raise ValueError("body 不能为空（注意：更新为整体覆盖，须发送全文）")
+    payload = {**metadata, **({"body": body} if "body" in args else {})}
+    if expected_revision:
+        payload["expected_revision"] = expected_revision
     if ctx.get("write_mode") == "direct":
         from . import agent_memory
         revision_id = "rev-" + uuid.uuid4().hex
         revision = {"id": revision_id, "doc_id": doc_id, "before": original, "after_version": hashlib.sha256(body.encode()).hexdigest(), "created": agent_memory.now()}
-        agent_memory.atomic_json(agent_memory.root() / "Revisions" / (revision_id + ".json"), revision)
-        updated = indexer.update_doc(doc_id, {"body": body})
-        return {"ok": True, "doc_id": doc_id, "title": updated.get("title") or doc.get("title"), "updated": updated.get("updated"), "revision_id": revision_id,
-                "user_message": f"已更新《{updated.get('title') or doc.get('title') or '知识条目'}》，原内容已保存，可从修订记录撤销。"}
-    draft = save_draft("kb_update_entry", {**args, "expected_version": version}, ctx)
-    return {"pending": True, "draft_id": draft["id"], "message": "更新草稿已生成，等待用户确认后写入（覆盖正文）",
+        if "body" in args:
+            agent_memory.atomic_json(agent_memory.root() / "Revisions" / (revision_id + ".json"), revision)
+        updated = indexer.update_doc(doc_id, payload)
+        return {"ok": True, "doc_id": doc_id, "title": updated.get("title") or doc.get("title"), "updated": updated.get("updated"),
+                "revision": updated.get("revision"), **({"revision_id": revision_id} if "body" in args else {}),
+                "plan": {key: updated.get(key) for key in ("start_date", "due", "progress", "status", "projects", "revision", "status_class")} if doc.get("kind") == "milestone" else None,
+                "user_message": f"已更新《{updated.get('title') or doc.get('title') or '知识条目'}》。" + ("原正文已保存，可从修订记录撤销。" if "body" in args else "正文保持不变。")}
+    draft_args = {**args, **metadata, "expected_version": version}
+    if doc.get("revision"):
+        draft_args["expected_revision"] = doc["revision"]
+    changes = [{"field": key, "before": doc.get(key), "after": value} for key, value in payload.items() if key != "expected_revision"]
+    draft = save_draft("kb_update_entry", draft_args, ctx, changes=changes)
+    return {"pending": True, "draft_id": draft["id"], "message": "更新草稿已生成，等待用户确认后写入",
             "draft": {"tool": "kb_update_entry", "doc_id": doc_id, "title": doc.get("title"), "append": append}}
 
 
@@ -372,17 +421,27 @@ _TOOL_META: dict[str, dict[str, Any]] = {
             "tags": {"type": "array", "items": {"type": "string"}, "description": "标签，可选"},
             "projects": {"type": "array", "items": {"type": "string"}, "description": "归属项目名，可选"},
             "kind_marks": {"type": "array", "items": {"type": "string"}, "description": "分类标记 id，可选"},
-        }, "required": ["kind", "title", "body"]},
+            "start_date": {"type": "string", "description": "milestone 阶段开始日期 YYYY-MM-DD；空字符串表示单一节点"},
+            "due": {"type": "string", "description": "milestone 截止日期 YYYY-MM-DD；省略或空字符串表示待排期，不默认当天"},
+            "progress": {"type": ["number", "null"], "description": "milestone 完成进度 0–100，一位小数；null 为未设置"},
+            "status": {"type": "string", "description": "状态；milestone 建议计划、进行中、受阻或完成；兼容已完成"},
+        }, "required": ["kind", "title", "body"], "additionalProperties": False},
         "write": True,
     },
     "kb_update_entry": {
-        "description": "更新已有条目。body 为整体覆盖，须发送全文；不确定全文时先用 kb_read 读原文，或用 append=true 在末尾追加。confirm 模式下仅生成草稿。",
+        "description": "更新已有条目或结构化里程碑排期。仅发送改动字段；排期/状态/项目修改必须先 kb_read 并提供 expected_revision。省略 body 保留正文，body 为整体覆盖时须发送全文和 expected_version，或 append=true 追加。confirm 模式生成字段旧值→新值草稿，确认后写入。",
         "params": {"type": "object", "properties": {
             "doc_id": {"type": "string"},
             "body": {"type": "string", "description": "append=false 时为覆盖全文；append=true 时为要追加的片段"},
             "append": {"type": "boolean", "description": "true=在原正文末尾追加，默认 false 覆盖"},
             "expected_version": {"type": "string", "description": "kb_read 的 version；整体覆盖时必须提供，防止覆盖并发修改"},
-        }, "required": ["doc_id", "body"]},
+            "expected_revision": {"type": "string", "description": "kb_read 返回的 revision，覆盖元数据和正文；排期/状态/项目修改必填"},
+            "start_date": {"type": "string", "description": "milestone 开始日期 YYYY-MM-DD；空字符串清空"},
+            "due": {"type": "string", "description": "milestone 截止日期 YYYY-MM-DD；空字符串清空"},
+            "progress": {"type": ["number", "null"], "description": "milestone 进度 0–100；null 清空"},
+            "status": {"type": "string", "description": "保留自定义状态；完成与已完成具有相同语义"},
+            "projects": {"type": "array", "items": {"type": "string"}, "description": "项目名称；空列表清除关联"},
+        }, "required": ["doc_id"], "additionalProperties": False},
         "write": True,
     },
     "lit_context": {
@@ -493,15 +552,23 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
         # function calling; type errors become repairable tool results.
         meta = _TOOL_META.get(name)
         if meta:
+            properties = meta["params"].get("properties", {})
+            if meta["params"].get("additionalProperties") is False:
+                unknown = args.keys() - properties.keys()
+                if unknown:
+                    raise ValueError("不支持的参数：" + "、".join(sorted(unknown)))
             for key in meta["params"].get("required", []):
                 if key not in args:
                     raise ValueError(f"缺少必填参数 {key}")
             for key, value in args.items():
-                rule = meta["params"].get("properties", {}).get(key, {})
+                rule = properties.get(key, {})
                 expected = rule.get("type")
-                types = {"string": str, "integer": int, "number": (int, float), "array": list, "object": dict, "boolean": bool}
-                if expected in types and (not isinstance(value, types[expected]) or (expected in ("integer", "number") and isinstance(value, bool))):
+                types = {"string": str, "integer": int, "number": (int, float), "array": list, "object": dict, "boolean": bool, "null": type(None)}
+                allowed_types = expected if isinstance(expected, list) else [expected]
+                if expected and not any(t in types and isinstance(value, types[t]) and not (t in ("integer", "number") and isinstance(value, bool)) for t in allowed_types):
                     raise ValueError(f"参数 {key} 需要 {expected}")
+                if isinstance(value, list) and rule.get("items", {}).get("type") == "string" and any(not isinstance(item, str) for item in value):
+                    raise ValueError(f"参数 {key} 的每项必须是字符串")
                 if "enum" in rule and value not in rule["enum"]:
                     raise ValueError(f"参数 {key} 不在允许值中")
         write = is_write_tool(name) if meta else agent_mcp.is_write(name)
@@ -514,6 +581,8 @@ def execute(name: str, args: dict[str, Any] | None, ctx: dict[str, Any] | None =
                 result = impl(args, ctx) or {}
         else:
             result = impl(args, ctx) or {}
+    except store.RevisionConflict as e:
+        return {"ok": False, "conflict": True, "error": str(e), "current": e.current}
     except FileNotFoundError as e:
         return {"ok": False, "error": f"目标不存在：{e}"}
     except Exception as e:

@@ -70,7 +70,7 @@ fs.mkdirSync(output, {recursive:true});
       {role:'assistant',content:'## 分析建议\n\n先对照基线，再检查实验参数。\n\n`seed = 42`\n\n| 指标 | 结果 |\n| --- | --- |\n| 准确率 | 93% |',reasoning:'核对数据和参数，再比较结果。',created:date},
     ]};
     const days=Array.from({length:14},(_,i)=>({date:`2026-10-${String(i+2).padStart(2,'0')}`,count:i%4,breakdown:{todo_done:i===13?2:0}}));
-    const projectStats=Array.from({length:6},(_,i)=>({id:'proj_internal_'+i,name:'研究项目 '+(i+1),description:'验证模型质量、实验结果与研究进展。',status:'进行中',docs:19,open_todos:4,milestones:3,literature:5,last_updated:date,created:'2025-12-10'}));
+    const projectStats=Array.from({length:6},(_,i)=>({id:'proj_internal_'+i,name:'研究项目 '+(i+1),description:'验证模型质量、实验结果与研究进展。',status:'进行中',docs:19,open_todos:4,open_milestones:3,literature:5,last_updated:date,created:'2025-12-10'}));
     const projectCards=projectStats.map((p,i)=>({...p,name:i===1?'一个需要占据两行的较长研究项目名称以检验卡片对齐':p.name,description:['简短描述。','研究长文本建模、实验验证、数据对照与结果复核，覆盖更多内容以检验两行描述的高度及省略效果。',''][i%3]}));
     const fixtureDashboard={today:date,academic:{configured:true,percent:43.4,start_date:'2024-09-05',expected_end_date:'2029-07-15',elapsed_days:770,remaining_days:1004,weekly_goal_days:5,conditions_total:1,conditions_done:0,graduation_conditions:[{label:'期刊论文',current:1,target:3,percent:33}]},counts:{journal:1,note:1,literature:0,milestone:1},recent:{ideas:[],notes:[doc('note','ui-note','研究笔记')],summaries:[]},project_stats:projectStats,upcoming_milestones:[milestone,...Array.from({length:4},(_,i)=>doc('milestone','ui-extra-ms-'+i,'下一阶段研究节点 '+(i+1)))],activity:{days,start:'2026-10-02',end:date,events_month:20,active_days_month:8}};
     let syncRuns=0,syncChecks=0,syncResolves=0;

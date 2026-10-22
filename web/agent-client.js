@@ -212,5 +212,11 @@
       catch(error){fail(e,error,source);throw error}
     })().finally(()=>monitors.delete(runId));monitors.set(runId,promise);return promise;
   }
-  window.ERWAgentClient={api,send,stop,linkify,select,setSession,refresh,syncDrafts,resolveDraft,resume,drafts,runStates,capabilityControls,mountCapabilities,getCapabilities,saveSettings,adoptCapabilities,sessionId:()=>selected,snapshot:id=>entry(id),busy:id=>!!sessions.get(id)?.live,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)}};
+  function draftPreview(draft){
+    if(!draft.changes?.length)return JSON.stringify(draft.args||{},null,2);
+    const labels={start_date:'开始日期',due:'截止日期',progress:'完成进度 %',status:'状态',projects:'关联项目',body:'正文',tags:'标签',kind_marks:'分类标记'};
+    const value=v=>v===null||v===undefined||v===''?'未设置':Array.isArray(v)?v.join('、')||'未关联':String(v);
+    return (draft.args?.title?'条目：'+draft.args.title+'\n\n':'')+draft.changes.map(change=>(labels[change.field]||change.field)+'：'+value(change.before)+' → '+value(change.after)).join('\n');
+  }
+  window.ERWAgentClient={api,send,stop,linkify,select,setSession,refresh,syncDrafts,resolveDraft,resume,drafts,runStates,capabilityControls,mountCapabilities,getCapabilities,saveSettings,adoptCapabilities,draftPreview,sessionId:()=>selected,snapshot:id=>entry(id),busy:id=>!!sessions.get(id)?.live,subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener)}};
 })();

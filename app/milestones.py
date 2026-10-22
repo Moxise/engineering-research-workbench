@@ -20,6 +20,6 @@ def plan() -> dict:
             continue
         items.append({key: doc[key] for key in (
             "id", "kind", "title", "status", "project", "projects", "due", "start_date",
-            "progress", "excerpt", "updated", "created",
+            "progress", "excerpt", "updated", "created", "revision", "status_class",
         ) if key in doc})
     return {"items": items, "total": len(items), "unavailable": unavailable}

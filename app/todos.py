@@ -42,17 +42,55 @@ def list_todos() -> list[dict[str, Any]]:
     return sorted(items, key=lambda x: (bool(x.get("done")), x.get("due") or "9999-99-99", x.get("created") or ""))
 
 
+def validate_payload(payload: dict[str, Any], *, partial: bool = False) -> dict[str, Any]:
+    """Validate before any writes. Omitted create fields keep their old defaults.
+
+    Empty/null due explicitly clears the deadline; other editable task fields
+    require their declared types. Existing invalid records must be corrected on
+    update, never silently removed or coerced.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("待办输入必须是 JSON 对象")
+    result = dict(payload)
+    if not partial:
+        for key, default in (("title", "新任务"), ("due", date.today().isoformat()),
+                             ("priority", "普通"), ("done", False)):
+            result.setdefault(key, default)
+    if "title" in result:
+        title = result["title"]
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("title：标题必须是非空字符串")
+        result["title"] = title.strip()
+    if "due" in result:
+        due = result["due"]
+        if due is None or due == "":
+            result["due"] = ""
+        else:
+            try:
+                if not isinstance(due, str) or date.fromisoformat(due).isoformat() != due:
+                    raise ValueError()
+            except (TypeError, ValueError):
+                raise ValueError("due：日期必须是有效的 YYYY-MM-DD，或留空") from None
+    if "priority" in result:
+        if not isinstance(result["priority"], str) or result["priority"] not in ("普通", "紧急", "高", "低"):
+            raise ValueError("priority：优先级必须是普通、紧急、高或低")
+    if "done" in result and not isinstance(result["done"], bool):
+        raise ValueError("done：完成状态必须是布尔值")
+    return result
+
+
 def create(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = validate_payload(payload)
     now = datetime.now().isoformat(timespec="seconds")
     project = str(payload.get("project") or "").strip()
     item = {
         "id": "todo-" + uuid.uuid4().hex[:10],
-        "title": str(payload.get("title") or "新任务").strip(),
+        "title": payload["title"],
         "project": project,
         "project_id": str(payload.get("project_id") or ""),
-        "due": str(payload.get("due") or date.today().isoformat()),
-        "priority": str(payload.get("priority") or "普通"),
-        "done": bool(payload.get("done", False)),
+        "due": payload["due"],
+        "priority": payload["priority"],
+        "done": payload["done"],
         "created": now,
         "updated": now,
     }
@@ -64,14 +102,16 @@ def create(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def update(todo_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    payload = validate_payload(payload, partial=True)
     with _LOCK:
         items = _load()
         for item in items:
             if item.get("id") == todo_id:
+                validated = validate_payload({**item, **payload})
                 was_done = bool(item.get("done"))
                 for key in ("title", "project", "project_id", "due", "priority", "done"):
                     if key in payload:
-                        item[key] = payload[key]
+                        item[key] = validated[key]
                 ensure_project(str(item.get("project") or ""))
                 item["updated"] = datetime.now().isoformat(timespec="seconds")
                 _save(items)

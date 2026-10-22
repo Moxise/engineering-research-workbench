@@ -553,7 +553,7 @@
   }
   function projectPulseCard(items){
     const rows=(items||[]).slice(0,6);
-    return `<section class="card card-pad project-pulse-card theme-card theme-project"><div class="card-head"><div>${overviewCardHeading('项目推进','PROJECT PULSE','project')}</div><div class="card-head-actions"><button class="primary-btn" id="overview-new-project">＋ 新建项目</button><button class="secondary-btn" data-go="folders">项目目录</button></div></div>${rows.length?`<div class="project-pulse-grid">${rows.map(x=>`<div class="project-pulse-item" style="--project-accent:${stableProjectAccent(x.name)}"><div class="project-pulse-name"><strong title="${esc(x.name)}">${esc(window.ERWResearchUI?.projectLabel(x.name)||x.name)}</strong><span>${x.last_updated?`更新 ${esc(fmtDate(x.last_updated))}`:'暂无更新记录'}</span></div><div class="project-pulse-metrics"><span><b>${x.docs||0}</b> 文档</span><span><b>${x.open_todos||0}</b> 待办</span><span><b>${x.milestones||0}</b> 里程碑</span><span><b>${x.literature||0}</b> 文献</span></div></div>`).join('')}</div>`:`<div class="academic-empty compact"><strong>还没有科研项目</strong></div>`}</section>`;
+    return `<section class="card card-pad project-pulse-card theme-card theme-project"><div class="card-head"><div>${overviewCardHeading('项目推进','PROJECT PULSE','project')}</div><div class="card-head-actions"><button class="primary-btn" id="overview-new-project">＋ 新建项目</button><button class="secondary-btn" data-go="folders">项目目录</button></div></div>${rows.length?`<div class="project-pulse-grid">${rows.map(x=>`<div class="project-pulse-item" style="--project-accent:${stableProjectAccent(x.name)}"><div class="project-pulse-name"><strong title="${esc(x.name)}">${esc(window.ERWResearchUI?.projectLabel(x.name)||x.name)}</strong><span>${x.last_updated?`更新 ${esc(fmtDate(x.last_updated))}`:'暂无更新记录'}</span></div><div class="project-pulse-metrics"><span><b>${x.docs||0}</b> 文档</span><span><b>${x.open_todos||0}</b> 待办</span><span><b>${x.open_milestones||0}</b> 待完成节点</span><span><b>${x.literature||0}</b> 文献</span></div></div>`).join('')}</div>`:`<div class="academic-empty compact"><strong>还没有科研项目</strong></div>`}</section>`;
   }
 
   function overviewTaskCard(items){
@@ -1551,7 +1551,7 @@
     state.saving=(async()=>{
       const button=$('#doc-save');if(button)button.disabled=true;
       try{
-        const saved=await api(doc.draft?'/api/docs':'/api/docs/'+encodeURIComponent(doc.id),{method:'POST',body:doc.draft?{...body,kind:doc.kind}:body});
+        const saved=await api(doc.draft?'/api/docs':'/api/docs/'+encodeURIComponent(doc.id),{method:'POST',body:doc.draft?{...body,kind:doc.kind}:{...body,...(doc.kind==='milestone'&&doc.revision?{expected_revision:state.selectedDoc?.id===doc.id?state.selectedDoc.revision:doc.revision}:{})}});
         window.ERWDocReferences?.invalidate();
         state.draft=null;state.selectedDoc=saved;window.ERWCurrentDoc=saved.id;
         // Do not drop edits typed while the request was in flight.

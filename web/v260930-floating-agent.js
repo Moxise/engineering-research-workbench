@@ -987,7 +987,7 @@ function wireDrafts(root){
   });
   qa('[data-draft-preview]',root).forEach(b=>b.onclick=async()=>{
     b.disabled=true;try{let draft=C.drafts[b.dataset.draftPreview];if(!draft?.args){const rows=await C.api('drafts?status=');draft=rows.find(d=>d.id===b.dataset.draftPreview);if(draft)C.drafts[draft.id]=draft}if(!draft)throw Error('草稿不存在');
-      const row=b.closest('[data-draft]');let preview=q('pre',row);if(!preview){preview=document.createElement('pre');preview.className='agent-draft-preview';row.append(preview)}preview.textContent=JSON.stringify(draft.args||{},null,2);
+      const row=b.closest('[data-draft]');let preview=q('pre',row);if(!preview){preview=document.createElement('pre');preview.className='agent-draft-preview';row.append(preview)}preview.textContent=C.draftPreview(draft);
     }catch(error){draftNotice(error.message,true)}finally{if(b.isConnected)b.disabled=false}
   });
   qa('[data-agent-resume]',root).forEach(b=>b.onclick=async()=>{b.disabled=true;try{await C.resume(b.dataset.agentResume)}catch(error){draftNotice(error.message,true)}finally{if(b.isConnected)b.disabled=false}});

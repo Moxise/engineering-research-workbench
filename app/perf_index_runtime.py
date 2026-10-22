@@ -146,6 +146,12 @@ def _update_doc(doc_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     path = _root() / str(row["path"])
     kind = str(row["kind"])
     text = path.read_text(encoding="utf-8")
+    if "expected_revision" in payload:
+        expected = payload["expected_revision"]
+        if not isinstance(expected, str) or not expected:
+            raise ValueError("expected_revision 必须是读取条目时返回的修订号")
+        if expected != store.document_revision(text):
+            raise store.RevisionConflict(store._doc_from_path(kind, path, include_body=True))
     meta, body = store._frontmatter_parse(text)
     if kind == "literature":
         # Keep citation metadata when a user or AI replaces the note body.

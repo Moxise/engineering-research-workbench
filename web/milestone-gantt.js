@@ -15,10 +15,10 @@
   const projects=doc=>Array.isArray(doc.projects)&&doc.projects.length?doc.projects:doc.project?[doc.project]:[];
   function normalize(doc){
     const start=day(doc.start_date),end=day(doc.due),invalid=!!(doc.start_date&&start===null||doc.due&&end===null||start!==null&&end!==null&&start>end);
-    const state=status(doc.status),progress=state==='done'?100:doc.progress===null||doc.progress===undefined||doc.progress===''?null:Number.isFinite(Number(doc.progress))?Math.max(0,Math.min(100,Number(doc.progress))):null;
+    const state=doc.status_class||status(doc.status),progress=state==='done'?100:doc.progress===null||doc.progress===undefined||doc.progress===''?null:Number.isFinite(Number(doc.progress))?Math.max(0,Math.min(100,Number(doc.progress))):null;
     return {...doc,_start:start,_end:end,_invalid:invalid,_status:state,_progress:progress,_phase:start!==null&&end!==null&&start<end,_scheduled:end!==null&&!invalid,_late:!invalid&&end!==null&&end<today()&&state!=='done'};
   }
-  async function api(url,options){const r=await fetch(url,options);const data=await r.json();if(!r.ok)throw Error(data.message||data.error||'请求失败');return data;}
+  async function api(url,options){const r=await fetch(url,options);const data=await r.json();if(!r.ok)throw Object.assign(Error(data.message||data.error||'请求失败'),{current:data.current,status:r.status});return data;}
   let instance=null;
   class Gantt {
     constructor(root,options){this.root=root;this.options=options;this.docs=[];this.scale=localStorage.getItem('milestoneGanttScale')||'fit';this.project='';this.query='';this.filter='';this.closed=new Set();this.destroyed=false;this.loading=true;this.selected=null;this.saving=null;this.onResize=()=>this.size();window.addEventListener('resize',this.onResize);this.render();this.load()}
@@ -122,16 +122,34 @@
       const label=node('label','');label.append(node('span','','状态'));const select=node('select','');select.name='status';for(const s of [...new Set(['计划','进行中','受阻','完成',doc.status].filter(Boolean))]){const o=node('option','',s);o.value=s;select.append(o)}select.value=doc.status||'计划';label.append(select);form.append(label);
       form.append(node('p','mg-detail-hint','开始至截止为阶段计划；只填截止为里程碑节点。完成状态按 100% 显示，不会自动推算进度。'));
       this.error=node('div','mg-form-message');this.error.setAttribute('role','status');form.append(this.error);const save=node('button','primary-btn','保存计划');save.type='submit';form.append(save);const edit=node('button','secondary-btn','打开里程碑文档 ↗');edit.type='button';edit.onclick=async()=>{if(await this.guard()&&!this.destroyed)this.options.onOpen?.(id)};form.append(edit);
-      aside.append(form);this.form=form;this.baseline=JSON.stringify(this.payload());this.layout.append(aside);this.draw();
+      aside.append(form);this.form=form;this.baseDoc=doc;this.baseline=JSON.stringify(this.payload());this.layout.append(aside);this.draw();
       if(doc._invalid)this.error.textContent='原日期无效，请修正后保存。';
       close.focus({preventScroll:true});
     }
     payload(){if(!this.form)return {};const data=new FormData(this.form);return {start_date:data.get('start_date')||'',due:data.get('due')||'',progress:data.get('progress')===''?null:Number(data.get('progress')),status:data.get('status')}}
+    showConflict(current,local){
+      const base=JSON.parse(this.baseline),labels={start_date:'开始日期',due:'截止日期',progress:'完成进度',status:'状态'};
+      this.error.replaceChildren(node('strong','','保存冲突：其他客户端已更新此条目。您的输入已保留。'));
+      const list=node('ul','');
+      for(const [field,label] of Object.entries(labels))list.append(node('li','',label+'：本地 '+(local[field]??'未设置')+'；当前 '+(current[field]??'未设置')));
+      this.error.append(list);
+      const merge=node('button','secondary-btn','载入当前值并合并我的修改');merge.type='button';
+      merge.onclick=()=>{
+        const next={...current};for(const field of Object.keys(labels))if(local[field]!==base[field])next[field]=local[field];
+        this.baseDoc=current;this.docs=this.docs.map(d=>d.id===current.id?normalize(current):d);this.options.onUpdate?.(current);this.baseline=JSON.stringify({start_date:current.start_date||'',due:current.due||'',progress:current.progress??null,status:current.status||'计划'});
+        for(const field of Object.keys(labels))this.form.elements[field].value=next[field]??'';
+        this.form.elements.due.min=this.form.elements.start_date.value;
+        this.error.textContent='已载入当前值并合并本地修改，请核对后再次保存。';
+      };
+      this.error.append(merge);
+    }
     async save(){
       if(this.saving)return this.saving;if(!this.form?.reportValidity())return false;
       const payload=this.payload();if(payload.start_date&&payload.due&&payload.start_date>payload.due){this.error.textContent='截止日期不能早于开始日期';return false}
+      const base=JSON.parse(this.baseline),changes=Object.fromEntries(Object.entries(payload).filter(([field,value])=>value!==base[field]));
+      if(!Object.keys(changes).length){this.error.textContent='没有需要保存的修改';return true}
       const id=this.selected,form=this.form,error=this.error;form.querySelectorAll('button,input,select').forEach(b=>b.disabled=true);error.textContent='正在保存…';
-      this.saving=(async()=>{try{const updated=await api('/api/docs/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(this.destroyed)return true;this.docs=this.docs.map(d=>d.id===id?normalize({...d,...updated}):d);this.baseline=JSON.stringify(payload);error.textContent='计划已保存';this.options.onUpdate?.(updated);this.draw();return true}catch(e){if(!this.destroyed)error.textContent='保存失败：'+e.message;return false}finally{form.querySelectorAll('button,input,select').forEach(b=>b.disabled=false);this.saving=null}})();
+      this.saving=(async()=>{try{const updated=await api('/api/docs/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...changes,...(this.baseDoc.revision?{expected_revision:this.baseDoc.revision}:{})})});if(this.destroyed)return true;this.docs=this.docs.map(d=>d.id===id?normalize({...d,...updated}):d);this.baseDoc=updated;const saved={start_date:updated.start_date||'',due:updated.due||'',progress:updated.progress??null,status:updated.status||'计划'};for(const field of Object.keys(saved))form.elements[field].value=saved[field]??'';form.elements.due.min=saved.start_date;this.baseline=JSON.stringify(saved);error.textContent='计划已保存';this.options.onUpdate?.(updated);this.draw();return true}catch(e){if(!this.destroyed){if(e.status===409&&e.current)this.showConflict(e.current,payload);else error.textContent='保存失败：'+e.message}return false}finally{form.querySelectorAll('button,input,select').forEach(b=>b.disabled=false);this.saving=null}})();
       return this.saving;
     }
   }
