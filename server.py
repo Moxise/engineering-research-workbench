@@ -284,6 +284,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.handle_api_post(path, payload)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return
+        except store.RevisionConflict as e:
+            self.send_json({"error": "revision_conflict", "message": str(e), "current": e.current}, 409)
         except FileNotFoundError as e:
             self.send_json({"error": "not_found", "message": str(e)}, 404)
         except ValueError as e:
@@ -726,7 +728,7 @@ class Handler(BaseHTTPRequestHandler):
             indexer.refresh_todos()
             return self.send_json(result)
         if path == "/api/todos":
-            normalized = indexer.normalize_project_payload(payload)
+            normalized = indexer.normalize_project_payload(todos.validate_payload(payload))
             item = todos.create(normalized)
             indexer.refresh_todos()
             return self.send_json(item, 201)
@@ -735,7 +737,7 @@ class Handler(BaseHTTPRequestHandler):
             current = next((x for x in indexer.list_todos() if x.get("id") == todo_id), None)
             if current is None:
                 raise FileNotFoundError(todo_id)
-            normalized = indexer.normalize_project_update(current, payload)
+            normalized = indexer.normalize_project_update(current, todos.validate_payload(payload, partial=True))
             # v261019 · 完成时间限制：逾期仍可完成，但必须显式确认（force=true），
             # 前端据此弹二次确认；返回 409 让调用方区分「逾期需确认」与真正的参数错误。
             try:

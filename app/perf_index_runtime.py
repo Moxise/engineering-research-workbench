@@ -201,6 +201,15 @@ def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | No
         raise FileNotFoundError(doc_id)
     path = _root() / str(row["path"])
     kind = str(row["kind"])
+    # v261022.9 · 修订保护（上游 de31add）：写入前比对 expected_revision，
+    # 过期写入抛 RevisionConflict（HTTP 409 / Agent 转冲突结果），文件与活动日志零副作用。
+    text = path.read_text(encoding="utf-8")
+    if "expected_revision" in payload:
+        expected = payload["expected_revision"]
+        if not isinstance(expected, str) or not expected:
+            raise ValueError("expected_revision 必须是读取条目时返回的修订号")
+        if expected != store.document_revision(text):
+            raise store.RevisionConflict(store._doc_from_path(kind, path, include_body=True, root=_root()))
 
     # 走唯一写入路径：契约校验、来源记录、分叉/冲突留版、活动日志都在 store 里
     if any(key in payload for key in ("project", "projects", "project_id", "project_ids")):
@@ -208,7 +217,13 @@ def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | No
         normalized = normalize_project_update(existing, payload)
         payload = {**payload, **{key: normalized[key] for key in
                                 ("project", "projects", "project_id", "project_ids")}}
-    doc = store.update_doc(doc_id, payload, origin=origin)
+    # 排期字段归一（上游）：起止日期格式、先后顺序与 0–100 进度在写入前校验
+    if kind == "milestone" and {"start_date", "due", "progress"} & payload.keys():
+        existing = store._doc_from_path(kind, path, include_body=False, root=_root())
+        schedule = store.normalize_milestone_schedule({**existing, **payload})
+        payload = {**payload, **{key: schedule[key] for key in ("start_date", "due", "progress")}}
+    doc = store.update_doc(doc_id, payload, origin=origin,
+                           now=datetime.now().isoformat(timespec="seconds"))
     index_doc_path(path)
     return store._doc_from_path(kind, path, include_body=True, root=_root())
 

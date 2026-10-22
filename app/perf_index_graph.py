@@ -239,32 +239,45 @@ def build_bundle(
 
 def export_bibtex(ids: list[str] | None = None) -> dict[str, Any]:
     ensure_ready()
-    selected = [str(x) for x in (ids or []) if str(x)]
+    selected = list(dict.fromkeys(str(x) for x in (ids or []) if str(x)))
     with _connect() as conn:
         _init_db(conn)
         if selected:
             placeholders = ",".join("?" for _ in selected)
             rows = conn.execute(
-                f"SELECT id,path,kind FROM documents WHERE kind='literature' AND id IN ({placeholders})", selected,
+                f"SELECT id,path,kind,title FROM documents WHERE id IN ({placeholders})", selected,
             ).fetchall()
         else:
-            rows = conn.execute("SELECT id,path,kind FROM documents WHERE kind='literature' ORDER BY updated DESC").fetchall()
+            rows = conn.execute("SELECT id,path,kind,title FROM documents WHERE kind='literature' ORDER BY updated DESC").fetchall()
     blocks: list[str] = []
-    for row in rows:
+    missing: list[dict[str, str]] = []
+    by_id = {str(row["id"]): row for row in rows}
+    selected = selected or list(by_id)
+    for doc_id in selected:
+        row = by_id.get(doc_id)
+        if row is None:
+            missing.append({"id": doc_id, "title": "", "reason": "not_found"})
+            continue
+        if row["kind"] != "literature":
+            missing.append({"id": doc_id, "title": row["title"], "reason": "not_literature"})
+            continue
         path = _root() / str(row["path"])
         try:
-            text = path.read_text(encoding="utf-8")
-            _, body = store._frontmatter_parse(text)
-            match = store.BIBTEX_BLOCK_RE.search(body)
-            bib = match.group(1).strip() if match else ""
+            # Match the document reader: explicit empty metadata must suppress
+            # legacy body citations, while missing metadata may fall back.
+            doc = store._doc_from_path("literature", path, include_body=False)
+            bib = doc["bibtex"].strip()
             if bib:
                 blocks.append(bib)
+            else:
+                missing.append({"id": doc_id, "title": row["title"], "reason": "missing_bibtex"})
         except Exception:
-            continue
+            missing.append({"id": doc_id, "title": row["title"], "reason": "read_failed"})
     content = "\n\n".join(blocks).strip() + ("\n" if blocks else "")
     out_root = _root() / "Knowledge" / "Exports" / "BibTeX"
     out_root.mkdir(parents=True, exist_ok=True)
-    filename = f"literature-{datetime.now().strftime('%Y%m%d-%H%M%S')}.bib"
+    filename = f"literature-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.bib"
     path = out_root / filename
     path.write_text(content, encoding="utf-8")
-    return {"ok": True, "count": len(blocks), "content": content, "path": str(path.relative_to(_root())).replace("\\", "/")}
+    return {"ok": True, "count": len(blocks), "selected_count": len(selected), "exported_count": len(blocks),
+            "missing": missing, "content": content, "path": str(path.relative_to(_root())).replace("\\", "/")}

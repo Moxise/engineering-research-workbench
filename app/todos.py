@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import uuid
 from datetime import date, datetime, time
@@ -15,6 +16,9 @@ _LOCK = threading.RLock()
 
 class OverdueError(ValueError):
     """逾期拦截：过了截止点仍要完成，必须由调用方显式确认（`force=True`）。"""
+
+#: 输入侧的严格写法：日期-only 或日期 + 时分（页面 `dueFromInputs()` 用空格分隔）。
+DUE_RE = re.compile(r"\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?")
 
 #: `due` 允许的写法。日期-only 表示「当天 23:59 前完成」；带时间表示精确到分的截止点。
 _DUE_FORMATS = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S")
@@ -107,19 +111,60 @@ def list_todos() -> list[dict[str, Any]]:
     )
 
 
+def validate_payload(payload: dict[str, Any], *, partial: bool = False) -> dict[str, Any]:
+    """Validate before any writes. Omitted create fields keep their old defaults.
+
+    Empty/null due explicitly clears the deadline; other editable task fields
+    require their declared types. Existing invalid records must be corrected on
+    update, never silently removed or coerced.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("待办输入必须是 JSON 对象")
+    result = dict(payload)
+    if not partial:
+        for key, default in (("title", "新任务"), ("due", date.today().isoformat()),
+                             ("priority", "普通"), ("done", False)):
+            result.setdefault(key, default)
+    if "title" in result:
+        title = result["title"]
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("title：标题必须是非空字符串")
+        result["title"] = title.strip()
+    if "due" in result:
+        due = result["due"]
+        if due is None or due == "":
+            result["due"] = ""
+        else:
+            # v261022.9 · 本地口径保留「日期 + 可选时分」：界面 dueFromInputs() 会写 `YYYY-MM-DD HH:MM`。
+            # 上游只收纯日期，直接照搬会让带时间的待办全部 400；但格式仍须严格（`2026-1-01` 这类
+            # 宽松写法 strptime 能过、页面却不认，属无效输入）。
+            if not isinstance(due, str) or not DUE_RE.fullmatch(due.strip()):
+                raise ValueError("due：日期必须是有效的 YYYY-MM-DD 或 YYYY-MM-DD HH:MM，或留空")
+            normalized = normalize_due(due)
+            if parse_due(normalized) is None:
+                raise ValueError("due：日期必须是有效的 YYYY-MM-DD 或 YYYY-MM-DD HH:MM，或留空")
+            result["due"] = normalized
+    if "priority" in result:
+        if not isinstance(result["priority"], str) or result["priority"] not in ("普通", "紧急", "高", "低"):
+            raise ValueError("priority：优先级必须是普通、紧急、高或低")
+    if "done" in result and not isinstance(result["done"], bool):
+        raise ValueError("done：完成状态必须是布尔值")
+    return result
+
+
 def create(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = validate_payload(payload)
     now = datetime.now().isoformat(timespec="seconds")
     project = str(payload.get("project") or "").strip()
-    done = bool(payload.get("done", False))
     item = {
         "id": "todo-" + uuid.uuid4().hex[:10],
-        "title": str(payload.get("title") or "新任务").strip(),
+        "title": payload["title"],
         "project": project,
         "project_id": str(payload.get("project_id") or ""),
-        "due": normalize_due(payload.get("due")) or date.today().isoformat(),
-        "priority": str(payload.get("priority") or "普通"),
-        "done": done,
-        "completed_at": now if done else "",
+        "due": payload["due"],
+        "priority": payload["priority"],
+        "done": payload["done"],
+        "completed_at": now if payload["done"] else "",
         "created": now,
         "updated": now,
     }
@@ -131,14 +176,16 @@ def create(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def update(todo_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    payload = validate_payload(payload, partial=True)
     with _LOCK:
         items = _load()
         for item in items:
             if item.get("id") == todo_id:
+                validated = validate_payload({**item, **payload})
                 was_done = bool(item.get("done"))
                 for key in ("title", "project", "project_id", "due", "priority", "done"):
                     if key in payload:
-                        item[key] = payload[key]
+                        item[key] = validated[key]
                 item["due"] = normalize_due(item.get("due"))
                 done = bool(item.get("done"))
                 item["done"] = done

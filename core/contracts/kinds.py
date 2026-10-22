@@ -336,6 +336,7 @@ FRONTMATTER_ORDER: list[str] = [
     "project_id", "project_ids",
     "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
     "record_date", "due", "added_date", "summary_type", "pinned", "authors", "year", "venue", "doi", "url", "cite_key",
+    "start_date", "progress",
     "has_variants",
     "variant_at",
 ]
@@ -354,6 +355,7 @@ CREATE_FIELDS: list[str] = [
     "title", "status", "project", "projects", "tags", "kind_marks", "pinned", "body",
     "project_id", "project_ids",
     "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key",
+    "start_date", "progress",
     "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
     "has_variants",
     "variant_at",
@@ -363,6 +365,7 @@ UPDATE_FIELDS: list[str] = [
     "title", "status", "project", "projects", "tags", "kind_marks", "pinned", "body",
     "project_id", "project_ids",
     "record_date", "due", "added_date", "summary_type", "authors", "year", "venue", "doi", "url", "cite_key",
+    "start_date", "progress",
     "attachment",
     "variant_of", "variant_label", "origin_surface", "origin_tool", "origin_client", "origin_at",
     "has_variants",

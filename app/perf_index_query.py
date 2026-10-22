@@ -415,6 +415,7 @@ def dashboard() -> dict[str, Any]:
     today_obj = date.today(); today = today_obj.isoformat()
     with _connect() as conn:
         _init_db(conn)
+        conn.create_function("milestone_state", 1, store.milestone_status_class)
         counts = {str(r["kind"]): int(r["n"]) for r in conn.execute("SELECT kind,COUNT(*) AS n FROM documents GROUP BY kind")}
         recent: dict[str, list[dict[str, Any]]] = {}
         for kind, key in (("idea","ideas"),("journal","journals"),("note","notes"),("summary","summaries"),("literature","literature")):
@@ -432,7 +433,7 @@ def dashboard() -> dict[str, Any]:
         stat_rows = conn.execute(
             """
             SELECT dp.project_name,COUNT(DISTINCT d.id) AS docs,
-                   SUM(CASE WHEN d.kind='milestone' AND d.status<>'完成' THEN 1 ELSE 0 END) AS open_milestones,
+                   SUM(CASE WHEN d.kind='milestone' AND milestone_state(d.status)<>'done' THEN 1 ELSE 0 END) AS open_milestones,
                    SUM(CASE WHEN d.kind='literature' THEN 1 ELSE 0 END) AS literature,
                    SUM(CASE WHEN d.kind IN ('note','journal','idea') THEN 1 ELSE 0 END) AS notes,
                    MAX(COALESCE(NULLIF(d.updated,''),d.created)) AS last_updated

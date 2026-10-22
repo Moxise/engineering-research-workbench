@@ -96,7 +96,7 @@
       const due = localMidnight(doc.due);
       return Object.assign({}, doc, {
         _due: due,
-        _statusKey: statusKey(doc.status)
+        _statusKey: doc.status_class || statusKey(doc.status)
       });
     }).filter(doc => doc._due).sort((a, b) => {
       const dt = a._due - b._due;

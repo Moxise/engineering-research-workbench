@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
 import os
@@ -268,6 +269,27 @@ BIBTEX_BLOCK_RE = re.compile(r"```bibtex\s*\n(.*?)```", re.S | re.I)
 _LOCK = threading.RLock()
 
 
+def document_revision(text: str) -> str:
+    """Include metadata and body, independent of timestamp precision."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+class RevisionConflict(ValueError):
+    def __init__(self, current: dict[str, Any]):
+        super().__init__("条目已被其他客户端修改，请比较当前值后重新合并保存")
+        self.current = current
+
+
+def milestone_status_class(raw: Any) -> str:
+    # Unknown/custom labels remain visible and count as pending/planned.
+    value = str(raw or "").strip()
+    if value in ("完成", "已完成"):
+        return "done"
+    if value in ("受阻", "阻塞"):
+        return "blocked"
+    return "active" if value == "进行中" else "planned"
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -415,6 +437,9 @@ def _doc_from_path(kind: str, path: Path, include_body: bool = True, root: Path 
     if isinstance(meta.get("tags"), str):
         meta["tags"] = [t.strip() for t in meta["tags"].split(",") if t.strip()]
     doc = dict(meta)
+    doc["revision"] = document_revision(text)
+    if kind == "milestone":
+        doc["status_class"] = milestone_status_class(doc.get("status"))
     doc["filename"] = path.name
     # v261009.36 · 热路径优化：调用方可传入 root，避免**每条文档**都走一次 ensure_workspace()。
     # 实测 200 条文档时它占 /api/docs 的 0.77s（ensure_workspace 每次会做 ~24 次 mkdir + stat）。
@@ -790,8 +815,12 @@ def create_doc(kind: str, payload: dict[str, Any], origin: dict[str, str] | None
 
 
 def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | None = None,
-               _skip_versioning: bool = False) -> dict[str, Any]:
-    """更新条目。`origin` 同 create_doc；**分叉/冲突时先留一版**（见 app/versions.py）。"""
+               _skip_versioning: bool = False, now: str = "") -> dict[str, Any]:
+    """更新条目。`origin` 同 create_doc；**分叉/冲突时先留一版**（见 app/versions.py）。
+
+    `now` 由调用方给出写入时间（缺省取本机当前秒）：索引层在写入锁内已算过一次时间，
+    再传进来可让同一次写入在文件与返回值里保持同一时刻，也便于测试冻结时钟。
+    """
     doc = get_doc(doc_id)
     kind = doc["kind"]
     # 可写字段的唯一声明处在 core/contracts/kinds.py（UPDATE_FIELDS）；body 走正文分支
@@ -820,7 +849,7 @@ def update_doc(doc_id: str, payload: dict[str, Any], origin: dict[str, str] | No
     for key in allowed:
         if key in payload:
             meta[key] = payload[key]
-    meta["updated"] = _now()
+    meta["updated"] = now or _now()
     meta.update({k: v for k, v in _origin.items() if v})   # v261009.41 · 记录本次写入者
     if "body" in payload:
         body = str(payload.get("body") or "")

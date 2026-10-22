@@ -640,6 +640,8 @@ def _row_doc(row: sqlite3.Row, check_attachment: bool = True) -> dict[str, Any]:
         "attachment": att, "attachment_exists": att_ok,
     }
 
+    if doc["kind"] == "milestone":
+        doc["status_class"] = store.milestone_status_class(doc["status"])
     from .evidence import describe
     doc["evidence"] = describe(doc)
     return doc

@@ -59,11 +59,14 @@ def validate_write(
     data = {k: v for k, v in (payload or {}).items() if k not in _SPECIAL_FIELDS}
 
     # F002 · status 必须在该类型的状态机内
+    # milestone 例外（上游 de31add 语义）：`store.milestone_status_class` 把 已完成/阻塞 当作
+    # 完成/受阻的别名，未知标签也按「计划中」照常展示——排期允许自定义状态，故只提示不拒写。
     status = str(data.get("status") or "").strip()
     allowed = C.kind_statuses(kind)
     if status and allowed and status not in allowed:
         issues.append(_issue(
-            "F002", "error", f"`{kind}` 的 status=`{status}` 不在状态机内",
+            "F002", "warn" if kind == "milestone" else "error",
+            f"`{kind}` 的 status=`{status}` 不在状态机内",
             "可选：" + " / ".join(f"`{s}`" for s in allowed),
         ))
 

@@ -253,8 +253,17 @@ const server=http.createServer(async(req,res)=>{
     await page.locator('#fab-messages').getByText('请求失败：模拟中途连接失败',{exact:true}).waitFor();
     assert.equal(await page.locator('#fab-messages .agent-response-part').count(),6,'shared history and partial answers are retained');
     await page.locator('#fab-close').click();
+    const partialErrorCount=await page.locator('#agent-messages .agent-error').count();
+    const partialSendCount=requests.filter(r=>r.path==='/api/agent/send').length;
     await page.locator('#agent-input').fill('主页面中断保留结果');await page.locator('#agent-send').click();
-    await page.locator('#agent-messages .agent-error').last().getByText('请求失败：模拟中途连接失败',{exact:true}).waitFor();
+    await page.waitForFunction(before=>{
+      const client=window.ERWAgentClient,id=client.sessionId(),messages=client.snapshot(id).session.messages;
+      const sent=messages.findLastIndex(m=>m.role==='user'&&m.content==='主页面中断保留结果');
+      return sent>=0&&!client.busy(id)&&messages.slice(sent+1).some(m=>m.error)&&document.querySelectorAll('#agent-messages .agent-error').length===before+1;
+    },partialErrorCount);
+    assert.equal(requests.filter(r=>r.path==='/api/agent/send').length,partialSendCount+1);
+    assert.equal(requests.filter(r=>r.path==='/api/agent/send').at(-1).body.message,'主页面中断保留结果');
+    await page.locator('#agent-messages .agent-message:last-child .agent-error').getByText('请求失败：模拟中途连接失败',{exact:true}).waitFor();
     assert.equal(await page.locator('#agent-messages .agent-response-part').count(),8);
     const offline=await browser.newPage({viewport:{width:1440,height:1000}});offline.setDefaultTimeout(10000);let offlineReads=3;
     await offline.route('**/api/agent/sessions',route=>offlineReads-->0?route.abort('failed'):route.continue());
@@ -393,9 +402,9 @@ const server=http.createServer(async(req,res)=>{
     await hoverContrast('.md-preview tbody td');await page.screenshot({path:path.join(output,'dark-table-hover.png')});
     await page.locator('#theme-btn').click();await page.locator('#theme-btn').click();await hoverContrast('.md-preview tbody td');
     await page.locator('[data-route="agent"]').click();await page.locator('#agent-input').waitFor();
-    await page.evaluate(()=>{window.__openedCitationPdf='';window.ERWLiterature.openByAttachment=async attachment=>{window.__openedCitationPdf=attachment}});
+    await page.evaluate(()=>{window.__openedCitationPdf='';window.ERWLiterature.openByDocument=async id=>{window.__openedCitationPdf=id}});
     await page.locator('#agent-messages .assistant').last().getByRole('link',{name:'组会原文',exact:true}).click();
-    await page.waitForFunction(()=>window.__openedCitationPdf==='Knowledge/Literature/PDF/fixture.pdf');
+    await page.waitForFunction(()=>window.__openedCitationPdf==='literature-citation');
     assert.equal(await page.locator('#doc-list [data-doc-id="literature-citation"]').count(),0,'citation opens a PDF even when absent from the filtered list page');
     await page.locator('[data-route="agent"]').click();await page.locator('#agent-input').waitFor();
     const originalId=await page.locator('#agent-messages .user').last().getAttribute('data-message-id');

@@ -115,7 +115,7 @@
 
   function ensureDocPager() {
     const meta = perf.docs;
-    if (!meta || meta.total <= meta.page_size) {
+    if (document.querySelector('.milestone-gantt') || !meta || meta.total <= meta.page_size) {
       document.querySelector('.perf-doc-pager')?.remove();
       return;
     }

@@ -70,8 +70,35 @@
 - **上游前端 7 个模块本轮未接入**：`sync.js` / `agent-system.js` / `agent-client.js` / `milestone-gantt.js` / `document-references.js` / `project-scope.js` / `research-ui.js`（及对应 7 个 CSS）——它们自建 `api()`、文档级 `MutationObserver`，且监听的事件在本地没有派发方，直接加载会违反 P14 接缝（`web_check` 报 7 项）。已从工作树移除；`app/` 侧的新模块（agent_* / sync_engine / milestones / skills）与 `server.py` 路由保留，接线时按 `ERW*` 接缝改造后再引入。
 - 验证：6 个静态闸门（`kb_smoke` / `web_check` / `web_manifest --check` / `plugin_check --assert-core-only` / `core.plugins verify` / `mcp.server --selftest`）全过；`run_tests.py --fast --no-server` **15/15**（121 断言）；重启后 `/api/health` 200、`ui_smoke` **20 个路由全部可渲染**、0 console error。
 
+## v261022.9 · 合并上游 codex 最新提交（de31add pdf updata）
+
+- 合入上游 `codex/agent-harness-cortex-memory` 的 `de31add`：里程碑排期修订保护（`expected_revision` / `store.RevisionConflict`）、待办写入前统一校验（`todos.validate_payload`）、`status_class` 归一（完成/已完成同义）、Agent 排期工具（`kb_read` 返回 revision 与排期字段、`kb_create_entry` / `kb_update_entry` 支持 start_date/progress/status/projects 并生成字段级草稿变更）、引用导出元数据优先与缺失清单。
+- **冲突处理原则同 v261022.0**：以本地插件化 / 契约 / 接缝主线为基底，上游核心文件只取新增能力、不覆盖本地重构。
+  - `app/perf_index_runtime.update_doc` 保留本地「唯一写入路径」委派（`store.update_doc`），上游的 `expected_revision` 校验移到委派之前（写入锁内比较），因此仍走契约校验、来源记录与分叉留版。
+  - `app/todos.py` 取上游 `validate_payload`，同时保留本地「逾期需确认」（`OverdueError`）与 `completed_at` 维护；上游会把 `due` 收窄为纯日期，本地保留「日期 + 可选时分」口径，校验函数接受 `YYYY-MM-DD` 与 `YYYY-MM-DD HH:MM`。
+  - `server.py` 同时保留逾期 409 与修订冲突 409（两者错误码不同）。
+  - `web/app.js` 保存里程碑时带上 `expected_revision`，并保留本地的 `ERWDocReferences.invalidate()`。
+  - `web/milestone-gantt.js` 取上游的冲突合并 UI 与 `status_class`，网络仍走 `window.erwFetch`。
+  - `plugins/floating-assist/web/panel.js` 不做改动：本地悬浮助手的草稿区已是 v261008b 的紧凑行（标题 + 行内确认/拒绝），没有上游的 `data-draft-preview` 按钮，上游对 `web/v260930-floating-agent.js` 的 `draftPreview` 改动无落点。`ERWAgentClient.draftPreview` 已随 `web/agent-client.js` 引入，消费方是执行记录面板 `web/agent-system.js`。
+  - `web/literature.js` 保持删除（本地已迁移到 `plugins/literature-reader`），上游对该文件的改动（导出状态行）不迁移。
+  - `web/v260922-performance.js` 本地已拆分为 `web/perf-and-fetch-seam.js` 等文件，上游对该文件的改动不迁移。
+- **契约补齐**：`start_date` / `progress` 此前不在 `core/contracts/kinds.py` 的字段序与 `UPDATE_FIELDS` 里，`store.update_doc` 会静默丢弃这两个字段——上游的排期编辑在本地会「保存成功但没生效」。现已补进 `FRONTMATTER_ORDER` 与 `UPDATE_FIELDS`。
+- **与上游语义对齐的两处放宽**（均为上游 de31add 明确设计，本地契约原先会拒写）：
+  - `core/contracts/validate.py` 的 F002 对 `milestone` 降为 warn：`store.milestone_status_class` 把「已完成 / 阻塞」当作「完成 / 受阻」的别名，未知标签也照常显示为「计划中」，排期因此允许自定义状态；其它类型的越界 status 仍是 error。
+  - `app/agent_tools.execute` 的中央 schema 校验把数组参数的 `enum` 逐项比较（此前整表比较，`kind_marks=[]` 会被判成越界）；标量参数的语义不变。
+- `store.update_doc` 新增可选 `now` 参数：索引层在写入锁内取一次时间再传入，使同一次写入的文件时间戳与返回值一致（上游「同秒写入仍按 revision 区分」的回归用例依赖这一点）。
+- 新增上游验收用例 `tools/test_functional_regressions.py` / `tools/test_planning_regressions.py`（含真实 HTTP、双窗口并发、合成模型 SSE、草稿审批回归），浏览器段由 `ERW_FUNCTIONAL_UI` / `ERW_PLANNING_UI` 开关控制。
+
 <details>
 <summary>上游 CHANGELOG 原文（合并前）</summary>
+
+## v261021.3 · 引用导出、计划并发保护与 Agent 排期
+
+- BibTeX 导出采用元数据优先规则，兼容旧正文引用、尊重显式清空，显示导出数量和缺失清单；全部缺失时不下载空文件。
+- 概览正确显示项目待完成节点；统一“完成 / 已完成”等里程碑状态分类。待办创建与更新统一校验标题、日期、优先级和完成状态，拒绝无效输入且保留原记录。
+- 甘特图和里程碑文档保存增加包含元数据与正文的修订检查；冲突保留输入，支持比较当前值、合并后重试。甘特图仅发送改动字段，移除不适用的文档分页。
+- Agent 建档、读取和更新工具支持结构化起止日期、进度、状态与项目；继续使用草稿审批，预览字段旧值与新值。旧草稿不能覆盖新计划；未提供日期时保留待排期。
+- 修正验收脚本并新增真实 HTTP、双窗口并发、合成模型 HTTP/SSE 与草稿审批回归；196 项 Python 测试、自检、完整 Agent / 工作台 UI 及计划专项通过。
 
 ## v261021.2 · 统一文献工作区与稳定 PDF 绘制
 

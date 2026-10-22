@@ -235,7 +235,9 @@ def main() -> int:
         assert "ERWKnowledgeGraph.mount" in app_js and "selectedId" in graph_js
         # v261009 · 旧 placeholder 文案已不再是稳定接口；这里只验证 Ctrl/Cmd+S 保存钩子仍存在。
         assert "key==='s'" in app_js and "doc-save" in app_js
-        assert "renderAgent" in app_js and "request_preset" in app_js and "/api/agent/send" in app_js and "/api/search" in app_js
+        agent_client_js = (ROOT / "web" / "agent-client.js").read_text(encoding="utf-8")
+        assert "renderAgent" in app_js and "request_preset" in app_js and "/api/search" in app_js
+        assert "/api/agent/send" in agent_client_js and "agent-client.js" in index
         assert "overview-new-project" in app_js and "openEditorProjectPicker" in app_js and "api_key_env" in app_js
         assert "agent-thinking" in app_js and "agent-reasoning" in app_js
         assert "global-search-btn" in index and "agent-layout" in styles and "graph-filter-grid" in styles
