@@ -287,6 +287,23 @@
      plugin-manager / floating-agent / literature），插件也没有稳定入口；内核这份从此对外可用，
      插件优先用它、缺失时自行兜底（ERWToast 缺席不该报错）。 */
   window.ERWToast = toast;
+  /* v261022.3 · 上游 Agent 系统模块（agent-system.js / agent-client.js）依赖的宿主接口：
+     本地 Agent 页用自己的实现、也没有悬浮助手时间线，这里给最小适配——
+     缺失的能力按空值降级（页面照常打开，只是少跳转/少渲染一段回复）。 */
+  window.ERWAgentPage = window.ERWAgentPage || {
+    sessionId:()=>state.agentSession||null,
+    refresh:async()=>{ if(state.route==='agent'&&state.agentSession) await loadAgentSession(state.agentSession); },
+    quote:()=>{}, searchSelection:()=>{}
+  };
+  window.ERWResearchUI = window.ERWResearchUI || {
+    esc,
+    projectLabel:n=>n,
+    loadProjects:async()=>{ const rows=await api('/api/projects')||[]; return rows.map(p=>p.name||p); },
+    evidenceBadge:()=>''
+  };
+  window.ERWFabTimeline = window.ERWFabTimeline || { responses:()=>'', render:()=>'', retrievals:()=>'' };
+  /* v261022.4 · 本地没有面板级文本缩放模块：给空实现，引用预览照常渲染、只是不能单独缩放正文 */
+  window.ERWPaneZoom = window.ERWPaneZoom || { bindText:()=>{} };
 
   function modal(title, bodyHtml, footerHtml='') {
     $('#modal-title').textContent = title; $('#modal-body').innerHTML = bodyHtml; $('#modal-footer').innerHTML = footerHtml;
@@ -1010,12 +1027,14 @@
     const requestPresetHtml=requestPresets.map(x=>`<option value="${esc(x.id||'default')}" ${String(x.id||'')===state.agentPreset?'selected':''}>${esc(x.label||x.id||'默认')}</option>`).join('');
     if(state.agentSession&&!sessions.some(x=>x.id===state.agentSession))state.agentSession=null;
     if(!state.agentSession&&sessions.length)state.agentSession=sessions[0].id;
-    $('#main').innerHTML=`<div class="agent-layout"><aside class="card agent-sessions"><div class="agent-side-head"><div><h3>Agent 对话</h3></div><button class="primary-btn" id="agent-new">＋</button></div><div class="agent-session-list">${sessions.length?sessions.map(x=>`<button type="button" class="agent-session ${x.id===state.agentSession?'active':''}" data-agent-session="${x.id}"><strong>${esc(x.title)}</strong><small>${esc(fmtTime(x.updated))} · ${x.message_count||0} 条</small></button>`).join(''):'<div class="empty compact">暂无对话</div>'}</div></aside><section class="card agent-chat"><div class="agent-chat-head"><div><h3 id="agent-chat-title">科研 Agent</h3></div><div class="agent-head-actions"><button class="secondary-btn" id="agent-ref">＋ 引用研究 · 知识</button><button class="ghost-btn danger" id="agent-delete" ${state.agentSession?'':'disabled'}>删除对话</button></div></div><div class="agent-messages" id="agent-messages"><div class="empty">${state.agentSession?'正在载入对话…':'新建一个对话开始'}</div></div><div class="agent-context-strip" id="agent-context-strip"></div><div class="agent-composer"><div class="agent-image-strip" id="agent-image-strip"></div><textarea id="agent-input" placeholder="向科研 Agent 提问。可粘贴/拖入图片，或手动引用研究 · 知识中的 Markdown…"></textarea><div class="agent-compose-actions"><div class="agent-compose-left"><button class="ghost-btn" id="agent-image">▧ 图片</button><label class="agent-preset-label">请求模式 <select class="search-input agent-preset-select" id="agent-preset">${requestPresetHtml}</select></label><span class="row-meta">Enter 发送 · Shift+Enter 换行</span></div><button class="primary-btn" id="agent-send">发送</button></div></div></section></div>`;
+    $('#main').innerHTML=`<div class="agent-layout"><aside class="card agent-sessions"><div class="agent-side-head"><div><h3>Agent 对话</h3></div><button class="primary-btn" id="agent-new">＋</button></div><div class="agent-session-list">${sessions.length?sessions.map(x=>`<button type="button" class="agent-session ${x.id===state.agentSession?'active':''}" data-agent-session="${x.id}"><strong>${esc(x.title)}</strong><small>${esc(fmtTime(x.updated))} · ${x.message_count||0} 条</small></button>`).join(''):'<div class="empty compact">暂无对话</div>'}</div></aside><section class="card agent-chat" id="agent-workspace"><div class="agent-workspace-tabs" id="agent-workspace-tabs"></div><div id="agent-chat-panel"><div class="agent-chat-head"><div><h3 id="agent-chat-title">科研 Agent</h3></div><div class="agent-head-actions"><button class="secondary-btn" id="agent-ref">＋ 引用研究 · 知识</button><button class="ghost-btn danger" id="agent-delete" ${state.agentSession?'':'disabled'}>删除对话</button></div></div><div class="agent-messages" id="agent-messages"><div class="empty">${state.agentSession?'正在载入对话…':'新建一个对话开始'}</div></div><div class="agent-context-strip" id="agent-context-strip"></div><div class="agent-composer"><div class="agent-image-strip" id="agent-image-strip"></div><textarea id="agent-input" placeholder="向科研 Agent 提问。可粘贴/拖入图片，或手动引用研究 · 知识中的 Markdown…"></textarea><div class="agent-compose-actions"><div class="agent-compose-left"><button class="ghost-btn" id="agent-image">▧ 图片</button><label class="agent-preset-label">请求模式 <select class="search-input agent-preset-select" id="agent-preset">${requestPresetHtml}</select></label><span class="row-meta">Enter 发送 · Shift+Enter 换行</span></div><button class="primary-btn" id="agent-send">发送</button></div></div></div><div id="agent-system-panel" hidden><div class="as-content"></div></div></section></div>`;
     $('#agent-new').onclick=async()=>{const s=await api('/api/agent/sessions',{method:'POST',body:{}});state.agentSession=s.id;state.agentRefs=[];state.agentImages=[];renderAgent()};
     $$('[data-agent-session]').forEach(b=>b.onclick=()=>{state.agentSession=b.dataset.agentSession;state.agentRefs=[];state.agentImages=[];renderAgent()});
     $('#agent-ref').onclick=openAgentReferencePicker;$('#agent-image').onclick=pickAgentImage;$('#agent-delete').onclick=async()=>{if(state.agentSession&&await window.ERWDialog.confirm('将该对话移入 Trash？')){await api('/api/agent/sessions/'+encodeURIComponent(state.agentSession),{method:'DELETE'});state.agentSession=null;renderAgent()}};
     const input=$('#agent-input');input.addEventListener('paste',onAgentPasteImage);input.addEventListener('dragover',e=>e.preventDefault());input.addEventListener('drop',onAgentDropImage);input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();sendAgentMessage()}});$('#agent-send').onclick=sendAgentMessage;const presetSelect=$('#agent-preset');if(presetSelect)presetSelect.onchange=()=>{state.agentPreset=presetSelect.value;localStorage.setItem('agentRequestPreset',state.agentPreset)};
     paintAgentContext(); paintAgentImages(); if(state.agentSession)await loadAgentSession(state.agentSession);
+    /* v261022.6 · 任务/记忆/技能/RAG/设置面板：由 agent-system.js 渲染进 #agent-system-panel */
+    window.ERWAgentSystem?.mount?.();
   }
   async function loadAgentSession(id){try{const s=await api('/api/agent/sessions/'+encodeURIComponent(id));if(state.route!=='agent'||state.agentSession!==id)return;$('#agent-chat-title').textContent=s.title||'科研 Agent';const root=$('#agent-messages');root.innerHTML=(s.messages||[]).length?(s.messages||[]).map(agentMessageHtml).join(''):'<div class="empty">暂无消息。你可以直接提问，或先引用研究资料。</div>';for(const el of $$('.agent-message-body',root))await renderMarkdownInto(el,el.dataset.raw||'');for(const el of $$('.agent-reasoning-body',root))await renderMarkdownInto(el,el.dataset.raw||'');root.scrollTop=root.scrollHeight}catch(e){toast(e.message,true)}}
   function agentMessageHtml(m){const refs=(m.refs||[]).map(r=>`<span class="badge">${esc(r.title)}</span>`).join('');const imgs=(m.images||[]).map(p=>`<img src="/workspace-file/${esc(typeof p==='string'?p:(p.path||''))}" alt="对话图片">`).join('');const showReasoning=state.config?.app?.llm?.show_reasoning!==false;const reasoning=showReasoning&&String(m.reasoning||'').trim()?`<details class="agent-reasoning"><summary>模型思考过程</summary><div class="agent-reasoning-body" data-raw="${esc(m.reasoning||'')}"></div></details>`:'';const tlHtml=(m.role==='assistant'&&window.ERWFabTimeline?.html)?window.ERWFabTimeline.html(m):''; /* v261008b · 复用悬浮球的时间条（工具耗时 + 总耗时 + 过程明细） */const metaParts=(window.ERWFabTimeline?.metaParts?window.ERWFabTimeline.metaParts(m):[String(m.model||'').trim(),String(m.request_preset_label||'').trim()].filter(Boolean)); /* v261008b · 元信息去重：标签已含模型名时不再重复显示 model */return `<article class="agent-message ${m.role==='assistant'?'assistant':'user'}"><div class="agent-avatar">${m.role==='assistant'?'AI':'YOU'}</div><div class="agent-bubble">${refs?`<div class="agent-msg-refs">${refs}</div>`:''}${imgs?`<div class="agent-msg-images">${imgs}</div>`:''}${reasoning}<div class="agent-message-body" data-raw="${esc(m.content||'')}"></div>${tlHtml}<div class="agent-msg-meta">${[...metaParts.map(esc),esc(fmtTime(m.created))].join(' · ')}</div></div></article>`}
@@ -1407,10 +1426,13 @@
 
   function wireEditor(){
     const ta=$('#md-input'); if(!ta)return;
+    /* v261022.4 · 引用补全/预览（[[ 补全、Ctrl+Shift+K 引用选择器、悬停预览、断链状态） */
+    window.ERWDocReferences?.bindEditor(ta);
     const bib=$('#f-bibtex'); let syncingBib=false;
     /* v260924b · 分屏滚动同步（精确版）：预览按 top-level 块渲染并记录源行号锚点（见 renderMarkdownPreview），
        编辑侧用 canvas 量宽估算软换行的物理行→逻辑行映射；两侧任一滚动，另一侧先落到所在块、再按块内比例对齐。 */
     const pv=$('#md-preview'); let syncLock=false, syncLockTimer=0;
+    window.ERWDocReferences?.bindPreview?.(pv);
     /* v260924g · 锁改由「被写侧的 scroll 事件」释放：旧实现用 rAF 解锁，但渲染帧内 rAF 回调先于 scroll 事件派发，
      * 锁在回声事件到来前已失效 → 编辑器↔预览互相写入形成无限互滚（滚动条自动滑动）。
      * 事件驱动释放 + 150ms 兜底定时器（写入未引起滚动时防锁死）。 */
@@ -1635,14 +1657,18 @@
   async function renderMilestoneShell(docs,projects){
     state.docs=docs; state.projects=projects;
     if(state.milestoneView==='3d'||state.milestoneView==='fishbone')state.milestoneView='timeline';
-    $('#main').innerHTML=`<div class="card card-pad milestone-page-card"><div class="card-head milestone-page-head"><div><h3>里程碑</h3></div><div style="display:flex;gap:7px"><div class="view-tabs"><button data-ms-view="timeline" class="${state.milestoneView==='timeline'?'active':''}">时间轴</button><button data-ms-view="list" class="${state.milestoneView==='list'?'active':''}">列表</button><button data-ms-view="docs" class="${state.milestoneView==='docs'?'active':''}">文档</button></div><button class="primary-btn" id="new-ms">＋ 新建</button>${batchModeButton('doc')}</div></div><div id="ms-view"></div></div>`;
+    $('#main').innerHTML=`<div class="card card-pad milestone-page-card"><div class="card-head milestone-page-head"><div><h3>里程碑</h3></div><div style="display:flex;gap:7px"><div class="view-tabs"><button data-ms-view="timeline" class="${state.milestoneView==='timeline'?'active':''}">时间轴</button><button data-ms-view="gantt" class="${state.milestoneView==='gantt'?'active':''}">甘特</button><button data-ms-view="list" class="${state.milestoneView==='list'?'active':''}">列表</button><button data-ms-view="docs" class="${state.milestoneView==='docs'?'active':''}">文档</button></div><button class="primary-btn" id="new-ms">＋ 新建</button>${batchModeButton('doc')}</div></div><div id="ms-view"></div></div>`;
     $('#new-ms').onclick=()=>createAndSelect('milestone');
-    $$('[data-ms-view]').forEach(b=>b.onclick=async()=>{if(!await guardEditor('切换里程碑视图'))return;state.dirty=false;state.editorBaseline=null;state.draft=null;state.selectedDoc=null;state.milestoneView=b.dataset.msView;renderMilestoneView()}); renderMilestoneView();
+    $$('[data-ms-view]').forEach(b=>b.onclick=async()=>{
+      /* v261022.1 · 甘特有未保存的计划修改：切走前先问（与文档编辑同一 guard 习惯） */
+      if(state.milestoneView==='gantt'&&window.ERWMilestoneGantt?.guard&&!(await window.ERWMilestoneGantt.guard()))return;
+      if(!await guardEditor('切换里程碑视图'))return;state.dirty=false;state.editorBaseline=null;state.draft=null;state.selectedDoc=null;state.milestoneView=b.dataset.msView;renderMilestoneView()}); renderMilestoneView();
   }
   function renderMilestoneView(){
     $$('[data-ms-view]').forEach(b=>b.classList.toggle('active',b.dataset.msView===state.milestoneView));
     const root=$('#ms-view'); if(!root)return;
     window.ERWMilestoneTimeline?.destroy?.();
+    window.ERWMilestoneGantt?.destroy?.();
     if(state.milestoneView==='timeline'){
       if(!window.ERWMilestoneTimeline){root.innerHTML='<div class="empty">里程碑时间轴模块未加载</div>';}
       else window.ERWMilestoneTimeline.mount(root,{
@@ -1650,6 +1676,11 @@
         onOpen:(id)=>{state.milestoneView='docs';renderMilestoneView();setTimeout(()=>selectDoc(id),10)},
         onNew:()=>$('#new-ms')?.click()
       });
+    }
+    else if(state.milestoneView==='gantt'){
+      /* v261022.1 · 上游甘特图：按项目分组、阶段条 + 截止节点，数据来自 /api/milestones/plan */
+      if(!window.ERWMilestoneGantt){root.innerHTML='<div class="empty">里程碑甘特模块未加载</div>';}
+      else window.ERWMilestoneGantt.mount(root,{});
     }
     else if(state.milestoneView==='list'){ root.innerHTML=milestoneTimelineHtml([...state.docs].sort((a,b)=>(a.due||'').localeCompare(b.due||''))); wireMilestoneCards(); }
     else { root.innerHTML=`<div class="docs-layout milestone-docs-layout"><aside class="card doc-list-panel" style="position:relative;top:auto">${selectionToolbar('doc')}<div class="doc-list" id="doc-list">${docItems(state.docs)}</div></aside><section class="card doc-editor empty-editor" id="doc-editor"><div class="empty">选择里程碑文档进行编辑</div></section></div>`; wireDocList('milestone'); }
@@ -2046,7 +2077,7 @@
     /* v261009.4 · 设置页 tab 由两部分组成：内核自带 + **模块自登记**（ERWPanels.settingsTab）。
        这样「插件管理」这类页面不必在 app.js 里加分支——内核不认识具体功能（§6.3）。 */
     const extra=window.ERWPanels.settingsTabs();
-    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="interface">界面</button>`
+    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="sync">同步</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="ai">AI 能力</button><button data-set-tab="rag">RAG</button><button data-set-tab="interface">界面</button>`
       +extra.map(t=>`<button data-set-tab="${esc(t.id)}">${esc(t.label)}</button>`).join('')
       +`</aside><section class="card settings-panel" id="settings-panel"></section></div>`;
     if(window.pywebview?.api?.desktop_set_close_action){const button=document.createElement('button');button.dataset.setTab='desktop';button.textContent='窗口';$('.settings-nav').append(button)}
@@ -2061,7 +2092,24 @@
       else {delete p.dataset.plugin; renderSettingsTab(b.dataset.setTab,cfg);}
     });renderSettingsTab('general',cfg);
   }
-  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='general'){
+  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='ai'){
+      /* v261022.3 · AI 能力（RAG / 记忆 / Skill 总开关）由 agent-system.js 自渲染 */
+      if(window.ERWAgentSystem?.renderCapabilities)window.ERWAgentSystem.renderCapabilities(p);
+      else p.innerHTML='<div class="empty">Agent 系统模块未加载</div>';
+      return;
+    }
+    if(tab==='rag'){
+      if(window.ERWAgentSystem?.renderRag)window.ERWAgentSystem.renderRag(p);
+      else p.innerHTML='<div class="empty">Agent 系统模块未加载</div>';
+      return;
+    }
+    if(tab==='sync'){
+      /* v261022.2 · 同步页由 sync.js 自渲染（它只依赖 window.ERWSyncUI 适配层） */
+      if(window.ERWSync?.renderSettings)window.ERWSync.renderSettings(p);
+      else p.innerHTML='<div class="empty">同步模块未加载</div>';
+      return;
+    }
+    if(tab==='general'){
       p.innerHTML=`<div class="card-head"><div><h3>基础设置</h3></div></div><div class="form-grid"><div class="field span-2"><label>工作台名称</label><input id="set-app-name" value="${esc(app.app_name)}"></div><div class="field span-2"><label>副标题</label><input id="set-subtitle" value="${esc(app.subtitle)}"></div></div><div class="field-help" style="margin-top:10px">运行端口、监听地址、Workspace 路径和启动行为已移动到“服务与存储”，均可在页面中配置。</div><div style="margin-top:14px"><button class="primary-btn" id="save-settings">保存</button></div>`;$('#save-settings').onclick=async()=>{app.app_name=$('#set-app-name').value.trim()||'科研工作台';app.subtitle=$('#set-subtitle').value.trim();const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;toast('基础设置已保存');await loadBootstrap();};
     }
     else if(tab==='knowledge'){renderKnowledgeTypesSettings(p,app,cfg);}
@@ -2086,7 +2134,7 @@
     }
     else if(tab==='llm'){const llm=app.llm||{};const fallbackPresets=[{id:'default',label:'默认（不附加参数）',params:{}},{id:'qwen-low',label:'Qwen · 低思考',params:{enable_thinking:true,thinking_budget:1024}},{id:'qwen-off',label:'Qwen · 无思考',params:{enable_thinking:false}}];const presets=Array.isArray(llm.request_presets)&&llm.request_presets.length?llm.request_presets:fallbackPresets;const presetText=JSON.stringify(presets,null,2);p.innerHTML=`<div class="card-head"><div><h3>Agent 与模型接口</h3><p class="row-meta">API Key 不写入工作台配置、不会上传 git。推荐填入本地私密文件 config/secrets.json（自动注入环境变量，保存后自动生效），或直接设置系统环境变量。</p></div><span class="badge ${llm.has_api_key?'accent':'warn'}">${llm.has_api_key?'环境变量已读取':'环境变量未设置'}</span></div><div class="form-grid"><div class="field"><label>接口名称</label><input id="llm-provider" value="${esc(llm.provider_label||'OpenAI-compatible')}" placeholder="OpenAI-compatible"></div><div class="field"><label>启用 Agent</label><select id="llm-enabled"><option value="1" ${llm.enabled?'selected':''}>启用</option><option value="0" ${!llm.enabled?'selected':''}>关闭</option></select></div><div class="field"><label>协议</label><select id="llm-protocol"><option value="chat_completions" ${llm.protocol!=='responses'?'selected':''}>OpenAI-compatible Chat Completions</option><option value="responses" ${llm.protocol==='responses'?'selected':''}>OpenAI Responses API</option></select></div><div class="field span-2"><label>Base URL</label><input id="llm-base" value="${esc(llm.base_url||'https://api.openai.com/v1')}" placeholder="https://api.openai.com/v1"></div><div class="field span-2"><label>API Key 环境变量名称</label><input id="llm-key-env" value="${esc(llm.api_key_env||'OPENAI_API_KEY')}" placeholder="OPENAI_API_KEY"><span class="field-help">推荐把密钥填入项目 config/secrets.json 的 env 对象（本地私密、不上传 git，保存后自动生效）；也可以在启动工作台前设置系统环境变量。工作台不会读取后写回 Key。</span></div><div class="field span-2"><label>模型</label><input id="llm-model" value="${esc(llm.model||'')}" placeholder="模型 ID"></div><div class="field"><label>显示模型思考过程</label><select id="llm-show-reasoning"><option value="1" ${llm.show_reasoning!==false?'selected':''}>显示（接口返回时）</option><option value="0" ${llm.show_reasoning===false?'selected':''}>隐藏</option></select></div><div class="field"><label>多模态 / 截图识别</label><select id="llm-vision"><option value="1" ${llm.vision_enabled?'selected':''}>开启</option><option value="0" ${!llm.vision_enabled?'selected':''}>关闭</option></select><span class="field-help">需模型支持图片输入（如 qwen-vl / gpt-4o 系列）。开启后 PDF 阅读区 AI 面板可用「截取当前页 / 框选区域」代替选中文本，公式与表格提取更准。</span></div><div class="field"><label>超时 / 秒</label><input id="llm-timeout" type="number" min="5" max="600" value="${Number(llm.timeout||120)}"></div><div class="field"><label>最大输出 tokens（可选）</label><input id="llm-max" type="number" min="0" value="${Number(llm.max_output_tokens||0)}" placeholder="0 = 使用模型默认"></div><div class="field"><label>Temperature（可选）</label><input id="llm-temp" type="number" min="0" max="2" step="0.1" value="${llm.temperature==null?'':Number(llm.temperature)}" placeholder="留空 = 不发送"></div><div class="field"><label>默认请求模式 ID</label><input id="llm-default-preset" value="${esc(llm.default_request_preset||presets[0].id||'default')}" placeholder="default"></div><div class="field span-4"><label>动态请求模式（JSON）</label><textarea id="llm-presets" class="mono" style="min-height:280px">${esc(presetText)}</textarea><span class="field-help">默认提供“默认 / Qwen 低思考 / Qwen 无思考”三套。params 会合并到请求 JSON；可按实际接口修改 enable_thinking、thinking_budget、reasoning_effort 等字段。</span></div><div class="field span-4"><label>系统提示词</label><textarea id="llm-system" style="min-height:130px">${esc(llm.system_prompt||'')}</textarea></div></div><div style="margin-top:14px;display:flex;gap:8px"><button class="primary-btn" id="llm-save">保存模型设置</button><button class="secondary-btn" id="llm-test">测试连接</button></div>`;$('#llm-save').onclick=async()=>{let requestPresets;try{requestPresets=JSON.parse($('#llm-presets').value);if(!Array.isArray(requestPresets)||!requestPresets.length)throw new Error('必须是非空 JSON 数组');const ids=new Set();for(const item of requestPresets){if(!item||typeof item!=='object'||!String(item.id||'').trim()||typeof item.params!=='object'||Array.isArray(item.params))throw new Error('每项必须包含 id、label 和 params 对象');if(ids.has(item.id))throw new Error('预设 id 不能重复：'+item.id);ids.add(item.id)}}catch(e){toast('请求模式 JSON 无效：'+e.message,true);return}app.llm={...llm,provider_label:$('#llm-provider').value.trim()||'OpenAI-compatible',enabled:$('#llm-enabled').value==='1',protocol:$('#llm-protocol').value,base_url:$('#llm-base').value.trim(),api_key_env:$('#llm-key-env').value.trim()||'OPENAI_API_KEY',show_reasoning:$('#llm-show-reasoning').value==='1',vision_enabled:$('#llm-vision').value==='1',model:$('#llm-model').value.trim(),timeout:Math.max(5,Math.min(600,+$('#llm-timeout').value||120)),max_output_tokens:Math.max(0,+$('#llm-max').value||0),temperature:$('#llm-temp').value.trim()===''?null:Math.max(0,Math.min(2,+$('#llm-temp').value||0)),default_request_preset:$('#llm-default-preset').value.trim()||requestPresets[0].id,request_presets:requestPresets,system_prompt:$('#llm-system').value};delete app.llm.api_key;delete app.llm.has_api_key;const saved=await api('/api/config/app',{method:'POST',body:app});state.config.app=saved;cfg.app=saved;state.agentPreset=saved.llm?.default_request_preset||requestPresets[0].id;localStorage.setItem('agentRequestPreset',state.agentPreset);toast('Agent / LLM 设置已保存；API Key 将从环境变量读取')};$('#llm-test').onclick=async()=>{try{$('#llm-test').disabled=true;const r=await api('/api/agent/test',{method:'POST',body:{}});toast(r.models?.length?`连接成功 · ${r.models.slice(0,3).join(' / ')}`:'连接成功')}catch(e){toast(e.message,true)}finally{$('#llm-test').disabled=false}};}
     else if(tab==='literature'){renderLiteratureSettings(p);return}
-    else {const ui=app.ui||{};const pins=new Set(ui.sidebar_pinned_groups||[]);p.innerHTML=`<div class="card-head"><div><h3>界面设置</h3></div></div><div class="form-grid cols-5"><div class="field"><label>默认主题</label><select id="ui-theme"><option value="light" ${ui.theme==='light'?'selected':''}>明亮</option><option value="dark" ${ui.theme==='dark'?'selected':''}>深色</option></select></div><div class="field"><label>里程碑默认视图</label><select id="ui-ms"><option value="timeline">时间轴</option><option value="list" ${ui.milestone_default_view==='list'?'selected':''}>列表</option><option value="docs" ${ui.milestone_default_view==='docs'?'selected':''}>文档</option></select></div><div class="field"><label>动画</label><select id="ui-anim"><option value="1" ${ui.animations!==false?'selected':''}>启用</option><option value="0" ${ui.animations===false?'selected':''}>关闭</option></select></div><div class="field"><label>科研热力图月份</label><select id="ui-heatmap">${(()=>{const hm=Number(ui.heatmap_months||12);const cs=HEATMAP_MONTH_OPTIONS.includes(hm)?HEATMAP_MONTH_OPTIONS:[...HEATMAP_MONTH_OPTIONS,hm].sort((a,b)=>a-b);return cs.map(n=>`<option value="${n}" ${hm===n?'selected':''}>近 ${n} 个月</option>`).join('')})()}</select></div><div class="field span-2"><label>热力图活动量分界</label><div class="heatmap-settings-thresholds"><input id="ui-heatmap-threshold-low" type="number" min="1" value="${Number((ui.heatmap_thresholds||state.heatmapThresholds||[1,3])[0]||1)}"><span>低 / 中</span><input id="ui-heatmap-threshold-mid" type="number" min="2" value="${Number((ui.heatmap_thresholds||state.heatmapThresholds||[1,3])[1]||3)}"><span>中 / 高</span></div><span class="field-help">低：1～第一阈值；中：第一阈值+1～第二阈值；高：超过第二阈值。</span></div><div class="field span-2"><label>热力图三档颜色</label><div class="heatmap-settings-colors">${(ui.heatmap_colors||state.heatmapColors||['#C9D4F7','#8297E5','#4059B8']).map((x,i)=>`<label><span>${['低','中','高'][i]}</span><input id="ui-heatmap-color-${i}" type="color" value="${esc(x)}"></label>`).join('')}</div></div><div class="field span-4"><label>侧栏默认常驻展开</label><div class="check-grid">${NAV_GROUPS.map(g=>`<label><input type="checkbox" data-pin-default value="${g.id}" ${pins.has(g.id)?'checked':''}> ${g.label}</label>`).join('')}</div><span class="field-help">侧栏中仍可随时用菱形按钮单独固定；这里决定首次使用或重置后的默认状态。</span></div></div><div style="margin-top:14px"><button class="primary-btn" id="ui-save">保存界面设置</button> <button class="secondary-btn" id="ui-reset-sidebar">应用默认侧栏状态</button></div>`;$('#ui-save').onclick=async()=>{app.ui={...ui,theme:$('#ui-theme').value,milestone_default_view:$('#ui-ms').value,graph_default_view:'2d',animations:$('#ui-anim').value==='1',heatmap_months:Math.max(1,Math.min(12,+$('#ui-heatmap').value||12)),heatmap_thresholds:[Math.max(1,Math.round(+$('#ui-heatmap-threshold-low').value||1)),Math.max(Math.max(1,Math.round(+$('#ui-heatmap-threshold-low').value||1))+1,Math.round(+$('#ui-heatmap-threshold-mid').value||3))],heatmap_colors:[0,1,2].map(i=>$('#ui-heatmap-color-'+i).value),sidebar_pinned_groups:$$('[data-pin-default]:checked').map(x=>x.value)};state.heatmapMonths=app.ui.heatmap_months;state.heatmapThresholds=app.ui.heatmap_thresholds||[1,3];state.heatmapColors=app.ui.heatmap_colors||['#C9D4F7','#8297E5','#4059B8'];localStorage.setItem('heatmapMonths',String(state.heatmapMonths));localStorage.setItem('heatmapThresholds',JSON.stringify(state.heatmapThresholds));localStorage.setItem('heatmapColors',JSON.stringify(state.heatmapColors));await api('/api/config/app',{method:'POST',body:app});state.config.app=app;applyTheme(app.ui.theme);toast('界面设置已保存')};$('#ui-reset-sidebar').onclick=()=>{state.sidebarPinned=new Set($$('[data-pin-default]:checked').map(x=>x.value));state.sidebarOpen=new Set([...state.sidebarPinned,'core']);saveSidebarState();renderSidebar();toast('已应用默认侧栏状态')};}
+    else {const ui=app.ui||{};const pins=new Set(ui.sidebar_pinned_groups||[]);p.innerHTML=`<div class="card-head"><div><h3>界面设置</h3></div></div><div class="form-grid cols-5"><div class="field"><label>默认主题</label><select id="ui-theme"><option value="light" ${ui.theme==='light'?'selected':''}>明亮</option><option value="dark" ${ui.theme==='dark'?'selected':''}>深色</option></select></div><div class="field"><label>里程碑默认视图</label><select id="ui-ms"><option value="timeline">时间轴</option><option value="gantt" ${ui.milestone_default_view==='gantt'?'selected':''}>甘特图</option><option value="list" ${ui.milestone_default_view==='list'?'selected':''}>列表</option><option value="docs" ${ui.milestone_default_view==='docs'?'selected':''}>文档</option></select></div><div class="field"><label>动画</label><select id="ui-anim"><option value="1" ${ui.animations!==false?'selected':''}>启用</option><option value="0" ${ui.animations===false?'selected':''}>关闭</option></select></div><div class="field"><label>科研热力图月份</label><select id="ui-heatmap">${(()=>{const hm=Number(ui.heatmap_months||12);const cs=HEATMAP_MONTH_OPTIONS.includes(hm)?HEATMAP_MONTH_OPTIONS:[...HEATMAP_MONTH_OPTIONS,hm].sort((a,b)=>a-b);return cs.map(n=>`<option value="${n}" ${hm===n?'selected':''}>近 ${n} 个月</option>`).join('')})()}</select></div><div class="field span-2"><label>热力图活动量分界</label><div class="heatmap-settings-thresholds"><input id="ui-heatmap-threshold-low" type="number" min="1" value="${Number((ui.heatmap_thresholds||state.heatmapThresholds||[1,3])[0]||1)}"><span>低 / 中</span><input id="ui-heatmap-threshold-mid" type="number" min="2" value="${Number((ui.heatmap_thresholds||state.heatmapThresholds||[1,3])[1]||3)}"><span>中 / 高</span></div><span class="field-help">低：1～第一阈值；中：第一阈值+1～第二阈值；高：超过第二阈值。</span></div><div class="field span-2"><label>热力图三档颜色</label><div class="heatmap-settings-colors">${(ui.heatmap_colors||state.heatmapColors||['#C9D4F7','#8297E5','#4059B8']).map((x,i)=>`<label><span>${['低','中','高'][i]}</span><input id="ui-heatmap-color-${i}" type="color" value="${esc(x)}"></label>`).join('')}</div></div><div class="field span-4"><label>侧栏默认常驻展开</label><div class="check-grid">${NAV_GROUPS.map(g=>`<label><input type="checkbox" data-pin-default value="${g.id}" ${pins.has(g.id)?'checked':''}> ${g.label}</label>`).join('')}</div><span class="field-help">侧栏中仍可随时用菱形按钮单独固定；这里决定首次使用或重置后的默认状态。</span></div></div><div style="margin-top:14px"><button class="primary-btn" id="ui-save">保存界面设置</button> <button class="secondary-btn" id="ui-reset-sidebar">应用默认侧栏状态</button></div>`;$('#ui-save').onclick=async()=>{app.ui={...ui,theme:$('#ui-theme').value,milestone_default_view:$('#ui-ms').value,graph_default_view:'2d',animations:$('#ui-anim').value==='1',heatmap_months:Math.max(1,Math.min(12,+$('#ui-heatmap').value||12)),heatmap_thresholds:[Math.max(1,Math.round(+$('#ui-heatmap-threshold-low').value||1)),Math.max(Math.max(1,Math.round(+$('#ui-heatmap-threshold-low').value||1))+1,Math.round(+$('#ui-heatmap-threshold-mid').value||3))],heatmap_colors:[0,1,2].map(i=>$('#ui-heatmap-color-'+i).value),sidebar_pinned_groups:$$('[data-pin-default]:checked').map(x=>x.value)};state.heatmapMonths=app.ui.heatmap_months;state.heatmapThresholds=app.ui.heatmap_thresholds||[1,3];state.heatmapColors=app.ui.heatmap_colors||['#C9D4F7','#8297E5','#4059B8'];localStorage.setItem('heatmapMonths',String(state.heatmapMonths));localStorage.setItem('heatmapThresholds',JSON.stringify(state.heatmapThresholds));localStorage.setItem('heatmapColors',JSON.stringify(state.heatmapColors));await api('/api/config/app',{method:'POST',body:app});state.config.app=app;applyTheme(app.ui.theme);toast('界面设置已保存')};$('#ui-reset-sidebar').onclick=()=>{state.sidebarPinned=new Set($$('[data-pin-default]:checked').map(x=>x.value));state.sidebarOpen=new Set([...state.sidebarPinned,'core']);saveSidebarState();renderSidebar();toast('已应用默认侧栏状态')};}
   }
   /* v260929 · 设置 · 文献 / PDF：PDF 存放路径查看/修改/迁移、打开文件夹、重建关联入口 + AI 阅读助手（启用/请求模式/目标语言/风格指令/输入上限） */
   /* v260929x · 预设动作内置提示词（与 agent.py _ASSIST_PROMPTS 同源，仅作占位提示与「恢复默认」参照；实际默认以后端为准） */
@@ -2213,11 +2261,48 @@
     window.addEventListener('erw-lit-back',()=>renderDocsPage('literature'));
   }
 
+  /* v261022.2 · 同步页宿主适配层：上游 sync.js 只认 window.ERWSyncUI，
+     这里用本地 #modal / toast / 导航 / 设置页能力实现，不引入上游 app.js 的大改。 */
+  function syncCloseModal(){
+    $('#modal-backdrop').classList.add('hidden');
+    $('#modal-body').innerHTML='';$('#modal-footer').innerHTML='';
+    $('#modal').classList.remove('sync-conflict-modal');
+  }
+  function syncModal(title,html,footer){
+    $('#modal-title').textContent=title||'同步';
+    $('#modal-body').innerHTML=html||'';
+    $('#modal-footer').innerHTML=footer||'';
+    $('#modal-close').onclick=()=>syncCloseModal();
+    $('#modal-backdrop').classList.remove('hidden');
+    $('#modal-backdrop').onclick=e=>{if(e.target===$('#modal-backdrop'))syncCloseModal()};
+  }
+  window.ERWSyncUI={
+    modal:syncModal, closeModal:syncCloseModal, toast,
+    openSettings:async()=>{if(await navigate('settings'))setTimeout(()=>$('[data-set-tab="sync"]')?.click(),40)},
+    applyPreferences(values){
+      for(const [k,v] of Object.entries(values||{}))localStorage.setItem(k,String(v));
+      if(values?.theme)applyTheme(values.theme);
+      if(values?.uiScale)applyUiScale(values.uiScale);
+      if(values?.pageDensity){localStorage.setItem('pageDensityManual','1');applyDensity(values.pageDensity)}
+      for(const k of ['sidebarPinned','sidebarOpen'])if(values?.[k]){try{state[k]=new Set(JSON.parse(values[k]));renderSidebar()}catch{}}
+    },
+    refresh:async()=>{
+      if(editorDirty()||state.saving||state.draft)return false;
+      await loadBootstrap();renderSidebar();
+      return await navigate(state.route);
+    }
+  };
+
   async function init(){ try{bindGlobal();
     /* v261009 · 先等插件宿主把面板挂进来（面板在 eval 期自登记 ERWPanels），
        再构建侧栏——否则插件的导航项要等下一次渲染才出现。 */
     try{ await window.ERWPluginHost?.ready; }catch(e){ console.warn('plugin host failed', e); }
     mountSlots();   /* v261009 · 插件槽位（顶栏等）在导航构建前挂好 */
-    await loadBootstrap();renderSidebar();const route=location.hash.slice(1)||'overview';await navigate(route);}catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
+    await loadBootstrap();renderSidebar();const route=location.hash.slice(1)||'overview';await navigate(route);
+    /* v261022.5 · 项目名显示名/证据徽章需要项目记录：一次预取，失败不阻塞首屏 */
+    window.ERWResearchUI?.loadProjects?.().catch(()=>{});
+    /* v261022.2 · 通知外部模块（同步页等）可以开始贴附/轮询；只派发一次 */
+    try{ window.dispatchEvent(new Event('workbench:ready')); }catch(e){ console.warn('workbench:ready', e); }
+    }catch(e){console.error(e);$('#main').innerHTML=`<div class="card card-pad danger">初始化失败：${esc(e.message)}<br><span class="muted">确认已使用 <span class="mono">python server.py</span> 启动工程。</span></div>`;} }
   window.addEventListener('load',init);
 })();

@@ -1,5 +1,66 @@
 # Changelog
 
+## v261022.8 · 本地 Embedding 服务与语义索引打通
+
+- 新增 `tools/embedding_server.py`：OpenAI 兼容的本地 Embedding 服务（`POST /v1/embeddings`、`GET /v1/models`、`GET /health`），基于 fastembed + **BAAI/bge-small-zh-v1.5**（24M 参数、512 维、中文优化、ONNX、无需 torch）。模型缓存固定在 `D:/Project/.models/fastembed`（约 91 MB，不随临时目录清理），首次启动自动下载。
+- 工作台 RAG 配置为 `hybrid`（关键词 + 语义）、`http://127.0.0.1:8800/v1`、512 维；连接检查通过，语义索引构建完成：**230 份来源 / 706 个分块**（约 30 秒），页面显示「语义索引可用」。
+- 检索实测：`红外暗弱目标检测方法` 返回 8 条（文献题录 + 知识条目，score 0.73–0.76）；`知识库条目怎么归类` 命中《知识-原理-知识库全局说明》（0.757）。
+- 新增 `docs/LOCAL_EMBEDDING.md`：选型理由、安装启动、工作台配置字段、验证命令、常驻与换模型注意事项。
+
+## v261022.7 · 上游前端接入说明文档
+
+- 新增 `docs/UPSTREAM_FRONTEND_INTEGRATION.md`：逐项记录已接入的 6 个模块（甘特 / 同步 / AI 能力与 RAG / 引用补全 / 项目范围与科研界面 / Agent 系统面板）、每项的接缝改造、未接入模块及理由（文献面板已有等价实现、`v260922-*` 已改名替代、计费已插件化、无悬浮助手等）、新增的 6 个全局接缝、验证方式与后续可选任务。
+- README 顶部加了指引入口。目的是让"合并后还差什么"有可追溯的答案，而不是散在提交记录里。
+
+## v261022.6 · Agent 页接入系统面板（上游前端第 6 项）
+
+- Agent 页右侧新增**系统面板**：顶部六个 tab「对话 / 任务 / 记忆 / 技能 / RAG / 设置」，由 `agent-system.js` 渲染进 `#agent-system-panel`；对话区包进 `#agent-chat-panel`，切 tab 时两者互斥显示（对话 tab 回到原聊天界面）。
+- 「任务」显示当前会话的任务进度、待确认草稿（确认/拒绝）、运行日志与结果；「记忆」「技能」「RAG」「设置」分别复用第 3 项接入的同一套面板。
+- `ERWAgentPage.refresh` 改为只刷新当前会话消息（不再整页重渲染），避免 `mount → refresh → renderAgent` 循环。
+- 说明：本地对话走自己的发送链路，不创建上游的 task run，所以「任务」列表在纯聊天下为空——这是预期降级，一旦主循环走 `agent_runtime` 就会记录。
+- 验证：六个 tab 渲染、点击「任务」出现面板、0 console error；`web_check`、`ui_smoke`、`kb_smoke` 通过。
+
+## v261022.5 · 接入项目范围选择器与科研界面适配层（上游前端第 5 项）
+
+- 新增 **`research-ui.js`**（`window.ERWResearchUI`）：项目显示名（`display_name`）、资料证据徽章（题录 / 公开摘要 / 有 PDF 全文 / 已核对原文，按正文声明与附件推断）、阅读字号（12–20px，写进缩放菜单）、`wheelScale` 滚轮缩放辅助。项目记录在首屏后预取，失败不阻塞页面。
+- 新增 **`project-scope.js`**（`window.ERWProjectScope`）：可搜索、键盘可用的项目范围选择器（↑↓/Home/End 选择、Enter 确认、Esc 关闭、输入法组合保护、点外部关闭）。
+- 甘特图的项目范围从「原生下拉」换回该选择器；项目名统一走显示名。未加载该模块时仍自动降级为原生下拉。
+- 网络统一走 `window.erwFetch`；本地 `app.js` 的 `ERWResearchUI` 桩只在实际模块缺失时生效（先加载真实模块）。
+- 验证：甘特项目选择器展开 3 个选项、搜索框可用、阅读字号控件出现在缩放菜单、0 console error；`web_check`、`web_manifest --check`、`ui_smoke`、`kb_smoke` 通过。
+
+## v261022.4 · 编辑器接入引用补全与预览（上游前端第 4 项）
+
+- 新增 **`document-references.js`**：编辑器里输入 `[[` 弹出引用候选（带类型/状态/项目，↑↓ 选择、Enter 插入、Esc 关闭）；`Ctrl/⌘ + Shift + K` 打开引用选择器；预览区点击引用弹出浮动预览（可返回上一跳、直接打开文档，PDF 条目提供「阅读 PDF」）；断链显示状态；中文输入法组合期间暂停补全。
+- **宿主适配**：`fetch` 走 `window.erwFetch`；复用本地已有的 `ERWMarkdown.renderInto`、`ERWNav.open`、`ERWCurrentDoc`、`ERWToast`；新增 `ERWResearchUI.esc` 与 `ERWPaneZoom` 空实现（本地无面板级文本缩放，预览照常渲染）。
+- 编辑器 `wireEditor()` 与预览区在渲染时自动绑定（幂等），无需改各页面的编辑流程。
+- `web_check` 的原生事件白名单再补 `compositionstart/end/update`（输入法组合事件）。
+- 关于 PDF：**文献阅读工作区本地面板已具备 PDF.js 阅读**（`plugins/literature-reader/web/panel.js`：本地/离线 PDF.js、按页渲染、批注与笔记）；上游的「离屏绘制保帧、左右分隔线拖动」等增强属于面板整体替换，与本地插件接缝冲突较大，本轮未移植，留作单独评估。
+- 验证：真实编辑器输入 `[[知识` 弹出 20 条候选、0 console error；`web_check`、`web_manifest --check`、`ui_smoke`（20 路由）、`kb_smoke`、`plugin_check` 全过。
+
+## v261022.3 · 设置页接入「AI 能力」与「RAG」（上游前端第 3 项）
+
+- 设置新增 **「AI 能力」** tab：RAG 知识检索 / 记忆 / Skill 三个总开关（改动即时保存、后续工具调用生效），以及「管理技能」「配置 RAG」入口。
+- 设置新增 **「RAG」** tab：可用状态（关键词检索 / 语义索引是否就绪）、接口与检索设置（模式：关键词 / 混合 / 语义，Embedding Base URL、模型、密钥、分块与索引选项、PDF 正文索引、自动更新）、连接检查与更新索引、清除向量索引、检索试用。
+- **宿主适配**：`agent-system.js` / `agent-client.js` 的 `fetch` 改走 `window.erwFetch`，文档级观察改走 `ERWDom.onChildList`；本地 Agent 页结构不同，新增 `window.ERWAgentPage` / `ERWResearchUI` / `ERWFabTimeline` 三个最小适配（聊天跳转、项目名、证据徽章、悬浮时间线按空值降级），`ERWToast` 直接复用内核。
+- 运行环境补装 `PyYAML`（`requirements.txt` 早已声明；此前未安装导致 `/api/agent/skills` 报「读取 YAML 需要 PyYAML」）。安装后技能接口返回 5 个技能、0 错误。
+- 验证：AI 能力 tab 3 个开关 + 2 个入口正常、RAG tab 表单与「关键词检索可用」状态正常、0 console error；`web_check`、`web_manifest --check`、`ui_smoke`、`kb_smoke`、`plugin_check`、`mcp --selftest` 全过。
+
+## v261022.2 · 设置页接入「同步」（上游前端第 2 项）
+
+- 设置新增 **「同步」tab**（排在「服务与存储」之后）：服务器地址 + 测试连接、同步方式（不同步 / 主动 / 自动）、自动检查间隔、五类同步内容（Markdown 文档 / PDF 与附件 / 项目待办文献与热力图 / 通用设置与界面偏好 / Agent 对话）多选、保存与立即同步。
+- 同时接入 sync.js 的完整状态能力：顶栏同步按钮与变化计数（不同步时隐藏）、文档列表上的 A/M/D/↓/! 变更徽章、冲突处理弹窗（使用本地 / 服务器版本、保留两份、手动合并），以及「同步状态与变化」列表。
+- **接缝改造**：网络走 `window.erwFetch`；文档级 DOM 变更改走 `ERWDom.onChildList`（不再自建 MutationObserver）；宿主能力（弹窗/吐司/打开设置/应用偏好/刷新）由新增的 **`window.ERWSyncUI`** 适配层提供，复用本地 `#modal` 与 toast；`app.js` 初始化完成后派发一次 `workbench:ready`，sync.js 在此之后才贴附与轮询。
+- `web_check` 的原生事件白名单补上 `pagehide` / `pageshow` / `beforeunload` / `message`——此前会把浏览器原生事件误报成「没人派发的自定义事件」。
+- 验证：同步设置页渲染正常（5 个范围、状态栏、0 console error）、`/api/sync/status` 200；`web_check`、`web_manifest --check`、`ui_smoke`（20 路由）、`kb_smoke`、`mcp --selftest` 全过。
+
+## v261022.1 · 里程碑页接入甘特图（上游前端第 1 项）
+
+- 里程碑视图新增「甘特」tab（时间轴 / 甘特 / 列表 / 文档），接入上游 `ERWMilestoneGantt`：按项目分组，阶段条看周期、菱形看截止节点；支持全览 / 日 / 周 / 月缩放、定位今天、状态筛选（含逾期与待排期）、搜索与项目范围下拉。
+- 点击阶段条/节点在右侧修改起止日期、进度与状态，写回同一份 Markdown（`start_date` / `due` / `progress`）；有未保存修改时切换视图会先确认。数据来自 `/api/milestones/plan`（不受文档列表分页限制）。
+- **接缝改造**（相对上游原版）：网络请求改走 `window.erwFetch`；项目筛选去掉对未接入的 `ERWProjectScope` 的依赖，降级为原生下拉；移除对 `ERWResearchUI.projectLabel` 的引用；观察器仍是局部 `ResizeObserver`（非文档级 MutationObserver）。
+- 设置 → 界面 → 里程碑默认视图新增「甘特图」。
+- 验证：真实页面渲染 3 节点 / 1 已完成 / 0 逾期、0 console error；`web_check`、`web_manifest --check` 通过。
+
 ## v261022.0 · 合并上游 codex/agent-harness-cortex-memory（22 提交）
 
 - 合并上游分支的功能线：Agent harness（`agent_context` / `agent_mcp` / `agent_memory` / `agent_rag` / `agent_research` / `agent_runtime` / `agent_skills` / `evidence`）、CortexDB 风格记忆、统一文献工作区与稳定 PDF 绘制（离屏绘制、PDF.js 随客户端）、图谱范围全览与里程碑甘特图（`app/milestones.py`）、同步引擎（`sync_engine` / `sync_service`）、技能包（`app/skills/`）、用量文件竞争修复、SSE 终态与断线恢复。
