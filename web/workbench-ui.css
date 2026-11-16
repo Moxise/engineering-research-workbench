@@ -158,3 +158,17 @@ html body #main .settings-layout>.settings-panel::-webkit-scrollbar-thumb:hover{
 /* v261027.1 · 热力图色块可点击：打开当天研究日志（范围外占位格不可点） */
 .heatmap-card .heat-cell[data-date]:not(.outside){cursor:pointer}
 .heatmap-card .heat-cell[data-date]:not(.outside):hover{outline:2px solid color-mix(in srgb,var(--accent) 55%,transparent);outline-offset:1px}
+
+/* v261027.2 · 顶栏插件槽位排版：之前容器是 block、两个插件的 inline 元素只隔 1px 且按基线对齐，
+   看起来「徽章贴住天气、高度不齐」。现在统一成 inline-flex + 6px 间距 + 垂直居中；
+   天气文字在网页顶栏放宽，不再被 24ch 截成「5....」 */
+.top-actions > .topbar-slot{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.topbar-slot > .plugin-slot-item{display:inline-flex;align-items:center;min-width:0}
+#topbar-slot .weather-pill{max-width:260px}
+#topbar-slot .weather-text{max-width:none}
+#topbar-slot .mc-badge-box{flex:0 0 auto}
+#topbar-slot .mc-badge{line-height:1.5;padding:2px 8px}
+@media (max-width:1100px){
+  #topbar-slot .weather-pill{max-width:190px}
+  #topbar-slot .weather-text{max-width:150px}
+}
