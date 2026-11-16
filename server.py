@@ -10,6 +10,7 @@ import threading
 import time
 import webbrowser
 import tempfile
+from datetime import date as _date
 from functools import wraps
 from contextlib import nullcontext
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -370,6 +371,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(config.get_public())
         if path == "/api/desktop/autostart":  # v261027.3 · 开机自启状态（Windows 启动项）
             return self.send_json(autostart.status())
+        if path == "/api/journal/today":  # v261027.4 · 每日日志登记状态（今天是否已有研究日志）
+            today_iso = _date.today().isoformat()
+            rows = [d for d in indexer.list_docs("journal") if str(d.get("record_date") or "")[:10] == today_iso]
+            rows.sort(key=lambda d: str(d.get("updated") or ""), reverse=True)
+            return self.send_json({
+                "date": today_iso,
+                "registered": bool(rows),
+                "doc_id": rows[0]["id"] if rows else "",
+                "title": rows[0]["title"] if rows else "",
+            })
         if path == "/api/workspace/info":
             info = workspace.workspace_info()
             info["index"] = indexer.status()
