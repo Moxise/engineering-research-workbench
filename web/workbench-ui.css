@@ -184,8 +184,16 @@ html body #main .settings-layout>.settings-panel::-webkit-scrollbar-thumb:hover{
 .journal-reminder textarea{width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;font-size:13px;line-height:1.7;resize:vertical;min-height:120px}
 .journal-reminder textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--lux-focus, rgba(94,106,210,.28))}
 .journal-reminder .jr-error{margin-top:8px;color:var(--danger);min-height:16px}
-.heatmap-card .heat-cell.has-journal{position:relative}
-.heatmap-card .heat-cell.has-journal::after{
-  content:"";position:absolute;inset:1px;border:1.5px solid color-mix(in srgb,var(--ok) 78%,transparent);
-  border-radius:inherit;pointer-events:none;
+/* 已登记日志：外圈亮绿 + 右上角圆点（带底色描边）——深蓝高活跃格与灰底空格都能一眼认出 */
+.heatmap-card .heat-cell.has-journal{
+  position:relative;
+  outline:1.5px solid color-mix(in srgb,var(--ok) 88%,transparent);
+  outline-offset:1px;
 }
+.heatmap-card .heat-cell.has-journal::after{
+  content:"";position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:50%;
+  background:var(--ok);border:1.5px solid var(--surface);
+  box-shadow:0 0 0 .5px color-mix(in srgb,var(--ok) 45%,transparent);
+  pointer-events:none;z-index:1;
+}
+.heatmap-card .heat-cell.has-journal.outside{outline-color:color-mix(in srgb,var(--muted) 35%,transparent)}
