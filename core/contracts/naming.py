@@ -185,12 +185,21 @@ def validate_title(
     if re.search(r"[ \u3000]{2,}", name_part):
         issues.append(_issue("T012", "warn", "名称段存在连续多余空格", "压缩为单个半角空格"))
 
-    if re.search(r"\d{4}\s*[-/年]\s*\d{1,2}\s*[-/月]\s*\d{1,2}|(?<!\d)\d{8}(?!\d)", raw):
-        if kind in {"journal", "milestone", "idea", "summary"}:
+    # T014（2026-11-16 调整）：日志标题改为**必须标注日期**，便于按天检索；
+    # 里程碑/灵感/总结仍不写日期（日期由 record_date 与 id 承载）。
+    has_date = bool(re.search(
+        r"\d{4}\s*[-/年]\s*\d{1,2}\s*[-/月]\s*\d{1,2}|(?<!\d)\d{8}(?!\d)", raw))
+    if kind == "journal":
+        if not has_date:
             issues.append(_issue(
-                "T014", "warn", "标题含日期",
-                "`日志-` 类标题不写日期（日期由 `record_date` 与 `id` 承载）；其他类型也只写事件本身",
+                "T014", "error", "日志标题缺少日期",
+                "日志按天登记，标题须以日期开头，如 `日志-2026-11-16 批量仿真性能优化`",
             ))
+    elif has_date and kind in {"milestone", "idea", "summary"}:
+        issues.append(_issue(
+            "T014", "warn", "标题含日期",
+            "里程碑/灵感/总结标题不写日期（日期由 `record_date` 与 `id` 承载）",
+        ))
 
     # T015：类别词已声明唯一族（`知识-<类别>-` 且类别词合法）或题名照抄原文（文献）时不再提示
     declared_single_family = bool(spec["category_word"]) and seg["category"] in words

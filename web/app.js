@@ -663,6 +663,30 @@
   function formatMetric(v){ const n=Number(v); return Number.isFinite(n)&&Math.abs(n%1)>1e-9?n.toFixed(1):String(Number.isFinite(n)?n:(v||0)); }
 
   const HEATMAP_MONTH_OPTIONS=[2,4,6,12];
+  /* v261027.1 · 热力图 → 当天研究日志：按 record_date 建索引（15 秒缓存，避免连点重复请求） */
+  let journalDateCache=null, journalDateFetchedAt=0;
+  async function journalIndex(){
+    const now=Date.now();
+    if(journalDateCache&&now-journalDateFetchedAt<15000)return journalDateCache;
+    const docs=await api('/api/docs?kind=journal')||[];
+    const map=new Map();
+    for(const d of docs){
+      const key=String(d.record_date||'').slice(0,10);
+      if(!key)continue;
+      const prev=map.get(key);
+      if(!prev||String(d.updated||'')>String(prev.updated||''))map.set(key,d);
+    }
+    journalDateCache=map;journalDateFetchedAt=now;return map;
+  }
+  async function openJournalByDate(date){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date||'')))return false;
+    try{
+      const hit=(await journalIndex()).get(date);
+      if(hit){await openDocRoute('journals',hit.id);return true}
+      toast(`${date} 没有研究日志`);
+      return false;
+    }catch(err){toast(err.message||String(err),true);return false}
+  }
   const ACTIVITY_LABELS={doc_create:'新建文档',doc_update:'更新文档',doc_delete:'归档文档',todo_create:'新增任务',todo_update:'更新任务',todo_done:'完成任务',project_create:'新建项目',knowledge_export:'知识汇总',bibtex_export:'BibTeX导出',agent_chat:'Agent对话'};
   function researchHeatmapCard(activity){
     const rows=activity.days||[];
@@ -704,7 +728,7 @@
     const [thresholdLow,thresholdMid]=state.heatmapThresholds||[1,3];
     return `<section class="card heatmap-card" data-heatmap-weeks="${weeks}" style="--heat-low:${esc(lowColor)};--heat-mid:${esc(midColor)};--heat-high:${esc(highColor)}"><div class="card-head"><div><h3>科研热力图</h3></div><div class="heatmap-head-tools"><div class="heatmap-summary"><strong>${activity.events_month||0}</strong><span>本月记录</span><strong>${activity.active_days_month||0}</strong><span>活跃日</span></div><button class="secondary-btn heatmap-scale-btn" id="heatmap-scale-settings" type="button" title="设置活动量分界与三档颜色">色阶设置</button><select class="mini-select" id="heatmap-month-select" aria-label="科研热力图显示月份">${options}</select></div></div>
       <div class="heatmap-scroll"><div class="heatmap-plot"><div class="heatmap-axis"><div class="heatmap-axis-cap">星期</div><div class="heatmap-weekdays"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div></div><div class="heatmap-stage"><div class="heatmap-months" style="--heat-weeks:${weeks}">${monthLabels.join('')}</div><div class="heatmap-month-boundaries">${monthBoundaries.join('')}</div><div class="heatmap-cells" style="--heat-weeks:${weeks}">${cells.join('')}</div></div></div></div>
-      <div class="heatmap-footer"><span>少</span><i class="heat-cell level-0" title="0 次"></i><i class="heat-cell level-1" title="1–${thresholdLow} 次"></i><i class="heat-cell level-2" title="${thresholdLow+1}–${thresholdMid} 次"></i><i class="heat-cell level-3" title=">${thresholdMid} 次"></i><span>多</span><span class="heatmap-threshold-summary">≤${thresholdLow} / ≤${thresholdMid}</span><span class="heatmap-hint">鼠标悬停查看当天活动</span></div>
+      <div class="heatmap-footer"><span>少</span><i class="heat-cell level-0" title="0 次"></i><i class="heat-cell level-1" title="1–${thresholdLow} 次"></i><i class="heat-cell level-2" title="${thresholdLow+1}–${thresholdMid} 次"></i><i class="heat-cell level-3" title=">${thresholdMid} 次"></i><span>多</span><span class="heatmap-threshold-summary">≤${thresholdLow} / ≤${thresholdMid}</span><span class="heatmap-hint">悬停看当天活动 · 点击色块打开当天研究日志</span></div>
     </section>`;
   }
 
@@ -2358,7 +2382,12 @@
     $('#nav-back')?.addEventListener('click',()=>travelHistory(-1));
     $('#nav-forward')?.addEventListener('click',()=>travelHistory(1));
     document.addEventListener('keydown',event=>{if(event.altKey&&!event.ctrlKey&&!event.metaKey&&['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();travelHistory(event.key==='ArrowLeft'?-1:1)}});
-    document.addEventListener('click',event=>{const menu=$('#doc-entry-menu');if(menu&&!menu.contains(event.target))menu.removeAttribute('open')});
+    document.addEventListener('click',event=>{
+      const menu=$('#doc-entry-menu');if(menu&&!menu.contains(event.target))menu.removeAttribute('open');
+      /* v261027.1 · 点热力图色块 → 打开当天研究日志（范围外的占位格忽略） */
+      const cell=event.target?.closest?.('.heatmap-card .heat-cell[data-date]');
+      if(cell&&!cell.classList.contains('outside'))openJournalByDate(cell.dataset.date);
+    });
     document.addEventListener('keydown',event=>{if(event.key==='Escape')$('#doc-entry-menu')?.removeAttribute('open')});
     document.addEventListener('keydown',async e=>{if(document.documentElement.dataset.desktop==='true'&&(e.key==='F5'||((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='r'))){e.preventDefault();if(await guardEditor('刷新页面')){state.dirty=false;state.editorBaseline=null;location.reload()}}});
     $('#modal-close').onclick=closeModal;$('#modal-backdrop').addEventListener('click',e=>{if(e.target===$('#modal-backdrop'))closeModal()});

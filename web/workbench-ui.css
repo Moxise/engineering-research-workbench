@@ -154,3 +154,7 @@ html body #main .settings-layout>.settings-panel::-webkit-scrollbar-thumb:hover{
   html body #main .settings-layout>.settings-nav,
   html body #main .settings-layout>.settings-panel{max-height:none;overflow:visible}
 }
+
+/* v261027.1 · 热力图色块可点击：打开当天研究日志（范围外占位格不可点） */
+.heatmap-card .heat-cell[data-date]:not(.outside){cursor:pointer}
+.heatmap-card .heat-cell[data-date]:not(.outside):hover{outline:2px solid color-mix(in srgb,var(--accent) 55%,transparent);outline-offset:1px}
