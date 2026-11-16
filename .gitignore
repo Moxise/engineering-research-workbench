@@ -13,6 +13,7 @@
 # ==========================================================
 
 !/.gitignore
+!/PROJECT.json
 !/README.md
 !/CHANGELOG.md
 !/LICENSE.txt
