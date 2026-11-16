@@ -1970,6 +1970,62 @@
     if(!Array.isArray(app.classification_marks))app.classification_marks=DEFAULT_KIND_MARKS.map(x=>({...x}));
     return app.classification_marks;
   }
+  /* v261027.7 · 统一模板管理：所有条目类型的正文模板集中在一个页里查看/编辑/重置 */
+  async function renderTemplatesSettings(panel){
+    panel.innerHTML='<p class="row-meta">正在读取模板…</p>';
+    let data;
+    try{ data=await api('/api/templates'); }catch(err){ panel.textContent='读取模板失败：'+(err.message||err); return; }
+    const items=Array.isArray(data.items)?data.items:[];
+    const ph=(data.placeholders||[]).map(x=>`<code>${esc(x)}</code>`).join('、');
+    panel.innerHTML=`<div class="card-head"><div><h3>条目正文模板</h3><p class="row-meta">新建条目时写入的正文骨架。模板只影响以后新建的条目，已有文档正文不会被改写；可用占位符：${ph}。</p></div><button class="secondary-btn" id="tpl-reset-all">全部恢复默认</button></div>
+      <div class="list-stack" id="tpl-list">${items.map(it=>{
+        const badge=it.custom?'<span class="badge">自定义类型</span>':(it.overridden?'<span class="badge accent">已自定义</span>':'<span class="badge">内置默认</span>');
+        const firstLine=String(it.current||'').split(String.fromCharCode(10)).filter(Boolean)[0]||'（空模板）';
+        return `<div class="list-row" data-tpl="${esc(it.kind)}"><div style="font-size:18px;width:24px;text-align:center">${esc(it.icon||'◆')}</div>
+          <div class="row-main"><div class="row-title">${esc(it.label)} ${badge}</div>
+          <div class="row-meta"><code>${esc(it.kind)}</code> · ${String(it.current||'').length} 字符 · ${esc(firstLine.slice(0,40))}</div></div>
+          <button class="secondary-btn" data-tpl-edit="${esc(it.kind)}">编辑</button>
+          <button class="secondary-btn" data-tpl-reset="${esc(it.kind)}" ${it.overridden?'':'disabled'}>重置</button></div>`;
+      }).join('')}</div>
+      <p class="field-help" style="margin-top:10px">「重置」删除该类型的自定义模板、回到内置骨架；「全部恢复默认」清空所有自定义模板。模板里的 <code>{{title}}</code> 会替换为条目标题，<code>{{date}}</code> 替换为当天日期，文献另支持 <code>{{bibtex}}</code>。</p>`;
+    const byKind=new Map(items.map(it=>[it.kind,it]));
+    $$('[data-tpl-edit]').forEach(btn=>btn.onclick=()=>openTemplateEditor(byKind.get(btn.dataset.tplEdit)));
+    $$('[data-tpl-reset]').forEach(btn=>btn.onclick=async()=>{
+      const it=byKind.get(btn.dataset.tplReset); if(!it)return;
+      if(!await window.ERWDialog.confirm(`「${it.label}」将恢复为内置默认模板，之后新建的条目使用默认骨架。继续？`))return;
+      try{ await api('/api/templates',{method:'POST',body:{kind:it.kind,template:''}}); toast('已恢复内置默认'); await renderTemplatesSettings(panel); }catch(err){ toast(err.message||String(err),true); }
+    });
+    $('#tpl-reset-all').onclick=async()=>{
+      if(!await window.ERWDialog.confirm('将清空所有自定义正文模板，全部回到内置骨架。继续？'))return;
+      try{ await api('/api/templates',{method:'POST',body:{reset_all:true}}); toast('已全部恢复默认'); await renderTemplatesSettings(panel); }catch(err){ toast(err.message||String(err),true); }
+    };
+  }
+  function openTemplateEditor(it){
+    if(!it)return;
+    const sampleTitle=`${it.label}-示例标题`;
+    const render=()=>{
+      const taEl=$('#tpl-edit'), pre=$('#tpl-preview'); if(!taEl||!pre)return;
+      const bibSample=['@article{cite_key,','  title = {…}','}'].join(String.fromCharCode(10));
+      pre.textContent=taEl.value.split('{{title}}').join(sampleTitle).split('{{date}}').join(today()).split('{{bibtex}}').join(bibSample);
+    };
+    modal('编辑模板 · '+it.label,
+      `<div class="row-meta" style="margin-bottom:10px">仅影响以后新建的「${esc(it.label)}」；占位符：<code>{{title}}</code>、<code>{{date}}</code>${it.kind==='literature'?'、<code>{{bibtex}}</code>':''}。</div>
+       <textarea id="tpl-edit" spellcheck="false" style="width:100%;min-height:320px;font-family:Consolas,monospace;font-size:13px;line-height:1.7;padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface)">${esc(it.current||'')}</textarea>
+       <div class="row-meta" style="margin:10px 0 4px">预览</div>
+       <pre id="tpl-preview" style="max-height:170px;overflow:auto;margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);font-size:12px;white-space:pre-wrap"></pre>`,
+      `<button class="secondary-btn" id="tpl-cancel">取消</button><button class="secondary-btn" id="tpl-default">用内置默认</button><button class="primary-btn" id="tpl-save">保存模板</button>`);
+    const ta=$('#tpl-edit'); ta.oninput=render; render();
+    $('#tpl-cancel').onclick=closeModal;
+    $('#tpl-default').onclick=()=>{ ta.value=it.builtin||''; render(); };
+    $('#tpl-save').onclick=async()=>{
+      const btn=$('#tpl-save'); btn.disabled=true;
+      try{
+        await api('/api/templates',{method:'POST',body:{kind:it.kind,template:ta.value}});
+        closeModal(); toast('模板已保存');
+        await renderTemplatesSettings($('#settings-panel'));
+      }catch(err){ toast(err.message||String(err),true); btn.disabled=false; }
+    };
+  }
   function openKnowledgeTemplateEditor(app,cfg,row){
     const reg=knowledgeConfig(app);
     const current=String(row.template||'');
@@ -2266,7 +2322,7 @@
     /* v261009.4 · 设置页 tab 由两部分组成：内核自带 + **模块自登记**（ERWPanels.settingsTab）。
        这样「插件管理」这类页面不必在 app.js 里加分支——内核不认识具体功能（§6.3）。 */
     const extra=window.ERWPanels.settingsTabs();
-    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="service">服务与存储</button><button data-set-tab="sync">同步</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="ai">AI 能力</button><button data-set-tab="rag">RAG</button><button data-set-tab="interface">界面</button>`
+    $('#main').innerHTML=`<div class="settings-layout"><aside class="card settings-nav"><button class="active" data-set-tab="general">基础</button><button data-set-tab="knowledge">知识条目</button><button data-set-tab="templates">模板</button><button data-set-tab="service">服务与存储</button><button data-set-tab="sync">同步</button><button data-set-tab="literature">文献 / PDF</button><button data-set-tab="academic">学业与目标</button><button data-set-tab="llm">Agent / LLM</button><button data-set-tab="ai">AI 能力</button><button data-set-tab="rag">RAG</button><button data-set-tab="interface">界面</button>`
       +extra.map(t=>`<button data-set-tab="${esc(t.id)}">${esc(t.label)}</button>`).join('')
       +`</aside><section class="card settings-panel" id="settings-panel"></section></div>`;
     if(window.pywebview?.api?.desktop_set_close_action){const button=document.createElement('button');button.dataset.setTab='desktop';button.textContent='窗口';$('.settings-nav').append(button)}
@@ -2281,7 +2337,8 @@
       else {delete p.dataset.plugin; renderSettingsTab(b.dataset.setTab,cfg);}
     });renderSettingsTab('general',cfg);
   }
-  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='ai'){
+  function renderSettingsTab(tab,cfg){const p=$('#settings-panel'),app=cfg.app;if(tab==='templates'){renderTemplatesSettings(p);return;}
+    if(tab==='ai'){
       /* v261022.3 · AI 能力（RAG / 记忆 / Skill 总开关）由 agent-system.js 自渲染 */
       if(window.ERWAgentSystem?.renderCapabilities)window.ERWAgentSystem.renderCapabilities(p);
       else p.innerHTML='<div class="empty">Agent 系统模块未加载</div>';

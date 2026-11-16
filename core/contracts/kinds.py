@@ -168,26 +168,26 @@ KINDS: dict[str, dict[str, Any]] = {
 #: 新建条目的正文骨架（唯一声明处；``app/store._make_default_body`` 只做转发）。
 #: 占位符 ``{title}`` 与 ``{bibtex}`` 用字面替换填充，因此模板里可以自由出现花括号。
 BODY_TEMPLATES: dict[str, str] = {
-    "idea": "# {title}\n\n## 想法\n\n\n## 为什么值得记录\n\n\n## 下一步\n\n- [ ] \n",
+    "idea": "# {{title}}\n\n## 想法\n\n\n## 为什么值得记录\n\n\n## 下一步\n\n- [ ] \n",
     "journal": (
-        "# {title}\n\n## 今日进展\n\n\n## 关键发现\n\n\n## 问题与阻塞\n\n\n## 下一步\n\n- [ ] \n"
+        "# {{title}}\n\n## 今日进展\n\n\n## 关键发现\n\n\n## 问题与阻塞\n\n\n## 下一步\n\n- [ ] \n"
     ),
-    "note": "# {title}\n\n## 摘要\n\n\n## 正文\n\n\n## 关联\n\n",
-    "milestone": "# {title}\n\n## 目标\n\n\n## 验收条件\n\n- [ ] \n\n## 进展记录\n\n",
+    "note": "# {{title}}\n\n## 摘要\n\n\n## 正文\n\n\n## 关联\n\n",
+    "milestone": "# {{title}}\n\n## 目标\n\n\n## 验收条件\n\n- [ ] \n\n## 进展记录\n\n",
     "summary": (
-        "# {title}\n\n## 本阶段完成\n\n\n## 结果与产出\n\n\n## 问题与经验\n\n\n## 下一阶段\n\n- [ ] \n"
+        "# {{title}}\n\n## 本阶段完成\n\n\n## 结果与产出\n\n\n## 问题与经验\n\n\n## 下一阶段\n\n- [ ] \n"
     ),
     "literature": (
-        "# {title}\n\n"
+        "# {{title}}\n\n"
         "## BibTeX\n\n"
-        "```bibtex\n{bibtex}\n```\n\n"
+        "```bibtex\n{{bibtex}}\n```\n\n"
         "## 核心结论\n\n\n"
         "## 方法与数据\n\n\n"
         "## 与当前研究的关系\n\n\n"
         "## 摘录与批注\n\n"
     ),
     "experiment": (
-        "# {title}\n\n"
+        "# {{title}}\n\n"
         "## 摘要\n\n\n"
         "## 目标与假设\n\n\n"
         "## 配置与参数\n\n\n"
@@ -200,7 +200,7 @@ BODY_TEMPLATES: dict[str, str] = {
         "### 用到的数据\n\n\n"
         "### 同系列实验\n\n\n"
     ),
-    "_default": "# {title}\n\n## 要点\n\n\n## 正文\n\n\n## 关联\n\n",
+    "_default": "# {{title}}\n\n## 要点\n\n\n## 正文\n\n\n## 关联\n\n",
 }
 
 DEFAULT_BIBTEX = "@article{cite_key,\n  title = {},\n  author = {},\n  year = {}\n}"
@@ -209,10 +209,10 @@ DEFAULT_BIBTEX = "@article{cite_key,\n  title = {},\n  author = {},\n  year = {}
 def default_body(kind: str, title: str, payload: dict[str, Any] | None = None) -> str:
     """按契约生成新条目的正文骨架（与旧 ``store._make_default_body`` 输出逐字一致）。"""
     template = BODY_TEMPLATES.get(str(kind)) or BODY_TEMPLATES["_default"]
-    body = template.replace("{title}", str(title))
-    if "{bibtex}" in body:
+    body = template.replace("{{title}}", str(title))
+    if "{{bibtex}}" in body:
         raw = (payload or {}).get("bibtex") or DEFAULT_BIBTEX
-        body = body.replace("{bibtex}", str(raw).strip())
+        body = body.replace("{{bibtex}}", str(raw).strip())
     return body
 
 

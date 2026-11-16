@@ -150,19 +150,12 @@ def all_statuses() -> dict[str, list[str]]:
     return {kind: kind_statuses(kind) for kind in kind_dir_map()}
 
 def builtin_kind_default_template(kind: str) -> str:
-    if kind == "idea":
-        return "# {{title}}\n\n## 想法\n\n\n## 为什么值得记录\n\n\n## 下一步\n\n- [ ] \n"
-    if kind == "journal":
-        return "# {{title}}\n\n## 实验目的\n\n\n## 实验配置\n\n\n## 实验结果\n\n\n## 结论\n\n"
-    if kind == "note":
-        return "# {{title}}\n\n## 摘要\n\n\n## 正文\n\n\n## 关联\n\n"
-    if kind == "milestone":
-        return "# {{title}}\n\n## 目标\n\n\n## 验收条件\n\n- [ ] \n\n## 进展记录\n\n"
-    if kind == "summary":
-        return "# {{title}}\n\n## 本阶段完成\n\n\n## 结果与产出\n\n\n## 问题与经验\n\n\n## 下一阶段\n\n- [ ] \n"
-    if kind == "literature":
-        return "# {{title}}\n\n## BibTeX\n\n```bibtex\n{{bibtex}}\n```\n\n## 核心结论\n\n\n## 方法与数据\n\n\n## 与当前研究的关系\n\n\n## 摘录与批注\n\n"
-    return "# {{title}}\n\n## 要点\n\n\n## 正文\n\n\n## 关联\n\n"
+    """内置类型的默认正文模板——**唯一来源是契约**（core/contracts/kinds.py:BODY_TEMPLATES）。
+
+    v261027.7 · 此前这里另抄了一份：journal 被误写成「实验目的/实验配置…」、experiment 缺分支，
+    与新建条目实际使用的契约骨架不一致（「还原为预设」会把错误模板写回去）。现在只做转发。
+    """
+    return contracts.BODY_TEMPLATES.get(str(kind)) or contracts.BODY_TEMPLATES["_default"]
 
 
 def kind_default_template(kind: str) -> str:
@@ -675,13 +668,15 @@ def _make_default_body(kind: str, title: str, payload: dict[str, Any]) -> str:
     if overridden or kind not in contracts.kind_dir_map():
         template = kind_template(kind)
         bibtex = payload.get("bibtex") or contracts.DEFAULT_BIBTEX
-        return (
+        body = (
             template
             .replace("{{title}}", title)
             .replace("{{date}}", _today())
             .replace("{{bibtex}}", str(bibtex).strip())
-            .rstrip() + "\n"
         )
+        # v261027.7 · 兼容旧版单花括号占位符（早期模板按契约写法存过 {title} / {bibtex}）
+        body = body.replace("{title}", title).replace("{bibtex}", str(bibtex).strip())
+        return body.rstrip() + "\n"
     return contracts.default_body(kind, title, payload)
 
 

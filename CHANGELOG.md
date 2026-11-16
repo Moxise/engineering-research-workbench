@@ -1,5 +1,25 @@
 # Changelog
 
+## v261027.7 · 条目正文模板：单一来源 + 统一管理页
+
+**梳理结果**：模板原先散在三处、口径不一致——
+
+| 位置 | 用途 | 问题 |
+| --- | --- | --- |
+| `core/contracts/kinds.py: BODY_TEMPLATES` | 新建条目的实际骨架（无覆盖时） | 用 `{title}` 单花括号 |
+| `app/store.py: builtin_kind_default_template` | 前端「预设」展示与「还原为预设」 | **另抄一份**：journal 被误写成「实验目的/实验配置…」、**缺 experiment 分支**、用 `{{title}}` 双花括号 |
+| `config/app.json: knowledge_types.templates` | 用户自定义覆盖 | 用 `{{title}}`，当前为空 |
+
+后果：`journal` 的「还原为预设」会把实验骨架写回去；`experiment` 从未进入过预设；两套占位符混用。
+
+**统一后的改动**：
+
+- 契约 `BODY_TEMPLATES` 占位符统一为 `{{title}}` / `{{bibtex}}`（`default_body` 同步）；`store.builtin_kind_default_template` 改为**从契约转发**，删除重复实现——journal 恢复为「今日进展 / 关键发现 / 问题与阻塞 / 下一步」，experiment 补齐实验骨架。
+- `_make_default_body` 兼容旧模板里的单花括号 `{title}` / `{bibtex}`，历史自定义模板升级后不会留下未替换的占位符。
+- 新增 **设置 →「模板」** 统一管理页：集中列出 7 类（+ 自定义类型）的当前模板、来源徽章（内置默认 / 已自定义 / 自定义类型）、字符数与首行；每行可「编辑」（带占位符替换后的实时预览）、「重置」，顶部「全部恢复默认」。
+- 新增 `GET /api/templates`（内置骨架 + 当前模板 + 是否覆盖）与 `POST /api/templates`（保存覆盖 / 空值重置单类 / `reset_all` 全部清空）。
+- 验证：保存自定义 journal 模板 → 新建日志正文使用新模板且标题已替换；重置后回到 59 字符内置骨架；新建 experiment 正文含「目标与假设 / 配置与参数 / 结果 / 留档路径」；临时文档已清理；`web_check`、`web_manifest --check`、`kb_smoke`、`plugin_check`、`run_tests`（15/15）、`ui_smoke`（20 路由）全过。
+
 ## v261027.6 · 热力图格子放大与清晰度
 
 - 格子高度从**固定 14/15px** 改为跟随宽度（16–24px）：12 个月 16×16，6/4/2 个月 24×22（原先是 14×14，短周期也白白留空）。

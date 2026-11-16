@@ -371,6 +371,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(config.get_public())
         if path == "/api/desktop/autostart":  # v261027.3 · 开机自启状态（Windows 启动项）
             return self.send_json(autostart.status())
+        if path == "/api/templates":  # v261027.7 · 统一模板管理：所有类型的当前/内置模板
+            return self.send_json(_templates_payload())
         if path == "/api/journal/today":  # v261027.4 · 每日日志登记状态（今天是否已有研究日志）
             today_iso = _date.today().isoformat()
             rows = [d for d in indexer.list_docs("journal") if str(d.get("record_date") or "")[:10] == today_iso]
@@ -561,6 +563,29 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "not_found"}, 404)
         if path == "/api/config/app":
             return self.send_json(config.save_app(payload))
+        if path == "/api/templates":  # v261027.7 · 统一模板管理：读取/保存/重置正文模板覆盖
+            if payload.get("reset_all"):
+                app_cfg = config.get_app()
+                kt = dict(app_cfg.get("knowledge_types") or {})
+                kt["templates"] = {}
+                app_cfg["knowledge_types"] = kt
+                config.save_app(app_cfg)
+                return self.send_json(_templates_payload())
+            kind = str(payload.get("kind") or "").strip()
+            if not kind:
+                raise ValueError("缺少条目类型")
+            app_cfg = config.get_app()
+            kt = dict(app_cfg.get("knowledge_types") or {})
+            templates = dict(kt.get("templates") or {})
+            template = str(payload.get("template") or "")
+            if template.strip():
+                templates[kind] = template
+            else:
+                templates.pop(kind, None)   # 空模板 = 恢复内置骨架
+            kt["templates"] = templates
+            app_cfg["knowledge_types"] = kt
+            config.save_app(app_cfg)
+            return self.send_json(_templates_payload())
         if path == "/api/knowledge-marks/cleanup":
             result = store.cleanup_deleted_mark(str(payload.get("mark_id") or ""))
             indexer.rebuild()
@@ -988,6 +1013,35 @@ def plugin_roots(root):
 
 #: 插件加载结果（进程级）：`build_server()` 里填充，请求分发时查表
 PLUGINS = {"result": None}
+
+
+def _templates_payload() -> dict:
+    """统一模板清单（v261027.7）：内置类型 + 自定义类型的「内置骨架 / 当前模板 / 是否被覆盖」。
+
+    模板的唯一事实源是 `core/contracts/kinds.py:BODY_TEMPLATES`；用户在
+    `config/app.json → knowledge_types.templates` 里的覆盖只影响「以后新建」的条目。
+    """
+    app_cfg = config.get_app()
+    overrides = (app_cfg.get("knowledge_types") or {}).get("templates")
+    overrides = overrides if isinstance(overrides, dict) else {}
+    items = []
+    for row in store.knowledge_type_registry():
+        kind = str(row.get("id") or "")
+        if not kind:
+            continue
+        items.append({
+            "kind": kind,
+            "label": row.get("label") or kind,
+            "icon": row.get("icon") or "",
+            "builtin": row.get("default_template") or "",
+            "current": row.get("template") or "",
+            "overridden": kind in overrides,
+            "custom": not bool(row.get("builtin")),
+        })
+    return {
+        "placeholders": ["{{title}}", "{{date}}", "{{bibtex}}"],
+        "items": items,
+    }
 
 
 def _core_version() -> str:
