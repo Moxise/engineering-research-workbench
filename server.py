@@ -371,6 +371,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(config.get_public())
         if path == "/api/desktop/autostart":  # v261027.3 · 开机自启状态（Windows 启动项）
             return self.send_json(autostart.status())
+        if path == "/api/agent/guideline":  # v261027.8 · Agent 写作与建档规范（Workspace/System 下的 Markdown）
+            content = config.writing_rules()
+            return self.send_json({
+                "path": str(config.writing_rules_path()),
+                "content": content,
+                "fallback": config.writing_rules_fallback(),
+                "chars": len(content),
+            })
         if path == "/api/templates":  # v261027.7 · 统一模板管理：所有类型的当前/内置模板
             return self.send_json(_templates_payload())
         if path == "/api/journal/today":  # v261027.4 · 每日日志登记状态（今天是否已有研究日志）
@@ -563,6 +571,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "not_found"}, 404)
         if path == "/api/config/app":
             return self.send_json(config.save_app(payload))
+        if path == "/api/agent/guideline":  # v261027.8 · 保存写作与建档规范（写回 Workspace 并刷新提示词缓存）
+            content = config.save_writing_rules(str(payload.get("content") or ""))
+            return self.send_json({"ok": True, "chars": len(content), "content": content})
         if path == "/api/templates":  # v261027.7 · 统一模板管理：读取/保存/重置正文模板覆盖
             if payload.get("reset_all"):
                 app_cfg = config.get_app()

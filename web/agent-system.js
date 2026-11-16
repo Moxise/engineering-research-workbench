@@ -7,7 +7,7 @@
   let panelHost=null,tab='chat',timer=null,selected='',cursor=0,log=[],generation=0;
   async function api(path,body){const f=window.erwFetch||fetch;const r=await f('/api/agent/'+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw Error(d.message||d.error||r.status);return d}
   const toast=(s,bad=false)=>window.ERWToast?.(s,bad);
-  const tabs=[['chat','对话'],['runs','任务'],['memory','记忆'],['skills','技能'],['rag','RAG'],['settings','设置']];
+  const tabs=[['chat','对话'],['runs','任务'],['memory','记忆'],['skills','技能'],['rag','RAG'],['settings','设置'],['guideline','规范']];
   function close(){open('chat')}
   function open(initial='chat'){
     tab=tabs.some(([id])=>id===initial)?initial:'chat';
@@ -39,7 +39,7 @@
     $('.as-content',panelHost).setAttribute('aria-labelledby','agent-tab-'+tab);
     const root=document.createElement('div');root.innerHTML='<p>正在载入…</p>';
     $('.as-content',panelHost).replaceChildren(root);
-    try{if(tab==='runs')await runs(root);else if(tab==='memory')await memory(root);else if(tab==='skills')await skills(root);else if(tab==='rag')await rag(root);else await settings(root)}catch(e){if(sequence===generation&&root.isConnected)root.innerHTML=`<p class="as-error">${esc(e.message)}</p>`}
+    try{if(tab==='runs')await runs(root);else if(tab==='memory')await memory(root);else if(tab==='skills')await skills(root);else if(tab==='rag')await rag(root);else if(tab==='guideline')await guideline(root);else await settings(root)}catch(e){if(sequence===generation&&root.isConnected)root.innerHTML=`<p class="as-error">${esc(e.message)}</p>`}
   }
   async function runs(root){
     root.innerHTML='<div class="as-section-head"><div><h3>当前会话任务</h3><p class="as-hint">对话中发送的消息会自动在这里记录进度。确认草稿后，可继续同一个任务。</p></div><button type="button" class="primary-btn" id="as-go-chat">返回对话</button></div><div id="as-runs-list"></div><section id="as-run-detail"></section>';
@@ -177,6 +177,38 @@
     };
     $('#as-rag-search',root).onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,b=$('button',f);b.disabled=true;try{const result=await api('rag/search',{query:f.elements.query.value});$('#as-rag-results',root).innerHTML=`<p class="as-hint">检索方式：${esc(result.mode)}${result.warning?' · '+esc(result.warning):''} · 实际 ${result.count} 条 / 最多 ${result.limit??form.elements.rag_top_k.value} 条</p>${result.items.map(item=>`<article class="as-memory"><a href="#" data-agent-reference="${esc(item.id||item.title)}">${esc(item.title)}</a> ${window.ERWResearchUI?.evidenceBadge(item)||''}<p>${esc(item.excerpt)}</p><small>${esc(item.source?.path||item.id)}${item.source?.page?' · 第 '+item.source.page+' 页':''}</small></article>`).join('')}`}catch(error){$('#as-rag-results',root).textContent=error.message}finally{b.disabled=false}};
     if(draw(initial)||r.realtime_updates||r.scheduled_updates)poll();
+  }
+  async function guideline(root){
+    const data=await api('guideline');
+    const content=String(data.content||'');
+    root.innerHTML=`<div class="as-section-head"><div><h3>写作与建档规范</h3>
+        <p class="as-hint">这份 Markdown 会在每次对话前注入所有 AI 人设（主对话 / 悬浮助手 / 任务），也就是 AI 的「写作记忆」。保存后下一次对话立即生效。</p></div>
+        <span class="as-hint" id="as-guide-chars">${content.length} 字符</span></div>
+      <p class="as-hint" style="word-break:break-all">位置：<code>${esc(data.path||'')}</code></p>
+      <textarea id="as-guide-text" spellcheck="false" style="width:100%;min-height:360px;font-family:Consolas,monospace;font-size:13px;line-height:1.7;padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--text);resize:vertical">${esc(content)}</textarea>
+      <div class="as-actions" style="margin-top:10px"><button type="button" class="primary-btn" id="as-guide-save">保存规范</button>
+        <button type="button" class="secondary-btn" id="as-guide-default">恢复内置默认</button>
+        <button type="button" class="secondary-btn" id="as-guide-reload">重新读取</button></div>
+      <p class="as-hint" role="status" id="as-guide-status"></p>`;
+    const ta=$('#as-guide-text',root), status=$('#as-guide-status',root), chars=$('#as-guide-chars',root);
+    ta.oninput=()=>{ if(chars)chars.textContent=ta.value.length+' 字符'; };
+    $('#as-guide-save',root).onclick=async()=>{
+      const button=$('#as-guide-save',root); button.disabled=true;
+      try{
+        const result=await api('guideline',{content:ta.value});
+        if(chars)chars.textContent=(result.chars||ta.value.length)+' 字符';
+        status.textContent='已保存，下一次对话立即生效';
+        toast('写作规范已保存');
+      }catch(error){ status.textContent='保存失败：'+(error.message||error); }
+      finally{ if(button.isConnected)button.disabled=false; }
+    };
+    $('#as-guide-default',root).onclick=async()=>{
+      if(!await window.ERWDialog.confirm('将当前规范替换为内置精简版（约 500 字），当前内容会丢失。继续？'))return;
+      ta.value=String(data.fallback||'');
+      if(chars)chars.textContent=ta.value.length+' 字符';
+      status.textContent='已填入内置默认，点「保存规范」后生效';
+    };
+    $('#as-guide-reload',root).onclick=()=>load();
   }
   async function settings(root){
     const data=await api('system'),s={max_steps:48,time_budget_seconds:900,context_tokens:24000,mcp_servers:[],...data.settings};

@@ -1,5 +1,12 @@
 # Changelog
 
+## v261027.8 · 写作与建档规范放进 Agent 页
+
+- Agent 页系统面板新增 **「规范」tab**（任务 / 记忆 / 技能 / RAG / 设置 / 规范）：直接查看并编辑《AI 助手写作与建档规范》——这份 Markdown 会在每次对话前注入所有人设（主对话 / 悬浮助手 / 任务），即 AI 的「写作记忆」；保存后下一次对话立即生效，无需重启。
+- 面板显示规范落盘位置（`Workspace/System/AI助手写作与建档规范.md`）与实时字符数；提供「保存规范」「恢复内置默认」（用 `config.writing_rules_fallback()` 的 500 字精简版填充，需确认）「重新读取」。
+- 新增 `GET/POST /api/agent/guideline`；`app/config.py` 增加 `writing_rules_path()` / `save_writing_rules()` / `reload_writing_rules()` / `writing_rules_fallback()`，保存后清空 `writing_rules()` 的进程缓存，使改动立即对下一条对话生效。
+- 验证：Agent 页出现「规范」tab、读取 3020 字符且首行正确；保存后文件写回（3020 字符不变）、状态提示「已保存，下一次对话立即生效」；`web_check`、`web_manifest --check`、`kb_smoke`、`ui_smoke`（20 路由）通过。
+
 ## v261027.7 · 条目正文模板：单一来源 + 统一管理页
 
 **梳理结果**：模板原先散在三处、口径不一致——

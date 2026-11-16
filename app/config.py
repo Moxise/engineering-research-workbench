@@ -34,6 +34,37 @@ _WRITING_RULES_FALLBACK = """【AI 写作与建档约束（精简版，完整版
 7. 正文中文，图内文字一律英文；ν 专指新息，量测噪声一律用 v。"""
 _WRITING_RULES_CACHE: str | None = None
 
+def writing_rules_fallback() -> str:
+    """内置兜底规范（文档缺失时使用；「恢复默认」也用它）。"""
+    return _WRITING_RULES_FALLBACK
+
+
+def writing_rules_path():
+    """规范的落盘位置：<Workspace>/System/AI助手写作与建档规范.md（工作台数据）。"""
+    from .workspace import ensure_workspace
+
+    return ensure_workspace() / "System" / "AI助手写作与建档规范.md"
+
+
+def reload_writing_rules() -> str:
+    """清缓存并重新读取：Agent 页编辑保存后调用，下一次对话立即生效。"""
+    global _WRITING_RULES_CACHE
+    _WRITING_RULES_CACHE = None
+    return writing_rules()
+
+
+def save_writing_rules(content: str) -> str:
+    """把规范写回 Workspace 并刷新缓存（v261027.8 · Agent 页「规范」tab）。"""
+    text = str(content or "")
+    if not text.strip():
+        raise ValueError("规范内容不能为空")
+    path = writing_rules_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    nl = chr(10)
+    path.write_text(text if text.endswith(nl) else text + nl, encoding="utf-8")
+    return reload_writing_rules()
+
+
 def writing_rules() -> str:
     global _WRITING_RULES_CACHE
     if _WRITING_RULES_CACHE is None:
