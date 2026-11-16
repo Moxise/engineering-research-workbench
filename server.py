@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import urlopen
 
 from app import config
+from app import autostart
 from app import external_access
 from app import versions
 from app import store
@@ -367,6 +368,8 @@ class Handler(BaseHTTPRequestHandler):
             })
         if path == "/api/config":
             return self.send_json(config.get_public())
+        if path == "/api/desktop/autostart":  # v261027.3 · 开机自启状态（Windows 启动项）
+            return self.send_json(autostart.status())
         if path == "/api/workspace/info":
             info = workspace.workspace_info()
             info["index"] = indexer.status()
@@ -525,6 +528,9 @@ class Handler(BaseHTTPRequestHandler):
 
     @serialized_write
     def handle_api_post(self, path, payload):
+        if path == "/api/desktop/autostart":  # v261027.3 · 开关开机自启（写/删 HKCU Run 项）
+            enabled = bool(payload.get("enabled")) if isinstance(payload, dict) else False
+            return self.send_json(autostart.enable() if enabled else autostart.disable())
         if path == "/api/external-access":
             return self.send_json(external_access.save(payload if isinstance(payload, dict) else {}))
         if path.startswith("/api/sync/"):

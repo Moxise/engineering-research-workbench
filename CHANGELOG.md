@@ -1,5 +1,16 @@
 # Changelog
 
+## v261027.3 · 开机自动启动
+
+- 设置 →「服务与存储」新增**开机自动启动**：写/删 Windows 启动项 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\EngineeringResearchWorkbench`（当前用户级，不需要管理员、不弹 UAC），登录后由系统拉起工作台。界面显示实际写入的命令，命令与当前运行方式不一致时提示「保存后会更新」。
+- 自启命令按运行形态生成，避免"启动了却看不见"：
+  - 桌面版（exe 冻结）：`"<exe>" --background`，隐藏到托盘；
+  - 源码版且有 `pystray`+`webview`：`"pythonw" "client.py" --background`（托盘）；
+  - 源码版缺托盘依赖：`"pythonw" "client.py"`（正常开窗，不隐藏）；
+  - 没有 `client.py` 时退回 `"pythonw" "server.py"`。
+- 新增 `app/autostart.py`（`status` / `enable` / `disable`）与 `GET|POST /api/desktop/autostart`；非 Windows 平台返回 `supported=false`，界面只显示说明。
+- 验证：开启 → 注册表实际写入且值正确；关闭 → 键被清除；设置页开关端到端可用（提示从「未开启 · 命令…」变为「已开启 · 命令…」）；`web_check`、`web_manifest --check`、`kb_smoke`、`plugin_check`、`run_tests`（15/15）全过。
+
 ## v261027.2 · 顶栏插件槽位排版修正
 
 - 顶栏右侧插件槽位 `#topbar-slot` 原来是 `display:block`，里面两个插件的 `inline` 元素只隔 1px、且按基线对齐——表现为「⚠ 待办徽章贴住天气胶囊、两个控件高度看起来不齐」。改为 `inline-flex + gap 6px + 垂直居中`，与顶栏其余按钮的 6px 间距一致。
