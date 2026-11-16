@@ -396,6 +396,8 @@ if (!window.ERWGraphRenderers || typeof window.ERWGraphRenderers.register !== 'f
     });
   }
   window.ERWGraphRenderers?.register?.({ id:'knowledge-graph', graph:{ mount: mountGraph } });
+  /* v261027 · 内核在导航离开时会调 window.ERWKnowledgeGraph.destroy()（与 ERWLiterature/ERWMilestoneGantt 同一口径） */
+  window.ERWKnowledgeGraph = { destroy:()=>{ try{instance?.destroy()}catch{} instance=null; } };
 
   /* 实例生命周期归插件自己：内核只在进入图谱页时喊 enhance，离开页面由这里释放。 */
   window.addEventListener('hashchange',()=>{ if(route()!=='graph'){ instance?.destroy(); instance=null; } });

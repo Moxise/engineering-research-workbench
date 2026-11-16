@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import sys
+import os
+import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import tempfile
 import threading
 import unittest
@@ -40,6 +43,40 @@ class DesktopTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 WindowsTrayIcon._create_window(None, 1)
             destroy.assert_called_once_with(123)
+
+    def test_local_readiness_bypasses_system_proxy_and_urllib_opener(self):
+        class HealthHandler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                data = json.dumps({"ok": True, "version": "test"}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), HealthHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with patch.dict(os.environ, {"HTTP_PROXY": "http://127.0.0.1:1", "http_proxy": "http://127.0.0.1:1", "NO_PROXY": "", "no_proxy": ""}), patch("urllib.request.urlopen", side_effect=OSError("proxy unavailable")):
+                self.assertEqual(client._health(f"http://127.0.0.1:{server.server_port}"), {"ok": True, "version": "test"})
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_native_resize_edges_and_corners_on_negative_monitor(self):
+        bounds = wintypes.RECT(-1920, -100, -720, 700)
+        points = [("w",-1919,300,10),("e",-722,300,11),("n",-1300,-99,12),("s",-1300,698,15),
+                  ("nw",-1918,-98,13),("ne",-722,-98,14),("sw",-1918,698,16),("se",-722,698,17)]
+        for name,x,y,expected in points:
+            with self.subTest(edge=name):
+                self.assertEqual(resize_hit_test(x,y,bounds,9,15),expected)
+        self.assertIsNone(resize_hit_test(-1300,300,bounds,9,15))
+        self.assertIsNone(resize_hit_test(-1930,300,bounds,9,15))
+        self.assertEqual(resize_hit_test(-1904,-99,bounds,18,30),13)
 
     def setUp(self):
         self.window = Mock()

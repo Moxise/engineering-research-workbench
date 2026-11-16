@@ -1,6 +1,6 @@
 # Windows 桌面版
 
-当前版本：`v261022.9`。
+当前版本：`v261027.0`。
 
 双击 `ResearchWorkbench.exe` 即可打开独立窗口。推荐 Windows 10 / 11 x64，需要 Microsoft Edge WebView2 Runtime；普通使用无需安装 Python。若提示缺少运行环境，安装 [Microsoft 官方 WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)。
 
@@ -52,6 +52,13 @@
 这是便携版：默认读取 exe 同级的 `config/` 和 `Workspace/`。把 exe 放在当前项目根目录，会沿用现有配置和资料。也可使用 `ResearchWorkbench.exe --data-dir "D:\ResearchData"` 指定另一数据目录。
 
 将 ZIP 解压到有写入权限的目录后再运行，不要直接在 ZIP 内或 `Program Files` 中启动。首次运行会初始化配置和 Workspace。窗口大小、最大化状态及关闭行为保存在 `window-state.json`；主题、缩放等偏好保存在 `.webview-profile/`；日志为 `workbench.log`。桌面版和 `run.bat` 都会先检查端口：已有同一 Workspace 的服务就复用；端口被其他程序占用时会选择空闲端口，并将选择记在 `desktop-service.json`，让之后两种入口连到同一服务。修改服务监听地址或配置端口后会重新选择。
+### 条目转换与浏览导航
+
+条目编辑区右下角的“⋯ → 更改类型”支持灵感、笔记和工作总结互转，保留 ID、标题、正文、项目、标签和创建时间，引用与图谱同步更新；“类型变更记录”可查看历次转换。目标类型兼容的状态会保留，否则使用目标类型的默认状态。文献、里程碑与其他专用类型暂不支持转换。
+
+顶部前进 / 后退按钮（Alt + ← / →）可返回刚才的条目与阅读位置，恢复筛选、分页和编辑 / 预览模式；文献支持恢复笔记标签与 PDF 阅读位置。离开未保存内容时仍会询问如何处理。
+
+知识链接和列表条目停留片刻显示悬停卡片，提供项目、标签、更新时间和最多 5 行正文；带章节的链接优先显示对应段落。正文与列表不再显示整栏的原生缩放提示，Ctrl + 滚轮缩放继续可用。
 
 ### 统一文献阅读
 
@@ -96,5 +103,8 @@ Agent 可以创建或更新阶段计划的开始日期、截止日期、进度�
 已有 `build/.venv` 时会直接复用；创建环境时也可通过环境变量 `ERW_BUILD_PYTHON` 指定 Python 路径。自动构建可执行 `build_client.bat --no-pause`。源码变更后须重新构建 exe。
 
 默认单文件版固定使用 PyInstaller 6.22.3、Python.NET 3.2.1 和 CLR 加载器 0.3.1。需要免解压目录版时，可运行 `build/.venv/Scripts/python.exe tools/build_windows.py --layout directory`；该模式还需保留同级的 `ResearchWorkbench.runtime-<版本号>/` 文件夹，移动时一并带上。
+日常更新不需要为了打包修改代码：拿到最新源码后，在项目根目录运行上述脚本即可。脚本依次检查隔离 Python 环境、安装或确认依赖、准备图标，并将 Python 程序、网页资源、内置技能和 Python 运行时打包成单个 exe，最后生成发布 ZIP 与校验清单。首次构建或依赖有变化时需要下载依赖；普通使用者直接运行生成的 exe，无需 Python。
+
+修改 `app/`、`web/`、`client.py` 等程序源码后，需要重新构建并退出旧版再运行新版。修改 `config/` 中的设置或 `Workspace/` 中的资料不需要重新构建。`VERSION` 只用于区分发布版本，可在发布新版本时更新；它不是编译前必须手动修改的文件。若用 `python server.py` 运行源码版，可重启服务加载代码变化，无需生成 exe。
 
 底层采用 [pywebview](https://pywebview.flowrl.com/api/) 与 [pystray](https://pystray.readthedocs.io/en/latest/usage.html)，由 WebView2 承载现有前端，本地 Python 服务负责数据处理。Windows 11 使用系统圆角和阴影；Windows 10 的圆角效果由系统能力决定。

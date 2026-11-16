@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "engineering-research-workbench",
+  "display_name": "Engineering Research Workbench",
+  "kind": "tool",
+  "status": "active",
+  "created": "2026-10-22",
+  "entry": "README.md",
+  "code_root": ".",
+  "integration_dirs": [
+    "mcp",
+    "plugins"
+  ],
+  "owner": "",
+  "tags": [
+    "research-workbench",
+    "local-first",
+    "markdown",
+    "rag"
+  ],
+  "data_policy": "workspace-external",
+  "notes": "根目录本身是 Python/Web 应用；数据目录由 Workspace 配置指向。"
+}

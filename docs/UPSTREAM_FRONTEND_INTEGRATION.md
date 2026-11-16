@@ -55,3 +55,32 @@
 1. **Agent 对话走 `agent_runtime`**：目前本地对话用自有发送链路，「任务」面板看不到 run；把发送接到 `agent_runtime.execute_loop` 后，任务/草稿/RAG 证据会自然出现（改动集中在 `app/agent.py` 的 `run_chat` 调用与 SSE 映射）。
 2. **PDF 面板离屏保帧**：单独评估，需要替换 `renderPage` 的绘制顺序并做真实 PDF 缩放回归。
 3. **悬浮助手时间线**：先决定是否引入上游的悬浮助手页面，再谈 `ERWFabTimeline`。
+
+## 六、v261027.0 合并（上游 `c6737e3`「new mind map」）
+
+2026-11-16 合并上游 `c6737e3`（64 文件、+5095/−300），本轮**已并入并可验证**的：
+
+| 能力 | 落点 | 验证 |
+| --- | --- | --- |
+| 条目类型转换 | `app/perf_index_runtime.convert_doc_kind` + 编辑区「⋯ 更改类型」（灵感 / 笔记 / 工作总结，保留 ID 与正文，引用与图谱同步，可查「类型变更记录」） | 笔记编辑器弹出菜单，0 console error |
+| 「本轮参考」来源面板 | `web/agent-sources.js` + `window.ERWAgentSources`（已登记装配清单，网络走 `erwFetch`） | `typeof window.ERWAgentSources === 'object'` |
+| 前进 / 后退导航 | 顶栏 `#nav-back` / `#nav-forward`（`index.html` 补齐按钮，`research-ui.css` 自带样式，`captureLocation`/`travelHistory` 复用本地已有实现） | 20 路由走查通过 |
+| 悬停预览与条目菜单 | `web/document-references.js`（观测改走 `ERWDom`）、`#doc-entry-menu` | 路由走查 0 console error |
+| 来源采集与证据快照 | `app/agent_sources.py`（运行时 `agent_runtime` 与 `agent.py` 的 `_http_json(source_recorder=…)` 接线） | `run_tests` 15/15 |
+
+**未并入 / 已降级的**：
+
+| 项 | 原因 |
+| --- | --- |
+| 图谱「星座 / 思维导图」视图 | 上游实现在 `web/v260922-graph-performance.js`（+242），该文件本地在插件化时已删除（图谱迁到 `plugins/knowledge-graph`），合并以删除为准。若要接入，需把上游绘制逻辑移植进插件面板（与本地 canvas 渲染器并存或替换）。 |
+| Agent 页「会话抽屉 / 能力条」 | 上游重构了 Agent 页 DOM，与本地已接入的六 tab 面板结构冲突；当前保留本地结构，`#as-back-chat` 等上游元素缺失处已做容错。 |
+| 悬浮球贴边修复 | 本地无上游悬浮助手页面（`plugins/floating-assist` 是另一套实现），未移植。 |
+
+**合并中修复的回归**（都是"上游代码依赖本地不存在的元素/方法"）：
+
+- `#nav-back` / `#nav-forward` 不存在 → 绑定容错，并补上顶栏按钮
+- `window.ERWLiterature.destroy`、`.navigationState` 方法缺失 → 改方法级可选链
+- `renderDocsPage` 缺 `activeId` 定义（上游块引用了它）→ 补定义
+- `agent-system.js` 的 `#as-back-chat` 为空 → 容错
+- 合并引入的孤儿焦点代码（`acceptNativeFocus`/`refreshNativeFocus`，本地专注已插件化）→ 移除
+- `workbench:focus-state`（由 `app/desktop.py` 注入派发）加入 `web_check` 白名单

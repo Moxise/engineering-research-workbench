@@ -52,6 +52,8 @@ BROWSER_EVENTS = {
     "pagehide", "beforeunload", "pageshow", "message",
     # v261022.4 · 输入法组合事件（引用补全在中文输入时暂停）同样是原生事件
     "compositionstart", "compositionend", "compositionupdate",
+    # v261027 · pointerover/pointerout 与工作台桌面壳派发的事件（app/desktop.py 注入 JS，web_check 只扫 web/ 与 plugins/）
+    "pointerover", "pointerout", "workbench:focus-state",
 }
 
 #: 派发自定义事件：`new CustomEvent("x")` 与 `new Event("x")` 两种写法都要认
