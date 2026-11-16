@@ -8,7 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="/workbench-mark.svg?v=261015">
   <link rel="apple-touch-icon" href="/favicon.png?v=261015">
   <!-- web:css:start（由 tools/web_manifest.py 生成，勿手改；顺序见 web/manifest.json） -->
-  <link rel="stylesheet" href="/styles.css?v=261021-sidebar"><!-- v261010b · 条目卡片统一高度：标题固定两行（超出省略 + title 悬停）、摘要固定两行、徽章行固定单行（放不下时右端淡出）；列宽锁定面板宽（.doc-list minmax(0,1fr)、.doc-item/.proj-text min-width:0）修多项目卡片撑宽网格轨道；上版：笔记卡片的时间标签默认右对齐（无项目名时也贴右）；再上版：天气样式搬出内核 -->
+  <link rel="stylesheet" href="/styles.css?v=261027-heatsize3"><!-- v261010b · 条目卡片统一高度：标题固定两行（超出省略 + title 悬停）、摘要固定两行、徽章行固定单行（放不下时右端淡出）；列宽锁定面板宽（.doc-list minmax(0,1fr)、.doc-item/.proj-text min-width:0）修多项目卡片撑宽网格轨道；上版：笔记卡片的时间标签默认右对齐（无项目名时也贴右）；再上版：天气样式搬出内核 -->
   <link rel="stylesheet" href="/projects-manager.css?v=261009ac"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版： -->
   <link rel="stylesheet" href="/layout-compact.css?v=261021-sidebar"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009o · 紧凑密度下 PDF 阅读区高度那条 `html[data-density="c -->
   <link rel="stylesheet" href="/overview-editor-tools.css?v=261009ac"><!-- v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版： -->
@@ -33,7 +33,7 @@
   <link rel="stylesheet" href="/external-access.css?v=261009ab"><!-- v261009.38 · 「设置 → 外部接入」版式 -->
   <link rel="stylesheet" href="/desktop.css?v=261016-v3">
   <link rel="stylesheet" href="/theme-dark.css?v=261016-v3">
-  <link rel="stylesheet" href="/workbench-ui.css?v=261027-mark2">
+  <link rel="stylesheet" href="/workbench-ui.css?v=261027-heatsize4">
   <!-- web:css:end -->
   <script>
     window.MathJax = {
@@ -142,7 +142,7 @@
   <script defer src="/milestone-gantt.js?v=261022-gantt"></script><!-- v261022.1 · 里程碑甘特图（window.ERWMilestoneGantt）；网络走 erwFetch、项目筛选无 project-scope 时降级原生下拉 -->
   <script defer src="/research-ui.js?v=261022-ui"></script><!-- v261022.5 · 项目显示名/证据徽章/阅读字号（window.ERWResearchUI）；网络走 erwFetch -->
   <script defer src="/project-scope.js?v=261022-ui"></script><!-- v261022.5 · 可搜索、键盘可用的项目范围选择器（window.ERWProjectScope） -->
-  <script defer src="/app.js?v=261027-journal"></script><!-- v261020 · 分类标记：设置页内置模板一键添加（图标/颜色/用途）、分组图案面板与实时预览；自定义标记写入期校验放行；上版：v261019 · 待办可编辑（标题/截止日期+时间/项目/优先级，行内表单）与完成时间限制（逾期二次确认、completed_at 展示）；再上版：v261015c · 合并上游 UI 重设计 v3：移除重复页 research-overview（导航项/路由分支/渲染函数），保留旧书签别名 -->
+  <script defer src="/app.js?v=261027-heatsize3"></script><!-- v261020 · 分类标记：设置页内置模板一键添加（图标/颜色/用途）、分组图案面板与实时预览；自定义标记写入期校验放行；上版：v261019 · 待办可编辑（标题/截止日期+时间/项目/优先级，行内表单）与完成时间限制（逾期二次确认、completed_at 展示）；再上版：v261015c · 合并上游 UI 重设计 v3：移除重复页 research-overview（导航项/路由分支/渲染函数），保留旧书签别名 -->
   <script defer src="/document-references.js?v=261022-refs"></script><!-- v261022.4 · 引用补全与预览（window.ERWDocReferences）；网络走 erwFetch -->
   <script defer src="/agent-system.js?v=261022-ai"></script><!-- v261022.3 · AI 能力与 RAG 设置面板（window.ERWAgentSystem）；DOM 走 ERWDom -->
   <script defer src="/agent-client.js?v=261022-ai"></script><!-- v261022.3 · Agent 会话/RAG 客户端（window.ERWAgentClient）；网络走 erwFetch -->

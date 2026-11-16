@@ -197,3 +197,13 @@ html body #main .settings-layout>.settings-panel::-webkit-scrollbar-thumb:hover{
   pointer-events:none;z-index:1;
 }
 .heatmap-card .heat-cell.has-journal.outside{outline-color:color-mix(in srgb,var(--muted) 35%,transparent)}
+
+/* v261027.6 · 热力图放大后可能横向滚动：星期轴固定在左侧，滚动时仍能对上行；
+   底部提示横向滚动可用（12 个月在窄卡片里会超出） */
+.heatmap-card .heatmap-axis{
+  position:sticky;left:0;z-index:3;background:var(--surface);
+  box-shadow:4px 0 6px -4px color-mix(in srgb,var(--line) 70%,transparent);
+}
+.heatmap-card .heatmap-scroll{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--muted) 32%,transparent) transparent}
+.heatmap-card .heatmap-scroll::-webkit-scrollbar{height:8px}
+.heatmap-card .heatmap-scroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--muted) 30%,transparent);border-radius:999px}

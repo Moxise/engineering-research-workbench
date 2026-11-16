@@ -789,17 +789,19 @@
       const csp=getComputedStyle(card), ssp=getComputedStyle(scroll);
       const axisEl=$('.heatmap-axis',card);
       const axis=Math.max(34,axisEl?.offsetWidth||40);
-      const plotGap=9, gapX=3, gapY=3;
+      const plotGap=9, gapX=4, gapY=4;  /* v261027.6 · 格子与间距整体放大：13/14px→15~24px，间距 3→4px */
       const chrome=axis+plotGap+
         parseFloat(csp.paddingLeft||0)+parseFloat(csp.paddingRight||0)+
         parseFloat(ssp.paddingLeft||0)+parseFloat(ssp.paddingRight||0);
       const viewport=Math.max(320,scroll.clientWidth||card.clientWidth||320);
       const usable=Math.max(1,viewport-chrome-gapX*(weeks-1));
       const longRange=weeks>=42;
-      const minCellW=longRange?10:(compact?12:13);
-      const maxCellW=compact?27:30;
+      const minCellW=longRange?16:(compact?18:20);
+      const maxCellW=compact?24:26;
+      /* 宽度优先按可用空间铺满；空间不足时保底 16px 并允许横向滚动（不再把格子压到 10~13px） */
       const cellW=Math.max(minCellW,Math.min(maxCellW,Math.floor(usable/weeks)));
-      const cellH=compact?14:15;
+      /* 高度跟随宽度（上限 22/24），格子从原先固定 14/15px 提升到 16~24px */
+      const cellH=Math.min(cellW, compact?22:24);
 
       card.classList.toggle('is-narrow',viewport<650);
       card.style.maxWidth='';
@@ -823,7 +825,11 @@
       });
     };
     apply();
-    requestAnimationFrame(apply);
+    requestAnimationFrame(()=>{
+      apply();
+      /* v261027.6 · 12 个月放不下时默认停在最右（最近月份），否则新数据会被藏在滚动区外 */
+      if(scroll.scrollWidth>scroll.clientWidth+1&&scroll.scrollLeft<=1)scroll.scrollLeft=scroll.scrollWidth;
+    });
     if(window.ResizeObserver){
       state.heatmapObserver?.disconnect();
       state.heatmapObserver=new ResizeObserver(debounce(apply,80));
