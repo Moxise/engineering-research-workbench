@@ -144,6 +144,8 @@ def main(argv: list[str] | None = None) -> int:
             notes.append("浏览器：playwright 自带")
         browser = p.chromium.launch(**launch_kwargs)
         ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+        # v261027.9 · 走查时关闭「每日日志登记」提醒：弹窗遮罩会挡住侧栏点击，与页面质量无关
+        ctx.add_init_script("try{localStorage.setItem('journalReminder','0')}catch(e){}")
         page = ctx.new_page()
 
         first_requests: list[str] = []

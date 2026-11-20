@@ -5,9 +5,9 @@
 不需要管理员权限；登录后由系统拉起，不弹 UAC。
 
 自启命令按当前运行形态决定：
-- 桌面版（PyInstaller 冻结）：`"<exe>" --background` —— 客户端隐藏到托盘，不主动弹窗/开浏览器；
-- 源码版：`"<pythonw>" "<client.py>" --background`（client.py 缺失时退回 `pythonw server.py`，
-  只起本地服务，无托盘界面）。
+- 打包后的桌面版 exe（与 Workspace 同目录）：`"<exe>"` —— 登录后直接打开工作台窗口；
+- 源码版（没有 exe 时）：`"<pythonw>" "<client.py>"`（有托盘依赖时 `--background` 常驻托盘；
+  缺失时正常开窗；client.py 缺失则退回 `pythonw server.py`）。
 
 非 Windows 平台返回 `supported=False`，调用方只展示说明、不写任何东西。
 """
@@ -43,14 +43,23 @@ def _has_module(name: str) -> bool:
         return False
 
 
+def _desktop_exe() -> Path | None:
+    """打包后的桌面版 exe（与当前 Workspace 同目录）；没有就返回 None。"""
+    if paths.FROZEN:
+        return Path(sys.executable).resolve()
+    candidate = Path(paths.DATA_ROOT) / "ResearchWorkbench.exe"
+    return candidate if candidate.is_file() else None
+
+
 def command() -> str:
     """当前形态下应该写入启动项的命令行。
 
-    `--background` 只在**确认有托盘**时使用：没有 pystray 时窗口会被隐藏却没有托盘图标可唤回，
-    开机会变成"启动了但看不见"——那种情况改为正常开窗。
+    优先级：打包后的 exe（开机直接打开工作台窗口）→ 源码客户端（有托盘时托盘常驻，
+    没有托盘时正常开窗，避免"启动了却看不见"）→ 仅后台服务。
     """
-    if paths.FROZEN:
-        return f'"{Path(sys.executable).resolve()}" --background'
+    exe = _desktop_exe()
+    if exe:
+        return f'"{exe}"'
     root = Path(paths.DATA_ROOT)
     client = root / "client.py"
     if client.exists():
@@ -86,7 +95,7 @@ def status() -> dict:
         "command": expected,
         "current": current,
         "stale": bool(enabled and current and current != expected),
-        "mode": "desktop" if paths.FROZEN else "source",
+        "mode": "desktop" if _desktop_exe() else "source",
     }
 
 

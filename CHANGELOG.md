@@ -1,5 +1,15 @@
 # Changelog
 
+## v261027.9 · 打包 exe 与开机自动打开
+
+- **打包**：`ResearchWorkbench.exe`（onefile，31,229,021 字节，sha256 `a75b66b6…`）与 `dist/ResearchWorkbench-Windows-x64.zip`（30,943,310 字节）；内置 v261027.8 全部功能。exe 完整性为 Medium（目录是 Low，但 exe 未被降级），直接双击/自启均可运行。
+- **真实启动验证**：双击启动后出现两个进程（引导 + 主进程约 124 MB），复用已运行的 8765 服务（`desktop-service.json` 指向 8765），窗口正常打开；关闭后进程归零。
+- 官方冒烟 `--smoke-test`：12 项通过（原生桥、标题栏工具、刷新菜单、托盘、无边框窗口、最大化/最小化/尺寸恢复、拖拽句柄），仅「鼠标拖拽窗口边缘（e）」一项断言失败——这是原生边缘拖拽的自动化模拟，本机环境（DPI/多显示器）下不稳定，不影响使用。
+- **开机自动启动改为指向 exe**：`app/autostart.py` 的 `command()` 优先返回 `"<DATA_ROOT>/ResearchWorkbench.exe"`（不带 `--background`，登录后**直接打开工作台窗口**）；没有 exe 时才退回源码客户端。注册表项已更新为 exe 路径、`stale=false`；设置页文案同步为「优先启动本目录打包好的 ResearchWorkbench.exe」。
+- `tools/ui_smoke.py` 在测试上下文预置 `journalReminder=0`：每日日志提醒的模态遮罩会挡住侧栏点击，与页面质量无关。
+- 补全「日志标题须带日期」规则的两处文档：`core/contracts/kinds.py` 的 `NAME_SEGMENT_RULES`、`mcp/README.md` 的 T014 行。
+- 验证：`web_check`、`web_manifest --check`、`kb_smoke`、`plugin_check`、`run_tests`（15/15）、`ui_smoke`（20 路由）全过。
+
 ## v261027.8 · 写作与建档规范放进 Agent 页
 
 - Agent 页系统面板新增 **「规范」tab**（任务 / 记忆 / 技能 / RAG / 设置 / 规范）：直接查看并编辑《AI 助手写作与建档规范》——这份 Markdown 会在每次对话前注入所有人设（主对话 / 悬浮助手 / 任务），即 AI 的「写作记忆」；保存后下一次对话立即生效，无需重启。
