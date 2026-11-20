@@ -67,6 +67,31 @@ def t_project_detail(wb: Workbench, args: dict[str, Any]) -> Any:
     return {"project": record, "files": files, "entries": docs, "open_todos": todos}
 
 
+def t_agent_guideline(wb: Workbench, args: dict[str, Any]) -> str:
+    return wb.agent_guideline()
+
+
+def t_get_project_flow(wb: Workbench, args: dict[str, Any]) -> Any:
+    ref = str(args.get("project") or "").strip()
+    if not ref:
+        return fail("缺少项目标识", "给出项目 `name` 或 `project_id`。")
+    document_ids = args.get("document_ids", [])
+    if not isinstance(document_ids, list) or any(not isinstance(doc_id, str) or not doc_id.strip() for doc_id in document_ids):
+        return fail("document_ids 必须是非空条目 ID 组成的数组。")
+    record = wb.resolve_project(ref)
+    return {"project": record, **wb.get_project_flow(record["project_id"], document_ids)}
+
+
+def t_save_project_flow(wb: Workbench, args: dict[str, Any]) -> Any:
+    ref = str(args.get("project") or "").strip()
+    revision = args.get("revision")
+    if not ref or not isinstance(revision, str) or not revision.strip():
+        return fail("缺少项目或画布版本", "先调用 `ws_get_project_flow`，提交返回的 `revision`。")
+    record = wb.resolve_project(ref)
+    payload = {key: args[key] for key in ("revision", "nodes", "edges", "relation_scope") if key in args}
+    return {"project": record, **wb.save_project_flow(record["project_id"], payload)}
+
+
 def t_create_project(wb: Workbench, args: dict[str, Any]) -> Any:
     name = str(args.get("name") or "").strip()
     if not name:
@@ -233,6 +258,9 @@ HANDLERS = {
     "ws_tree": t_workspace_tree,
     "ws_list_projects": t_list_projects,
     "ws_project_detail": t_project_detail,
+    "ws_agent_guideline": t_agent_guideline,
+    "ws_get_project_flow": t_get_project_flow,
+    "ws_save_project_flow": t_save_project_flow,
     "ws_create_project": t_create_project,
     "ws_update_project": t_update_project,
     "todo_list": t_list_todos,
@@ -273,6 +301,38 @@ TOOLS = [
           "include_entries": b("是否附带关联条目", default=True),
           "include_todos": b("是否附带未完成待办", default=True)},
          ["project"], read_only=True),
+    tool("ws_agent_guideline", "读取 Agent 写作与建档规范",
+         "读取工作区当前的规范手册，含项目工作流程图章节。绘制或更新工程画布前先读此工具。",
+         read_only=True),
+    tool("ws_get_project_flow", "读取工程画布",
+         "按项目名或 ID 返回当前节点、连线、版本、坐标规范、已引用条目及可用的子项目与条目关系依据。"
+         "新增或更新节点前先调用本工具和 ws_agent_guideline。",
+         {"project": s("项目名或 project_id"),
+          "document_ids": arr("可选的待加入条目 ID，用于补充这些条目的交叉引用依据")},
+         ["project"], read_only=True),
+    tool("ws_save_project_flow", "保存工程画布",
+         "受外部 MCP 写入授权约束。提交最新 revision 和完整节点、连线快照。保留本次范围外的数据，"
+         "遵照 ws_agent_guideline 的流程。服务端检查并发版本、网格坐标与节点重叠。版本过期时先重新读取画布。",
+         {"project": s("项目名或 project_id"),
+          "revision": s("ws_get_project_flow 返回的版本"),
+          "nodes": {"type": "array", "description": "完整节点数组，包含主项目节点 root", "items": {
+              "type": "object", "required": ["id", "kind", "x", "y"], "properties": {
+                  "id": s("节点 ID，使用英文字母、数字、下划线或短横线"),
+                  "kind": s("节点类型", enum=["project", "step", "method", "principle", "experiment", "idea", "entry"]),
+                  "ref": s("已有条目 ID 或关联项目 ID。root 和 step 使用空引用"),
+                  "title": s("卡片标题，root 可为空"),
+                  "description": s("节点说明"),
+                  "x": i("卡片左上角的未缩放横坐标", minimum=0),
+                  "y": i("卡片左上角的未缩放纵坐标", minimum=0),
+              }}},
+          "edges": {"type": "array", "description": "完整的人工连线数组", "items": {
+              "type": "object", "required": ["id", "source", "target"], "properties": {
+                  "id": s("连线 ID，使用英文字母、数字、下划线或短横线"),
+                  "source": s("起点节点 ID"), "target": s("终点节点 ID"),
+                  "label": s("关系名"), "style": s("实线或虚线", enum=["solid", "dashed"]),
+              }}},
+          "relation_scope": s("自动关系范围，省略则沿用已有值", enum=["hierarchy", "internal", "all"])},
+         ["project", "revision", "nodes", "edges"], destructive=True),
     tool("ws_create_project", "创建项目",
          "创建项目并生成标准子目录（" + " / ".join(C.PROJECT_LAYOUT) + "）。",
          {"name": s("项目名（目录安全名）"),

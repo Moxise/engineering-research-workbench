@@ -917,8 +917,10 @@
   }
 
   function overviewTaskCard(items){
+    /* v261027.10 · 快速登记补齐截止时间（日期 + 可选时分）与优先级，与待办页字段一致 */
+    const dueDefault=today();
     return `<section class="card card-pad overview-task-card theme-card theme-task"><div class="card-head">${overviewCardHeading('当前任务','TODAY TASKS','tasks')}<button class="secondary-btn" data-go="todos">全部待办 · ${items.length}</button></div>
-      <form class="overview-todo-add" id="overview-todo-form"><label class="sr-only" for="overview-todo-title">新增待办</label><input class="search-input" id="overview-todo-title" placeholder="添加一个待办，Enter 保存" required maxlength="300"><button class="primary-btn" type="submit" aria-label="添加待办">＋ 添加</button></form>
+      <form class="overview-todo-add" id="overview-todo-form"><div class="overview-todo-primary"><label class="sr-only" for="overview-todo-title">新增待办</label><input class="search-input" id="overview-todo-title" placeholder="添加一个待办，Enter 保存" required maxlength="300"><button class="primary-btn" type="submit" aria-label="添加待办">＋ 添加</button></div><div class="overview-todo-meta"><label class="overview-todo-label" for="overview-todo-due">截止</label><input class="search-input" id="overview-todo-due" type="date" value="${esc(dueDefault)}" title="截止日期（默认今天，可清空）"><input class="search-input" id="overview-todo-time" type="time" title="截止时间（可选，精确到分）" aria-label="截止时间（可选）"><label class="sr-only" for="overview-todo-priority">优先级</label><select class="search-input" id="overview-todo-priority" title="优先级：普通 / 紧急 / 高 / 低">${['普通','紧急','高','低'].map(p=>`<option>${p}</option>`).join('')}</select></div></form>
       <div class="overview-task-list" tabindex="0" aria-label="待办列表，滚动浏览全部任务">${items.length?items.map(t=>`<div class="overview-task-row ${t.overdue?'is-overdue':''}"><input type="checkbox" class="todo-check" data-overview-check="${esc(t.id)}" data-todo-overdue="${t.overdue?1:''}" data-todo-due="${esc(t.due)}" aria-label="完成任务：${esc(t.title)}"><div class="row-main"><div class="row-title" title="${esc(t.title)}">${esc(t.title)}</div><div class="row-meta">${esc(t.project||'未关联项目')}${t.done&&t.completed_at?` · 完成于 ${esc(fmtDue(t.completed_at))}`:''}</div></div><time class="overview-task-due ${t.overdue?'is-overdue':''}" title="${esc(fmtDue(t.due))}${t.overdue?'（已逾期）':''}">${esc(fmtDue(t.due))}</time>${t.priority?`<span class="badge" data-priority="${esc(t.priority)}">${esc(t.priority)}</span>`:''}</div>`).join(''):'<div class="empty compact-empty">暂无待办，添加下一步研究计划吧</div>'}</div></section>`;
   }
 
@@ -990,7 +992,21 @@
     const hs=$('#heatmap-scale-settings'); if(hs)hs.addEventListener('click',openHeatmapScaleSettings);
     const np=$('#overview-new-project'); if(np)np.addEventListener('click',()=>openCreateProjectModal(async()=>{await loadBootstrap();await renderOverview();animateMain();}));
     const form=$('#overview-todo-form');
-    if(form)form.onsubmit=async e=>{e.preventDefault();const input=$('#overview-todo-title'),title=input.value.trim();if(!title)return;const submit=$('button',form);submit.disabled=true;try{await api('/api/todos',{method:'POST',body:{title,due:today(),priority:'普通'}});toast('待办已添加');await renderOverview()}catch(err){toast(err.message,true)}finally{submit.disabled=false}};
+    if(form)form.onsubmit=async e=>{
+      e.preventDefault();
+      const input=$('#overview-todo-title'),title=input.value.trim();if(!title)return;
+      /* v261027.10 · 快速登记带上截止时间（日期 + 可选时分）与优先级；与待办页同一套取值函数 */
+      const due=dueFromInputs(($('#overview-todo-due')?.value||'').trim(),($('#overview-todo-time')?.value||'').trim());
+      const priority=$('#overview-todo-priority')?.value||'普通';
+      const submit=form.querySelector('button[type="submit"]')||$('button',form);
+      submit.disabled=true;
+      try{
+        await api('/api/todos',{method:'POST',body:{title,due,priority}});
+        toast(`待办已添加 · ${fmtDue(due)} · ${priority}`);
+        await renderOverview();
+        $('#overview-todo-title')?.focus();
+      }catch(err){toast(err.message,true)}finally{submit.disabled=false}
+    };
     $$('[data-overview-check]').forEach(x=>x.onchange=()=>confirmTodoCompletion(x,x.dataset.overviewCheck,renderOverview));
   }
 

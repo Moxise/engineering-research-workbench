@@ -10,13 +10,13 @@
     },
     {
       "file": "projects-manager.css",
-      "v": "261009ac",
+      "v": "261120-project-tree-quick-assignment",
       "theme": "projects",
       "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版："
     },
     {
       "file": "layout-compact.css",
-      "v": "261021-sidebar",
+      "v": "261120-project-cards",
       "theme": "layout",
       "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009o · 紧凑密度下 PDF 阅读区高度那条 `html[data-density=\"c"
     },
@@ -70,7 +70,7 @@
     },
     {
       "file": "v261015-usability.css",
-      "v": "261020-meta-pad",
+      "v": "261120-project-cards",
       "theme": "base",
       "note": "v261020 · 条目信息折叠按钮离卡片右上圆角/滚动条留 12px 间距；上版：分类标记模板库 + 分组图案面板"
     },
@@ -82,9 +82,9 @@
     },
     {
       "file": "v261019-todo-edit.css",
-      "v": "261019",
+      "v": "261027-todo-quickadd",
       "theme": "base",
-      "note": "v261019 · 待办行内编辑态布局 + 截止时间（到分）与逾期高亮；追加在 usability 之后覆盖其 todo-row 列定义"
+      "note": "v261019 · 待办行内编辑态布局 + 截止时间（到分）与逾期高亮；追加在 usability 之后覆盖其 todo-row 列定义；v261027.10 · 概览快速登记两行版（标题行 + 截止/时间/优先级行）"
     },
     {
       "file": "sync.css",
@@ -109,6 +109,12 @@
       "v": "v261022-ui",
       "theme": "base",
       "note": "v261022.5 · 阅读字号/证据徽章/项目范围样式"
+    },
+    {
+      "file": "project-flow.css",
+      "v": "261120-flow-alignment",
+      "theme": "base",
+      "note": "工程画布"
     },
     {
       "file": "project-scope.css",
@@ -151,7 +157,7 @@
     },
     {
       "file": "workbench-ui.css",
-      "v": "261027-heatsize4",
+      "v": "261120-project-cards",
       "theme": "base"
     }
   ],
@@ -228,9 +234,9 @@
     },
     {
       "file": "app.js",
-      "v": "261027-heatsize3",
+      "v": "261027-todo-quickadd",
       "theme": "base",
-      "note": "v261020 · 分类标记：设置页内置模板一键添加（图标/颜色/用途）、分组图案面板与实时预览；自定义标记写入期校验放行；上版：v261019 · 待办可编辑（标题/截止日期+时间/项目/优先级，行内表单）与完成时间限制（逾期二次确认、completed_at 展示）；再上版：v261015c · 合并上游 UI 重设计 v3：移除重复页 research-overview（导航项/路由分支/渲染函数），保留旧书签别名"
+      "note": "v261027.10 · 概览「当前任务」快速登记支持截止时间（日期 + 可选时分）与优先级，添加后自动回到标题框；上版：v261020 · 分类标记：设置页内置模板一键添加（图标/颜色/用途）、分组图案面板与实时预览；自定义标记写入期校验放行；更早：v261019 · 待办可编辑（标题/截止日期+时间/项目/优先级，行内表单）与完成时间限制（逾期二次确认、completed_at 展示）；再早：v261015c · 合并上游 UI 重设计 v3：移除重复页 research-overview（导航项/路由分支/渲染函数），保留旧书签别名"
     },
     {
       "file": "document-references.js",
@@ -270,9 +276,15 @@
     },
     {
       "file": "research-pages.js",
-      "v": "261016-v3",
+      "v": "261120-project-tree-quick-assignment",
       "theme": "research-pages",
       "note": "v261009ac · 按功能改名（原 v260922-*），职责写进文件名；上版：v261009q · 人设编辑器宿主（#erw-persona-host 与 erw-llm-set"
+    },
+    {
+      "file": "project-flow.js",
+      "v": "261120-flow-alignment",
+      "theme": "project-flow",
+      "note": "工程画布自登记"
     },
     {
       "file": "layout-fixes.js",

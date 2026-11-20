@@ -4,6 +4,7 @@ import json
 import hashlib
 import mimetypes
 import os
+import re
 import socket
 import sys
 import threading
@@ -28,7 +29,7 @@ from app import workspace
 from app import agent
 from app import agent_tools  # v260930 · M1 Agent 工具调用层
 from app import agent_memory, agent_runtime, agent_skills, agent_mcp, agent_rag
-from app import projects
+from app import project_flow, projects
 from app import milestones
 from app import indexer
 from app.paths import ASSET_ROOT, DATA_ROOT
@@ -288,6 +289,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         except store.RevisionConflict as e:
             self.send_json({"error": "revision_conflict", "message": str(e), "current": e.current}, 409)
+        except project_flow.FlowConflict as e:
+            self.send_json({"error": "revision_conflict", "message": str(e)}, 409)
         except FileNotFoundError as e:
             self.send_json({"error": "not_found", "message": str(e)}, 404)
         except ValueError as e:
@@ -465,6 +468,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(indexer.project_names())
         if path == "/api/project-records":
             return self.send_json(indexer.project_records())
+        if (relation_route := re.fullmatch(r"/api/projects/([^/]+)/flow/relations", path)):
+            return self.send_json(project_flow.relations(unquote(relation_route[1]), q.get("doc", [])))
+        if (flow_route := re.fullmatch(r"/api/projects/([^/]+)/flow", path)):
+            return self.send_json(project_flow.get(unquote(flow_route[1])))
         if path == "/api/dashboard":
             return self.send_json(indexer.dashboard())
         if path == "/api/graph/overview":
@@ -643,8 +650,11 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("description") or ""),
                 str(payload.get("status") or "进行中"),
                 display_name=str(payload.get("display_name") or ""),
+                parent_id=str(payload.get("parent_id") or ""),
             )
             return self.send_json(result, 201)
+        if (flow_route := re.fullmatch(r"/api/projects/([^/]+)/flow", path)):
+            return self.send_json(project_flow.save(unquote(flow_route[1]), payload))
         if path.startswith("/api/projects/"):
             project_id = unquote(path.split("/api/projects/", 1)[1])
             result = projects.update_project(project_id, payload)

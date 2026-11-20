@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+import json
 import sqlite3
 from datetime import datetime
 from typing import Any
@@ -88,6 +89,50 @@ def graph(limit: int = DEFAULT_GRAPH_LIMIT) -> dict[str, Any]:
 
 def graph_overview(limit: int = OVERVIEW_GRAPH_LIMIT) -> dict[str, Any]:
     return graph(max(20, min(120, int(limit or OVERVIEW_GRAPH_LIMIT))))
+
+
+def project_flow_evidence(scope, documents, registry):
+    ensure_ready()
+    members = """
+        WITH registry AS (
+            SELECT json_extract(value, '$.id') AS id, json_extract(value, '$.name') AS name FROM json_each(?1)
+        ), members AS (
+            SELECT DISTINCT dp.doc_id, r.id AS project_id FROM document_projects dp
+            JOIN registry r ON r.id=dp.project_id OR (dp.project_id='' AND r.name=dp.project_name)
+        )
+    """
+    records = json.dumps([{"id": row["id"], "name": row["name"]} for row in registry], ensure_ascii=False)
+    project_ids = json.dumps(list(scope))
+    with _connect() as conn:
+        _init_db(conn)
+        shared = conn.execute(members + """
+            SELECT a.project_id AS source, b.project_id AS target, doc.id AS doc_id, doc.title, doc.kind
+            FROM members a JOIN members b ON a.doc_id=b.doc_id AND a.project_id < b.project_id
+            JOIN documents doc ON doc.id=a.doc_id
+            WHERE a.project_id IN (SELECT value FROM json_each(?2)) OR b.project_id IN (SELECT value FROM json_each(?2))
+            ORDER BY doc.title, doc.id
+        """, (records, project_ids)).fetchall()
+        references = conn.execute(members + """
+            SELECT a.project_id AS source, b.project_id AS target, e.relation,
+                   e.source AS doc_id, src.title, src.kind, e.target AS target_doc_id, dst.title AS target_title, dst.kind AS target_kind
+            FROM graph_edges e JOIN members a ON a.doc_id=e.source JOIN members b ON b.doc_id=e.target
+            JOIN documents src ON src.id=e.source JOIN documents dst ON dst.id=e.target
+            WHERE a.project_id<>b.project_id
+              AND (a.project_id IN (SELECT value FROM json_each(?2)) OR b.project_id IN (SELECT value FROM json_each(?2)))
+              AND (src.kind<>'literature' OR dst.kind<>'literature')
+              AND NOT EXISTS (SELECT 1 FROM members overlap WHERE overlap.doc_id=e.source AND overlap.project_id=b.project_id)
+              AND NOT EXISTS (SELECT 1 FROM members overlap WHERE overlap.doc_id=e.target AND overlap.project_id=a.project_id)
+            ORDER BY e.relation='wikilink', e.relation, src.title, dst.title
+        """, (records, project_ids)).fetchall()
+        rows = []
+        if documents:
+            rows = conn.execute("""
+                SELECT e.source, e.target, e.relation FROM graph_edges e
+                JOIN documents src ON src.id=e.source JOIN documents dst ON dst.id=e.target
+                WHERE e.source IN (SELECT value FROM json_each(?1)) AND e.target IN (SELECT value FROM json_each(?1))
+                ORDER BY e.relation='wikilink', e.relation, e.source, e.target
+            """, (json.dumps(documents),)).fetchall()
+    return shared, references, rows
 
 
 def _node_for_id(conn: sqlite3.Connection, node_id: str) -> dict[str, Any] | None:

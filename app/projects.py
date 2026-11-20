@@ -169,6 +169,19 @@ def _record_for_id(items: list[dict[str, Any]], project_id: str) -> dict[str, An
     return next((x for x in items if x.get("id") == project_id), None)
 
 
+def _validate_parent(items, parent_id, project_id=""):
+    seen = {project_id}
+    candidate_id = parent_id
+    while candidate_id:
+        if candidate_id in seen:
+            raise ValueError("上级项目设置会形成循环")
+        seen.add(candidate_id)
+        candidate = _record_for_id(items, candidate_id)
+        if not candidate:
+            raise ValueError("找不到上级项目")
+        candidate_id = str(candidate.get("parent_id") or "")
+
+
 def ensure_registry() -> dict[str, Any]:
     """Create/repair the project registry and migrate legacy name-based associations.
 
@@ -300,7 +313,7 @@ def list_projects() -> list[dict[str, Any]]:
     return sorted(items, key=lambda x: (str(x.get("last_updated") or ""), str(x.get("name") or "")), reverse=True)
 
 
-def create_project(name: str, description: str = "", status: str = "进行中", display_name: str = "") -> dict[str, Any]:
+def create_project(name: str, description: str = "", status: str = "进行中", display_name: str = "", parent_id: str = "") -> dict[str, Any]:
     display_name = str(display_name or "").strip()
     if len(display_name) > 32:
         raise ValueError("项目显示简称不能超过 32 个字符")
@@ -310,6 +323,8 @@ def create_project(name: str, description: str = "", status: str = "进行中", 
         items = _load_registry()
         if _record_for_name(items, safe):
             raise ValueError("已存在同名项目，请编辑现有项目")
+        parent_id = str(parent_id or "").strip()
+        _validate_parent(items, parent_id)
         ensure_project(safe)
         now = _now()
         rec = {
@@ -317,6 +332,8 @@ def create_project(name: str, description: str = "", status: str = "进行中", 
             "status": status if status in PROJECT_STATUSES else "进行中",
             "created": now, "updated": now, "display_name": display_name,
         }
+        if parent_id:
+            rec["parent_id"] = parent_id
         items.append(rec); _save_registry(items)
         return {"ok": True, **rec, "path": f"Projects/{safe}"}
 
@@ -339,6 +356,9 @@ def _update_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         rec = _record_for_id(items, project_id)
         if not rec:
             raise FileNotFoundError(project_id)
+        parent_id = str(payload.get("parent_id") or "").strip()
+        if "parent_id" in payload:
+            _validate_parent(items, parent_id, project_id)
         old_name = str(rec.get("name") or "")
         new_name = _safe_name(str(payload.get("name") if "name" in payload else old_name))
         other = _record_for_name(items, new_name)
@@ -365,6 +385,11 @@ def _update_project(project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             rec["display_name"] = display_name
         if "status" in payload:
             rec["status"] = str(payload["status"])
+        if "parent_id" in payload:
+            if parent_id:
+                rec["parent_id"] = parent_id
+            else:
+                rec.pop("parent_id", None)
         rec["updated"] = _now()
         old_exists = old_dir.exists()
         try:
@@ -412,7 +437,11 @@ def delete_project(project_id: str) -> dict[str, Any]:
             trash.mkdir(parents=True, exist_ok=True)
             dest = trash / f"{name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
             shutil.move(str(project_dir), str(dest))
-        _save_registry([x for x in items if x.get("id") != project_id])
+        for item in items:
+            if item.get("parent_id") == project_id:
+                item.pop("parent_id")
+                item["updated"] = _now()
+        _save_registry([item for item in items if item.get("id") != project_id])
         return {"ok": True, "id": project_id, "name": name}
 
 

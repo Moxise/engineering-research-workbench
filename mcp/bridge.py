@@ -36,13 +36,13 @@ class Workbench:
             if root not in sys.path:
                 sys.path.insert(0, root)
             try:
-                from app import (activity, config, indexer, projects, store, todos,
+                from app import (activity, config, indexer, project_flow, projects, store, todos,
                                  versions, workspace)
             except Exception as exc:  # pragma: no cover - 环境缺失时给出可读提示
                 raise WorkbenchError(f"无法加载工作台 app 包（{self.repo_root}）：{exc}") from exc
             config.init()  # v261009 · 配置初始化改由入口显式触发（不再在 config 模块 import 期执行）
             self._mod = SimpleNamespace(
-                activity=activity, config=config, indexer=indexer, projects=projects,
+                activity=activity, config=config, indexer=indexer, project_flow=project_flow, projects=projects,
                 store=store, todos=todos, workspace=workspace,
                 versions=versions,      # v261009.45 · 版本族（MCP 的开分支/合并/族视图用它）
             )
@@ -189,6 +189,25 @@ class Workbench:
             if ref in {str(r.get("project_id") or ""), str(r.get("name") or "")}:
                 return r
         raise WorkbenchError(f"未找到项目 `{ref}`；可用项目：" + "、".join(str(r["name"]) for r in self.list_projects()))
+
+    def agent_guideline(self) -> str:
+        return self.mod.config.reload_writing_rules()
+
+    def get_project_flow(self, project_id: str, document_ids: list[str]) -> dict[str, Any]:
+        service = self.mod.project_flow
+        flow = service.get(project_id)
+        refs = list(dict.fromkeys([*flow["documents"], *document_ids]))
+        try:
+            flow["relations"] = service.relations(project_id, refs)
+        except ValueError as exc:
+            raise WorkbenchError(str(exc)) from exc
+        return flow
+
+    def save_project_flow(self, project_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self.mod.project_flow.save(project_id, payload)
+        except ValueError as exc:
+            raise WorkbenchError(str(exc)) from exc
 
     def create_project(self, name: str, description: str = "", status: str = "进行中") -> dict[str, Any]:
         try:

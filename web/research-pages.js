@@ -22,6 +22,8 @@
   const STATUS = ['进行中','暂停','完成','归档'];
   let milestoneStatus = localStorage.getItem('milestoneStatusFilter') || '';
   let projectsLoading = false;
+  let projectView = 'tree';
+  let selectedTreeProject;
 
   async function api(url, opts={}) {
     const init={...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}};
@@ -49,37 +51,281 @@
       const rows=await api('/api/project-records');
       if(location.hash!=='#projects')return;
       main.innerHTML=`<div class="project-manager">
-        <section class="card card-pad project-manager-head"><div><div class="card-kicker">PROJECT MANAGEMENT</div><h3>项目管理</h3><p>项目以稳定 ID 作为唯一索引。修改名称不会改变关联关系；删除项目时工程目录会移入 Workspace 回收目录。</p></div><button class="primary-btn" id="project-new">＋ 新建项目</button></section>
-        <div class="project-manager-grid">${rows.length?rows.map(projectCard).join(''):'<section class="card card-pad"><div class="empty">暂无项目，点击“新建项目”开始。</div></section>'}</div>
+        <section class="card card-pad project-manager-head">
+          <div><div class="card-kicker">PROJECT MANAGEMENT</div><h3>项目管理</h3></div>
+          <div class="project-manager-head-actions">
+            <div class="project-view-tabs" role="group" aria-label="项目视图">
+              <button type="button" class="secondary-btn" aria-pressed="${projectView==='tree'}" data-project-view="tree">结构树</button>
+              <button type="button" class="secondary-btn" aria-pressed="${projectView==='cards'}" data-project-view="cards">项目卡片</button>
+            </div>
+            <button class="primary-btn" id="project-new">＋ 新建项目</button>
+          </div>
+        </section>
+        <div class="project-manager-grid" ${projectView==='cards'?'':'hidden'}>${rows.length?rows.map(row=>projectCard(row,rows)).join(''):'<section class="card card-pad"><div class="empty">暂无项目，点击“新建项目”开始。</div></section>'}</div>
+        <section class="card card-pad project-hierarchy" data-project-hierarchy ${projectView==='tree'?'':'hidden'} aria-label="项目层级与条目归属"></section>
       </div>`;
-      $('#project-new').onclick=()=>openProjectEditor();
-      $$('[data-project-edit]').forEach(b=>b.onclick=()=>openProjectEditor(rows.find(x=>x.id===b.dataset.projectEdit)));
+      const hierarchy=$('[data-project-hierarchy]');
+      let treeReady=false;
+      function showTree(){
+        if(projectView==='tree'&&!treeReady){
+          renderProjectHierarchy(rows,hierarchy);
+          treeReady=true;
+        }
+      }
+      showTree();
+      $$('[data-project-view]').forEach(button=>button.onclick=()=>{
+        projectView=button.dataset.projectView;
+        $$('[data-project-view]').forEach(tab=>tab.setAttribute('aria-pressed',String(tab===button)));
+        hierarchy.hidden=projectView!=='tree';
+        $('.project-manager-grid').hidden=projectView!=='cards';
+        showTree();
+      });
+      $('#project-new').onclick=()=>openProjectEditor(null, rows);
+      $$('[data-project-flow]').forEach(button=>button.onclick=()=>window.ERWPanels.get('project-flow')?.selectProject(button.dataset.projectFlow));
+      $$('[data-project-edit]').forEach(b=>b.onclick=()=>openProjectEditor(rows.find(x=>x.id===b.dataset.projectEdit), rows));
+      $$('[data-project-child]').forEach(b=>b.onclick=()=>openProjectEditor(null, rows, b.dataset.projectChild));
       $$('[data-project-delete]').forEach(b=>b.onclick=()=>deleteProject(rows.find(x=>x.id===b.dataset.projectDelete)));
     }catch(e){main.innerHTML=`<div class="card card-pad danger">项目加载失败：${esc(e.message)}</div>`}
     finally{projectsLoading=false;}
   }
 
-  function projectCard(p){
+  function renderProjectHierarchy(rows, host){
+    const records=new Map(rows.filter(row=>row.id).map(row=>[row.id,row]));
+    const children=new Map();
+    for(const row of records.values()){
+      const parent=records.has(row.parent_id)?row.parent_id:'';
+      if(!children.has(parent))children.set(parent,[]);
+      children.get(parent).push(row);
+    }
+    for(const group of children.values())group.sort((first,second)=>first.name.localeCompare(second.name,'zh-CN'));
+    const kindLabel=kind=>window.ERWContract.kindLabel(kind);
+    const unownedLabel='未归属项目的笔记';
+    const entryCache=new Map();
+    const visited=new Set();
+    let request=0;
+
+    host.innerHTML=`<nav class="project-tree-nav" aria-label="项目层级">
+        <div class="project-tree-heading"><h3>项目层级</h3><span>${records.size} 个项目</span></div>
+        <ul class="project-tree-roots"></ul>
+        <button type="button" class="project-tree-choice project-tree-unowned" data-tree-project="">${unownedLabel}</button>
+      </nav>
+      <section class="project-tree-detail" aria-labelledby="project-tree-title">
+        <header class="project-tree-detail-head">
+          <nav class="project-tree-path" aria-label="上级项目" hidden></nav>
+          <h3 id="project-tree-title"></h3>
+          <p class="project-tree-meta" data-tree-count></p>
+        </header>
+        <div class="project-tree-entries" data-tree-entries></div>
+      </section>`;
+    const roots=$('.project-tree-roots',host);
+    const path=$('.project-tree-path',host);
+    const entriesHost=$('[data-tree-entries]',host);
+    const choices=new Map([['',$('[data-tree-project]',host)]]);
+
+    function appendBranch(parent,record){
+      if(visited.has(record.id))return;
+      visited.add(record.id);
+      const branch=document.createElement('li');
+      const descendants=children.get(record.id)||[];
+      branch.className='project-tree-branch';
+      branch.innerHTML=`<div class="project-tree-row">
+          ${descendants.length?`<button type="button" class="project-tree-toggle" aria-expanded="true" aria-label="折叠 ${esc(record.name)} 的子项目" data-tree-toggle="${esc(record.id)}"></button>`:'<span class="project-tree-leaf" aria-hidden="true"></span>'}
+          <button type="button" class="project-tree-choice" data-tree-project="${esc(record.id)}">
+            <span>${esc(record.name)}</span><span class="project-tree-count" aria-label="${Number(record.docs)||0} 条直接归属条目">${Number(record.docs)||0}</span>
+          </button>
+        </div>`;
+      choices.set(record.id,$('[data-tree-project]',branch));
+      if(descendants.length){
+        const list=document.createElement('ul');
+        list.className='project-tree-children';
+        for(const child of descendants)appendBranch(list,child);
+        if(list.childElementCount)branch.append(list);
+        else $('[data-tree-toggle]',branch).remove();
+      }
+      parent.append(branch);
+    }
+
+    for(const root of children.get('')||[])appendBranch(roots,root);
+    for(const record of records.values())appendBranch(roots,record);
+    if(!records.size)roots.outerHTML='<p class="project-tree-meta">暂无项目</p>';
+
+    function renderEntries(entries,projectId){
+      const grouped=new Map();
+      for(const entry of entries){
+        if(!grouped.has(entry.kind))grouped.set(entry.kind,[]);
+        grouped.get(entry.kind).push(entry);
+      }
+      if(!entries.length){
+        entriesHost.innerHTML=`<p class="project-tree-message">${projectId?'暂无直接归属条目':'暂无未归属项目的笔记'}</p>`;
+        return;
+      }
+      const kinds=[...grouped.keys()].sort((first,second)=>Number(second==='note')-Number(first==='note')||kindLabel(first).localeCompare(kindLabel(second),'zh-CN'));
+      entriesHost.innerHTML=`<div class="project-tree-filters" role="group" aria-label="条目类型">
+          ${kinds.map(kind=>`<button type="button" aria-pressed="false" data-tree-filter="${esc(kind)}">${esc(kindLabel(kind))}<span>${grouped.get(kind).length}</span></button>`).join('')}
+        </div><ul class="project-tree-docs" aria-label="条目列表"></ul>`;
+      const list=$('.project-tree-docs',entriesHost);
+      const filters=$$('[data-tree-filter]',entriesHost);
+      function showKind(kind){
+        for(const filter of filters)filter.setAttribute('aria-pressed',String(filter.dataset.treeFilter===kind));
+        list.setAttribute('aria-label',`${kindLabel(kind)}列表`);
+        list.innerHTML=grouped.get(kind).sort((first,second)=>first.title.localeCompare(second.title,'zh-CN')).map(entry=>{
+          const shared=(entry.project_ids||[]).filter(id=>id!==projectId).map(id=>records.get(id)?.name||id);
+          return `<li><div class="project-tree-doc-row"><button type="button" class="project-tree-entry" data-tree-doc="${esc(entry.id)}" data-tree-kind="${esc(kind)}">
+            <span>${esc(entry.title)}</span>${shared.length?`<small>共同归属 · ${esc(shared.join('、'))}</small>`:''}
+          </button><button type="button" class="project-tree-entry-project" data-tree-project-edit="${esc(entry.id)}" aria-label="修改条目所属项目：${esc(entry.title)}" title="修改所属项目">→</button></div></li>`;
+        }).join('');
+        list.scrollTop=0;
+      }
+      for(const filter of filters)filter.onclick=()=>showKind(filter.dataset.treeFilter);
+      showKind(kinds[0]);
+    }
+
+    async function selectProject(projectId){
+      const currentRequest=++request;
+      selectedTreeProject=projectId;
+      const project=records.get(projectId);
+      for(const [id,choice] of choices){
+        if(id===projectId)choice.setAttribute('aria-current','true');
+        else choice.removeAttribute('aria-current');
+      }
+      const ancestors=[];
+      const seen=new Set([projectId]);
+      let ancestor=records.get(project?.parent_id);
+      while(ancestor&&!seen.has(ancestor.id)){
+        ancestors.unshift(ancestor);
+        seen.add(ancestor.id);
+        ancestor=records.get(ancestor.parent_id);
+      }
+      path.hidden=!ancestors.length;
+      path.innerHTML=ancestors.map(record=>`<button type="button" data-tree-project="${esc(record.id)}">${esc(record.name)}</button><span aria-hidden="true">›</span>`).join('');
+      $('#project-tree-title',host).textContent=project?.name||unownedLabel;
+      const count=$('[data-tree-count]',host);
+      count.textContent=project?`${Number(project.docs)||0} 条直接归属条目`:'';
+      if(!entryCache.has(projectId)){
+        entriesHost.innerHTML='<p class="project-tree-message" role="status">正在载入条目…</p>';
+        const params=new URLSearchParams({scope:'reference',paged:'1',page_size:'200'});
+        if(project)params.set('project',projectId);
+        else{params.set('unowned','1');params.set('kind','note')}
+        const entries=[];
+        try{
+          let page=1;
+          while(page&&host.isConnected&&currentRequest===request){
+            params.set('page',page);
+            const result=await api(`/api/docs?${params}`);
+            entries.push(...result.items);
+            page=result.next_page;
+          }
+          if(!host.isConnected||currentRequest!==request)return;
+          entryCache.set(projectId,entries);
+        }catch(error){
+          if(host.isConnected&&currentRequest===request)entriesHost.innerHTML=`<p class="project-tree-message" role="alert">${esc(error.message)} <button type="button" class="secondary-btn" data-tree-project="${esc(projectId)}">重试</button></p>`;
+          return;
+        }
+      }
+      const entries=entryCache.get(projectId);
+      count.textContent=project?`${entries.length} 条直接归属条目`:`${entries.length} 篇笔记`;
+      renderEntries(entries,projectId);
+    }
+
+    host.onclick=event=>{
+      const toggle=event.target.closest('[data-tree-toggle]');
+      if(toggle){
+        const list=toggle.closest('li').lastElementChild;
+        list.hidden=!list.hidden;
+        toggle.setAttribute('aria-expanded',String(!list.hidden));
+        const project=records.get(toggle.dataset.treeToggle);
+        toggle.setAttribute('aria-label',`${list.hidden?'展开':'折叠'} ${project.name} 的子项目`);
+        if(list.hidden&&list.contains(choices.get(selectedTreeProject)))void selectProject(project.id);
+        return;
+      }
+      const choice=event.target.closest('[data-tree-project]');
+      if(choice){
+        void selectProject(choice.dataset.treeProject);
+        return;
+      }
+      const entry=event.target.closest('[data-tree-doc]');
+      if(entry)void window.ERWRecentActivity.open({id:entry.dataset.treeDoc,kind:entry.dataset.treeKind});
+      const projectEdit=event.target.closest('[data-tree-project-edit]');
+      if(projectEdit){
+        event.stopPropagation();
+        const entry=[...entryCache.values()].flat().find(item=>item.id===projectEdit.dataset.treeProjectEdit);
+        if(entry)openEntryProjectPicker(entry,records,()=>{
+          entryCache.clear();
+          void selectProject(selectedTreeProject);
+        });
+      }
+    };
+    const firstProject=roots.querySelector('[data-tree-project]')?.dataset.treeProject||'';
+    void selectProject(choices.has(selectedTreeProject)?selectedTreeProject:firstProject);
+  }
+
+  function openEntryProjectPicker(entry,records,onSaved){
+    const current=new Set(entry.project_ids?.length
+      ?entry.project_ids.map(id=>records.get(id)?.name||entry.projects?.[entry.project_ids.indexOf(id)]).filter(Boolean)
+      :(entry.projects||[]));
+    modal('修改条目所属项目',`<p class="row-meta">${esc(entry.title)}</p><div class="project-pick-list">${[...records.values()].sort((first,second)=>first.name.localeCompare(second.name,'zh-CN')).map(project=>`<label class="bundle-item"><input type="checkbox" data-entry-project="${esc(project.id)}" ${current.has(project.name)?'checked':''}><span><strong>${esc(project.name)}</strong></span></label>`).join('')||'<div class="empty">暂无可选项目</div>'}</div>`,`<button type="button" class="secondary-btn" id="tree-project-cancel">取消</button><button type="button" class="primary-btn" id="tree-project-apply">应用</button>`);
+    $('#tree-project-cancel').onclick=closeModal;
+    $('#tree-project-apply').onclick=async()=>{
+      const button=$('#tree-project-apply');
+      button.disabled=true;
+      const projectIds=$$('[data-entry-project]:checked').map(input=>input.dataset.entryProject);
+      const projectNames=projectIds.map(id=>records.get(id)?.name).filter(Boolean);
+      try{
+        await api(`/api/docs/${encodeURIComponent(entry.id)}`,{method:'POST',body:{project:projectNames[0]||'',projects:projectNames,project_id:projectIds[0]||'',project_ids:projectIds}});
+        closeModal();
+        toast('条目所属项目已更新');
+        onSaved();
+      }catch(error){
+        button.disabled=false;
+        toast(`更新项目归属失败：${error.message}`,true);
+      }
+    };
+  }
+
+  function projectCard(project,rows){
+    const parent=rows.find(row=>row.id===project.parent_id);
+    const childCount=rows.filter(row=>row.parent_id===project.id).length;
     return `<section class="card project-manager-card">
-      <div class="project-card-top"><div><div class="project-id mono">${esc(p.id)}</div><h3>${esc(p.name)}</h3></div><span class="badge ${p.status==='进行中'?'accent':''}">${esc(p.status||'进行中')}</span></div>
-      <p class="project-desc">${esc(p.description||'暂无项目描述')}</p>
-      <div class="project-card-metrics"><span><b>${p.docs||0}</b> 知识条目</span><span><b>${p.open_todos||0}</b> 待办</span><span><b>${p.milestones||0}</b> 里程碑</span></div>
-      <div class="project-card-meta"><span>最近编辑 ${esc(fmtTime(p.last_updated))}</span><span>创建 ${esc(fmtDate(p.created))}</span></div>
-      <div class="project-card-actions"><button class="secondary-btn" data-project-edit="${esc(p.id)}">编辑</button><button class="ghost-btn danger-text" data-project-delete="${esc(p.id)}">删除</button></div>
+      <header class="project-card-top">
+        <div class="project-card-identity">
+          <span class="project-id mono">${esc(project.id)}</span>
+          <span class="badge ${project.status==='进行中'?'accent':''}">${esc(project.status||'进行中')}</span>
+        </div>
+        <h3>${esc(project.name)}</h3>
+      </header>
+      <div class="project-card-summary">
+        <p class="project-desc" title="${esc(project.description||'')}">${esc(project.description||'暂无项目描述')}</p>
+        ${parent||childCount?`<div class="project-card-hierarchy">
+          ${parent?`<span>上级项目 <strong>${esc(parent.name)}</strong></span>`:''}
+          ${childCount?`<span>${childCount} 个子项目</span>`:''}
+        </div>`:''}
+      </div>
+      <div class="project-card-metrics">
+        <span><b>${project.docs||0}</b>知识条目</span><span><b>${project.open_todos||0}</b>待办</span><span><b>${project.milestones||0}</b>里程碑</span>
+      </div>
+      <div class="project-card-meta"><span>最近编辑 ${esc(fmtTime(project.last_updated))}</span><span>创建 ${esc(fmtDate(project.created))}</span></div>
+      <div class="project-card-actions">
+        ${project.id?`<button type="button" class="secondary-btn" data-project-flow="${esc(project.id)}">工程画布</button>
+        <button type="button" class="ghost-btn" data-project-child="${esc(project.id)}">新建子项目</button>`:''}
+        <button type="button" class="ghost-btn" data-project-edit="${esc(project.id)}">编辑</button>
+        <button type="button" class="ghost-btn danger-text" data-project-delete="${esc(project.id)}">删除</button>
+      </div>
     </section>`;
   }
 
-  function openProjectEditor(p=null){
+  function openProjectEditor(p, rows, parentId=''){
     const editing=!!p;
-    modal(editing?'编辑项目':'新建项目',`<div class="project-form">
+    const selectedParent=p?.parent_id||parentId;
+    modal(editing?'编辑项目':parentId?'新建子项目':'新建项目',`<div class="project-form">
       <label><span>项目名称</span><input class="search-input" id="pm-name" value="${esc(p?.name||'')}" maxlength="100" placeholder="请输入项目名称"></label>
       <label><span>项目状态</span><select class="search-input" id="pm-status">${STATUS.map(s=>`<option ${p?.status===s?'selected':''}>${s}</option>`).join('')}</select></label>
+      <label class="wide"><span>上级项目</span><select class="search-input" id="pm-parent"><option value="">无（独立项目）</option>${rows.filter(row=>row.id&&row.id!==p?.id).map(row=>`<option value="${esc(row.id)}" ${row.id===selectedParent?'selected':''}>${esc(row.name)}</option>`).join('')}</select></label>
       <label class="wide"><span>项目描述</span><textarea class="search-input" id="pm-desc" rows="5" placeholder="简要说明项目目标、阶段或范围">${esc(p?.description||'')}</textarea></label>
       ${editing?`<div class="wide project-id-note">唯一 ID：<code>${esc(p.id)}</code>。重命名项目不会改变此 ID。</div>`:''}
     </div>`,`<button class="secondary-btn" id="pm-cancel">取消</button><button class="primary-btn" id="pm-save">保存</button>`);
     $('#pm-cancel').onclick=closeModal;
     $('#pm-save').onclick=async()=>{
-      const body={name:$('#pm-name').value.trim(),status:$('#pm-status').value,description:$('#pm-desc').value.trim()};
+      const body={name:$('#pm-name').value.trim(),status:$('#pm-status').value,description:$('#pm-desc').value.trim(),parent_id:$('#pm-parent').value};
       if(!body.name)return toast('项目名称不能为空',true);
       try{
         if(editing) await api('/api/projects/'+encodeURIComponent(p.id),{method:'POST',body});

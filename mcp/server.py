@@ -171,10 +171,12 @@ INSTRUCTIONS = (
     "工作约定：\n"
     "1. 会话开始先调用 kb_constraints（至少 topic=storage 与 topic=naming）读取存放规则与命名规范；\n"
     "2. 建档前用 kb_search / kb_list_entries 查重，用 ws_list_projects 确认项目归属，不要凭空拼项目名；\n"
-    "3. 一切写入都走 kb_create_entry / kb_update_entry / kb_rename_entry / kb_delete_entry，不要手写 frontmatter 落盘；\n"
+    "3. 知识条目用 kb_create_entry / kb_update_entry / kb_rename_entry / kb_delete_entry 写入，避免手写 frontmatter；\n"
     "4. 命名规范是硬约束：`level=error` 的校验项会导致工具拒绝写入；\n"
     "5. 改名必须用 kb_rename_entry，它会同步 title/H1/交叉引用并只追加一次 doc_update 事件；\n"
-    "6. 收尾用 kb_check_entries 复核，必要时 ws_reindex 重建索引。"
+    "6. 收尾用 kb_check_entries 复核，必要时 ws_reindex 重建索引。\n"
+    "7. 绘制或更新工程画布时先用 ws_agent_guideline 读取项目工作流程图规范，再用 ws_get_project_flow 取当前版本、布局和关系依据。"
+    "保留本次范围外的节点和连线，通过 ws_save_project_flow 保存，然后重新读取核对。"
 )
 
 RESOURCES: list[dict[str, Any]] = [
@@ -190,6 +192,10 @@ RESOURCES.append(resource(
     "workbench://workspace/layout", "workspace-layout",
     "Workspace 目录骨架",
     "Workspace 与项目标准子目录、System 文件语义。"))
+RESOURCES.append(resource(
+    "workbench://rules/agent-guideline", "agent-guideline",
+    "Agent 写作与建档规范",
+    "工作区当前的规范手册，含项目工作流程图绘制流程。"))
 
 PROMPTS: list[dict[str, Any]] = [
     {
@@ -237,7 +243,7 @@ WRITE_TOOLS = frozenset({"kb_create_entry", "kb_update_entry", "kb_rename_entry"
                          "kb_change_kind", "kb_delete_entry",
                          "kb_merge_variants", "kb_archive_variants",
                          "kb_branch_entry",
-                         "ws_external_edits"})
+                         "ws_external_edits", "ws_save_project_flow"})
 
 
 def _wrap(result: Any) -> dict[str, Any]:
@@ -332,6 +338,8 @@ def handle_resources_read(wb: Workbench, params: dict[str, Any]) -> dict[str, An
     if uri == "workbench://workspace/layout":
         text = _constraint_body("storage") + "\n\n" + _constraint_body("kinds")
         return {"contents": [{"uri": uri, "mimeType": "text/markdown", "text": text}]}
+    if uri == "workbench://rules/agent-guideline":
+        return {"contents": [{"uri": uri, "mimeType": "text/markdown", "text": wb.agent_guideline()}]}
     raise RpcError(INVALID_PARAMS, f"未知资源 `{uri}`")
 
 

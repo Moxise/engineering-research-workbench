@@ -94,15 +94,6 @@ html[data-window-hidden="true"] #main .overview-dashboard *::after{animation-pla
   html[data-desktop="true"] #main .docs-layout .editor-pane{min-height:0!important;flex:1 1 auto!important}
   html[data-desktop="true"] #main .docs-layout .editor-actions{flex:0 0 auto!important}
 }
-#main .project-manager-grid{align-items:stretch!important;grid-auto-rows:1fr}
-#main .project-manager-card{height:100%;display:grid;grid-template-rows:42px 39px auto auto 28px;align-content:stretch!important;box-sizing:border-box}
-#main .project-card-top{min-width:0;align-items:flex-start}
-#main .project-card-top>div{min-width:0}
-#main .project-card-top h3{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:42px}
-#main .project-card-top>.badge{flex-shrink:0}
-#main .project-desc{height:39px;min-height:39px!important;margin:0!important}
-#main .project-card-meta{flex-wrap:nowrap;gap:6px;font-size:11px;white-space:nowrap}
-#main .project-card-actions{align-self:end}
 .billing-card{background:var(--sc-card)!important;color:var(--sc-text);border-color:var(--sc-line)!important}
 .billing-card :is(.k,.s),.billing-page :is(.billing-muted,.billing-sub){color:var(--sc-muted);opacity:1}
 html[data-theme="dark"] #main .billing-table :is(th,td){color:var(--sc-text)!important;border-color:var(--sc-line)!important}

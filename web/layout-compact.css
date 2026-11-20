@@ -37,7 +37,6 @@
 
   /* Project manager page follows the same compact rhythm. */
   .project-manager{gap:13px}.project-manager-head{gap:18px}.project-manager-head p{margin-top:4px;line-height:1.55}
-  .project-manager-grid{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:11px}.project-manager-card{padding:14px;gap:10px}.project-card-top{gap:10px}.project-desc{line-height:1.5;min-height:40px}.project-card-metrics{gap:6px}.project-card-metrics span{padding:8px;border-radius:8px}.project-card-metrics b{font-size:16px}.project-card-actions{gap:6px}
 }
 
 /* Overview is intentionally denser than the rest of the application. */

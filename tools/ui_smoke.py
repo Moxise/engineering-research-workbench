@@ -186,6 +186,34 @@ def main(argv: list[str] | None = None) -> int:
                 fails.append(f"ERWDom 订阅方过少（{dom_seam.get('subscribers')}）——补丁可能没接上接缝")
             notes.append(f"DOM 变更接缝：1 个 observer / {dom_seam.get('subscribers')} 个订阅方")
 
+        # v261027.10 · 概览「当前任务」快速登记必须能填截止时间与优先级（曾经只收标题）
+        quick_add = page.evaluate(
+            """() => {
+              const f = document.querySelector('#overview-todo-form');
+              if (!f) return {missing: 'form'};
+              const pick = s => f.querySelector(s);
+              return {
+                title: !!pick('#overview-todo-title'),
+                due: !!pick('#overview-todo-due[type=date]'),
+                time: !!pick('#overview-todo-time[type=time]'),
+                priority: [...(pick('#overview-todo-priority')?.options || [])].map(o => o.value || o.textContent.trim()),
+              };
+            }"""
+        )
+        if quick_add.get("missing"):
+            fails.append("概览「当前任务」没有快速登记表单（#overview-todo-form）")
+        else:
+            lacking = [
+                label
+                for key, label in (("title", "标题"), ("due", "截止日期"), ("time", "截止时间"))
+                if not quick_add.get(key)
+            ]
+            if lacking:
+                fails.append(f"概览快速登记缺少控件：{lacking}（退化成只能填标题）")
+            if "紧急" not in (quick_add.get("priority") or []):
+                fails.append("概览快速登记缺少优先级选项「紧急」")
+            notes.append(f"概览快速登记：标题/截止/时间/优先级 {quick_add.get('priority')}")
+
         # 面板注册表（§6.3）：按**声明的能力**分类核对
         #   render      → 导航面板：必须在侧栏里，且必须点得开
         #   slot        → 槽位面板：必须挂到对应槽位

@@ -60,18 +60,19 @@ python -m mcp.server
 
 ## 工作约定
 
-服务在 `initialize` 的 `instructions` 字段里向 Agent 下发六条约定，客户端支持时会自动注入会话上下文：
+服务通过 `initialize` 的 `instructions` 向 Agent 下发约定。支持该字段的客户端会将约定加入会话上下文。
 
 1. 会话开始先调 `kb_constraints`，至少读 `storage` 与 `naming` 两个主题。
 2. 建档前用 `kb_search` / `kb_list_entries` 查重，用 `ws_list_projects` 确认项目归属，不要凭空拼项目名。
-3. 一切写入都走 `kb_create_entry` / `kb_update_entry` / `kb_rename_entry` / `kb_delete_entry`，不要手写 frontmatter 落盘。
+3. 知识条目通过 `kb_create_entry` / `kb_update_entry` / `kb_rename_entry` / `kb_delete_entry` 写入，避免手写 frontmatter。
 4. 命名规范是硬约束。校验结果中 `level=error` 的项会导致工具拒绝写入，除非显式传 `allow_violation=true`。
 5. 改名必须用 `kb_rename_entry`。它会同步 title、首个 H1 与全库交叉引用，并只追加一次 `doc_update` 事件。
 6. 收尾用 `kb_check_entries` 复核，必要时 `ws_reindex` 重建索引。
+7. 绘制或更新工程画布时，先用 `ws_agent_guideline` 读取工作流程图规范，再读画布、保存并复核。
 
 ## 工具面按插件拆分（v261009.46 起）
 
-**内核工具始终可用**（`kb_*` / `ws_*` / `todo_*` / 文献导出，共 29 个）；
+**内核工具始终可用**（`kb_*` / `ws_*` / `todo_*` / 文献导出）。
 **插件工具只在对应插件启用时出现**，名字形如 `p_<插件id>__<工具名>`（与内核 Agent 面一致）：
 
 ```powershell
@@ -134,7 +135,7 @@ Markdown 是唯一事实来源，但 IDE/脚本可以**直接写 `.md`** —— 
 
 ## 约束资源
 
-九个资源以 Markdown 文本返回，供 Agent 直接读取。会话开始读约束是写入前的必要动作。
+约束资源以 Markdown 文本返回，供 Agent 直接读取。会话开始读约束是写入前的必要动作。
 
 | URI | 内容 |
 | --- | --- |
@@ -147,8 +148,9 @@ Markdown 是唯一事实来源，但 IDE/脚本可以**直接写 `.md`** —— 
 | `workbench://constraints/playbook` | Agent 操作手册：标准作业流程与红线 |
 | `workbench://rules/naming-source` | `.trae/rules/知识库条目命名规范.md` 原文，命名约束的权威出处 |
 | `workbench://workspace/layout` | `storage` 与 `kinds` 两节拼接的目录骨架 |
+| `workbench://rules/agent-guideline` | 工作区当前的 Agent 写作与建档规范，含工程画布绘制流程 |
 
-`kb_constraints` 返回同样内容，可用 `topic` 参数只取一个主题。`topic` 留空时返回全部七个主题。
+`kb_constraints` 返回 `workbench://constraints/` 下的约束主题，可用 `topic` 指定主题。`ws_agent_guideline` 返回与 `workbench://rules/agent-guideline` 相同的手册正文。
 
 ## 工具总览
 
@@ -176,6 +178,9 @@ Markdown 是唯一事实来源，但 IDE/脚本可以**直接写 `.md`** —— 
 | `ws_tree` | 目录树，受深度与条数上限保护 | 是 |
 | `ws_list_projects` | 项目注册表：id、名称、状态、条目/里程碑/待办计数 | 是 |
 | `ws_project_detail` | 项目记录、标准子目录文件树、关联条目、未完成待办 | 是 |
+| `ws_agent_guideline` | 读取工作区当前的 Agent 规范手册 | 是 |
+| `ws_get_project_flow` | 读取项目画布快照、布局规格、引用条目及关系依据 | 是 |
+| `ws_save_project_flow` | 按版本保存工程画布，受 MCP 写入授权约束 | 否 |
 | `ws_create_project` | 创建项目并生成标准子目录 | 否 |
 | `ws_update_project` | 更新项目名称、简介或状态 | 否 |
 | `todo_list` | 读取 `System/todos.json`，可按项目过滤或只看逾期 | 是 |
@@ -190,6 +195,14 @@ Markdown 是唯一事实来源，但 IDE/脚本可以**直接写 `.md`** —— 
 | `ws_reindex` | 全量重建派生索引 | 否 |
 
 ## 写入类工具的用法
+
+### 绘制工程画布
+
+1. 调用 `ws_agent_guideline` 读取「项目工作流程图（工程画布）」一章。支持 MCP 资源的客户端也可读取 `workbench://rules/agent-guideline`。
+2. 调用 `ws_get_project_flow`，以 `project` 传入项目名或项目 ID。返回当前 `nodes`、`edges`、`revision`、`layout`、引用条目及 `relations`。可通过 `document_ids` 补充待加入条目的引用依据。`relations` 用于查阅依据，持久化人工连线时请使用 `edges`。
+3. 调用 `ws_save_project_flow`，提交 `project`、读取时获得的 `revision`、完整 `nodes` 与 `edges`。保留范围外的节点和连线。省略 `relation_scope` 时沿用已有值。版本过期时重新读取并应用本轮改动，保存后再读一次核对。服务端使用与工程画布相同的坐标和重叠检查。
+
+画布保存复用「设置 → 外部接入 → 允许外部 MCP 客户端写入知识库」的开关。读取手册和画布可在只读模式下进行。客户端已连接旧版本时，重新连接 MCP 服务以刷新工具清单。
 
 ### 建档
 
@@ -330,4 +343,4 @@ def call(i, name, args):
 
 ## 维护基线
 
-`python -m mcp.server --selftest` 输出 `25` 个工具、`9` 个资源、`2` 个提示模板、`problems` 为空，即为当前验收基线。工具表与实现分离在 `tools_knowledge.py` / `tools_workspace.py` 的 `TOOLS` 与 `HANDLERS` 两个结构中，自检会核对两者的配对关系与必填参数声明。
+运行 `python -m mcp.server --selftest`，确认 `problems` 为空。工具表与实现分离在 `tools_knowledge.py` / `tools_workspace.py` 的 `TOOLS` 与 `HANDLERS` 两个结构中，自检会核对两者的配对关系与必填参数声明。

@@ -8,6 +8,6 @@ from .perf_index_runtime import (
     delete_doc, delete_docs, workspace_tree_root, workspace_children,
 )
 from .perf_index_query import list_docs, get_doc, search_docs, retrieve_docs, resolve_doc, project_names, project_records, list_todos, dashboard, search_all, get_docs_by_ids, document_metadata
-from .perf_index_graph import graph, graph_overview, graph_neighborhood, build_bundle, export_bibtex
+from .perf_index_graph import graph, graph_overview, graph_neighborhood, build_bundle, export_bibtex, project_flow_evidence
 
 __all__ = [name for name in globals() if not name.startswith("_")]
